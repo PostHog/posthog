@@ -1,4 +1,4 @@
-import { IconBottomPanel, IconBug, IconDashboard, IconInfo, IconSidePanel, IconTerminal, IconX } from '@posthog/icons'
+import { IconBug, IconDashboard, IconInfo, IconTerminal } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonInput, LemonSelect, LemonTabs, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -19,7 +19,7 @@ import {
 import { InspectorSearchInfo } from './components/InspectorSearchInfo'
 import { playerInspectorLogic } from './playerInspectorLogic'
 
-const TabToIcon = {
+export const TabToIcon = {
     [SessionRecordingPlayerTab.ALL]: undefined,
     [SessionRecordingPlayerTab.EVENTS]: IconUnverifiedEvent,
     [SessionRecordingPlayerTab.CONSOLE]: IconTerminal,
@@ -65,15 +65,7 @@ function TabButtons({
     )
 }
 
-export function PlayerInspectorControls({
-    onClose,
-    isVerticallyStacked,
-    toggleLayoutStacking,
-}: {
-    onClose: () => void
-    isVerticallyStacked: boolean
-    toggleLayoutStacking?: () => void
-}): JSX.Element {
+export function PlayerInspectorControls(): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
     const inspectorLogic = playerInspectorLogic(logicProps)
     const { tab, windowIdFilter, windowIds, showMatchingEventsFilter } = useValues(inspectorLogic)
@@ -85,14 +77,14 @@ export function PlayerInspectorControls({
 
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const tabs = [
+    const inspectorTabs = [
         SessionRecordingPlayerTab.ALL,
         SessionRecordingPlayerTab.EVENTS,
         SessionRecordingPlayerTab.CONSOLE,
         SessionRecordingPlayerTab.NETWORK,
     ]
     if (window.IMPERSONATED_SESSION || featureFlags[FEATURE_FLAGS.SESSION_REPLAY_DOCTOR]) {
-        tabs.push(SessionRecordingPlayerTab.DOCTOR)
+        inspectorTabs.push(SessionRecordingPlayerTab.DOCTOR)
     } else {
         // ensure we've not left the doctor tab in the tabs state
         if (tab === SessionRecordingPlayerTab.DOCTOR) {
@@ -102,26 +94,17 @@ export function PlayerInspectorControls({
 
     if (mode === SessionRecordingPlayerMode.Sharing) {
         // Events can't be loaded in sharing mode
-        tabs.splice(1, 1)
+        inspectorTabs.splice(1, 1)
         // Doctor tab is not available in sharing mode
-        tabs.pop()
+        inspectorTabs.pop()
     }
 
     return (
-        <div className="bg-side border-b pb-2">
-            <div className="flex justify-between flex-nowrap">
+        <div className="bg-bg-3000 border-b pb-2">
+            <div className="flex flex-nowrap">
                 <div className="w-2.5 mb-2 border-b shrink-0" />
-                <TabButtons tabs={tabs} logicProps={logicProps} />
-                <div className="flex flex-1 items-center justify-end gap-1 mb-2 border-b px-1">
-                    {toggleLayoutStacking && (
-                        <LemonButton
-                            size="xsmall"
-                            icon={isVerticallyStacked ? <IconSidePanel /> : <IconBottomPanel />}
-                            onClick={toggleLayoutStacking}
-                        />
-                    )}
-                    <LemonButton size="xsmall" icon={<IconX />} onClick={onClose} />
-                </div>
+                <TabButtons tabs={inspectorTabs} logicProps={logicProps} />
+                <div className="flex flex-1 border-b shrink-0 mb-2" />
             </div>
 
             <div className="flex px-2 gap-x-3 flex-wrap gap-y-1">

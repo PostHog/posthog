@@ -8,7 +8,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.client import sync_execute
 from posthog.constants import FILTER_TEST_ACCOUNTS, INSIGHT_FUNNELS
-from posthog.models import Action, ActionStep, Element
+from posthog.models import Action, Element
 from posthog.models.cohort import Cohort
 from posthog.models.filters import Filter
 from posthog.models.instance_setting import get_instance_setting
@@ -36,8 +36,7 @@ def _create_action(**kwargs):
     team = kwargs.pop("team")
     name = kwargs.pop("name")
     properties = kwargs.pop("properties", {})
-    action = Action.objects.create(team=team, name=name)
-    ActionStep.objects.create(action=action, event=name, properties=properties)
+    action = Action.objects.create(team=team, name=name, steps_json=[{"event": name, "properties": properties}])
     return action
 
 
@@ -113,19 +112,27 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             return Funnel(filter=filter, team=self.team)
 
         def _basic_funnel(self, properties=None, filters=None):
-            action_credit_card = Action.objects.create(team=self.team, name="paid")
-            ActionStep.objects.create(
-                action=action_credit_card,
-                event="$autocapture",
-                tag_name="button",
-                text="Pay $10",
+            action_credit_card = Action.objects.create(
+                team=self.team,
+                name="paid",
+                steps_json=[
+                    {
+                        "event": "$autocapture",
+                        "tag_name": "button",
+                        "text": "Pay $10",
+                    }
+                ],
             )
-            action_play_movie = Action.objects.create(team=self.team, name="watched movie")
-            ActionStep.objects.create(
-                action=action_play_movie,
-                event="$autocapture",
-                tag_name="a",
-                href="/movie",
+            action_play_movie = Action.objects.create(
+                team=self.team,
+                name="watched movie",
+                steps_json=[
+                    {
+                        "event": "$autocapture",
+                        "tag_name": "a",
+                        "href": "/movie",
+                    }
+                ],
             )
 
             if filters is None:
@@ -284,12 +291,16 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 self.assertEqual(result[2]["count"], 1)
 
         def test_funnel_with_messed_up_order(self):
-            action_play_movie = Action.objects.create(team=self.team, name="watched movie")
-            ActionStep.objects.create(
-                action=action_play_movie,
-                event="$autocapture",
-                tag_name="a",
-                href="/movie",
+            action_play_movie = Action.objects.create(
+                team=self.team,
+                name="watched movie",
+                steps_json=[
+                    {
+                        "event": "$autocapture",
+                        "tag_name": "a",
+                        "href": "/movie",
+                    }
+                ],
             )
 
             funnel = self._basic_funnel(
@@ -372,12 +383,16 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self.assertEqual(result[2]["count"], 1)
 
         def test_funnel_with_new_entities_that_mess_up_order(self):
-            action_play_movie = Action.objects.create(team=self.team, name="watched movie")
-            ActionStep.objects.create(
-                action=action_play_movie,
-                event="$autocapture",
-                tag_name="a",
-                href="/movie",
+            action_play_movie = Action.objects.create(
+                team=self.team,
+                name="watched movie",
+                steps_json=[
+                    {
+                        "event": "$autocapture",
+                        "tag_name": "a",
+                        "href": "/movie",
+                    }
+                ],
             )
 
             funnel = self._basic_funnel(
@@ -461,19 +476,27 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
         @also_test_with_materialized_columns(["$browser"])
         def test_funnel_prop_filters_per_entity(self):
-            action_credit_card = Action.objects.create(team_id=self.team.pk, name="paid")
-            ActionStep.objects.create(
-                action=action_credit_card,
-                event="$autocapture",
-                tag_name="button",
-                text="Pay $10",
+            action_credit_card = Action.objects.create(
+                team_id=self.team.pk,
+                name="paid",
+                steps_json=[
+                    {
+                        "event": "$autocapture",
+                        "tag_name": "button",
+                        "text": "Pay $10",
+                    }
+                ],
             )
-            action_play_movie = Action.objects.create(team_id=self.team.pk, name="watched movie")
-            ActionStep.objects.create(
-                action=action_play_movie,
-                event="$autocapture",
-                tag_name="a",
-                href="/movie",
+            action_play_movie = Action.objects.create(
+                team_id=self.team.pk,
+                name="watched movie",
+                steps_json=[
+                    {
+                        "event": "$autocapture",
+                        "tag_name": "a",
+                        "href": "/movie",
+                    }
+                ],
             )
             filters = {
                 "events": [
@@ -538,19 +561,27 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
         @also_test_with_materialized_columns(person_properties=["email"])
         def test_funnel_person_prop(self):
-            action_credit_card = Action.objects.create(team_id=self.team.pk, name="paid")
-            ActionStep.objects.create(
-                action=action_credit_card,
-                event="$autocapture",
-                tag_name="button",
-                text="Pay $10",
+            action_credit_card = Action.objects.create(
+                team_id=self.team.pk,
+                name="paid",
+                steps_json=[
+                    {
+                        "event": "$autocapture",
+                        "tag_name": "button",
+                        "text": "Pay $10",
+                    }
+                ],
             )
-            action_play_movie = Action.objects.create(team_id=self.team.pk, name="watched movie")
-            ActionStep.objects.create(
-                action=action_play_movie,
-                event="$autocapture",
-                tag_name="a",
-                href="/movie",
+            action_play_movie = Action.objects.create(
+                team_id=self.team.pk,
+                name="watched movie",
+                steps_json=[
+                    {
+                        "event": "$autocapture",
+                        "tag_name": "a",
+                        "href": "/movie",
+                    }
+                ],
             )
             filters = {
                 "events": [
@@ -604,17 +635,25 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 team=self.team,
             )
 
-            action1 = Action.objects.create(team_id=self.team.pk, name="event2")
-            ActionStep.objects.create(
-                action=action1,
-                event="event2",
-                properties=[{"key": "test_propX", "value": "a"}],
+            action1 = Action.objects.create(
+                team_id=self.team.pk,
+                name="event2",
+                steps_json=[
+                    {
+                        "event": "event2",
+                        "properties": [{"key": "test_propX", "value": "a"}],
+                    }
+                ],
             )
-            action2 = Action.objects.create(team_id=self.team.pk, name="event2")
-            ActionStep.objects.create(
-                action=action2,
-                event="event2",
-                properties=[{"key": "test_propX", "value": "c"}],
+            action2 = Action.objects.create(
+                team_id=self.team.pk,
+                name="event2",
+                steps_json=[
+                    {
+                        "event": "event2",
+                        "properties": [{"key": "test_propX", "value": "c"}],
+                    }
+                ],
             )
 
             result = Funnel(
@@ -718,16 +757,20 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             event_factory(distinct_id="person2", event="event1", team=self.team)
             event_factory(distinct_id="person3", event="event1", team=self.team)
 
-            action = Action.objects.create(team_id=self.team.pk, name="event1")
-            ActionStep.objects.create(
-                action=action,
-                event="event1",
-                properties=[
+            action = Action.objects.create(
+                team_id=self.team.pk,
+                name="event1",
+                steps_json=[
                     {
-                        "key": "email",
-                        "value": "is_set",
-                        "operator": "is_set",
-                        "type": "person",
+                        "event": "event1",
+                        "properties": [
+                            {
+                                "key": "email",
+                                "value": "is_set",
+                                "operator": "is_set",
+                                "type": "person",
+                            }
+                        ],
                     }
                 ],
             )
@@ -3462,12 +3505,16 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self.assertEqual(result[0]["count"], 0)
 
         def test_funnel_with_sampling(self):
-            action_play_movie = Action.objects.create(team=self.team, name="watched movie")
-            ActionStep.objects.create(
-                action=action_play_movie,
-                event="$autocapture",
-                tag_name="a",
-                href="/movie",
+            action_play_movie = Action.objects.create(
+                team=self.team,
+                name="watched movie",
+                steps_json=[
+                    {
+                        "event": "$autocapture",
+                        "tag_name": "a",
+                        "href": "/movie",
+                    }
+                ],
             )
 
             funnel = self._basic_funnel(
@@ -3619,9 +3666,14 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self._signup_event(distinct_id="user")
             self._add_to_cart_event(distinct_id="user", properties={"is_saved": True})
 
-            action_checkout_all = Action.objects.create(team=self.team, name="user signed up")
-            ActionStep.objects.create(action=action_checkout_all, event="checked out")  # not perormed
-            ActionStep.objects.create(action=action_checkout_all, event=None)  # matches all
+            action_checkout_all = Action.objects.create(
+                team=self.team,
+                name="user signed up",
+                steps_json=[
+                    {"event": "checked out"},  # not performed
+                    {"event": None},  # matches all
+                ],
+            )
 
             filters = {
                 "events": [{"id": "user signed up", "type": "events", "order": 0}],

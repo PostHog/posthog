@@ -131,7 +131,15 @@ export const LemonFormDialog = ({
     }, [])
 
     return (
-        <Form logic={lemonDialogLogic} formKey="form">
+        <Form
+            logic={lemonDialogLogic}
+            formKey="form"
+            onKeyDown={(e: React.KeyboardEvent<HTMLFormElement>): void => {
+                if (e.key === 'Enter' && primaryButton?.htmlType === 'submit' && isFormValid) {
+                    void onSubmit(form)
+                }
+            }}
+        >
             <LemonDialog {...props} primaryButton={primaryButton} secondaryButton={secondaryButton} />
         </Form>
     )

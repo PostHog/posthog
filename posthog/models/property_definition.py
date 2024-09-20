@@ -37,23 +37,23 @@ class PropertyDefinition(UUIDModel):
         GROUP = 3, "group"
         SESSION = 4, "session"
 
-    team: models.ForeignKey = models.ForeignKey(
+    team = models.ForeignKey(
         Team,
         on_delete=models.CASCADE,
         related_name="property_definitions",
         related_query_name="team",
     )
-    name: models.CharField = models.CharField(max_length=400)
-    is_numerical: models.BooleanField = models.BooleanField(
+    name = models.CharField(max_length=400)
+    is_numerical = models.BooleanField(
         default=False
     )  # whether the property can be interpreted as a number, and therefore used for math aggregation operations
 
     property_type = models.CharField(max_length=50, choices=PropertyType.choices, blank=True, null=True)
 
     # :TRICKY: May be null for historical events
-    type: models.PositiveSmallIntegerField = models.PositiveSmallIntegerField(default=Type.EVENT, choices=Type.choices)
+    type = models.PositiveSmallIntegerField(default=Type.EVENT, choices=Type.choices)
     # Only populated for `Type.GROUP`
-    group_type_index: models.PositiveSmallIntegerField = models.PositiveSmallIntegerField(null=True)
+    group_type_index = models.PositiveSmallIntegerField(null=True)
 
     # DEPRECATED
     property_type_format = models.CharField(
@@ -61,22 +61,22 @@ class PropertyDefinition(UUIDModel):
     )  # Deprecated in #8292
 
     # DEPRECATED
-    volume_30_day: models.IntegerField = models.IntegerField(default=None, null=True)  # Deprecated in #4480
+    volume_30_day = models.IntegerField(default=None, null=True)  # Deprecated in #4480
 
     # DEPRECATED
     # Number of times an insight has been saved with this property in its filter in the last 30 rolling days (computed asynchronously when stars align)
-    query_usage_30_day: models.IntegerField = models.IntegerField(default=None, null=True)
+    query_usage_30_day = models.IntegerField(default=None, null=True)
 
     class Meta:
         indexes = [
             # This indexes the query in api/property_definition.py
             # :KLUDGE: django ORM typing is off here
-            models.Index(  # type: ignore
-                F("team_id"),  # type: ignore
-                F("type"),  # type: ignore
-                Coalesce(F("group_type_index"), -1),  # type: ignore
-                F("query_usage_30_day").desc(nulls_last=True),  # type: ignore
-                F("name").asc(),  # type: ignore
+            models.Index(
+                F("team_id"),
+                F("type"),
+                Coalesce(F("group_type_index"), -1),
+                F("query_usage_30_day").desc(nulls_last=True),
+                F("name").asc(),
                 name="index_property_def_query",
             ),
             # creates an index pganalyze identified as missing

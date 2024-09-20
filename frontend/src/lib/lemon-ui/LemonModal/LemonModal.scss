@@ -33,7 +33,7 @@
     max-height: 90%;
     margin: 1rem auto;
     background-color: var(--bg-light);
-    border: 1px solid var(--secondary-3000-button-border);
+    border: 1px solid var(--border-bold);
     border-radius: var(--radius);
     box-shadow: var(--modal-shadow-elevation);
     opacity: 0;
@@ -100,7 +100,7 @@
     border-bottom: 1px solid var(--border);
 
     h3 {
-        margin-right: 1.5rem;
+        margin-right: 2.5rem;
         margin-bottom: 0;
         font-size: 1.125rem;
         font-weight: 700;

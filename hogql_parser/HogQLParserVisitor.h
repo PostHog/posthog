@@ -1,5 +1,5 @@
 
-// Generated from HogQLParser.g4 by ANTLR 4.13.1
+// Generated from HogQLParser.g4 by ANTLR 4.13.2
 
 #pragma once
 
@@ -19,6 +19,48 @@ public:
   /**
    * Visit parse trees produced by HogQLParser.
    */
+    virtual std::any visitProgram(HogQLParser::ProgramContext *context) = 0;
+
+    virtual std::any visitDeclaration(HogQLParser::DeclarationContext *context) = 0;
+
+    virtual std::any visitExpression(HogQLParser::ExpressionContext *context) = 0;
+
+    virtual std::any visitVarDecl(HogQLParser::VarDeclContext *context) = 0;
+
+    virtual std::any visitIdentifierList(HogQLParser::IdentifierListContext *context) = 0;
+
+    virtual std::any visitStatement(HogQLParser::StatementContext *context) = 0;
+
+    virtual std::any visitReturnStmt(HogQLParser::ReturnStmtContext *context) = 0;
+
+    virtual std::any visitThrowStmt(HogQLParser::ThrowStmtContext *context) = 0;
+
+    virtual std::any visitCatchBlock(HogQLParser::CatchBlockContext *context) = 0;
+
+    virtual std::any visitTryCatchStmt(HogQLParser::TryCatchStmtContext *context) = 0;
+
+    virtual std::any visitIfStmt(HogQLParser::IfStmtContext *context) = 0;
+
+    virtual std::any visitWhileStmt(HogQLParser::WhileStmtContext *context) = 0;
+
+    virtual std::any visitForStmt(HogQLParser::ForStmtContext *context) = 0;
+
+    virtual std::any visitForInStmt(HogQLParser::ForInStmtContext *context) = 0;
+
+    virtual std::any visitFuncStmt(HogQLParser::FuncStmtContext *context) = 0;
+
+    virtual std::any visitVarAssignment(HogQLParser::VarAssignmentContext *context) = 0;
+
+    virtual std::any visitExprStmt(HogQLParser::ExprStmtContext *context) = 0;
+
+    virtual std::any visitEmptyStmt(HogQLParser::EmptyStmtContext *context) = 0;
+
+    virtual std::any visitBlock(HogQLParser::BlockContext *context) = 0;
+
+    virtual std::any visitKvPair(HogQLParser::KvPairContext *context) = 0;
+
+    virtual std::any visitKvPairList(HogQLParser::KvPairListContext *context) = 0;
+
     virtual std::any visitSelect(HogQLParser::SelectContext *context) = 0;
 
     virtual std::any visitSelectUnionStmt(HogQLParser::SelectUnionStmtContext *context) = 0;
@@ -119,6 +161,8 @@ public:
 
     virtual std::any visitColumnExprNegate(HogQLParser::ColumnExprNegateContext *context) = 0;
 
+    virtual std::any visitColumnExprDict(HogQLParser::ColumnExprDictContext *context) = 0;
+
     virtual std::any visitColumnExprSubquery(HogQLParser::ColumnExprSubqueryContext *context) = 0;
 
     virtual std::any visitColumnExprLiteral(HogQLParser::ColumnExprLiteralContext *context) = 0;
@@ -130,6 +174,8 @@ public:
     virtual std::any visitColumnExprCast(HogQLParser::ColumnExprCastContext *context) = 0;
 
     virtual std::any visitColumnExprOr(HogQLParser::ColumnExprOrContext *context) = 0;
+
+    virtual std::any visitColumnExprNullTupleAccess(HogQLParser::ColumnExprNullTupleAccessContext *context) = 0;
 
     virtual std::any visitColumnExprPrecedence1(HogQLParser::ColumnExprPrecedence1Context *context) = 0;
 
@@ -143,11 +189,17 @@ public:
 
     virtual std::any visitColumnExprWinFunctionTarget(HogQLParser::ColumnExprWinFunctionTargetContext *context) = 0;
 
+    virtual std::any visitColumnExprNullPropertyAccess(HogQLParser::ColumnExprNullPropertyAccessContext *context) = 0;
+
     virtual std::any visitColumnExprTrim(HogQLParser::ColumnExprTrimContext *context) = 0;
 
     virtual std::any visitColumnExprTagElement(HogQLParser::ColumnExprTagElementContext *context) = 0;
 
+    virtual std::any visitColumnExprTemplateString(HogQLParser::ColumnExprTemplateStringContext *context) = 0;
+
     virtual std::any visitColumnExprTuple(HogQLParser::ColumnExprTupleContext *context) = 0;
+
+    virtual std::any visitColumnExprCall(HogQLParser::ColumnExprCallContext *context) = 0;
 
     virtual std::any visitColumnExprArrayAccess(HogQLParser::ColumnExprArrayAccessContext *context) = 0;
 
@@ -156,6 +208,8 @@ public:
     virtual std::any visitColumnExprPropertyAccess(HogQLParser::ColumnExprPropertyAccessContext *context) = 0;
 
     virtual std::any visitColumnExprParens(HogQLParser::ColumnExprParensContext *context) = 0;
+
+    virtual std::any visitColumnExprNullArrayAccess(HogQLParser::ColumnExprNullArrayAccessContext *context) = 0;
 
     virtual std::any visitColumnExprTimestamp(HogQLParser::ColumnExprTimestampContext *context) = 0;
 
@@ -173,15 +227,13 @@ public:
 
     virtual std::any visitColumnExprWinFunction(HogQLParser::ColumnExprWinFunctionContext *context) = 0;
 
+    virtual std::any visitColumnExprLambda(HogQLParser::ColumnExprLambdaContext *context) = 0;
+
     virtual std::any visitColumnExprIdentifier(HogQLParser::ColumnExprIdentifierContext *context) = 0;
 
     virtual std::any visitColumnExprFunction(HogQLParser::ColumnExprFunctionContext *context) = 0;
 
     virtual std::any visitColumnExprAsterisk(HogQLParser::ColumnExprAsteriskContext *context) = 0;
-
-    virtual std::any visitColumnArgList(HogQLParser::ColumnArgListContext *context) = 0;
-
-    virtual std::any visitColumnArgExpr(HogQLParser::ColumnArgExprContext *context) = 0;
 
     virtual std::any visitColumnLambdaExpr(HogQLParser::ColumnLambdaExprContext *context) = 0;
 
@@ -240,6 +292,16 @@ public:
     virtual std::any visitEnumValue(HogQLParser::EnumValueContext *context) = 0;
 
     virtual std::any visitPlaceholder(HogQLParser::PlaceholderContext *context) = 0;
+
+    virtual std::any visitString(HogQLParser::StringContext *context) = 0;
+
+    virtual std::any visitTemplateString(HogQLParser::TemplateStringContext *context) = 0;
+
+    virtual std::any visitStringContents(HogQLParser::StringContentsContext *context) = 0;
+
+    virtual std::any visitFullTemplateString(HogQLParser::FullTemplateStringContext *context) = 0;
+
+    virtual std::any visitStringContentsFull(HogQLParser::StringContentsFullContext *context) = 0;
 
 
 };

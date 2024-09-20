@@ -1,18 +1,20 @@
+from typing import Any
 from unittest.mock import ANY
+
 from rest_framework import status
-from posthog.models.cohort.util import sort_cohorts_topologically
-from posthog.models.user import User
-from posthog.models.team.team import Team
-from posthog.models.cohort import Cohort
+
 from ee.models.rbac.organization_resource_access import OrganizationResourceAccess
+from posthog.api.dashboards.dashboard import Dashboard
 from posthog.constants import AvailableFeature
 from posthog.models import FeatureFlag
+from posthog.models.cohort import Cohort
+from posthog.models.cohort.util import sort_cohorts_topologically
+from posthog.models.early_access_feature import EarlyAccessFeature
 from posthog.models.experiment import Experiment
 from posthog.models.feedback.survey import Survey
-from posthog.models.early_access_feature import EarlyAccessFeature
-from posthog.api.dashboards.dashboard import Dashboard
+from posthog.models.team.team import Team
+from posthog.models.user import User
 from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
-from typing import Any
 
 
 class TestOrganizationFeatureFlagGet(APIBaseTest, QueryMatchingTest):
@@ -46,15 +48,7 @@ class TestOrganizationFeatureFlagGet(APIBaseTest, QueryMatchingTest):
             {
                 "flag_id": flag.id,
                 "team_id": flag.team.id,
-                "created_by": {
-                    "id": self.user.id,
-                    "uuid": str(self.user.uuid),
-                    "distinct_id": self.user.distinct_id,
-                    "first_name": self.user.first_name,
-                    "last_name": self.user.last_name,
-                    "email": self.user.email,
-                    "is_email_verified": self.user.is_email_verified,
-                },
+                "created_by": ANY,
                 "filters": flag.get_filters(),
                 "created_at": flag.created_at.strftime("%Y-%m-%dT%H:%M:%S.%f") + "Z",
                 "active": flag.active,
@@ -399,7 +393,9 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
     def test_copy_feature_flag_cannot_edit(self):
-        self.organization.available_features = [AvailableFeature.ROLE_BASED_ACCESS]
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS}
+        ]
         self.organization.save()
 
         OrganizationResourceAccess.objects.create(

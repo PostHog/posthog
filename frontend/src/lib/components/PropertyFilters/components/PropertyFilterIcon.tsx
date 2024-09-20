@@ -1,37 +1,36 @@
-import { IconPerson } from '@posthog/icons'
+import { IconBuilding, IconPerson } from '@posthog/icons'
 import { IconCohort, IconUnverifiedEvent } from 'lib/lemon-ui/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { PropertyFilterType } from '~/types'
 
-export function PropertyFilterIcon({ type }: { type?: PropertyFilterType }): JSX.Element {
-    let iconElement = <></>
+export function PropertyFilterIcon({ type }: { type?: PropertyFilterType }): JSX.Element | null {
     switch (type) {
         case 'event':
-            iconElement = (
+            return (
                 <Tooltip title="Event property">
-                    <span className="flex items-center">
-                        <IconUnverifiedEvent />
-                    </span>
+                    <IconUnverifiedEvent />
                 </Tooltip>
             )
-            break
         case 'person':
-            iconElement = (
+            return (
                 <Tooltip title="Person property">
                     <IconPerson />
                 </Tooltip>
             )
-            break
         case 'cohort':
-            iconElement = (
+            return (
                 <Tooltip title="Cohort filter">
-                    <span className="flex items-center">
-                        <IconCohort />
-                    </span>
+                    <IconCohort />
                 </Tooltip>
             )
-            break
+        case 'group':
+            return (
+                <Tooltip title="Group filter">
+                    <IconBuilding />
+                </Tooltip>
+            )
+        default:
+            return null
     }
-    return iconElement
 }

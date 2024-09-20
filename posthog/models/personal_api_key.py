@@ -35,19 +35,25 @@ def hash_key_value(value: str, mode: ModeType = "sha256", iterations: Optional[i
     return f"sha256${value}"  # Following format from Django's PBKDF2PasswordHasher
 
 
+def mask_key_value(value: str) -> str:
+    """Turn 'phx_123456abcd' into 'phx_...abcd'."""
+    return f"{value[:4]}...{value[-4:]}"
+
+
 class PersonalAPIKey(models.Model):
-    id: models.CharField = models.CharField(primary_key=True, max_length=50, default=generate_random_token)
+    id = models.CharField(primary_key=True, max_length=50, default=generate_random_token)
     user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="personal_api_keys")
-    label: models.CharField = models.CharField(max_length=40)
-    value: models.CharField = models.CharField(unique=True, max_length=50, editable=False, null=True, blank=True)
-    secure_value: models.CharField = models.CharField(
+    label = models.CharField(max_length=40)
+    value = models.CharField(unique=True, max_length=50, editable=False, null=True, blank=True)
+    mask_value = models.CharField(max_length=11, editable=False, null=True)
+    secure_value = models.CharField(
         unique=True,
         max_length=300,
         null=True,
         editable=False,
     )
-    created_at: models.DateTimeField = models.DateTimeField(default=timezone.now)
-    last_used_at: models.DateTimeField = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(default=timezone.now)
+    last_used_at = models.DateTimeField(null=True, blank=True)
     scopes: ArrayField = ArrayField(models.CharField(max_length=100), null=True)
     scoped_teams: ArrayField = ArrayField(models.IntegerField(), null=True)
     scoped_organizations: ArrayField = ArrayField(models.CharField(max_length=100), null=True)

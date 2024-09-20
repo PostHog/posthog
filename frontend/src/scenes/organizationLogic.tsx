@@ -1,5 +1,6 @@
-import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { router } from 'kea-router'
 import api, { ApiConfig } from 'lib/api'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -12,7 +13,7 @@ import type { organizationLogicType } from './organizationLogicType'
 import { userLogic } from './userLogic'
 
 export type OrganizationUpdatePayload = Partial<
-    Pick<OrganizationType, 'name' | 'is_member_join_email_enabled' | 'enforce_2fa'>
+    Pick<OrganizationType, 'name' | 'logo_media_id' | 'is_member_join_email_enabled' | 'enforce_2fa'>
 >
 
 export const organizationLogic = kea<organizationLogicType>([
@@ -22,6 +23,7 @@ export const organizationLogic = kea<organizationLogicType>([
         deleteOrganizationSuccess: true,
         deleteOrganizationFailure: true,
     }),
+    connect([userLogic]),
     reducers({
         organizationBeingDeleted: [
             null as OrganizationType | null,
@@ -64,10 +66,9 @@ export const organizationLogic = kea<organizationLogicType>([
         ],
     })),
     selectors({
-        hasDashboardCollaboration: [
-            (s) => [s.currentOrganization],
-            (currentOrganization) =>
-                currentOrganization?.available_features?.includes(AvailableFeature.TEAM_COLLABORATION),
+        hasTagging: [
+            () => [userLogic.selectors.hasAvailableFeature],
+            (hasAvailableFeature) => hasAvailableFeature(AvailableFeature.TAGGING),
         ],
         isCurrentOrganizationUnavailable: [
             (s) => [s.currentOrganization, s.currentOrganizationLoading],
@@ -108,14 +109,12 @@ export const organizationLogic = kea<organizationLogicType>([
         deleteOrganization: async ({ organization }) => {
             try {
                 await api.delete(`api/organizations/${organization.id}`)
+                router.actions.push(router.values.currentLocation.pathname, 'organizationDeleted=true')
                 location.reload()
                 actions.deleteOrganizationSuccess()
             } catch {
                 actions.deleteOrganizationFailure()
             }
-        },
-        deleteOrganizationSuccess: () => {
-            lemonToast.success('Organization has been deleted')
         },
     })),
     afterMount(({ actions }) => {

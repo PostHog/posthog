@@ -1,5 +1,7 @@
 import { decideResponse } from '../fixtures/api/decide'
 
+const VALID_PASSWORD = 'hedgE-hog-123%'
+
 describe('Signup', () => {
     beforeEach(() => {
         cy.get('[data-attr=menu-item-me]').click()
@@ -10,7 +12,7 @@ describe('Signup', () => {
 
     it('Cannot create account with existing email', () => {
         cy.get('[data-attr=signup-email]').type('test@posthog.com').should('have.value', 'test@posthog.com')
-        cy.get('[data-attr=password]').type('12345678').should('have.value', '12345678')
+        cy.get('[data-attr=password]').type(VALID_PASSWORD).should('have.value', VALID_PASSWORD)
         cy.get('[data-attr=signup-start]').click()
         cy.get('[data-attr=signup-name]').type('Jane Doe').should('have.value', 'Jane Doe')
         cy.get('[data-attr=signup-organization-name]').type('Hogflix Movies').should('have.value', 'Hogflix Movies')
@@ -33,10 +35,10 @@ describe('Signup', () => {
         cy.get('.text-danger').should('not.exist') // Validation errors not shown until first submission
         cy.get('[data-attr=signup-start]').click()
         cy.get('.text-danger').should('contain', 'Please enter your email to continue')
-        cy.get('.text-danger').should('contain', 'Password must be at least 8 characters')
+        cy.get('.text-danger').should('contain', 'Add another word or two')
 
-        cy.get('[data-attr=password]').type('45678901')
-        cy.get('.text-danger').should('not.contain', 'Password must be at least 8 characters') // Validation error removed on keystroke
+        cy.get('[data-attr=password]').type('123 abc def')
+        cy.get('.text-danger').should('not.contain', 'Add another word or two') // Validation error removed on keystroke
     })
 
     it('Can create user account with first name, last name and organization name', () => {
@@ -44,7 +46,7 @@ describe('Signup', () => {
 
         const email = `new_user+${Math.floor(Math.random() * 10000)}@posthog.com`
         cy.get('[data-attr=signup-email]').type(email).should('have.value', email)
-        cy.get('[data-attr=password]').type('12345678').should('have.value', '12345678')
+        cy.get('[data-attr=password]').type(VALID_PASSWORD).should('have.value', VALID_PASSWORD)
         cy.get('[data-attr=signup-start]').click()
         cy.get('[data-attr=signup-name]').type('Alice Bob').should('have.value', 'Alice Bob')
         cy.get('[data-attr=signup-organization-name]').type('Hogflix SpinOff').should('have.value', 'Hogflix SpinOff')
@@ -72,7 +74,7 @@ describe('Signup', () => {
         // Create initial account
         const email = `new_user+generic_error_test@posthog.com`
         cy.get('[data-attr=signup-email]').type(email).should('have.value', email)
-        cy.get('[data-attr=password]').type('12345678').should('have.value', '12345678')
+        cy.get('[data-attr=password]').type(VALID_PASSWORD).should('have.value', VALID_PASSWORD)
         cy.get('[data-attr=signup-start]').click()
         cy.get('[data-attr=signup-name]').type('Alice Bob').should('have.value', 'Alice Bob')
         cy.get('[data-attr=signup-submit]').click()
@@ -88,12 +90,12 @@ describe('Signup', () => {
 
         // Try to recreate account with same email- should fail
         cy.get('[data-attr=signup-email]').type(email).should('have.value', email)
-        cy.get('[data-attr=password]').type('12345678').should('have.value', '12345678')
+        cy.get('[data-attr=password]').type(VALID_PASSWORD).should('have.value', VALID_PASSWORD)
         cy.get('[data-attr=signup-start]').click()
         cy.get('[data-attr=signup-name]').type('Alice Bob').should('have.value', 'Alice Bob')
         cy.get('[data-attr=signup-submit]').click()
 
-        cy.wait('@signupRequest').then((interception) => {
+        cy.wait('@signupRequest').then(() => {
             cy.get('.LemonBanner').should('contain', 'There is already an account with this email address.')
         })
 
@@ -121,7 +123,7 @@ describe('Signup', () => {
 
         const email = `new_user+${Math.floor(Math.random() * 10000)}@posthog.com`
         cy.get('[data-attr=signup-email]').type(email).should('have.value', email)
-        cy.get('[data-attr=password]').type('12345678').should('have.value', '12345678')
+        cy.get('[data-attr=password]').type(VALID_PASSWORD).should('have.value', VALID_PASSWORD)
         cy.get('[data-attr=signup-start]').click()
         cy.get('[data-attr=signup-name]').type('Alice').should('have.value', 'Alice')
         cy.get('[data-attr=signup-role-at-organization]').click()

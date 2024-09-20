@@ -1,0 +1,59 @@
+-- empty, notEmpty, length, lower, upper, reverse --
+3
+TEST
+rennips
+
+-- encodeURLComponent, decodeURLComponent --
+http%3A%2F%2Fwww.google.com
+tom%20%26%20jerry
+http://www.google.com
+tom & jerry
+
+-- base64Encode, base64Decode --
+aHR0cDovL3d3dy5nb29nbGUuY29t
+dG9tICYgamVycnk=
+http://www.google.com
+tom & jerry
+
+-- empty --
+true
+false
+false
+false
+false
+false
+true
+false
+false
+true
+true
+true
+false
+false
+false
+false
+
+-- notEmpty --
+false
+true
+true
+true
+true
+true
+false
+true
+true
+false
+false
+false
+true
+true
+true
+true
+
+-- replaceAll, replaceOne --
+heLLo worLd
+heLlo world
+
+-- generateUUIDv4 --
+36

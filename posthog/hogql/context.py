@@ -1,11 +1,12 @@
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Literal, Optional, Any
+from typing import TYPE_CHECKING, Any, Literal, Optional
 
 from posthog.hogql.timings import HogQLTimings
 from posthog.schema import HogQLNotice, HogQLQueryModifiers
 
 if TYPE_CHECKING:
     from posthog.hogql.database.database import Database
+    from posthog.hogql.transforms.property_types import PropertySwapper
     from posthog.models import Team
 
 
@@ -35,8 +36,8 @@ class HogQLContext:
     enable_select_queries: bool = False
     # Do we apply a limit of MAX_SELECT_RETURNED_ROWS=10000 to the topmost select query?
     limit_top_select: bool = True
-    # How many nested views do we support on this query?
-    max_view_depth: int = 1
+    # Globals that will be resolved in the context of the query
+    globals: Optional[dict] = None
 
     # Warnings returned with the metadata query
     warnings: list["HogQLNotice"] = field(default_factory=list)
@@ -51,6 +52,8 @@ class HogQLContext:
     modifiers: HogQLQueryModifiers = field(default_factory=HogQLQueryModifiers)
     # Enables more verbose output for debugging
     debug: bool = False
+
+    property_swapper: Optional["PropertySwapper"] = None
 
     def add_value(self, value: Any) -> str:
         key = f"hogql_val_{len(self.values)}"

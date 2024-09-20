@@ -13,18 +13,27 @@ class OrganizationAdmin(admin.ModelAdmin):
     show_full_result_count = False  # prevent count() queries to show the no of filtered results
     paginator = NoCountPaginator  # prevent count() queries and return a fix page count instead
     fields = [
+        "id",
         "name",
         "created_at",
         "updated_at",
         "plugins_access_level",
-        "billing_link_v2",
+        "billing_link",
         "usage_posthog",
         "usage",
         "customer_trust_scores",
         "is_hipaa",
     ]
     inlines = [ProjectInline, TeamInline, OrganizationMemberInline]
-    readonly_fields = ["created_at", "updated_at", "billing_link_v2", "usage_posthog", "usage", "customer_trust_scores"]
+    readonly_fields = [
+        "id",
+        "created_at",
+        "updated_at",
+        "billing_link",
+        "usage_posthog",
+        "usage",
+        "customer_trust_scores",
+    ]
     search_fields = ("name", "members__email", "team__api_token")
     list_display = (
         "id",
@@ -33,7 +42,7 @@ class OrganizationAdmin(admin.ModelAdmin):
         "plugins_access_level",
         "members_count",
         "first_member",
-        "billing_link_v2",
+        "billing_link",
     )
     list_display_links = (
         "id",
@@ -51,9 +60,9 @@ class OrganizationAdmin(admin.ModelAdmin):
             else "None"
         )
 
-    def billing_link_v2(self, organization: Organization) -> str:
+    def billing_link(self, organization: Organization) -> str:
         url = f"{settings.BILLING_SERVICE_URL}/admin/billing/customer/?q={organization.pk}"
-        return format_html(f'<a href="{url}">Billing V2 →</a>')
+        return format_html(f'<a href="{url}">Billing →</a>')
 
     def usage_posthog(self, organization: Organization):
         return format_html(

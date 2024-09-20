@@ -1,6 +1,5 @@
 import { LemonButton, LemonInput, LemonSelect, LemonSelectOptions, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { combineUrl } from 'kea-router'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -15,7 +14,7 @@ import { eventDefinitionsTableLogic } from 'scenes/data-management/events/eventD
 import { organizationLogic } from 'scenes/organizationLogic'
 import { urls } from 'scenes/urls'
 
-import { EventDefinition, EventDefinitionType } from '~/types'
+import { EventDefinition, EventDefinitionType, FilterLogicalOperator, ReplayTabs } from '~/types'
 
 const eventTypeOptions: LemonSelectOptions<EventDefinitionType> = [
     { value: EventDefinitionType.Event, label: 'All events', 'data-attr': 'event-type-option-event' },
@@ -34,7 +33,7 @@ const eventTypeOptions: LemonSelectOptions<EventDefinitionType> = [
 export function EventDefinitionsTable(): JSX.Element {
     const { eventDefinitions, eventDefinitionsLoading, filters } = useValues(eventDefinitionsTableLogic)
     const { loadEventDefinitions, setFilters } = useActions(eventDefinitionsTableLogic)
-    const { hasDashboardCollaboration } = useValues(organizationLogic)
+    const { hasTagging } = useValues(organizationLogic)
 
     const columns: LemonTableColumns<EventDefinition> = [
         {
@@ -67,7 +66,7 @@ export function EventDefinitionsTable(): JSX.Element {
             },
             sorter: true,
         },
-        ...(hasDashboardCollaboration
+        ...(hasTagging
             ? [
                   {
                       title: 'Tags',
@@ -88,20 +87,24 @@ export function EventDefinitionsTable(): JSX.Element {
                         overlay={
                             <>
                                 <LemonButton
-                                    to={
-                                        combineUrl(urls.replay(), {
-                                            filters: {
-                                                events: [
-                                                    {
-                                                        id: definition.name,
-                                                        type: 'events',
-                                                        order: 0,
-                                                        name: definition.name,
-                                                    },
-                                                ],
-                                            },
-                                        }).url
-                                    }
+                                    to={urls.replay(ReplayTabs.Home, {
+                                        filter_group: {
+                                            type: FilterLogicalOperator.And,
+                                            values: [
+                                                {
+                                                    type: FilterLogicalOperator.And,
+                                                    values: [
+                                                        {
+                                                            id: definition.name,
+                                                            type: 'events',
+                                                            order: 0,
+                                                            name: definition.name,
+                                                        },
+                                                    ],
+                                                },
+                                            ],
+                                        },
+                                    })}
                                     fullWidth
                                     sideIcon={<IconPlayCircle />}
                                     data-attr="event-definitions-table-view-recordings"

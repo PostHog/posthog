@@ -22,29 +22,23 @@ Only 400 (`normal`), 500 (`var(--font-medium)`), 600 (`var(--font-semibold)`), o
     @include root-variables;
 }
 
-// Text styles
-body b,
-body strong {
-    // body is specified to increase specificity – otherwise Ant Design's "bolder" takes precedence over "600"
-    font-weight: 600;
-}
-
-// Disable default styling for ul
-ul {
-    padding-left: 0;
-    margin-bottom: 0;
-    list-style: none;
-}
-
-// This may look odd but sets up our utility classes
-* {
-    border-color: var(--border);
-    border-style: solid;
-    border-width: 0;
+*,
+*::before,
+*::after {
+    border-color: var(--border); // Tailwind's default is currentColor, but --border is more useful
 }
 
 input[type='radio'] {
     accent-color: var(--primary-3000);
+}
+
+input[type='search'] {
+    &::-webkit-search-decoration,
+    &::-webkit-search-cancel-button,
+    &::-webkit-search-results-button,
+    &::-webkit-search-results-decoration {
+        display: none;
+    }
 }
 
 .page-title-row {
@@ -54,10 +48,6 @@ input[type='radio'] {
     align-items: center;
     min-height: 2.5rem;
     margin: 1rem 0 0.25rem;
-
-    .ant-form-item {
-        margin-bottom: 0 !important;
-    }
 
     @include screen($md) {
         flex-wrap: nowrap;
@@ -83,15 +73,6 @@ input[type='radio'] {
     }
 }
 
-.page-buttons {
-    display: flex;
-    flex-grow: 1;
-    flex-shrink: 0;
-    gap: 0.5rem;
-    align-items: center;
-    justify-content: right;
-}
-
 .secondary {
     font-size: 0.9em;
     font-weight: var(--font-medium);
@@ -115,21 +96,9 @@ mark {
     border-radius: var(--radius);
 }
 
-// Supplement text, such as email under user name
-.supplement {
-    overflow: hidden;
-    font-size: 0.8125rem;
-    color: var(--muted-alt);
-    text-overflow: ellipsis;
-
-    &--danger {
-        font-weight: 600;
-        color: var(--danger);
-    }
-}
-
 hr {
-    border: 1px solid var(--border);
+    margin: 1em 0;
+    border-top: 1px solid var(--border);
 }
 
 // Vendor-specific adjustments
@@ -175,7 +144,7 @@ input::-ms-clear {
     cursor: unset;
     border: 1px solid var(--secondary-3000-button-border);
     border-radius: var(--radius);
-    box-shadow: var(--shadow-elevation);
+    box-shadow: var(--shadow-elevation-3000);
     opacity: 1 !important;
 }
 
@@ -188,7 +157,7 @@ input::-ms-clear {
     font-size: 0.875rem;
     font-weight: 500;
     line-height: 1.25rem;
-    color: var(--default);
+    color: var(--text-3000);
 
     b,
     strong {
@@ -245,12 +214,6 @@ input::-ms-clear {
     }
 }
 
-.title-icon {
-    margin-left: 0.375rem;
-    font-size: 1rem;
-    line-height: 0;
-}
-
 // Graph series glyph
 
 .graph-series-glyph {
@@ -263,7 +226,7 @@ input::-ms-clear {
     font-size: 12px;
     font-weight: bold;
     pointer-events: none;
-    border: 2px solid var(--default);
+    border: 2px solid var(--text-3000);
     border-radius: 50%;
 
     // variants
@@ -365,83 +328,20 @@ input::-ms-clear {
     }
 }
 
-// Overlays
-
-.overlay__parent {
-    position: relative;
+html {
+    text-size-adjust: 100%;
 }
 
-.overlay__child {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    transition: opacity 0.25s ease;
-
-    .overlay--danger & {
-        background: repeating-linear-gradient(
-            -45deg,
-            rgb(255 255 255 / 50%),
-            rgb(255 255 255 / 50%) 0.75rem,
-            var(--danger) 0.5rem,
-            var(--danger) 20px
-        );
-    }
+input::placeholder,
+textarea::placeholder {
+    color: var(--muted); // Overrides Tailwind's default
 }
 
-// Tags
-
-.simple-tag {
-    padding: 2px 6px;
-    border-radius: var(--radius);
-
-    &.tag-light-blue {
-        background-color: var(--primary-highlight);
-    }
-}
-
-// AntD overrrides, placed inside `body` to increase specifity (nicely avoiding the need for !important)
+// Global styles nested under body to ensure they're more specific than Tailwind's base
 body {
-    // Until we have 3000 rolled out we fallback to standard colors
-    --text-3000: var(--default);
-    --text-secondary-3000: var(--text-secondary);
-    --muted-3000: var(--muted);
-    --trace-3000: var(--trace-3000-light);
-    --primary-3000: var(--primary);
-    --primary-3000-highlight: var(--primary-highlight);
-    --primary-3000-hover: var(--primary-light);
-    --primary-3000-active: var(--primary-dark);
-    --secondary-3000: var(--secondary);
-    --secondary-3000-hover: var(--secondary-light);
-    --accent-3000: var(--side);
-    --bg-3000: var(--bg-light);
-    --border-3000: var(--border);
-    --border-bold-3000: var(--border);
-    --glass-bg-3000: var(--bg-light);
-    --glass-border-3000: var(--border);
-    --bg-light: #fff;
-    --bg-table: var(--bg-light);
-    --link: var(--primary-3000);
-    --tooltip-bg: var(--bg-charcoal);
-    --data-color-1-hover: #1d4affe5;
-    --shadow-elevation: var(--shadow-elevation-3000);
-    --primary: var(--primary-3000);
-    --primary-highlight: var(--primary-3000-highlight);
-
-    // Remove below once we're using Tailwind's base
-    --tw-ring-offset-width: 0px;
-    --tw-ring-offset-color: var(--bg-light);
-    --tw-ring-color: var(--primary-3000);
-    --tw-ring-inset: ;
-    --tw-translate-x: 0;
-    --tw-translate-y: 0;
-    --tw-rotate: 0;
-    --tw-skew-x: 0;
-    --tw-skew-y: 0;
-    --tw-scale-x: 1;
-    --tw-scale-y: 1;
-
+    font-size: 14px;
+    line-height: 1.5715;
+    color: var(--text-3000);
     touch-action: manipulation; // Disable double-tap-to-zoom on mobile, making taps slightly snappier
     background: var(--bg-3000);
 
@@ -450,14 +350,6 @@ body {
     }
 
     &[theme='dark'] {
-        .ant-empty-img-simple-path {
-            fill: var(--border-3000);
-        }
-
-        .ant-empty-img-simple-ellipse {
-            fill: var(--border-3000);
-        }
-
         @include dark-mode-3000-variables;
     }
 
@@ -481,19 +373,39 @@ body {
         }
     }
 
+    b,
+    strong {
+        font-weight: 600; // Tailwind's default is "bolder" (800)
+    }
+
     h1,
     h2,
     h3,
     h4,
     h5 {
+        margin-top: 0;
+        margin-bottom: 0.5em;
         font-family: var(--font-title);
+        font-weight: 500;
     }
 
     h1,
     h2,
     h3,
     h4 {
-        color: var(--default);
+        color: var(--text-3000);
+    }
+
+    h1 {
+        font-size: 1.75rem;
+    }
+
+    h2 {
+        font-size: 1.3125rem;
+    }
+
+    h3 {
+        font-size: 1rem;
     }
 
     h5 {
@@ -506,133 +418,45 @@ body {
         letter-spacing: 0.075em;
     }
 
-    pre,
-    code,
-    kbd,
-    samp {
-        font-family: var(--font-mono);
-    }
-
-    a {
-        color: var(--link);
+    pre {
+        margin-top: 0;
+        margin-bottom: 1em;
+        overflow: auto;
     }
 
     .LemonButton,
     .Link {
         .text-link {
-            color: var(--text-3000);
+            color: var(--text-3000) !important;
         }
 
         &:hover {
             .text-link {
-                color: var(--primary-3000);
+                color: var(--primary-3000) !important;
             }
         }
-    }
-
-    // AntD uses its own border color for the bottom of tab lists, but we want to use `var(--border)`
-    .ant-tabs-top,
-    .ant-tabs-bottom {
-        &,
-        & > div {
-            & > .ant-tabs-nav::before {
-                border-bottom-color: var(--border);
-            }
-        }
-    }
-
-    .ant-dropdown {
-        color: var(--default);
-        border-radius: var(--radius);
-    }
-
-    .ant-dropdown-menu {
-        border-radius: var(--radius);
-    }
-
-    .ant-modal-content {
-        box-shadow: var(--shadow-elevation);
-    }
-
-    .ant-modal-mask {
-        z-index: var(--z-ant-modal-mask);
-    }
-
-    .ant-modal-wrap {
-        z-index: var(--z-ant-modal-wrap);
-    }
-
-    .ant-message {
-        z-index: var(--z-ant-message);
-    }
-
-    .ant-select-dropdown {
-        z-index: var(--z-ant-select-dropdown);
-        background-color: var(--bg-3000);
-
-        .ant-select-item.ant-select-item-option {
-            background-color: var(--bg-3000);
-
-            &.ant-select-item-option-active {
-                background-color: var(--border-3000);
-            }
-        }
-    }
-
-    .ant-input-number:hover,
-    .ant-input-number-focused {
-        border-color: var(--border-bold);
-    }
-
-    .ant-input-number-group-addon {
-        background: var(--bg-3000);
-    }
-
-    .ant-picker-dropdown {
-        z-index: var(--z-ant-select-dropdown);
-    }
-
-    .ant-card-bordered {
-        border-color: var(--border);
-    }
-
-    .ant-card-body > :first-child {
-        margin-top: 0;
-    }
-
-    .ant-form-item-label {
-        > label {
-            font-weight: 600;
-
-            .ant-form-item-optional {
-                font-weight: 400;
-                color: var(--muted);
-            }
-        }
-    }
-
-    .ant-form-item {
-        margin-bottom: 1rem;
-
-        &:last-child {
-            margin-bottom: 0;
-        }
-    }
-
-    // Tooltip styles
-    .ant-tooltip-inner {
-        background-color: var(--tooltip-bg);
-    }
-
-    .ant-tooltip-arrow-content {
-        background-color: var(--tooltip-bg);
-    }
-
-    .ant-tooltip {
-        max-width: 350px;
     }
 
     @include common-variables;
+}
+
+a {
+    color: var(--link);
+    text-decoration: none;
+}
+
+p {
+    margin-top: 0;
+    margin-bottom: 1em;
+}
+
+img {
+    vertical-align: middle;
+    border-style: none;
+}
+
+[tabindex='-1']:focus {
+    outline: none !important;
 }
 
 .storybook-test-runner {
@@ -658,9 +482,13 @@ body {
     }
 
     // Hide some parts of the UI that were causing flakiness
-    ::-webkit-scrollbar, * > ::-webkit-scrollbar, // Scrollbar in WebKit/Blink browsers
-    .LemonTabs__bar::after, // Active tab slider
-    .scrollable::after, // Scrollability indicators
+    ::-webkit-scrollbar,
+    *> ::-webkit-scrollbar,
+    // Scrollbar in WebKit/Blink browsers
+    .LemonTabs__bar::after,
+    // Active tab slider
+    .scrollable::after,
+    // Scrollability indicators
     .scrollable::before {
         display: none;
     }
@@ -676,11 +504,15 @@ body {
     }
 }
 
-.ant-radio-button-wrapper {
-    background: var(--secondary-3000);
-    border-color: transparent;
-}
-
 .ligatures-none {
     font-variant-ligatures: none;
+}
+
+.hide-scrollbar {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+
+    &::-webkit-scrollbar {
+        display: none;
+    }
 }

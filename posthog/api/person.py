@@ -1,5 +1,5 @@
 import json
-import posthoganalytics
+from posthog.clickhouse.client.connection import Workload
 from posthog.models.person.missing_person import MissingPerson
 from posthog.renderers import SafeJSONRenderer
 from datetime import datetime
@@ -18,7 +18,7 @@ from django.shortcuts import get_object_or_404
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiExample, OpenApiParameter
 from rest_framework import request, response, serializers, viewsets
-from rest_framework.decorators import action
+from posthog.api.utils import action
 from rest_framework.exceptions import MethodNotAllowed, NotFound, ValidationError
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.response import Response
@@ -58,8 +58,7 @@ from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.person.util import delete_person
 from posthog.queries.actor_base_query import (
     ActorBaseQuery,
-    get_people,
-    serialize_people,
+    get_serialized_people,
 )
 from posthog.queries.funnels import ClickhouseFunnelActors, ClickhouseFunnelTrendsActors
 from posthog.queries.funnels.funnel_strict_persons import ClickhouseFunnelStrictActors
@@ -90,6 +89,7 @@ from posthog.utils import (
 from prometheus_client import Counter
 from posthog.metrics import LABEL_TEAM_ID
 from loginas.utils import is_impersonated_session
+import builtins
 
 DEFAULT_PAGE_LIMIT = 100
 # Sync with .../lib/constants.tsx and .../ingestion/hooks.ts
@@ -134,19 +134,23 @@ class PersonLimitOffsetPagination(LimitOffsetPagination):
 
 
 def get_person_name(team: Team, person: Person) -> str:
-    if display_name := get_person_display_name(person, team):
-        return display_name
-    if len(person.distinct_ids) > 0:
-        # Prefer non-UUID distinct IDs (presumably from user identification) over UUIDs
-        return sorted(person.distinct_ids, key=is_anonymous_id)[0]
-    return person.pk
+    return get_person_name_helper(person.pk, person.properties, person.distinct_ids, team)
 
 
-def get_person_display_name(person: Person, team: Team) -> str | None:
+def get_person_name_helper(
+    person_pk: int, person_properties: dict[str, str], distinct_ids: list[str], team: Team
+) -> str:
+    display_name = None
     for property in team.person_display_name_properties or PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES:
-        if person.properties and person.properties.get(property):
-            return person.properties.get(property)
-    return None
+        if person_properties and person_properties.get(property):
+            display_name = person_properties.get(property)
+            break
+    if display_name:
+        return display_name
+    if len(distinct_ids) > 0:
+        # Prefer non-UUID distinct IDs (presumably from user identification) over UUIDs
+        return sorted(distinct_ids, key=is_anonymous_id)[0]
+    return str(person_pk)
 
 
 class PersonsThrottle(ClickHouseSustainedRateThrottle):
@@ -229,7 +233,7 @@ def get_funnel_actor_class(filter: Filter) -> Callable:
 
 class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """
-    To create or update persons, use a PostHog library of your choice and [use an identify call](/product-analytics/identify). This API endpoint is only for reading and deleting.
+    This endpoint is meant for reading and deleting persons. To create or update persons, we recommend using the [capture API](https://posthog.com/docs/api/capture), the `$set` and `$unset` [properties](https://posthog.com/docs/product-analytics/user-properties), or one of our SDKs.
     """
 
     scope_object = "person"
@@ -292,56 +296,20 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         elif not filter.limit:
             filter = filter.shallow_clone({LIMIT: DEFAULT_PAGE_LIMIT})
 
-        if posthoganalytics.feature_enabled(
-            "load-person-fields-from-clickhouse",
-            request.user.distinct_id,
-            person_properties={"email": request.user.email},
-        ):
-            person_query = PersonQuery(
-                filter,
-                team.pk,
-                extra_fields=[
-                    "created_at",
-                    "properties",
-                    "is_identified",
-                ],
-                include_distinct_ids=True,
-            )
-            paginated_query, paginated_params = person_query.get_query(paginate=True, filter_future_persons=True)
-            actors = insight_sync_execute(
-                paginated_query,
-                {**paginated_params, **filter.hogql_context.values},
-                filter=filter,
-                query_type="person_list",
-                team_id=team.pk,
-            )
-            persons = []
-            for p in actors:
-                person = Person(
-                    uuid=p[0],
-                    created_at=p[1],
-                    is_identified=p[2],
-                    properties=json.loads(p[3]),
-                )
-                person._distinct_ids = p[4]
-                persons.append(person)
+        person_query = PersonQuery(filter, team.pk)
+        paginated_query, paginated_params = person_query.get_query(paginate=True, filter_future_persons=True)
 
-            serialized_actors = serialize_people(team, data=persons)
-            _should_paginate = len(serialized_actors) >= filter.limit
-        else:
-            person_query = PersonQuery(filter, team.pk)
-            paginated_query, paginated_params = person_query.get_query(paginate=True, filter_future_persons=True)
-
-            raw_paginated_result = insight_sync_execute(
-                paginated_query,
-                {**paginated_params, **filter.hogql_context.values},
-                filter=filter,
-                query_type="person_list",
-                team_id=team.pk,
-            )
-            actor_ids = [row[0] for row in raw_paginated_result]
-            _, serialized_actors = get_people(team, actor_ids)
-            _should_paginate = len(actor_ids) >= filter.limit
+        raw_paginated_result = insight_sync_execute(
+            paginated_query,
+            {**paginated_params, **filter.hogql_context.values},
+            filter=filter,
+            query_type="person_list",
+            team_id=team.pk,
+            workload=Workload.OFFLINE,  # this endpoint is only used by external API requests
+        )
+        actor_ids = [row[0] for row in raw_paginated_result]
+        serialized_actors = get_serialized_people(team, actor_ids)
+        _should_paginate = len(actor_ids) >= filter.limit
 
         # If the undocumented include_total param is set to true, we'll return the total count of people
         # This is extra time and DB load, so we only do this when necessary, which is in PostHog 3000 navigation
@@ -385,12 +353,15 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             OpenApiParameter(
                 "delete_events",
                 OpenApiTypes.BOOL,
-                description="If true, a task to delete all events associated with this person will be created and queued. The task does not run immediately and instead is batched together and at 5AM UTC every Sunday (controlled by environment variable CLEAR_CLICKHOUSE_REMOVED_DATA_SCHEDULE_CRON)",
+                description="If true, a task to delete all events associated with this person will be created and queued. The task does not run immediately and instead is batched together and at 5AM UTC every Sunday",
                 default=False,
             ),
         ],
     )
     def destroy(self, request: request.Request, pk=None, **kwargs):
+        """
+        Use this endpoint to delete individual persons. For bulk deletion, use the bulk_delete endpoint instead.
+        """
         try:
             person = self.get_object()
             person_id = person.id
@@ -423,7 +394,71 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         except Person.DoesNotExist:
             raise NotFound(detail="Person not found.")
 
-    @action(methods=["GET"], detail=False)
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "delete_events",
+                OpenApiTypes.BOOL,
+                description="If true, a task to delete all events associated with this person will be created and queued. The task does not run immediately and instead is batched together and at 5AM UTC every Sunday",
+                default=False,
+            ),
+            OpenApiParameter(
+                "distinct_ids",
+                OpenApiTypes.OBJECT,
+                description="A list of distinct IDs, up to 100 of them. We'll delete all persons associated with those distinct IDs.",
+            ),
+            OpenApiParameter(
+                "ids",
+                OpenApiTypes.OBJECT,
+                description="A list of PostHog person IDs, up to 100 of them. We'll delete all the persons listed.",
+            ),
+        ],
+    )
+    @action(methods=["POST"], detail=False, required_scopes=["person:write"])
+    def bulk_delete(self, request: request.Request, pk=None, **kwargs):
+        """
+        This endpoint allows you to bulk delete persons, either by the PostHog person IDs or by distinct IDs. You can pass in a maximum of 100 IDs per call.
+        """
+        if distinct_ids := request.data.get("distinct_ids"):
+            if len(distinct_ids) > 100:
+                raise ValidationError("You can only pass 100 distinct_ids in one call")
+            persons = self.get_queryset().filter(persondistinctid__distinct_id__in=distinct_ids)
+        elif ids := request.data.get("ids"):
+            if len(ids) > 100:
+                raise ValidationError("You can only pass 100 ids in one call")
+            persons = self.get_queryset().filter(uuid__in=ids)
+        else:
+            raise ValidationError("You need to specify either distinct_ids or ids")
+
+        for person in persons:
+            delete_person(person=person)
+            self.perform_destroy(person)
+            log_activity(
+                organization_id=self.organization.id,
+                team_id=self.team_id,
+                user=cast(User, request.user),
+                was_impersonated=is_impersonated_session(request),
+                item_id=person.id,
+                scope="Person",
+                activity="deleted",
+                detail=Detail(name=str(person.uuid)),
+            )
+            # Once the person is deleted, queue deletion of associated data, if that was requested
+            if request.data.get("delete_events"):
+                AsyncDeletion.objects.bulk_create(
+                    [
+                        AsyncDeletion(
+                            deletion_type=DeletionType.Person,
+                            team_id=self.team_id,
+                            key=str(person.uuid),
+                            created_by=cast(User, self.request.user),
+                        )
+                    ],
+                    ignore_conflicts=True,
+                )
+        return response.Response(status=202)
+
+    @action(methods=["GET"], detail=False, required_scopes=["person:read"])
     def values(self, request: request.Request, **kwargs) -> response.Response:
         key = request.GET.get("key")
         value = request.GET.get("value")
@@ -462,11 +497,11 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     "team_id": self.team.id,
                 },
             )
-            raise e
+            raise
 
         return result
 
-    @action(methods=["POST"], detail=True)
+    @action(methods=["POST"], detail=True, required_scopes=["person:write"])
     def split(self, request: request.Request, pk=None, **kwargs) -> response.Response:
         person: Person = self.get_object()
         distinct_ids = person.distinct_ids
@@ -511,7 +546,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             ),
         ]
     )
-    @action(methods=["POST"], detail=True)
+    @action(methods=["POST"], detail=True, required_scopes=["person:write"])
     def update_property(self, request: request.Request, pk=None, **kwargs) -> response.Response:
         if request.data.get("value") is None:
             return Response(
@@ -546,7 +581,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             ),
         ]
     )
-    @action(methods=["POST"], detail=True)
+    @action(methods=["POST"], detail=True, required_scopes=["person:write"])
     def delete_property(self, request: request.Request, pk=None, **kwargs) -> response.Response:
         person: Person = get_pk_or_uuid(Person.objects.filter(team_id=self.team_id), pk).get()
 
@@ -599,7 +634,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return response.Response({"results": CohortSerializer(cohorts, many=True).data})
 
-    @action(methods=["GET"], url_path="activity", detail=False)
+    @action(methods=["GET"], url_path="activity", detail=False, required_scopes=["activity_log:read"])
     def all_activity(self, request: request.Request, **kwargs):
         limit = int(request.query_params.get("limit", "10"))
         page = int(request.query_params.get("page", "1"))
@@ -668,19 +703,22 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             },
         )
 
-        log_activity(
-            organization_id=self.organization.id,
-            team_id=self.team.id,
-            user=user,
-            was_impersonated=is_impersonated_session(self.request),
-            item_id=instance.pk,
-            scope="Person",
-            activity="updated",
-            detail=Detail(changes=[Change(type="Person", action="changed", field="properties")]),
-        )
+        if self.organization.id:  # should always be true, but mypy...
+            log_activity(
+                organization_id=self.organization.id,
+                team_id=self.team.id,
+                user=user,
+                was_impersonated=is_impersonated_session(self.request),
+                item_id=instance.pk,
+                scope="Person",
+                activity="updated",
+                detail=Detail(changes=[Change(type="Person", action="changed", field="properties")]),
+            )
 
     # PRAGMA: Methods for getting Persons via clickhouse queries
-    def _respond_with_cached_results(self, results_package: dict[str, tuple[List, Optional[str], Optional[str], int]]):  # noqa: UP006
+    def _respond_with_cached_results(
+        self, results_package: dict[str, tuple[builtins.list, Optional[str], Optional[str], int]]
+    ):  # noqa: UP006
         if not results_package:
             return response.Response(data=[])
 
@@ -950,4 +988,4 @@ def prepare_actor_query_filter(filter: T) -> T:
 
 
 class LegacyPersonViewSet(PersonViewSet):
-    derive_current_team_from_user_only = True
+    param_derived_from_user_current_team = "team_id"

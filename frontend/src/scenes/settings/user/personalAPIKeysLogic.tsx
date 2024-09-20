@@ -2,14 +2,18 @@ import { LemonBanner, LemonDialog } from '@posthog/lemon-ui'
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { APIScopeObject, OrganizationBasicType, PersonalAPIKeyType, TeamBasicType } from '~/types'
 
 import type { personalAPIKeysLogicType } from './personalAPIKeysLogicType'
+
+export const MAX_API_KEYS_PER_USER = 10 // Same as in posthog/api/personal_api_key.py
 
 export const API_KEY_SCOPE_PRESETS = [
     { value: 'local_evaluation', label: 'Local feature flag evaluation', scopes: ['feature_flag:read'] },
@@ -301,11 +305,14 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
 
             LemonDialog.open({
                 title: 'Personal API key ready',
+                width: 536,
                 content: (
                     <>
                         <p className="mb-4">You can now use key "{key.label}" for authentication:</p>
 
-                        <CodeSnippet thing="personal API key">{value}</CodeSnippet>
+                        <CodeSnippet className="ph-no-capture" thing="personal API key">
+                            {value}
+                        </CodeSnippet>
 
                         <LemonBanner type="warning" className="mt-4">
                             For security reasons the value above <em>will never be shown again</em>.
@@ -320,7 +327,30 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
             lemonToast.success(`Personal API key deleted`)
         },
     })),
-
+    urlToAction(({ actions }) => ({
+        [urls.settings('user-api-keys')]: (_, searchParams) => {
+            const presetKey = searchParams.preset
+            if (presetKey) {
+                const preset = API_KEY_SCOPE_PRESETS.find((preset) => preset.value === presetKey)
+                if (preset) {
+                    actions.setEditingKeyId('new')
+                    actions.setEditingKeyValues({
+                        preset: preset.value,
+                        label: preset.label,
+                        scopes: preset.scopes,
+                    })
+                }
+            }
+        },
+    })),
+    actionToUrl(() => ({
+        setEditingKeyId: ({ id }) => {
+            if (!id) {
+                // When the modal is closed, remove the preset from the URL
+                return [router.values.location.pathname, {}, router.values.location.hash]
+            }
+        },
+    })),
     afterMount(({ actions }) => {
         actions.loadAllTeams()
     }),

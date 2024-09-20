@@ -16,10 +16,18 @@ import {
 import { urls } from 'scenes/urls'
 
 import { cohortsModel } from '~/models/cohortsModel'
-import { Breadcrumb, RecordingFilters, ReplayTabs, SessionRecordingPlaylistType, SessionRecordingType } from '~/types'
+import {
+    Breadcrumb,
+    LegacyRecordingFilters,
+    RecordingUniversalFilters,
+    ReplayTabs,
+    SessionRecordingPlaylistType,
+    SessionRecordingType,
+} from '~/types'
 
 import { addRecordingToPlaylist, removeRecordingFromPlaylist } from '../player/utils/playerUtils'
-import { PINNED_RECORDINGS_LIMIT } from './sessionRecordingsPlaylistLogic'
+import { filtersFromUniversalFilterGroups, isUniversalFilters } from '../utils'
+import { convertLegacyFiltersToUniversalFilters, PINNED_RECORDINGS_LIMIT } from './sessionRecordingsPlaylistLogic'
 import type { sessionRecordingsPlaylistSceneLogicType } from './sessionRecordingsPlaylistSceneLogicType'
 
 export interface SessionRecordingsPlaylistLogicProps {
@@ -38,7 +46,7 @@ export const sessionRecordingsPlaylistSceneLogic = kea<sessionRecordingsPlaylist
             properties,
             silent,
         }),
-        setFilters: (filters: RecordingFilters | null) => ({ filters }),
+        setFilters: (filters: LegacyRecordingFilters | RecordingUniversalFilters | null) => ({ filters }),
         loadPinnedRecordings: true,
         onPinnedChange: (recording: SessionRecordingType, pinned: boolean) => ({ pinned, recording }),
     }),
@@ -108,7 +116,7 @@ export const sessionRecordingsPlaylistSceneLogic = kea<sessionRecordingsPlaylist
     })),
     reducers(() => ({
         filters: [
-            null as RecordingFilters | null,
+            null as LegacyRecordingFilters | RecordingUniversalFilters | null,
             {
                 getPlaylistSuccess: (_, { playlist }) => playlist?.filters || null,
                 updatePlaylistSuccess: (_, { playlist }) => playlist?.filters || null,
@@ -172,7 +180,22 @@ export const sessionRecordingsPlaylistSceneLogic = kea<sessionRecordingsPlaylist
         ],
         derivedName: [
             (s) => [s.filters, s.cohortsById],
-            (filters, cohortsById) => summarizePlaylistFilters(filters || {}, cohortsById)?.slice(0, 400) || 'Unnamed',
+            (filters, cohortsById) => {
+                if (!filters) {
+                    return 'Unnamed'
+                }
+
+                const universalFilters = isUniversalFilters(filters)
+                    ? filters
+                    : convertLegacyFiltersToUniversalFilters({}, filters)
+
+                return (
+                    summarizePlaylistFilters(filtersFromUniversalFilterGroups(universalFilters), cohortsById)?.slice(
+                        0,
+                        400
+                    ) || 'Unnamed'
+                )
+            },
         ],
     })),
 

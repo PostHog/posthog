@@ -1,12 +1,15 @@
-import { LemonTable, LemonTag, LemonTagType } from '@posthog/lemon-ui'
-import { useValues } from 'kea'
+import { LemonButton, LemonTable, LemonTableColumns, LemonTag, LemonTagType } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
 import { sourceWizardLogic } from 'scenes/data-warehouse/new/sourceWizardLogic'
 import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
+import { defaultQuery } from 'scenes/data-warehouse/utils'
+import { urls } from 'scenes/urls'
 
 import { ExternalDataSourceSchema } from '~/types'
 
 export const SyncProgressStep = (): JSX.Element => {
-    const { sourceId } = useValues(sourceWizardLogic)
+    const { sourceId, isWrapped } = useValues(sourceWizardLogic)
+    const { cancelWizard } = useActions(sourceWizardLogic)
     const { dataWarehouseSources, dataWarehouseSourcesLoading } = useValues(dataWarehouseSettingsLogic)
 
     const source = dataWarehouseSources?.results.find((n) => n.id === sourceId)
@@ -40,6 +43,49 @@ export const SyncProgressStep = (): JSX.Element => {
         }
     }
 
+    const columns: LemonTableColumns<ExternalDataSourceSchema> = [
+        {
+            title: 'Table',
+            key: 'table',
+            render: function RenderTable(_, schema) {
+                return schema.name
+            },
+        },
+        {
+            title: 'Status',
+            key: 'status',
+            render: function RenderStatus(_, schema) {
+                const { status, tagType } = getSyncStatus(schema)
+
+                return <LemonTag type={tagType}>{status}</LemonTag>
+            },
+        },
+    ]
+
+    if (!isWrapped) {
+        columns.push({
+            key: 'actions',
+            width: 0,
+            render: function RenderStatus(_, schema) {
+                if (schema.table && schema.status === 'Completed') {
+                    const query = defaultQuery(schema.table.name, schema.table.columns)
+                    return (
+                        <LemonButton
+                            className="my-1"
+                            type="primary"
+                            onClick={() => cancelWizard()}
+                            to={urls.insightNew(undefined, undefined, query)}
+                        >
+                            Query
+                        </LemonButton>
+                    )
+                }
+
+                return ''
+            },
+        })
+    }
+
     return (
         <div className="flex flex-col gap-2">
             <div>
@@ -48,24 +94,7 @@ export const SyncProgressStep = (): JSX.Element => {
                     dataSource={schemas}
                     loading={dataWarehouseSourcesLoading}
                     disableTableWhileLoading={false}
-                    columns={[
-                        {
-                            title: 'Table',
-                            key: 'table',
-                            render: function RenderTable(_, schema) {
-                                return schema.name
-                            },
-                        },
-                        {
-                            title: 'Status',
-                            key: 'status',
-                            render: function RenderStatus(_, schema) {
-                                const { status, tagType } = getSyncStatus(schema)
-
-                                return <LemonTag type={tagType}>{status}</LemonTag>
-                            },
-                        },
-                    ]}
+                    columns={columns}
                 />
             </div>
         </div>

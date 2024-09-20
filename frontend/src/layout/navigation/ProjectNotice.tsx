@@ -1,5 +1,6 @@
 import { IconGear, IconPlus } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
+import { supportLogic } from 'lib/components/Support/supportLogic'
 import { dayjs } from 'lib/dayjs'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonBannerAction } from 'lib/lemon-ui/LemonBanner/LemonBanner'
@@ -19,6 +20,7 @@ interface ProjectNoticeBlueprint {
     message: JSX.Element | string
     action?: LemonBannerAction
     type?: 'info' | 'warning' | 'success' | 'error'
+    closeable?: boolean
 }
 
 function CountDown({ datetime }: { datetime: dayjs.Dayjs }): JSX.Element {
@@ -37,19 +39,18 @@ function CountDown({ datetime }: { datetime: dayjs.Dayjs }): JSX.Element {
 }
 
 export function ProjectNotice(): JSX.Element | null {
-    const { projectNoticeVariantWithClosability } = useValues(navigationLogic)
+    const { projectNoticeVariant } = useValues(navigationLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { logout } = useActions(userLogic)
     const { user } = useValues(userLogic)
     const { closeProjectNotice } = useActions(navigationLogic)
     const { showInviteModal } = useActions(inviteLogic)
     const { requestVerificationLink } = useActions(verifyEmailLogic)
+    const { openSupportForm } = useActions(supportLogic)
 
-    if (!projectNoticeVariantWithClosability) {
+    if (!projectNoticeVariant) {
         return null
     }
-
-    const [projectNoticeVariant, isClosable] = projectNoticeVariantWithClosability
 
     const altTeamForIngestion = currentOrganization?.teams?.find((team) => !team.is_demo && !team.ingested_event)
 
@@ -74,6 +75,7 @@ export function ProjectNotice(): JSX.Element | null {
                 </>
             ),
         },
+
         real_project_with_no_events: {
             message: (
                 <>
@@ -97,6 +99,7 @@ export function ProjectNotice(): JSX.Element | null {
                 icon: <IconGear />,
                 children: 'Go to wizard',
             },
+            closeable: true,
         },
         invite_teammates: {
             message: 'Get more out of PostHog by inviting your team for free',
@@ -106,6 +109,7 @@ export function ProjectNotice(): JSX.Element | null {
                 icon: <IconPlus />,
                 children: 'Invite team members',
             },
+            closeable: true,
         },
         unverified_email: {
             message: 'Please verify your email address.',
@@ -143,6 +147,16 @@ export function ProjectNotice(): JSX.Element | null {
                 children: 'Reload page',
             },
         },
+        region_blocked: {
+            message:
+                'PostHog is not available in your region due to legal restrictions. People in restricted regions will soon be blocked from accessing PostHog. Please contact support if you believe this is a mistake.',
+            type: 'error',
+            action: {
+                'data-attr': 'region-blocked-support',
+                onClick: () => openSupportForm({ kind: 'support', target_area: 'login' }),
+                children: 'Contact support',
+            },
+        },
     }
 
     const relevantNotice = NOTICES[projectNoticeVariant]
@@ -152,7 +166,7 @@ export function ProjectNotice(): JSX.Element | null {
             type={relevantNotice.type || 'info'}
             className="my-4"
             action={relevantNotice.action}
-            onClose={isClosable ? () => closeProjectNotice(projectNoticeVariant) : undefined}
+            onClose={relevantNotice.closeable ? () => closeProjectNotice(projectNoticeVariant) : undefined}
         >
             {relevantNotice.message}
         </LemonBanner>

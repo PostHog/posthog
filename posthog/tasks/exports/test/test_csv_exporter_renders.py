@@ -24,9 +24,9 @@ for file in os.listdir(directory):
 @pytest.mark.parametrize("mode", ("legacy", "hogql"))
 @pytest.mark.django_db
 @patch("posthog.tasks.exports.csv_exporter.requests.request")
-@patch("posthog.tasks.exports.csv_exporter.process_query")
+@patch("posthog.tasks.exports.csv_exporter.process_query_dict")
 @patch("posthog.models.exported_asset.settings")
-def test_csv_rendering(mock_settings, mock_process_query, mock_request, filename, mode):
+def test_csv_rendering(mock_settings, mock_process_query_dict, mock_request, filename, mode):
     mock_settings.OBJECT_STORAGE_ENABLED = False
     org = Organization.objects.create(name="org")
     team = Team.objects.create(organization=org, name="team")
@@ -58,13 +58,13 @@ def test_csv_rendering(mock_settings, mock_process_query, mock_request, filename
         asset.save()
         if fixture.get("hogql_response"):
             # If HogQL has a different response structure, add it to the fixture as `hogql_response`
-            mock_process_query.return_value = fixture["hogql_response"]
+            mock_process_query_dict.return_value = fixture["hogql_response"]
         elif fixture["response"].get("results") is not None:
-            mock_process_query.return_value = fixture["response"]
+            mock_process_query_dict.return_value = fixture["response"]
         else:
-            mock_process_query.return_value = fixture["response"]
+            mock_process_query_dict.return_value = fixture["response"]
             if "result" in fixture["response"]:
-                mock_process_query.return_value["results"] = fixture["response"].pop("result")
+                mock_process_query_dict.return_value["results"] = fixture["response"].pop("result")
         csv_exporter.export_tabular(asset)
         csv_rows = asset.content.decode("utf-8").split("\r\n")
 

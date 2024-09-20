@@ -16,8 +16,8 @@ export const displayLogic = kea<displayLogicType>([
     path(['queries', 'nodes', 'DataVisualization', 'displayLogic']),
     props({ key: '' } as DisplayLogicProps),
     connect({
-        values: [dataVisualizationLogic, ['yData', 'query']],
-        actions: [dataVisualizationLogic, ['setQuery']],
+        values: [dataVisualizationLogic, ['yData', 'query', 'chartSettings']],
+        actions: [dataVisualizationLogic, ['setQuery', 'updateChartSettings']],
     }),
     actions(({ values }) => ({
         addGoalLine: () => ({ yData: values.yData }),

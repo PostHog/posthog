@@ -53,7 +53,9 @@ export function getDefaultEvent(): Entity {
 }
 
 export const isStepsUndefined = (filters: FunnelsFilterType): boolean =>
-    typeof filters.events === 'undefined' && (typeof filters.actions === 'undefined' || filters.actions.length === 0)
+    typeof filters.events === 'undefined' &&
+    (typeof filters.actions === 'undefined' || filters.actions.length === 0) &&
+    (typeof filters.data_warehouse === 'undefined' || filters.data_warehouse.length === 0)
 
 const findFirstNumber = (candidates: (number | undefined)[]): number | undefined =>
     candidates.find((s) => typeof s === 'number')
@@ -138,6 +140,7 @@ const cleanBreakdownParams = (cleanedParams: Partial<FilterType>, filters: Parti
     cleanedParams['breakdown_type'] = undefined
     cleanedParams['breakdown_group_type_index'] = undefined
     cleanedParams['breakdown_normalize_url'] = undefined
+
     if (isTrends && filters.display === ChartDisplayType.WorldMap) {
         // For the map, make sure we are breaking down by country
         // Support automatic switching to country code breakdown both from no breakdown and from country name breakdown
@@ -145,20 +148,29 @@ const cleanBreakdownParams = (cleanedParams: Partial<FilterType>, filters: Parti
         useMostRelevantBreakdownType(cleanedParams, filters)
         return
     }
+
     if (canBreakdown) {
         if (filters.breakdown_type && (filters.breakdown || filters.breakdowns)) {
             cleanedParams['breakdown_type'] = filters.breakdown_type
         }
 
-        const hasBreakdowns = Array.isArray(filters.breakdowns) && filters.breakdowns?.length > 0
-        if (hasBreakdowns && canMultiPropertyBreakdown) {
+        if (canMultiPropertyBreakdown && filters.breakdowns && filters.breakdowns.length > 0) {
             cleanedParams['breakdowns'] = filters.breakdowns
-        } else if (hasBreakdowns && isTrends) {
-            cleanedParams['breakdown'] = filters.breakdowns && filters.breakdowns[0].property
-            cleanedParams['breakdown_normalize_url'] = cleanBreakdownNormalizeURL(
-                cleanedParams['breakdown'] as string,
-                filters.breakdown_normalize_url
-            )
+        } else if (isTrends && filters.breakdowns && filters.breakdowns.length > 0) {
+            cleanedParams['breakdown_type'] = undefined
+            cleanedParams['breakdowns'] = filters.breakdowns.map((b) => ({
+                property: b.property,
+                type: b.type || filters.breakdown_type || 'event',
+                histogram_bin_count: b.histogram_bin_count,
+                group_type_index: b.group_type_index,
+                normalize_url:
+                    typeof b.property === 'string'
+                        ? cleanBreakdownNormalizeURL(
+                              b.property,
+                              typeof b.normalize_url === 'boolean' ? b.normalize_url : filters.breakdown_normalize_url
+                          )
+                        : undefined,
+            }))
         } else if (filters.breakdown) {
             cleanedParams['breakdown'] = filters.breakdown
             cleanedParams['breakdown_normalize_url'] = cleanBreakdownNormalizeURL(
@@ -251,7 +263,6 @@ export function autocorrectInterval(filters: Partial<AnyFilterType>): IntervalTy
         return 'day'
     }
 
-    // @ts-expect-error - Old legacy interval support
     const minute_disabled = filters.interval === 'minute'
     const hour_disabled = disableHourFor[filters.date_from || 'other'] && filters.interval === 'hour'
 
@@ -294,6 +305,8 @@ export function cleanFilters(
             breakdowns: filters.breakdowns,
             breakdown_type: filters.breakdown_type,
             retention_reference: filters.retention_reference,
+            show_mean: filters.show_mean,
+            cumulative: filters.cumulative,
             total_intervals: Math.min(Math.max(filters.total_intervals ?? 11, 0), 100),
             ...(filters.aggregation_group_type_index != undefined
                 ? { aggregation_group_type_index: filters.aggregation_group_type_index }
@@ -417,6 +430,7 @@ export function cleanFilters(
             ...(isTrendsFilter(filters) && filters?.show_percent_stack_view
                 ? { show_percent_stack_view: filters.show_percent_stack_view }
                 : {}),
+            y_axis_scale_type: isTrendsFilter(filters) ? filters.y_axis_scale_type : undefined,
             ...commonFilters,
         }
 
@@ -463,6 +477,7 @@ export function cleanFilters(
 
         if (filters.date_from === 'all' || isLifecycleFilter(filters)) {
             trendLikeFilter['compare'] = false
+            trendLikeFilter['compare_to'] = undefined
         }
 
         if (trendLikeFilter.interval && trendLikeFilter.smoothing_intervals) {

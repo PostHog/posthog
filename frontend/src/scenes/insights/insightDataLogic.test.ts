@@ -1,10 +1,10 @@
 import { expectLogic } from 'kea-test-utils'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { examples } from '~/queries/examples'
-import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import { NodeKind, TrendsQuery } from '~/queries/schema'
+import { NodeKind } from '~/queries/schema'
 import { initKeaTests } from '~/test/init'
 import { InsightShortId } from '~/types'
 
@@ -15,6 +15,7 @@ const Insight123 = '123' as InsightShortId
 describe('insightDataLogic', () => {
     let theInsightDataLogic: ReturnType<typeof insightDataLogic.build>
     let theInsightLogic: ReturnType<typeof insightLogic.build>
+    let theFeatureFlagLogic: ReturnType<typeof featureFlagLogic.build>
 
     beforeEach(() => {
         useMocks({
@@ -23,45 +24,24 @@ describe('insightDataLogic', () => {
             },
         })
         initKeaTests()
+
+        const props = { dashboardItemId: Insight123 }
+        theFeatureFlagLogic = featureFlagLogic()
+        theFeatureFlagLogic.mount()
+
+        theInsightDataLogic = insightDataLogic(props)
+        theInsightDataLogic.mount()
+
+        theInsightLogic = insightLogic(props)
+        theInsightLogic.mount()
     })
 
     describe('reacts when the insight changes', () => {
-        const props = { dashboardItemId: Insight123 }
-        beforeEach(() => {
-            theInsightDataLogic = insightDataLogic(props)
-            theInsightDataLogic.mount()
+        const q = examples.InsightTrends
 
-            theInsightLogic = insightLogic(props)
-            theInsightLogic.mount()
-        })
-
-        it('sets query when present', async () => {
-            const q = {
-                kind: NodeKind.DataTableNode,
-                source: {
-                    kind: NodeKind.EventsQuery,
-                    select: ['*'],
-                    after: '-24h',
-                    limit: 100,
-                },
-            }
-
+        it('sets query when override is set', async () => {
             await expectLogic(theInsightDataLogic, () => {
-                theInsightLogic.actions.setInsight({ query: q }, {})
-            })
-                .toDispatchActions(['setQuery'])
-                .toMatchValues({
-                    query: q,
-                })
-        })
-
-        it('sets query when filters is present and override is set', async () => {
-            const q = examples.InsightTrendsQuery as TrendsQuery
-
-            const filters = queryNodeToFilter(q)
-
-            await expectLogic(theInsightDataLogic, () => {
-                theInsightLogic.actions.setInsight({ filters }, { overrideFilter: true })
+                theInsightLogic.actions.setInsight({ query: q }, { overrideQuery: true })
             })
                 .toDispatchActions(['setQuery'])
                 .toMatchValues({
@@ -105,7 +85,6 @@ describe('insightDataLogic', () => {
                                     custom_name: 'Views',
                                     event: '$pageview',
                                     kind: 'EventsNode',
-                                    math: 'total',
                                     name: '$pageview',
                                     properties: [
                                         {
@@ -117,6 +96,7 @@ describe('insightDataLogic', () => {
                                         {
                                             key: 'id',
                                             type: 'cohort',
+                                            operator: 'in',
                                             value: 2,
                                         },
                                     ],
@@ -129,18 +109,9 @@ describe('insightDataLogic', () => {
                     },
                 })
         })
-        it('does not set query when filters is present and override is not set', async () => {
-            const q = examples.InsightTrendsQuery as TrendsQuery
-
-            const filters = queryNodeToFilter(q)
-
+        it('does not set query override is not set', async () => {
             await expectLogic(theInsightDataLogic, () => {
-                theInsightLogic.actions.setInsight({ filters }, { overrideFilter: false })
-            }).toNotHaveDispatchedActions(['setQuery'])
-        })
-        it('does not set query when insight is invalid', async () => {
-            await expectLogic(theInsightDataLogic, () => {
-                theInsightLogic.actions.setInsight({ filters: {}, query: undefined }, {})
+                theInsightLogic.actions.setInsight({ query: q }, { overrideQuery: false })
             }).toNotHaveDispatchedActions(['setQuery'])
         })
     })

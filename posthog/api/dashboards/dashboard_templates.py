@@ -6,13 +6,13 @@ from django.db.models import Q
 from django.utils.decorators import method_decorator
 from django.views.decorators.cache import cache_page
 from rest_framework import request, response, serializers, viewsets
-from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.request import Request
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.utils import action
 from posthog.models.dashboard_templates import DashboardTemplate
 
 logger = structlog.get_logger(__name__)
@@ -47,6 +47,7 @@ class DashboardTemplateSerializer(serializers.ModelSerializer):
             "image_url",
             "team_id",
             "scope",
+            "availability_contexts",
         ]
 
     def create(self, validated_data: dict, *args, **kwargs) -> DashboardTemplate:

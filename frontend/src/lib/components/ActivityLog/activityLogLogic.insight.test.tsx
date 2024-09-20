@@ -4,6 +4,7 @@ import { render } from '@testing-library/react'
 import { MOCK_TEAM_ID } from 'lib/api.mock'
 import { makeTestSetup } from 'lib/components/ActivityLog/activityLogLogic.test.setup'
 
+import { BreakdownFilter } from '~/queries/schema'
 import { ActivityScope } from '~/types'
 
 jest.mock('lib/colors')
@@ -84,80 +85,104 @@ describe('the activity log logic', () => {
         })
 
         it('can handle change of insight query', async () => {
-            const logic = await insightTestSetup('test insight', 'updated', [
-                {
-                    type: ActivityScope.INSIGHT,
-                    action: 'changed',
-                    field: 'query',
-                    after: {
-                        kind: 'TrendsQuery',
-                        properties: {
-                            type: 'AND',
-                            values: [
-                                {
-                                    type: 'OR',
-                                    values: [
-                                        {
-                                            type: 'event',
-                                            key: '$current_url',
-                                            operator: 'exact',
-                                            value: ['https://hedgebox.net/files/'],
-                                        },
-                                        {
-                                            type: 'event',
-                                            key: '$geoip_country_code',
-                                            operator: 'exact',
-                                            value: ['US', 'AU'],
-                                        },
-                                    ],
-                                },
-                            ],
-                        },
-                        filterTestAccounts: false,
-                        interval: 'day',
-                        dateRange: {
-                            date_from: '-7d',
-                        },
-                        series: [
+            const insightMock = {
+                type: ActivityScope.INSIGHT,
+                action: 'changed',
+                field: 'query',
+                after: {
+                    kind: 'TrendsQuery',
+                    properties: {
+                        type: 'AND',
+                        values: [
                             {
-                                kind: 'EventsNode',
-                                name: '$pageview',
-                                custom_name: 'Views',
-                                event: '$pageview',
-                                properties: [
+                                type: 'OR',
+                                values: [
                                     {
                                         type: 'event',
-                                        key: '$browser',
+                                        key: '$current_url',
                                         operator: 'exact',
-                                        value: 'Chrome',
+                                        value: ['https://hedgebox.net/files/'],
                                     },
                                     {
-                                        type: 'cohort',
-                                        key: 'id',
-                                        value: 2,
+                                        type: 'event',
+                                        key: '$geoip_country_code',
+                                        operator: 'exact',
+                                        value: ['US', 'AU'],
                                     },
                                 ],
-                                limit: 100,
                             },
                         ],
-                        trendsFilter: {
-                            display: 'ActionsAreaGraph',
+                    },
+                    filterTestAccounts: false,
+                    interval: 'day',
+                    dateRange: {
+                        date_from: '-7d',
+                    },
+                    series: [
+                        {
+                            kind: 'EventsNode',
+                            name: '$pageview',
+                            custom_name: 'Views',
+                            event: '$pageview',
+                            properties: [
+                                {
+                                    type: 'event',
+                                    key: '$browser',
+                                    operator: 'exact',
+                                    value: 'Chrome',
+                                },
+                                {
+                                    type: 'cohort',
+                                    key: 'id',
+                                    operator: 'in',
+                                    value: 2,
+                                },
+                            ],
+                            limit: 100,
                         },
-                        breakdownFilter: {
-                            breakdown: '$geoip_country_code',
-                            breakdown_type: 'event',
-                        },
+                    ],
+                    trendsFilter: {
+                        display: 'ActionsAreaGraph',
+                    },
+                    breakdownFilter: {
+                        breakdown: '$geoip_country_code',
+                        breakdown_type: 'event',
                     },
                 },
-            ])
-            const actual = logic.values.humanizedActivity
+            }
 
-            const renderedDescription = render(<>{actual[0].description}</>).container
+            let logic = await insightTestSetup('test insight', 'updated', [insightMock as any])
+            let actual = logic.values.humanizedActivity
+
+            let renderedDescription = render(<>{actual[0].description}</>).container
             expect(renderedDescription).toHaveTextContent('peter changed query definition on test insight')
 
-            const renderedExtendedDescription = render(<>{actual[0].extendedDescription}</>).container
+            let renderedExtendedDescription = render(<>{actual[0].extendedDescription}</>).container
             expect(renderedExtendedDescription).toHaveTextContent(
-                "Query summaryAShowing \"Views\"Pageviewcounted by total count where event'sBrowser= equals Chrome and person belongs to cohortID 2FiltersEvent'sCurrent URL= equals https://hedgebox.net/files/or event'sCountry Code= equals US or AUBreakdown byCountry Code"
+                "Query summaryAShowing \"Views\"Pageviewcounted by total countwhere event'sBrowser= equals Chromeand person belongs to cohortUser in ID 2FiltersEvent'sCurrent URL= equals https://hedgebox.net/files/or event'sCountry Code= equals US or AUBreakdown byCountry Code"
+            )
+            ;(insightMock.after.breakdownFilter as BreakdownFilter) = {
+                breakdowns: [
+                    {
+                        property: '$geoip_country_code',
+                        type: 'event',
+                    },
+                    {
+                        property: '$session_duration',
+                        type: 'session',
+                    },
+                ],
+            }
+
+            logic = await insightTestSetup('test insight', 'updated', [insightMock as any])
+            actual = logic.values.humanizedActivity
+
+            renderedDescription = render(<>{actual[0].description}</>).container
+            expect(renderedDescription).toHaveTextContent('peter changed query definition on test insight')
+
+            renderedExtendedDescription = render(<>{actual[0].extendedDescription}</>).container
+            expect(renderedExtendedDescription).toHaveTextContent(
+                "Query summaryAShowing \"Views\"Pageviewcounted by total countwhere event'sBrowser= equals Chromeand person belongs to cohortUser in ID 2FiltersEvent'sCurrent URL= equals https://hedgebox.net/files/or event'sCountry Code= equals US or AUBreakdown byCountry CodeSession duration"
             )
         })
 

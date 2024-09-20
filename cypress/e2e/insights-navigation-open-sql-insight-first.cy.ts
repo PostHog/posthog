@@ -1,4 +1,5 @@
 import { urls } from 'scenes/urls'
+
 import { insight } from '../productAnalytics'
 
 const hogQLQuery = `select event,
@@ -27,7 +28,7 @@ describe('Insights', () => {
                 insight.newInsight('SQL')
                 insight.updateQueryEditorText(hogQLQuery, 'hogql-query-editor')
                 cy.get('[data-attr="hogql-query-editor"]').should('exist')
-                cy.get('tr.DataTable__row').should('have.length.gte', 2)
+                cy.get('tr.DataVizRow').should('have.length.gte', 2)
             })
 
             it('can open a new trends insight', () => {
@@ -67,7 +68,7 @@ describe('Insights', () => {
                 insight.clickTab('SQL')
                 insight.updateQueryEditorText(hogQLQuery, 'hogql-query-editor')
                 cy.get('[data-attr="hogql-query-editor"]').should('exist')
-                cy.get('tr.DataTable__row').should('have.length.gte', 2)
+                cy.get('tr.DataVizRow').should('have.length.gte', 2)
             })
         })
     })

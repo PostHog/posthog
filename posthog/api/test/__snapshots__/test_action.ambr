@@ -19,12 +19,13 @@
          "posthog_user"."is_email_verified",
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
-         "posthog_user"."email_opt_in",
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
-         "posthog_user"."events_column_config"
+         "posthog_user"."hedgehog_config",
+         "posthog_user"."events_column_config",
+         "posthog_user"."email_opt_in"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
   LIMIT 21
@@ -47,6 +48,8 @@
          "posthog_team"."has_completed_onboarding_for",
          "posthog_team"."ingested_event",
          "posthog_team"."autocapture_opt_out",
+         "posthog_team"."autocapture_web_vitals_opt_in",
+         "posthog_team"."autocapture_web_vitals_allowed_metrics",
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."session_recording_opt_in",
@@ -87,30 +90,6 @@
 # ---
 # name: TestActionApi.test_listing_actions_is_not_nplus1.10
   '''
-  SELECT "posthog_actionstep"."id",
-         "posthog_actionstep"."action_id",
-         "posthog_actionstep"."tag_name",
-         "posthog_actionstep"."text",
-         "posthog_actionstep"."text_matching",
-         "posthog_actionstep"."href",
-         "posthog_actionstep"."href_matching",
-         "posthog_actionstep"."selector",
-         "posthog_actionstep"."url",
-         "posthog_actionstep"."url_matching",
-         "posthog_actionstep"."event",
-         "posthog_actionstep"."properties",
-         "posthog_actionstep"."name"
-  FROM "posthog_actionstep"
-  WHERE "posthog_actionstep"."action_id" IN (1,
-                                             2,
-                                             3,
-                                             4,
-                                             5 /* ... */)
-  ORDER BY "posthog_actionstep"."id" ASC
-  '''
-# ---
-# name: TestActionApi.test_listing_actions_is_not_nplus1.11
-  '''
   SELECT "posthog_user"."id",
          "posthog_user"."password",
          "posthog_user"."last_login",
@@ -129,18 +108,19 @@
          "posthog_user"."is_email_verified",
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
-         "posthog_user"."email_opt_in",
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
-         "posthog_user"."events_column_config"
+         "posthog_user"."hedgehog_config",
+         "posthog_user"."events_column_config",
+         "posthog_user"."email_opt_in"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
   LIMIT 21
   '''
 # ---
-# name: TestActionApi.test_listing_actions_is_not_nplus1.12
+# name: TestActionApi.test_listing_actions_is_not_nplus1.11
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -157,6 +137,8 @@
          "posthog_team"."has_completed_onboarding_for",
          "posthog_team"."ingested_event",
          "posthog_team"."autocapture_opt_out",
+         "posthog_team"."autocapture_web_vitals_opt_in",
+         "posthog_team"."autocapture_web_vitals_allowed_metrics",
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."session_recording_opt_in",
@@ -195,7 +177,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestActionApi.test_listing_actions_is_not_nplus1.13
+# name: TestActionApi.test_listing_actions_is_not_nplus1.12
   '''
   SELECT "posthog_organizationmembership"."id",
          "posthog_organizationmembership"."organization_id",
@@ -206,6 +188,7 @@
          "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
+         "posthog_organization"."logo_media_id",
          "posthog_organization"."created_at",
          "posthog_organization"."updated_at",
          "posthog_organization"."plugins_access_level",
@@ -220,18 +203,18 @@
          "posthog_organization"."customer_trust_scores",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
-         "posthog_organization"."domain_whitelist",
-         "posthog_organization"."available_features"
+         "posthog_organization"."domain_whitelist"
   FROM "posthog_organizationmembership"
   INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
   WHERE "posthog_organizationmembership"."user_id" = 2
   '''
 # ---
-# name: TestActionApi.test_listing_actions_is_not_nplus1.14
+# name: TestActionApi.test_listing_actions_is_not_nplus1.13
   '''
   SELECT "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
+         "posthog_organization"."logo_media_id",
          "posthog_organization"."created_at",
          "posthog_organization"."updated_at",
          "posthog_organization"."plugins_access_level",
@@ -246,14 +229,13 @@
          "posthog_organization"."customer_trust_scores",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
-         "posthog_organization"."domain_whitelist",
-         "posthog_organization"."available_features"
+         "posthog_organization"."domain_whitelist"
   FROM "posthog_organization"
   WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
   LIMIT 21
   '''
 # ---
-# name: TestActionApi.test_listing_actions_is_not_nplus1.15
+# name: TestActionApi.test_listing_actions_is_not_nplus1.14
   '''
   SELECT "posthog_action"."id",
          "posthog_action"."name",
@@ -267,6 +249,8 @@
          "posthog_action"."updated_at",
          "posthog_action"."bytecode",
          "posthog_action"."bytecode_error",
+         "posthog_action"."steps_json",
+         "posthog_action"."pinned_at",
          "posthog_action"."is_calculating",
          "posthog_action"."last_calculated_at",
          COUNT("posthog_action_events"."event_id") AS "count",
@@ -289,119 +273,27 @@
          "posthog_user"."requested_password_reset_at",
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
-         "posthog_user"."email_opt_in",
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
-         "posthog_user"."events_column_config"
+         "posthog_user"."hedgehog_config",
+         "posthog_user"."events_column_config",
+         "posthog_user"."email_opt_in"
   FROM "posthog_action"
   LEFT OUTER JOIN "posthog_action_events" ON ("posthog_action"."id" = "posthog_action_events"."action_id")
+  INNER JOIN "posthog_team" ON ("posthog_action"."team_id" = "posthog_team"."id")
   LEFT OUTER JOIN "posthog_user" ON ("posthog_action"."created_by_id" = "posthog_user"."id")
   WHERE (NOT "posthog_action"."deleted"
          AND "posthog_action"."team_id" = 2
-         AND "posthog_action"."team_id" = 2)
+         AND "posthog_team"."project_id" = 2)
   GROUP BY "posthog_action"."id",
            "posthog_user"."id"
   ORDER BY "posthog_action"."last_calculated_at" DESC,
            "posthog_action"."name" ASC
   '''
 # ---
-# name: TestActionApi.test_listing_actions_is_not_nplus1.16
-  '''
-  SELECT "posthog_actionstep"."id",
-         "posthog_actionstep"."action_id",
-         "posthog_actionstep"."tag_name",
-         "posthog_actionstep"."text",
-         "posthog_actionstep"."text_matching",
-         "posthog_actionstep"."href",
-         "posthog_actionstep"."href_matching",
-         "posthog_actionstep"."selector",
-         "posthog_actionstep"."url",
-         "posthog_actionstep"."url_matching",
-         "posthog_actionstep"."event",
-         "posthog_actionstep"."properties",
-         "posthog_actionstep"."name"
-  FROM "posthog_actionstep"
-  WHERE "posthog_actionstep"."action_id" IN (1,
-                                             2,
-                                             3,
-                                             4,
-                                             5 /* ... */)
-  ORDER BY "posthog_actionstep"."id" ASC
-  '''
-# ---
-# name: TestActionApi.test_listing_actions_is_not_nplus1.17
-  '''
-  SELECT "posthog_actionstep"."id",
-         "posthog_actionstep"."action_id",
-         "posthog_actionstep"."tag_name",
-         "posthog_actionstep"."text",
-         "posthog_actionstep"."text_matching",
-         "posthog_actionstep"."href",
-         "posthog_actionstep"."href_matching",
-         "posthog_actionstep"."selector",
-         "posthog_actionstep"."url",
-         "posthog_actionstep"."url_matching",
-         "posthog_actionstep"."event",
-         "posthog_actionstep"."properties",
-         "posthog_actionstep"."name"
-  FROM "posthog_actionstep"
-  WHERE "posthog_actionstep"."action_id" IN (1,
-                                             2,
-                                             3,
-                                             4,
-                                             5 /* ... */)
-  ORDER BY "posthog_actionstep"."id" ASC
-  '''
-# ---
-# name: TestActionApi.test_listing_actions_is_not_nplus1.3
-  '''
-  SELECT "ee_accesscontrol"."id",
-         "ee_accesscontrol"."team_id",
-         "ee_accesscontrol"."resource",
-         "ee_accesscontrol"."access_level",
-         "ee_accesscontrol"."resource_id",
-         "ee_accesscontrol"."organization_member_id",
-         "ee_accesscontrol"."role_id",
-         "ee_accesscontrol"."created_by_id",
-         "ee_accesscontrol"."created_at",
-         "ee_accesscontrol"."updated_at"
-  FROM "ee_accesscontrol"
-  LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
-  WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
-          AND "ee_accesscontrol"."resource" = 'project'
-          AND "ee_accesscontrol"."resource_id" = '190'
-          AND "ee_accesscontrol"."role_id" IS NULL
-          AND "ee_accesscontrol"."team_id" = 2)
-         OR ("posthog_organizationmembership"."user_id" = 2
-             AND "ee_accesscontrol"."resource" = 'project'
-             AND "ee_accesscontrol"."resource_id" = '190'
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 2)
-         OR ("ee_accesscontrol"."organization_member_id" IS NULL
-             AND "ee_accesscontrol"."resource" = 'action'
-             AND "ee_accesscontrol"."resource_id" IS NULL
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 2)
-         OR ("posthog_organizationmembership"."user_id" = 2
-             AND "ee_accesscontrol"."resource" = 'action'
-             AND "ee_accesscontrol"."resource_id" IS NULL
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 2)
-         OR ("ee_accesscontrol"."organization_member_id" IS NULL
-             AND "ee_accesscontrol"."resource" = 'action'
-             AND "ee_accesscontrol"."resource_id" IS NOT NULL
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 2)
-         OR ("posthog_organizationmembership"."user_id" = 2
-             AND "ee_accesscontrol"."resource" = 'action'
-             AND "ee_accesscontrol"."resource_id" IS NOT NULL
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 2))
-  '''
-# ---
-# name: TestActionApi.test_listing_actions_is_not_nplus1.4
+# name: TestActionApi.test_listing_actions_is_not_nplus1.2
   '''
   SELECT "posthog_organizationmembership"."id",
          "posthog_organizationmembership"."organization_id",
@@ -412,6 +304,7 @@
          "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
+         "posthog_organization"."logo_media_id",
          "posthog_organization"."created_at",
          "posthog_organization"."updated_at",
          "posthog_organization"."plugins_access_level",
@@ -426,8 +319,7 @@
          "posthog_organization"."customer_trust_scores",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
-         "posthog_organization"."domain_whitelist",
-         "posthog_organization"."available_features"
+         "posthog_organization"."domain_whitelist"
   FROM "posthog_organizationmembership"
   INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
   WHERE "posthog_organizationmembership"."user_id" = 2
@@ -438,6 +330,7 @@
   SELECT "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
+         "posthog_organization"."logo_media_id",
          "posthog_organization"."created_at",
          "posthog_organization"."updated_at",
          "posthog_organization"."plugins_access_level",
@@ -452,8 +345,7 @@
          "posthog_organization"."customer_trust_scores",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
-         "posthog_organization"."domain_whitelist",
-         "posthog_organization"."available_features"
+         "posthog_organization"."domain_whitelist"
   FROM "posthog_organization"
   WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
   LIMIT 21
@@ -473,6 +365,8 @@
          "posthog_action"."updated_at",
          "posthog_action"."bytecode",
          "posthog_action"."bytecode_error",
+         "posthog_action"."steps_json",
+         "posthog_action"."pinned_at",
          "posthog_action"."is_calculating",
          "posthog_action"."last_calculated_at",
          COUNT("posthog_action_events"."event_id") AS "count",
@@ -495,18 +389,20 @@
          "posthog_user"."requested_password_reset_at",
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
-         "posthog_user"."email_opt_in",
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
-         "posthog_user"."events_column_config"
+         "posthog_user"."hedgehog_config",
+         "posthog_user"."events_column_config",
+         "posthog_user"."email_opt_in"
   FROM "posthog_action"
   LEFT OUTER JOIN "posthog_action_events" ON ("posthog_action"."id" = "posthog_action_events"."action_id")
+  INNER JOIN "posthog_team" ON ("posthog_action"."team_id" = "posthog_team"."id")
   LEFT OUTER JOIN "posthog_user" ON ("posthog_action"."created_by_id" = "posthog_user"."id")
   WHERE (NOT "posthog_action"."deleted"
          AND "posthog_action"."team_id" = 2
-         AND "posthog_action"."team_id" = 2)
+         AND "posthog_team"."project_id" = 2)
   GROUP BY "posthog_action"."id",
            "posthog_user"."id"
   ORDER BY "posthog_action"."last_calculated_at" DESC,
@@ -533,12 +429,13 @@
          "posthog_user"."is_email_verified",
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
-         "posthog_user"."email_opt_in",
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
-         "posthog_user"."events_column_config"
+         "posthog_user"."hedgehog_config",
+         "posthog_user"."events_column_config",
+         "posthog_user"."email_opt_in"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
   LIMIT 21
@@ -561,6 +458,8 @@
          "posthog_team"."has_completed_onboarding_for",
          "posthog_team"."ingested_event",
          "posthog_team"."autocapture_opt_out",
+         "posthog_team"."autocapture_web_vitals_opt_in",
+         "posthog_team"."autocapture_web_vitals_allowed_metrics",
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."session_recording_opt_in",
@@ -610,6 +509,7 @@
          "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
+         "posthog_organization"."logo_media_id",
          "posthog_organization"."created_at",
          "posthog_organization"."updated_at",
          "posthog_organization"."plugins_access_level",
@@ -624,8 +524,7 @@
          "posthog_organization"."customer_trust_scores",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
-         "posthog_organization"."domain_whitelist",
-         "posthog_organization"."available_features"
+         "posthog_organization"."domain_whitelist"
   FROM "posthog_organizationmembership"
   INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
   WHERE "posthog_organizationmembership"."user_id" = 2
@@ -636,6 +535,7 @@
   SELECT "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
+         "posthog_organization"."logo_media_id",
          "posthog_organization"."created_at",
          "posthog_organization"."updated_at",
          "posthog_organization"."plugins_access_level",
@@ -650,8 +550,7 @@
          "posthog_organization"."customer_trust_scores",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
-         "posthog_organization"."domain_whitelist",
-         "posthog_organization"."available_features"
+         "posthog_organization"."domain_whitelist"
   FROM "posthog_organization"
   WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
   LIMIT 21
@@ -671,6 +570,8 @@
          "posthog_action"."updated_at",
          "posthog_action"."bytecode",
          "posthog_action"."bytecode_error",
+         "posthog_action"."steps_json",
+         "posthog_action"."pinned_at",
          "posthog_action"."is_calculating",
          "posthog_action"."last_calculated_at",
          COUNT("posthog_action_events"."event_id") AS "count",
@@ -693,18 +594,20 @@
          "posthog_user"."requested_password_reset_at",
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
-         "posthog_user"."email_opt_in",
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
-         "posthog_user"."events_column_config"
+         "posthog_user"."hedgehog_config",
+         "posthog_user"."events_column_config",
+         "posthog_user"."email_opt_in"
   FROM "posthog_action"
   LEFT OUTER JOIN "posthog_action_events" ON ("posthog_action"."id" = "posthog_action_events"."action_id")
+  INNER JOIN "posthog_team" ON ("posthog_action"."team_id" = "posthog_team"."id")
   LEFT OUTER JOIN "posthog_user" ON ("posthog_action"."created_by_id" = "posthog_user"."id")
   WHERE (NOT "posthog_action"."deleted"
          AND "posthog_action"."team_id" = 2
-         AND "posthog_action"."team_id" = 2)
+         AND "posthog_team"."project_id" = 2)
   GROUP BY "posthog_action"."id",
            "posthog_user"."id"
   ORDER BY "posthog_action"."last_calculated_at" DESC,

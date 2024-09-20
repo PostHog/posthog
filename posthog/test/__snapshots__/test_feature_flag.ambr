@@ -140,6 +140,8 @@
          "posthog_team"."has_completed_onboarding_for",
          "posthog_team"."ingested_event",
          "posthog_team"."autocapture_opt_out",
+         "posthog_team"."autocapture_web_vitals_opt_in",
+         "posthog_team"."autocapture_web_vitals_allowed_metrics",
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."session_recording_opt_in",
@@ -308,6 +310,8 @@
          "posthog_team"."has_completed_onboarding_for",
          "posthog_team"."ingested_event",
          "posthog_team"."autocapture_opt_out",
+         "posthog_team"."autocapture_web_vitals_opt_in",
+         "posthog_team"."autocapture_web_vitals_allowed_metrics",
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."session_recording_opt_in",
@@ -551,39 +555,6 @@
          AND "posthog_person"."team_id" = 2)
   '''
 # ---
-# name: TestFeatureFlagMatcher.test_numeric_operator_with_cohorts_and_nested_cohorts.2
-  '''
-  SELECT (((("posthog_person"."properties" -> 'number') > '"100"'
-            AND JSONB_TYPEOF(("posthog_person"."properties" -> 'number')) = ('string'))
-           OR (("posthog_person"."properties" -> 'number') > '100.0'
-               AND JSONB_TYPEOF(("posthog_person"."properties" -> 'number')) = ('number')))
-          AND "posthog_person"."properties" ? 'number'
-          AND NOT (("posthog_person"."properties" -> 'number') = 'null')) AS "flag_X_condition_0",
-         (((("posthog_person"."properties" -> 'version') > '"1.05"'
-            AND JSONB_TYPEOF(("posthog_person"."properties" -> 'version')) = ('string'))
-           OR (("posthog_person"."properties" -> 'version') > '1.05'
-               AND JSONB_TYPEOF(("posthog_person"."properties" -> 'version')) = ('number')))
-          AND "posthog_person"."properties" ? 'version'
-          AND NOT (("posthog_person"."properties" -> 'version') = 'null')) AS "flag_X_condition_0",
-         (((("posthog_person"."properties" -> 'number') < '"31"'
-            AND JSONB_TYPEOF(("posthog_person"."properties" -> 'number')) = ('string'))
-           OR (("posthog_person"."properties" -> 'number') < '31.0'
-               AND JSONB_TYPEOF(("posthog_person"."properties" -> 'number')) = ('number')))
-          AND "posthog_person"."properties" ? 'number'
-          AND NOT (("posthog_person"."properties" -> 'number') = 'null')
-          AND ((("posthog_person"."properties" -> 'nested_prop') > '"20"'
-                AND JSONB_TYPEOF(("posthog_person"."properties" -> 'nested_prop')) = ('string'))
-               OR (("posthog_person"."properties" -> 'nested_prop') > '20.0'
-                   AND JSONB_TYPEOF(("posthog_person"."properties" -> 'nested_prop')) = ('number')))
-          AND "posthog_person"."properties" ? 'nested_prop'
-          AND NOT (("posthog_person"."properties" -> 'nested_prop') = 'null')) AS "flag_X_condition_0"
-  FROM "posthog_person"
-  INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
-  WHERE ("posthog_persondistinctid"."distinct_id" = '307'
-         AND "posthog_persondistinctid"."team_id" = 2
-         AND "posthog_person"."team_id" = 2)
-  '''
-# ---
 # name: TestFeatureFlagMatcher.test_numeric_operator_with_groups_and_person_flags
   '''
   SELECT "posthog_grouptypemapping"."id",
@@ -656,26 +627,6 @@
          AND "posthog_person"."team_id" = 2)
   '''
 # ---
-# name: TestFeatureFlagMatcher.test_super_condition_matches_string.1
-  '''
-  SELECT ((("posthog_person"."properties" -> 'is_enabled') = 'true'
-           OR ("posthog_person"."properties" -> 'is_enabled') = '"true"')
-          AND "posthog_person"."properties" ? 'is_enabled'
-          AND NOT (("posthog_person"."properties" -> 'is_enabled') = 'null')) AS "flag_X_super_condition", ("posthog_person"."properties" -> 'is_enabled') IS NOT NULL AS "flag_X_super_condition_is_set",
-                                                                                                                                                                          (("posthog_person"."properties" -> 'email') = '"fake@posthog.com"'
-                                                                                                                                                                           AND "posthog_person"."properties" ? 'email'
-                                                                                                                                                                           AND NOT (("posthog_person"."properties" -> 'email') = 'null')) AS "flag_X_condition_0",
-                                                                                                                                                                          (("posthog_person"."properties" -> 'email') = '"test@posthog.com"'
-                                                                                                                                                                           AND "posthog_person"."properties" ? 'email'
-                                                                                                                                                                           AND NOT (("posthog_person"."properties" -> 'email') = 'null')) AS "flag_X_condition_1",
-                                                                                                                                                                          (true) AS "flag_X_condition_2"
-  FROM "posthog_person"
-  INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
-  WHERE ("posthog_persondistinctid"."distinct_id" = 'test_id'
-         AND "posthog_persondistinctid"."team_id" = 2
-         AND "posthog_person"."team_id" = 2)
-  '''
-# ---
 # name: TestFeatureFlagMatcher.test_with_sql_injection_properties_and_other_aliases
   '''
   SELECT "posthog_team"."id",
@@ -693,6 +644,8 @@
          "posthog_team"."has_completed_onboarding_for",
          "posthog_team"."ingested_event",
          "posthog_team"."autocapture_opt_out",
+         "posthog_team"."autocapture_web_vitals_opt_in",
+         "posthog_team"."autocapture_web_vitals_allowed_metrics",
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."session_recording_opt_in",
@@ -815,43 +768,6 @@
            OR ("posthog_person"."properties" -> 'nested_prop --random #comment //test') = '21'::jsonb)
           AND "posthog_person"."properties" ? 'nested_prop --random #comment //test'
           AND NOT (("posthog_person"."properties" -> 'nested_prop --random #comment //test') = 'null'::jsonb)) AS "flag_X_condition_3"
-  FROM "posthog_person"
-  INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
-  WHERE ("posthog_persondistinctid"."distinct_id" = '307'
-         AND "posthog_persondistinctid"."team_id" = 2
-         AND "posthog_person"."team_id" = 2)
-  '''
-# ---
-# name: TestFeatureFlagMatcher.test_with_sql_injection_properties_and_other_aliases.4
-  '''
-  SELECT (((("posthog_person"."properties" -> 'number space') > '"100"'
-            AND JSONB_TYPEOF(("posthog_person"."properties" -> 'number space')) = ('string'))
-           OR (("posthog_person"."properties" -> 'number space') > '100.0'
-               AND JSONB_TYPEOF(("posthog_person"."properties" -> 'number space')) = ('number')))
-          AND "posthog_person"."properties" ? 'number space'
-          AND NOT (("posthog_person"."properties" -> 'number space') = 'null')
-          AND ((JSONB_TYPEOF(("posthog_person"."properties" -> ';''" SELECT 1; DROP TABLE posthog_featureflag;')) = ('string')
-                AND ("posthog_person"."properties" -> ';''" SELECT 1; DROP TABLE posthog_featureflag;') > '"100"')
-               OR (JSONB_TYPEOF(("posthog_person"."properties" -> ';''" SELECT 1; DROP TABLE posthog_featureflag;')) = ('number')
-                   AND ("posthog_person"."properties" -> ';''" SELECT 1; DROP TABLE posthog_featureflag;') > '100.0'))
-          AND "posthog_person"."properties" ? ';''" SELECT 1; DROP TABLE posthog_featureflag;'
-          AND NOT (("posthog_person"."properties" -> ';''" SELECT 1; DROP TABLE posthog_featureflag;') = 'null')) AS "flag_X_condition_0",
-         (((JSONB_TYPEOF(("posthog_person"."properties" -> ';''" SELECT 1; DROP TABLE posthog_featureflag;')) = ('string')
-            AND ("posthog_person"."properties" -> ';''" SELECT 1; DROP TABLE posthog_featureflag;') > '"100"')
-           OR (JSONB_TYPEOF(("posthog_person"."properties" -> ';''" SELECT 1; DROP TABLE posthog_featureflag;')) = ('number')
-               AND ("posthog_person"."properties" -> ';''" SELECT 1; DROP TABLE posthog_featureflag;') > '100.0'))
-          AND "posthog_person"."properties" ? ';''" SELECT 1; DROP TABLE posthog_featureflag;'
-          AND NOT (("posthog_person"."properties" -> ';''" SELECT 1; DROP TABLE posthog_featureflag;') = 'null')) AS "flag_X_condition_1",
-         (((("posthog_person"."properties" -> 'version!!!') > '"1.05"'
-            AND JSONB_TYPEOF(("posthog_person"."properties" -> 'version!!!')) = ('string'))
-           OR (("posthog_person"."properties" -> 'version!!!') > '1.05'
-               AND JSONB_TYPEOF(("posthog_person"."properties" -> 'version!!!')) = ('number')))
-          AND "posthog_person"."properties" ? 'version!!!'
-          AND NOT (("posthog_person"."properties" -> 'version!!!') = 'null')) AS "flag_X_condition_2",
-         ((("posthog_person"."properties" -> 'nested_prop --random #comment //test') = '"21"'
-           OR ("posthog_person"."properties" -> 'nested_prop --random #comment //test') = '21')
-          AND "posthog_person"."properties" ? 'nested_prop --random #comment //test'
-          AND NOT (("posthog_person"."properties" -> 'nested_prop --random #comment //test') = 'null')) AS "flag_X_condition_3"
   FROM "posthog_person"
   INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
   WHERE ("posthog_persondistinctid"."distinct_id" = '307'

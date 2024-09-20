@@ -5,7 +5,6 @@ import { DateTime } from 'luxon'
 import { Counter, Summary } from 'prom-client'
 
 import {
-    ClickHouseTimestamp,
     Element,
     GroupTypeIndex,
     Hub,
@@ -24,10 +23,10 @@ import { KafkaProducerWrapper } from '../../utils/db/kafka-producer-wrapper'
 import { safeClickhouseString, sanitizeEventName, timeoutGuard } from '../../utils/db/utils'
 import { status } from '../../utils/status'
 import { castTimestampOrNow } from '../../utils/utils'
-import { GroupTypeManager } from './group-type-manager'
+import { GroupTypeManager, MAX_GROUP_TYPES_PER_TEAM } from './group-type-manager'
 import { addGroupProperties } from './groups'
 import { upsertGroup } from './properties-updater'
-import { PropertyDefinitionsManager } from './property-definitions-manager'
+import { GroupAndFirstEventManager } from './property-definitions-manager'
 import { TeamManager } from './team-manager'
 import { captureIngestionWarning } from './utils'
 
@@ -50,7 +49,7 @@ export class EventsProcessor {
     kafkaProducer: KafkaProducerWrapper
     teamManager: TeamManager
     groupTypeManager: GroupTypeManager
-    propertyDefinitionsManager: PropertyDefinitionsManager
+    groupAndFirstEventManager: GroupAndFirstEventManager
 
     constructor(pluginsServer: Hub) {
         this.pluginsServer = pluginsServer
@@ -58,12 +57,11 @@ export class EventsProcessor {
         this.clickhouse = pluginsServer.clickhouse
         this.kafkaProducer = pluginsServer.kafkaProducer
         this.teamManager = pluginsServer.teamManager
-        this.groupTypeManager = new GroupTypeManager(pluginsServer.db, this.teamManager, pluginsServer.SITE_URL)
-        this.propertyDefinitionsManager = new PropertyDefinitionsManager(
+        this.groupTypeManager = new GroupTypeManager(pluginsServer.postgres, this.teamManager, pluginsServer.SITE_URL)
+        this.groupAndFirstEventManager = new GroupAndFirstEventManager(
             this.teamManager,
             this.groupTypeManager,
-            pluginsServer.db,
-            pluginsServer
+            pluginsServer.db
         )
     }
 
@@ -157,7 +155,7 @@ export class EventsProcessor {
 
         if (this.pluginsServer.SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP === false) {
             try {
-                await this.propertyDefinitionsManager.updateEventNamesAndProperties(team.id, event, properties)
+                await this.groupAndFirstEventManager.updateGroupsAndFirstEvent(team.id, event, properties)
             } catch (err) {
                 Sentry.captureException(err, { tags: { team_id: team.id } })
                 status.warn('⚠️', 'Failed to update property definitions for an event', {
@@ -189,7 +187,7 @@ export class EventsProcessor {
 
     getGroupIdentifiers(properties: Properties): GroupId[] {
         const res: GroupId[] = []
-        for (let groupTypeIndex = 0; groupTypeIndex < this.db.MAX_GROUP_TYPES_PER_TEAM; ++groupTypeIndex) {
+        for (let groupTypeIndex = 0; groupTypeIndex < MAX_GROUP_TYPES_PER_TEAM; ++groupTypeIndex) {
             const key = `$group_${groupTypeIndex}`
             if (key in properties) {
                 res.push([groupTypeIndex as GroupTypeIndex, properties[key]])
@@ -198,11 +196,11 @@ export class EventsProcessor {
         return res
     }
 
-    async createEvent(
+    createEvent(
         preIngestionEvent: PreIngestionEvent,
         person: Person,
         processPerson: boolean
-    ): Promise<[RawClickHouseEvent, Promise<void>]> {
+    ): [RawClickHouseEvent, Promise<void>] {
         const { eventUuid: uuid, event, teamId, distinctId, properties, timestamp } = preIngestionEvent
 
         let elementsChain = ''
@@ -218,11 +216,8 @@ export class EventsProcessor {
             })
         }
 
-        let groupsColumns: Record<string, string | ClickHouseTimestamp> = {}
         let eventPersonProperties = '{}'
         if (processPerson) {
-            const groupIdentifiers = this.getGroupIdentifiers(properties)
-            groupsColumns = await this.db.getGroupsColumns(teamId, groupIdentifiers)
             eventPersonProperties = JSON.stringify({
                 ...person.properties,
                 // For consistency, we'd like events to contain the properties that they set, even if those were changed
@@ -232,13 +227,11 @@ export class EventsProcessor {
         } else {
             // TODO: Move this into `normalizeEventStep` where it belongs, but the code structure
             // and tests demand this for now.
-            for (let groupTypeIndex = 0; groupTypeIndex < this.db.MAX_GROUP_TYPES_PER_TEAM; ++groupTypeIndex) {
+            for (let groupTypeIndex = 0; groupTypeIndex < MAX_GROUP_TYPES_PER_TEAM; ++groupTypeIndex) {
                 const key = `$group_${groupTypeIndex}`
                 delete properties[key]
             }
         }
-
-        // TODO: Remove Redis caching for person that's not used anymore
 
         let personMode: PersonMode = 'full'
         if (person.force_upgrade) {
@@ -260,7 +253,6 @@ export class EventsProcessor {
             person_properties: eventPersonProperties,
             person_created_at: castTimestampOrNow(person.created_at, TimestampFormat.ClickHouseSecondPrecision),
             person_mode: personMode,
-            ...groupsColumns,
         }
 
         const ack = this.kafkaProducer

@@ -1,6 +1,6 @@
 import { InitiatorType } from 'posthog-js'
-import { calculatePerformanceParts } from 'scenes/session-recordings/player/inspector/components/Timing/NetworkRequestTiming'
-import { mapRRWebNetworkRequest } from 'scenes/session-recordings/player/inspector/performance-event-utils'
+import { mapRRWebNetworkRequest } from 'scenes/session-recordings/apm/performance-event-utils'
+import { calculatePerformanceParts } from 'scenes/session-recordings/apm/waterfall/TimingBar'
 
 import { PerformanceEvent } from '~/types'
 
@@ -12,7 +12,7 @@ jest.mock('lib/colors', () => {
 
 describe('calculatePerformanceParts', () => {
     it('can calculate TTFB', () => {
-        const perfEvent = {
+        const perfEvent: PerformanceEvent = {
             connect_end: 9525.599999964237,
             connect_start: 9525.599999964237,
             decoded_body_size: 18260,

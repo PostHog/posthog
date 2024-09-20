@@ -7,12 +7,14 @@ from django.conf import settings
 from django.contrib.auth import authenticate, login
 from django.contrib.auth import views as auth_views
 from django.contrib.auth.password_validation import validate_password
+from django.contrib.auth.signals import user_logged_in
 from django.contrib.auth.tokens import (
     PasswordResetTokenGenerator as DefaultPasswordResetTokenGenerator,
 )
 from django.core.exceptions import ValidationError
 from django.core.signing import BadSignature
 from django.db import transaction
+from django.dispatch import receiver
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import redirect
 from django.views.decorators.csrf import csrf_protect
@@ -31,13 +33,22 @@ from two_factor.views.utils import (
     validate_remember_device_cookie,
 )
 
-from posthog.api.email_verification import EmailVerifier
+from posthog.api.email_verification import EmailVerifier, is_email_verification_disabled
 from posthog.email import is_email_available
 from posthog.event_usage import report_user_logged_in, report_user_password_reset
 from posthog.models import OrganizationDomain, User
 from posthog.rate_limit import UserPasswordResetThrottle
 from posthog.tasks.email import send_password_reset
 from posthog.utils import get_instance_available_sso_providers
+
+
+@receiver(user_logged_in)
+def post_login(sender, user, request: HttpRequest, **kwargs):
+    """
+    This is the most reliable way of setting this value as it will be called regardless of where the login occurs
+    including tests.
+    """
+    request.session[settings.SESSION_COOKIE_CREATED_AT_KEY] = time.time()
 
 
 @csrf_protect
@@ -136,7 +147,7 @@ class LoginSerializer(serializers.Serializer):
             raise serializers.ValidationError("Invalid email or password.", code="invalid_credentials")
 
         # We still let them log in if is_email_verified is null so existing users don't get locked out
-        if is_email_available() and user.is_email_verified is not True:
+        if is_email_available() and user.is_email_verified is not True and not is_email_verification_disabled(user):
             EmailVerifier.create_token_and_send_email_verification(user)
             # If it's None, we want to let them log in still since they are an existing user
             # If it's False, we want to tell them to check their email
@@ -152,6 +163,7 @@ class LoginSerializer(serializers.Serializer):
             raise TwoFactorRequired()
 
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
+
         report_user_logged_in(user, social_provider="")
         return user
 
@@ -278,7 +290,7 @@ class PasswordResetSerializer(serializers.Serializer):
             user = None
 
         if user:
-            user.requested_password_reset_at = datetime.datetime.now(datetime.timezone.utc)
+            user.requested_password_reset_at = datetime.datetime.now(datetime.UTC)
             user.save()
             token = password_reset_token_generator.make_token(user)
             send_password_reset(user.id, token)
@@ -326,11 +338,7 @@ class PasswordResetCompleteSerializer(serializers.Serializer):
         user.requested_password_reset_at = None
         user.save()
 
-        login(
-            self.context["request"],
-            user,
-            backend="django.contrib.auth.backends.ModelBackend",
-        )
+        login(self.context["request"], user, backend="django.contrib.auth.backends.ModelBackend")
         report_user_password_reset(user)
         return True
 

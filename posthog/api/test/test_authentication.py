@@ -2,6 +2,7 @@ import datetime
 import uuid
 from unittest.mock import ANY, patch
 
+from django.conf import settings
 from django.core import mail
 from django.core.cache import cache
 from django.utils import timezone
@@ -15,10 +16,13 @@ from two_factor.utils import totp_digits
 from posthog.api.authentication import password_reset_token_generator
 from posthog.models import User
 from posthog.models.instance_setting import set_instance_setting
+from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal
 from posthog.test.base import APIBaseTest
+
+VALID_TEST_PASSWORD = "mighty-strong-secure-1337!!"
 
 
 def totp_str(key):
@@ -112,6 +116,28 @@ class TestLoginAPI(APIBaseTest):
 
         # Assert the email was sent.
         mock_send_email_verification.assert_called_once_with(self.user)
+
+    @patch("posthog.api.authentication.is_email_available", return_value=True)
+    @patch("posthog.api.authentication.EmailVerifier.create_token_and_send_email_verification")
+    @patch("posthog.api.authentication.is_email_verification_disabled", return_value=True)
+    def test_email_unverified_user_can_log_in_if_email_available_but_verification_disabled_flag_is_true(
+        self, mock_is_verification_disabled, mock_send_email_verification, mock_is_email_available
+    ):
+        self.user.is_email_verified = False
+        self.user.save()
+        self.assertEqual(self.user.is_email_verified, False)
+        response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"success": True})
+
+        # Test that we're actually logged in
+        response = self.client.get("/api/users/@me/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["email"], self.user.email)
+
+        mock_is_verification_disabled.assert_called_once()
+        mock_is_email_available.assert_called_once()
+        mock_send_email_verification.assert_not_called()
 
     @patch("posthog.api.authentication.is_email_available", return_value=True)
     @patch("posthog.api.authentication.EmailVerifier.create_token_and_send_email_verification")
@@ -509,7 +535,7 @@ class TestPasswordResetAPI(APIBaseTest):
         self.user.requested_password_reset_at = datetime.datetime.now()
         self.user.save()
         token = password_reset_token_generator.make_token(self.user)
-        response = self.client.post(f"/api/reset/{self.user.uuid}/", {"token": token, "password": "00112233"})
+        response = self.client.post(f"/api/reset/{self.user.uuid}/", {"token": token, "password": VALID_TEST_PASSWORD})
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         self.assertEqual(response.content.decode(), "")
 
@@ -520,7 +546,7 @@ class TestPasswordResetAPI(APIBaseTest):
 
         # check password was changed
         self.user.refresh_from_db()
-        self.assertTrue(self.user.check_password("00112233"))
+        self.assertTrue(self.user.check_password(VALID_TEST_PASSWORD))
         self.assertFalse(self.user.check_password(self.CONFIG_PASSWORD))  # type: ignore
         self.assertEqual(self.user.requested_password_reset_at, None)
 
@@ -530,7 +556,7 @@ class TestPasswordResetAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
         # new password can be used immediately
-        response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": "00112233"})
+        response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": VALID_TEST_PASSWORD})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         # assert events were captured
@@ -805,3 +831,30 @@ class TestPersonalAPIKeyAuthentication(APIBaseTest):
 
             model_key = PersonalAPIKey.objects.get(secure_value=hash_key_value(personal_api_key))
             self.assertEqual(str(model_key.last_used_at), "2021-08-25 21:09:14+00:00")
+
+
+class TestTimeSensitivePermissions(APIBaseTest):
+    def test_after_timeout_modifications_require_reauthentication(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        now = datetime.datetime.now()
+        with freeze_time(now):
+            res = self.client.patch("/api/organizations/@current", {"name": "new name"})
+            assert res.status_code == 200
+
+        with freeze_time(now + datetime.timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE - 100)):
+            res = self.client.patch("/api/organizations/@current", {"name": "new name"})
+            assert res.status_code == 200
+
+        with freeze_time(now + datetime.timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE + 10)):
+            res = self.client.patch("/api/organizations/@current", {"name": "new name"})
+            assert res.status_code == 403
+            assert res.json() == {
+                "type": "authentication_error",
+                "code": "permission_denied",
+                "detail": "This action requires you to be recently authenticated.",
+                "attr": None,
+            }
+
+            res = self.client.get("/api/organizations/@current")
+            assert res.status_code == 200

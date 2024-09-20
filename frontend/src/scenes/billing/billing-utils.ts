@@ -1,6 +1,6 @@
 import { dayjs } from 'lib/dayjs'
 
-import { BillingProductV2Type, BillingV2TierType, BillingV2Type } from '~/types'
+import { BillingProductV2Type, BillingTierType, BillingType } from '~/types'
 
 export const summarizeUsage = (usage: number | null): string => {
     if (usage === null) {
@@ -13,10 +13,7 @@ export const summarizeUsage = (usage: number | null): string => {
     return `${Math.round(usage / 1000000)} million`
 }
 
-export const projectUsage = (
-    usage: number | undefined,
-    period: BillingV2Type['billing_period']
-): number | undefined => {
+export const projectUsage = (usage: number | undefined, period: BillingType['billing_period']): number | undefined => {
     if (typeof usage === 'undefined') {
         return usage
     }
@@ -37,7 +34,7 @@ export const projectUsage = (
 
 export const convertUsageToAmount = (
     usage: number,
-    productAndAddonTiers: BillingV2TierType[][],
+    productAndAddonTiers: BillingTierType[][],
     percentDiscount?: number
 ): string => {
     if (!productAndAddonTiers) {
@@ -45,7 +42,7 @@ export const convertUsageToAmount = (
     }
     let remainingUsage = usage
     let amount = 0
-    let previousTier: BillingV2TierType | undefined = undefined
+    let previousTier: BillingTierType | undefined = undefined
 
     const tiers = productAndAddonTiers[0].map((tier, index) => {
         const allAddonsTiers = productAndAddonTiers.slice(1)
@@ -89,13 +86,13 @@ export const convertUsageToAmount = (
 
 export const convertAmountToUsage = (
     amount: string,
-    productAndAddonTiers: BillingV2TierType[][],
+    productAndAddonTiers: BillingTierType[][],
     discountPercent?: number
 ): number => {
     if (!amount) {
         return 0
     }
-    if (!productAndAddonTiers) {
+    if (!productAndAddonTiers || productAndAddonTiers.length === 0) {
         return 0
     }
 
@@ -116,7 +113,7 @@ export const convertAmountToUsage = (
 
     let remainingAmount = parseFloat(amount)
     let usage = 0
-    let previousTier: BillingV2TierType | undefined = undefined
+    let previousTier: BillingTierType | undefined = undefined
 
     if (remainingAmount === 0) {
         if (parseFloat(tiers[0].unit_amount_usd) === 0) {
@@ -158,14 +155,22 @@ export const convertAmountToUsage = (
     return Math.round(usage)
 }
 
-export const getUpgradeProductLink = (
-    product: BillingProductV2Type,
-    upgradeToPlanKey: string,
-    redirectPath?: string,
-    includeAddons: boolean = true
-): string => {
-    let url = '/api/billing-v2/activation?products='
-    url += `${product.type}:${upgradeToPlanKey},`
+export const getUpgradeProductLink = ({
+    product,
+    redirectPath,
+    includeAddons = true,
+}: {
+    product: BillingProductV2Type
+    redirectPath?: string
+    includeAddons: boolean
+}): string => {
+    let url = '/api/billing/activate?'
+    if (redirectPath) {
+        url += `redirect_path=${redirectPath}&`
+    }
+
+    url += `products=all_products:&intent_product=${product.type},`
+
     if (includeAddons && product.addons?.length) {
         for (const addon of product.addons) {
             if (
@@ -179,9 +184,6 @@ export const getUpgradeProductLink = (
     }
     // remove the trailing comma that will be at the end of the url
     url = url.slice(0, -1)
-    if (redirectPath) {
-        url += `&redirect_path=${redirectPath}`
-    }
     return url
 }
 
@@ -221,4 +223,37 @@ export const convertLargeNumberToWords = (
     ).toFixed(0)}${denominator === 1000000 ? ' million' : denominator === 1000 ? 'k' : ''}${
         !previousNum && multipleTiers ? ` ${productType}s/mo` : ''
     }`
+}
+
+export const getProration = ({
+    timeRemainingInSeconds,
+    timeTotalInSeconds,
+    amountUsd,
+    hasActiveSubscription,
+}: {
+    timeRemainingInSeconds: number
+    timeTotalInSeconds: number
+    amountUsd?: string | null
+    hasActiveSubscription?: boolean
+}): {
+    isProrated: boolean
+    prorationAmount: string
+} => {
+    if (timeTotalInSeconds === 0) {
+        return {
+            isProrated: false,
+            prorationAmount: '0.00',
+        }
+    }
+
+    const prorationAmount = amountUsd ? parseInt(amountUsd) * (timeRemainingInSeconds / timeTotalInSeconds) : 0
+
+    return {
+        isProrated: hasActiveSubscription && amountUsd ? prorationAmount !== parseInt(amountUsd || '') : false,
+        prorationAmount: prorationAmount.toFixed(2),
+    }
+}
+
+export const getProrationMessage = (prorationAmount: string, unitAmountUsd: string | null): string => {
+    return `Pay ~$${prorationAmount} today (prorated) and $${parseInt(unitAmountUsd || '0')} every month thereafter.`
 }

@@ -13,6 +13,9 @@ export const UNUSED_ICONS = [
     'IconThumbsDown',
     'IconThumbsDownFilled',
     'IconShieldLock',
+    'IconHandwave',
+    'IconMapPin',
+    'IconWrench',
 ]
 
 export const OBJECTS = {
@@ -32,6 +35,7 @@ export const OBJECTS = {
         'IconConfetti',
         'IconPresent',
         'IconMagicWand',
+        'IconAI',
         'IconMagic',
         'IconHelmet',
         'IconSpotlight',
@@ -47,12 +51,13 @@ export const OBJECTS = {
         'IconGear',
         'IconGearFilled',
         'IconStack',
+        'IconSparkles',
     ],
     People: ['IconPeople', 'IconPeopleFilled', 'IconPerson', 'IconProfile', 'IconUser', 'IconGroups'],
     'Business & Finance': ['IconStore', 'IconCart', 'IconReceipt', 'IconPiggyBank', 'IconHandMoney'],
     Time: ['IconHourglass', 'IconCalendar', 'IconClock'],
     Nature: ['IconDay', 'IconNight', 'IconGlobe', 'IconCloud', 'IconBug'],
-    Text: ['IconDocument', 'IconBrackets', 'IconTextWidth', 'IconQuote', 'IconLetter', 'IconNewspaper'],
+    Text: ['IconDocument', 'IconBrackets', 'IconTextWidth', 'IconQuote', 'IconLetter', 'IconNewspaper', 'IconAIText'],
 }
 
 export const TECHNOLOGY = {

@@ -52,7 +52,7 @@ export function timeoutGuard(
 }
 
 // when changing this set, be sure to update the frontend as well (taxonomy.tsx (eventToPersonProperties))
-const eventToPersonProperties = new Set([
+export const eventToPersonProperties = new Set([
     // mobile params
     '$app_build',
     '$app_name',
@@ -65,6 +65,7 @@ const eventToPersonProperties = new Set([
     '$current_url',
     '$pathname',
     '$os',
+    '$os_name', // $os_name is a special case, it's treated as an alias of $os!
     '$os_version',
     '$referring_domain',
     '$referrer',
@@ -88,7 +89,11 @@ const eventToPersonProperties = new Set([
     'mc_cid', // mailchimp campaign id
     'igshid', // instagram
     'ttclid', // tiktok
+    'rdt_cid', // reddit
 ])
+export const initialEventToPersonProperties = new Set(
+    Array.from(eventToPersonProperties, (key) => `$initial_${key.replace('$', '')}`)
+)
 
 /** If we get new UTM params, make sure we set those  **/
 export function personInitialAndUTMProperties(properties: Properties): Properties {
@@ -113,6 +118,18 @@ export function personInitialAndUTMProperties(properties: Properties): Propertie
     if (maybeSetOnce.length > 0) {
         propertiesCopy.$set_once = { ...Object.fromEntries(maybeSetOnce), ...(properties.$set_once || {}) }
     }
+
+    if (propertiesCopy.$os_name) {
+        // For the purposes of $initial properties, $os_name is treated as a fallback alias of $os, starting August 2024
+        // It's as special case due to _some_ SDKs using $os_name: https://github.com/PostHog/posthog-js-lite/issues/244
+        propertiesCopy.$os ??= propertiesCopy.$os_name
+        propertiesCopy.$set.$os ??= propertiesCopy.$os_name
+        propertiesCopy.$set_once.$initial_os ??= propertiesCopy.$os_name
+        // Make sure $os_name is not used in $set/$set_once, as that hasn't been a thing before
+        delete propertiesCopy.$set.$os_name
+        delete propertiesCopy.$set_once.$initial_os_name
+    }
+
     return propertiesCopy
 }
 

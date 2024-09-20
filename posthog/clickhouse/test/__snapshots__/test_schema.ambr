@@ -35,6 +35,24 @@
   
   '''
 # ---
+# name: test_create_kafka_table_with_different_kafka_host[kafka_app_metrics2]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS kafka_app_metrics2 ON CLUSTER 'posthog'
+  (
+      team_id Int64,
+      timestamp DateTime64(6, 'UTC'),
+      app_source LowCardinality(String),
+      app_source_id String,
+      instance_id String,
+      metric_kind String,
+      metric_name String,
+      count Int64
+  )
+  ENGINE=Kafka('test.kafka.broker:9092', 'clickhouse_app_metrics2_test', 'group1', 'JSONEachRow')
+  
+  '''
+# ---
 # name: test_create_kafka_table_with_different_kafka_host[kafka_app_metrics]
   '''
   
@@ -416,6 +434,55 @@
   
   '''
 # ---
+# name: test_create_table_query[app_metrics2]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS app_metrics2 ON CLUSTER 'posthog'
+  (
+      team_id Int64,
+      timestamp DateTime64(6, 'UTC'),
+      -- The name of the service or product that generated the metrics.
+      -- Examples: plugins, hog
+      app_source LowCardinality(String),
+      -- An id for the app source.
+      -- Set app_source to avoid collision with ids from other app sources if the id generation is not safe.
+      -- Examples: A plugin id, a hog application id
+      app_source_id String,
+      -- A secondary id e.g. for the instance of app_source that generated this metric.
+      -- This may be ommitted if app_source is a singleton.
+      -- Examples: A plugin config id, a hog application config id
+      instance_id String,
+      metric_kind LowCardinality(String),
+      metric_name LowCardinality(String),
+      count SimpleAggregateFunction(sum, Int64)
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  , _partition UInt64
+  
+  )
+  ENGINE=Distributed('posthog', 'posthog_test', 'sharded_app_metrics2', rand())
+  
+  '''
+# ---
+# name: test_create_table_query[app_metrics2_mv]
+  '''
+  
+  CREATE MATERIALIZED VIEW IF NOT EXISTS app_metrics2_mv ON CLUSTER 'posthog'
+  TO posthog_test.sharded_app_metrics2
+  AS SELECT
+  team_id,
+  timestamp,
+  app_source,
+  app_source_id,
+  instance_id,
+  metric_kind,
+  metric_name,
+  count
+  FROM posthog_test.kafka_app_metrics2
+  
+  '''
+# ---
 # name: test_create_table_query[app_metrics]
   '''
   
@@ -528,6 +595,11 @@
       , $group_4 VARCHAR COMMENT 'column_materializer::$group_4'
       , $window_id VARCHAR COMMENT 'column_materializer::$window_id'
       , $session_id VARCHAR COMMENT 'column_materializer::$session_id'
+      , elements_chain_href String COMMENT 'column_materializer::elements_chain::href'
+      , elements_chain_texts Array(String) COMMENT 'column_materializer::elements_chain::texts'
+      , elements_chain_ids Array(String) COMMENT 'column_materializer::elements_chain::ids'
+      , elements_chain_elements Array(Enum('a', 'button', 'form', 'input', 'select', 'textarea', 'label')) COMMENT 'column_materializer::elements_chain::elements'
+      , properties_group_custom Map(String, String), properties_group_feature_flags Map(String, String)
   
       
   , _timestamp DateTime
@@ -764,6 +836,24 @@
   _offset,
   _partition
   FROM posthog_test.kafka_ingestion_warnings
+  
+  '''
+# ---
+# name: test_create_table_query[kafka_app_metrics2]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS kafka_app_metrics2 ON CLUSTER 'posthog'
+  (
+      team_id Int64,
+      timestamp DateTime64(6, 'UTC'),
+      app_source LowCardinality(String),
+      app_source_id String,
+      instance_id String,
+      metric_kind String,
+      metric_name String,
+      count Int64
+  )
+  ENGINE=Kafka('kafka:9092', 'clickhouse_app_metrics2_test', 'group1', 'JSONEachRow')
   
   '''
 # ---
@@ -1597,6 +1687,176 @@
   
   '''
 # ---
+# name: test_create_table_query[raw_sessions]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS raw_sessions ON CLUSTER 'posthog'
+  (
+      team_id Int64,
+      session_id_v7 UInt128, -- integer representation of a uuidv7
+  
+      -- ClickHouse will pick the latest value of distinct_id for the session
+      -- this is fine since even if the distinct_id changes during a session
+      distinct_id AggregateFunction(argMax, String, DateTime64(6, 'UTC')),
+  
+      min_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
+      max_timestamp SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
+  
+      -- urls
+      urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
+      entry_url AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      end_url AggregateFunction(argMax, String, DateTime64(6, 'UTC')),
+      last_external_click_url AggregateFunction(argMax, String, DateTime64(6, 'UTC')),
+  
+      -- device
+      initial_browser AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_browser_version AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_os AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_os_version AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_device_type AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_viewport_width AggregateFunction(argMin, Int64, DateTime64(6, 'UTC')),
+      initial_viewport_height AggregateFunction(argMin, Int64, DateTime64(6, 'UTC')),
+  
+      -- geoip
+      -- only store the properties we actually use, as there's tons, see https://posthog.com/docs/cdp/geoip-enrichment
+      initial_geoip_country_code AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_geoip_subdivision_1_code AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_geoip_subdivision_1_name AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_geoip_subdivision_city_name AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_geoip_time_zone AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+  
+      -- attribution
+      initial_referring_domain AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_utm_source AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_utm_campaign AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_utm_medium AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_utm_term AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_utm_content AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_gclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_gad_source AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_gclsrc AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_dclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_gbraid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_wbraid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_fbclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_msclkid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_twclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_li_fat_id AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_mc_cid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_igshid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_ttclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+  
+      -- Count pageview, autocapture, and screen events for providing totals.
+      -- It's unclear if we can use the counts as they are not idempotent, and we had a bug on EU where events were
+      -- double-counted, so the counts were wrong. To get around this, also keep track of the unique uuids. This will be
+      -- slower and more expensive to store, but will be correct even if events are double-counted, so can be used to
+      -- verify correctness and as a backup. Ideally we will be able to delete the uniq columns in the future when we're
+      -- satisfied that counts are accurate.
+      pageview_count SimpleAggregateFunction(sum, Int64),
+      pageview_uniq AggregateFunction(uniq, Nullable(UUID)),
+      autocapture_count SimpleAggregateFunction(sum, Int64),
+      autocapture_uniq AggregateFunction(uniq, Nullable(UUID)),
+      screen_count SimpleAggregateFunction(sum, Int64),
+      screen_uniq AggregateFunction(uniq, Nullable(UUID)),
+  
+      -- replay
+      maybe_has_session_replay SimpleAggregateFunction(max, Bool), -- will be written False to by the events table mv and True to by the replay table mv
+  
+      -- as a performance optimisation, also keep track of the uniq events for all of these combined, a bounce is a session with <2 of these
+      page_screen_autocapture_uniq_up_to AggregateFunction(uniqUpTo(1), Nullable(UUID)),
+  
+      -- web vitals
+      vitals_lcp AggregateFunction(argMin, Nullable(Float64), DateTime64(6, 'UTC'))
+  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_raw_sessions', cityHash64(session_id_v7))
+  
+  '''
+# ---
+# name: test_create_table_query[raw_sessions_mv]
+  '''
+  
+  CREATE MATERIALIZED VIEW IF NOT EXISTS raw_sessions_mv ON CLUSTER 'posthog'
+  TO posthog_test.writable_raw_sessions
+  AS
+  
+  SELECT
+      team_id,
+      toUInt128(toUUID(`$session_id`)) as session_id_v7,
+  
+      argMaxState(distinct_id, timestamp) as distinct_id,
+  
+      min(timestamp) AS min_timestamp,
+      max(timestamp) AS max_timestamp,
+  
+      -- urls
+      groupUniqArray(nullIf(JSONExtractString(properties, '$current_url'), '')) AS urls,
+      argMinState(JSONExtractString(properties, '$current_url'), timestamp) as entry_url,
+      argMaxState(JSONExtractString(properties, '$current_url'), timestamp) as end_url,
+      argMaxState(JSONExtractString(properties, '$external_click_url'), timestamp) as last_external_click_url,
+  
+      -- device
+      argMinState(JSONExtractString(properties, '$browser'), timestamp) as initial_browser,
+      argMinState(JSONExtractString(properties, '$browser_version'), timestamp) as initial_browser_version,
+      argMinState(JSONExtractString(properties, '$os'), timestamp) as initial_os,
+      argMinState(JSONExtractString(properties, '$os_version'), timestamp) as initial_os_version,
+      argMinState(JSONExtractString(properties, '$device_type'), timestamp) as initial_device_type,
+      argMinState(JSONExtractInt(properties, '$viewport_width'), timestamp) as initial_viewport_width,
+      argMinState(JSONExtractInt(properties, '$viewport_height'), timestamp) as initial_viewport_height,
+  
+      -- geoip
+      argMinState(JSONExtractString(properties, '$geoip_country_code'), timestamp) as initial_geoip_country_code,
+      argMinState(JSONExtractString(properties, '$geoip_subdivision_1_code'), timestamp) as initial_geoip_subdivision_1_code,
+      argMinState(JSONExtractString(properties, '$geoip_subdivision_1_name'), timestamp) as initial_geoip_subdivision_1_name,
+      argMinState(JSONExtractString(properties, '$geoip_subdivision_city_name'), timestamp) as initial_geoip_subdivision_city_name,
+      argMinState(JSONExtractString(properties, '$geoip_time_zone'), timestamp) as initial_geoip_time_zone,
+  
+      -- attribution
+      argMinState(JSONExtractString(properties, '$referring_domain'), timestamp) as initial_referring_domain,
+      argMinState(JSONExtractString(properties, 'utm_source'), timestamp) as initial_utm_source,
+      argMinState(JSONExtractString(properties, 'utm_campaign'), timestamp) as initial_utm_campaign,
+      argMinState(JSONExtractString(properties, 'utm_medium'), timestamp) as initial_utm_medium,
+      argMinState(JSONExtractString(properties, 'utm_term'), timestamp) as initial_utm_term,
+      argMinState(JSONExtractString(properties, 'utm_content'), timestamp) as initial_utm_content,
+      argMinState(JSONExtractString(properties, 'gclid'), timestamp) as initial_gclid,
+      argMinState(JSONExtractString(properties, 'gad_source'), timestamp) as initial_gad_source,
+      argMinState(JSONExtractString(properties, 'gclsrc'), timestamp) as initial_gclsrc,
+      argMinState(JSONExtractString(properties, 'dclid'), timestamp) as initial_dclid,
+      argMinState(JSONExtractString(properties, 'gbraid'), timestamp) as initial_gbraid,
+      argMinState(JSONExtractString(properties, 'wbraid'), timestamp) as initial_wbraid,
+      argMinState(JSONExtractString(properties, 'fbclid'), timestamp) as initial_fbclid,
+      argMinState(JSONExtractString(properties, 'msclkid'), timestamp) as initial_msclkid,
+      argMinState(JSONExtractString(properties, 'twclid'), timestamp) as initial_twclid,
+      argMinState(JSONExtractString(properties, 'li_fat_id'), timestamp) as initial_li_fat_id,
+      argMinState(JSONExtractString(properties, 'mc_cid'), timestamp) as initial_mc_cid,
+      argMinState(JSONExtractString(properties, 'igshid'), timestamp) as initial_igshid,
+      argMinState(JSONExtractString(properties, 'ttclid'), timestamp) as initial_ttclid,
+  
+      -- count
+      sumIf(1, event='$pageview') as pageview_count,
+      uniqState(if(event='$pageview', uuid, NULL)) as pageview_uniq,
+      sumIf(1, event='$autocapture') as autocapture_count,
+      uniqState(if(event='$autocapture', uuid, NULL)) as autocapture_uniq,
+      sumIf(1, event='$screen') as screen_count,
+      uniqState(if(event='$screen', uuid, NULL)) as screen_uniq,
+  
+      -- replay
+      false as maybe_has_session_replay,
+  
+      -- perf
+      uniqUpToState(1)(if(event='$pageview' OR event='$screen' OR event='$autocapture', uuid, NULL)) as page_screen_autocapture_uniq_up_to,
+  
+      -- web vitals
+      argMinState(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$web_vitals_LCP_value'), ''), 'null'), '^"|"$', ''), 'Float64'), timestamp) as vitals_lcp
+  FROM posthog_test.sharded_events
+  WHERE bitAnd(bitShiftRight(toUInt128(accurateCastOrNull(`$session_id`, 'UUID')), 76), 0xF) == 7 -- has a session id and is valid uuidv7)
+  GROUP BY
+      team_id,
+      toStartOfHour(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(session_id_v7, 80)), 1000))),
+      cityHash64(session_id_v7),
+      session_id_v7
+  
+  
+  '''
+# ---
 # name: test_create_table_query[session_recording_events]
   '''
   
@@ -1833,6 +2093,40 @@
   
   '''
 # ---
+# name: test_create_table_query[sharded_app_metrics2]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_app_metrics2 ON CLUSTER 'posthog'
+  (
+      team_id Int64,
+      timestamp DateTime64(6, 'UTC'),
+      -- The name of the service or product that generated the metrics.
+      -- Examples: plugins, hog
+      app_source LowCardinality(String),
+      -- An id for the app source.
+      -- Set app_source to avoid collision with ids from other app sources if the id generation is not safe.
+      -- Examples: A plugin id, a hog application id
+      app_source_id String,
+      -- A secondary id e.g. for the instance of app_source that generated this metric.
+      -- This may be ommitted if app_source is a singleton.
+      -- Examples: A plugin config id, a hog application config id
+      instance_id String,
+      metric_kind LowCardinality(String),
+      metric_name LowCardinality(String),
+      count SimpleAggregateFunction(sum, Int64)
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  , _partition UInt64
+  
+  )
+  ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_app_metrics2', '{replica}')
+  PARTITION BY toYYYYMM(timestamp)
+  ORDER BY (team_id, app_source, app_source_id, instance_id, toStartOfHour(timestamp), metric_kind, metric_name)
+  
+  
+  '''
+# ---
 # name: test_create_table_query[sharded_app_metrics]
   '''
   
@@ -1896,6 +2190,10 @@
       , $group_4 VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$group_4'), '^"|"$', '') COMMENT 'column_materializer::$group_4'
       , $window_id VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$window_id'), '^"|"$', '') COMMENT 'column_materializer::$window_id'
       , $session_id VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$session_id'), '^"|"$', '') COMMENT 'column_materializer::$session_id'
+      , elements_chain_href String MATERIALIZED extract(elements_chain, '(?::|")href="(.*?)"')
+      , elements_chain_texts Array(String) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?::|")text="(.*?)"'))
+      , elements_chain_ids Array(String) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?::|")attr_id="(.*?)"'))
+      , elements_chain_elements Array(Enum('a', 'button', 'form', 'input', 'select', 'textarea', 'label')) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?:^|;)(a|button|form|input|select|textarea|label)(?:\.|$|:)'))
       , INDEX `minmax_$group_0` `$group_0` TYPE minmax GRANULARITY 1
       , INDEX `minmax_$group_1` `$group_1` TYPE minmax GRANULARITY 1
       , INDEX `minmax_$group_2` `$group_2` TYPE minmax GRANULARITY 1
@@ -1903,7 +2201,19 @@
       , INDEX `minmax_$group_4` `$group_4` TYPE minmax GRANULARITY 1
       , INDEX `minmax_$window_id` `$window_id` TYPE minmax GRANULARITY 1
       , INDEX `minmax_$session_id` `$session_id` TYPE minmax GRANULARITY 1
-  
+      ,                 properties_group_custom Map(String, String)
+                  MATERIALIZED mapSort(
+                      mapFilter((key, _) -> key NOT LIKE '$%' AND key NOT IN ('token', 'distinct_id', 'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'gclid', 'gad_source', 'gclsrc', 'dclid', 'gbraid', 'wbraid', 'fbclid', 'msclkid', 'twclid', 'li_fat_id', 'mc_cid', 'igshid', 'ttclid', 'rdt_cid'),
+                      CAST(JSONExtractKeysAndValues(properties, 'String'), 'Map(String, String)'))
+                  )
+                  CODEC(ZSTD(1))
+              , INDEX properties_group_custom_keys_bf mapKeys(properties_group_custom) TYPE bloom_filter, INDEX properties_group_custom_values_bf mapValues(properties_group_custom) TYPE bloom_filter,                 properties_group_feature_flags Map(String, String)
+                  MATERIALIZED mapSort(
+                      mapFilter((key, _) -> key like '$feature/%',
+                      CAST(JSONExtractKeysAndValues(properties, 'String'), 'Map(String, String)'))
+                  )
+                  CODEC(ZSTD(1))
+              , INDEX properties_group_feature_flags_keys_bf mapKeys(properties_group_feature_flags) TYPE bloom_filter, INDEX properties_group_feature_flags_values_bf mapValues(properties_group_feature_flags) TYPE bloom_filter
   
       
   , _timestamp DateTime
@@ -1956,6 +2266,7 @@
       -- we'll almost never query this by session id
       -- so from least to most cardinality that's
       ORDER BY (type, team_id,  toDate(timestamp), current_url, viewport_width)
+      
   -- I am purposefully not setting index granularity
   -- the default is 8192, and we will be loading a lot of data
   -- per query, we tend to copy this 512 around the place but
@@ -2046,6 +2357,99 @@
   ORDER BY (team_id, toDate(timestamp), session_id, pageview_id, timestamp)
   
   
+  
+  '''
+# ---
+# name: test_create_table_query[sharded_raw_sessions]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_raw_sessions ON CLUSTER 'posthog'
+  (
+      team_id Int64,
+      session_id_v7 UInt128, -- integer representation of a uuidv7
+  
+      -- ClickHouse will pick the latest value of distinct_id for the session
+      -- this is fine since even if the distinct_id changes during a session
+      distinct_id AggregateFunction(argMax, String, DateTime64(6, 'UTC')),
+  
+      min_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
+      max_timestamp SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
+  
+      -- urls
+      urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
+      entry_url AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      end_url AggregateFunction(argMax, String, DateTime64(6, 'UTC')),
+      last_external_click_url AggregateFunction(argMax, String, DateTime64(6, 'UTC')),
+  
+      -- device
+      initial_browser AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_browser_version AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_os AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_os_version AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_device_type AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_viewport_width AggregateFunction(argMin, Int64, DateTime64(6, 'UTC')),
+      initial_viewport_height AggregateFunction(argMin, Int64, DateTime64(6, 'UTC')),
+  
+      -- geoip
+      -- only store the properties we actually use, as there's tons, see https://posthog.com/docs/cdp/geoip-enrichment
+      initial_geoip_country_code AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_geoip_subdivision_1_code AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_geoip_subdivision_1_name AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_geoip_subdivision_city_name AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_geoip_time_zone AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+  
+      -- attribution
+      initial_referring_domain AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_utm_source AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_utm_campaign AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_utm_medium AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_utm_term AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_utm_content AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_gclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_gad_source AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_gclsrc AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_dclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_gbraid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_wbraid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_fbclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_msclkid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_twclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_li_fat_id AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_mc_cid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_igshid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_ttclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+  
+      -- Count pageview, autocapture, and screen events for providing totals.
+      -- It's unclear if we can use the counts as they are not idempotent, and we had a bug on EU where events were
+      -- double-counted, so the counts were wrong. To get around this, also keep track of the unique uuids. This will be
+      -- slower and more expensive to store, but will be correct even if events are double-counted, so can be used to
+      -- verify correctness and as a backup. Ideally we will be able to delete the uniq columns in the future when we're
+      -- satisfied that counts are accurate.
+      pageview_count SimpleAggregateFunction(sum, Int64),
+      pageview_uniq AggregateFunction(uniq, Nullable(UUID)),
+      autocapture_count SimpleAggregateFunction(sum, Int64),
+      autocapture_uniq AggregateFunction(uniq, Nullable(UUID)),
+      screen_count SimpleAggregateFunction(sum, Int64),
+      screen_uniq AggregateFunction(uniq, Nullable(UUID)),
+  
+      -- replay
+      maybe_has_session_replay SimpleAggregateFunction(max, Bool), -- will be written False to by the events table mv and True to by the replay table mv
+  
+      -- as a performance optimisation, also keep track of the uniq events for all of these combined, a bounce is a session with <2 of these
+      page_screen_autocapture_uniq_up_to AggregateFunction(uniqUpTo(1), Nullable(UUID)),
+  
+      -- web vitals
+      vitals_lcp AggregateFunction(argMin, Nullable(Float64), DateTime64(6, 'UTC'))
+  ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.raw_sessions', '{replica}')
+  
+  PARTITION BY toYYYYMM(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(session_id_v7, 80)), 1000)))
+  ORDER BY (
+      team_id,
+      toStartOfHour(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(session_id_v7, 80)), 1000))),
+      cityHash64(session_id_v7),
+      session_id_v7
+  )
+  SAMPLE BY cityHash64(session_id_v7)
   
   '''
 # ---
@@ -2258,6 +2662,90 @@
       _offset UInt64,
       _partition UInt64
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_heatmaps', cityHash64(concat(toString(team_id), '-', session_id, '-', toString(toDate(timestamp)))))
+  
+  '''
+# ---
+# name: test_create_table_query[writable_raw_sessions]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS writable_raw_sessions ON CLUSTER 'posthog'
+  (
+      team_id Int64,
+      session_id_v7 UInt128, -- integer representation of a uuidv7
+  
+      -- ClickHouse will pick the latest value of distinct_id for the session
+      -- this is fine since even if the distinct_id changes during a session
+      distinct_id AggregateFunction(argMax, String, DateTime64(6, 'UTC')),
+  
+      min_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
+      max_timestamp SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
+  
+      -- urls
+      urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
+      entry_url AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      end_url AggregateFunction(argMax, String, DateTime64(6, 'UTC')),
+      last_external_click_url AggregateFunction(argMax, String, DateTime64(6, 'UTC')),
+  
+      -- device
+      initial_browser AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_browser_version AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_os AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_os_version AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_device_type AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_viewport_width AggregateFunction(argMin, Int64, DateTime64(6, 'UTC')),
+      initial_viewport_height AggregateFunction(argMin, Int64, DateTime64(6, 'UTC')),
+  
+      -- geoip
+      -- only store the properties we actually use, as there's tons, see https://posthog.com/docs/cdp/geoip-enrichment
+      initial_geoip_country_code AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_geoip_subdivision_1_code AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_geoip_subdivision_1_name AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_geoip_subdivision_city_name AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_geoip_time_zone AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+  
+      -- attribution
+      initial_referring_domain AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_utm_source AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_utm_campaign AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_utm_medium AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_utm_term AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_utm_content AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_gclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_gad_source AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_gclsrc AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_dclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_gbraid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_wbraid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_fbclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_msclkid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_twclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_li_fat_id AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_mc_cid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_igshid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_ttclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+  
+      -- Count pageview, autocapture, and screen events for providing totals.
+      -- It's unclear if we can use the counts as they are not idempotent, and we had a bug on EU where events were
+      -- double-counted, so the counts were wrong. To get around this, also keep track of the unique uuids. This will be
+      -- slower and more expensive to store, but will be correct even if events are double-counted, so can be used to
+      -- verify correctness and as a backup. Ideally we will be able to delete the uniq columns in the future when we're
+      -- satisfied that counts are accurate.
+      pageview_count SimpleAggregateFunction(sum, Int64),
+      pageview_uniq AggregateFunction(uniq, Nullable(UUID)),
+      autocapture_count SimpleAggregateFunction(sum, Int64),
+      autocapture_uniq AggregateFunction(uniq, Nullable(UUID)),
+      screen_count SimpleAggregateFunction(sum, Int64),
+      screen_uniq AggregateFunction(uniq, Nullable(UUID)),
+  
+      -- replay
+      maybe_has_session_replay SimpleAggregateFunction(max, Bool), -- will be written False to by the events table mv and True to by the replay table mv
+  
+      -- as a performance optimisation, also keep track of the uniq events for all of these combined, a bounce is a session with <2 of these
+      page_screen_autocapture_uniq_up_to AggregateFunction(uniqUpTo(1), Nullable(UUID)),
+  
+      -- web vitals
+      vitals_lcp AggregateFunction(argMin, Nullable(Float64), DateTime64(6, 'UTC'))
+  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_raw_sessions', cityHash64(session_id_v7))
   
   '''
 # ---
@@ -2724,6 +3212,40 @@
   
   '''
 # ---
+# name: test_create_table_query_replicated_and_storage[sharded_app_metrics2]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_app_metrics2 ON CLUSTER 'posthog'
+  (
+      team_id Int64,
+      timestamp DateTime64(6, 'UTC'),
+      -- The name of the service or product that generated the metrics.
+      -- Examples: plugins, hog
+      app_source LowCardinality(String),
+      -- An id for the app source.
+      -- Set app_source to avoid collision with ids from other app sources if the id generation is not safe.
+      -- Examples: A plugin id, a hog application id
+      app_source_id String,
+      -- A secondary id e.g. for the instance of app_source that generated this metric.
+      -- This may be ommitted if app_source is a singleton.
+      -- Examples: A plugin config id, a hog application config id
+      instance_id String,
+      metric_kind LowCardinality(String),
+      metric_name LowCardinality(String),
+      count SimpleAggregateFunction(sum, Int64)
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  , _partition UInt64
+  
+  )
+  ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_app_metrics2', '{replica}')
+  PARTITION BY toYYYYMM(timestamp)
+  ORDER BY (team_id, app_source, app_source_id, instance_id, toStartOfHour(timestamp), metric_kind, metric_name)
+  
+  
+  '''
+# ---
 # name: test_create_table_query_replicated_and_storage[sharded_app_metrics]
   '''
   
@@ -2787,6 +3309,10 @@
       , $group_4 VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$group_4'), '^"|"$', '') COMMENT 'column_materializer::$group_4'
       , $window_id VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$window_id'), '^"|"$', '') COMMENT 'column_materializer::$window_id'
       , $session_id VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$session_id'), '^"|"$', '') COMMENT 'column_materializer::$session_id'
+      , elements_chain_href String MATERIALIZED extract(elements_chain, '(?::|")href="(.*?)"')
+      , elements_chain_texts Array(String) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?::|")text="(.*?)"'))
+      , elements_chain_ids Array(String) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?::|")attr_id="(.*?)"'))
+      , elements_chain_elements Array(Enum('a', 'button', 'form', 'input', 'select', 'textarea', 'label')) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?:^|;)(a|button|form|input|select|textarea|label)(?:\.|$|:)'))
       , INDEX `minmax_$group_0` `$group_0` TYPE minmax GRANULARITY 1
       , INDEX `minmax_$group_1` `$group_1` TYPE minmax GRANULARITY 1
       , INDEX `minmax_$group_2` `$group_2` TYPE minmax GRANULARITY 1
@@ -2794,7 +3320,19 @@
       , INDEX `minmax_$group_4` `$group_4` TYPE minmax GRANULARITY 1
       , INDEX `minmax_$window_id` `$window_id` TYPE minmax GRANULARITY 1
       , INDEX `minmax_$session_id` `$session_id` TYPE minmax GRANULARITY 1
-  
+      ,                 properties_group_custom Map(String, String)
+                  MATERIALIZED mapSort(
+                      mapFilter((key, _) -> key NOT LIKE '$%' AND key NOT IN ('token', 'distinct_id', 'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'gclid', 'gad_source', 'gclsrc', 'dclid', 'gbraid', 'wbraid', 'fbclid', 'msclkid', 'twclid', 'li_fat_id', 'mc_cid', 'igshid', 'ttclid', 'rdt_cid'),
+                      CAST(JSONExtractKeysAndValues(properties, 'String'), 'Map(String, String)'))
+                  )
+                  CODEC(ZSTD(1))
+              , INDEX properties_group_custom_keys_bf mapKeys(properties_group_custom) TYPE bloom_filter, INDEX properties_group_custom_values_bf mapValues(properties_group_custom) TYPE bloom_filter,                 properties_group_feature_flags Map(String, String)
+                  MATERIALIZED mapSort(
+                      mapFilter((key, _) -> key like '$feature/%',
+                      CAST(JSONExtractKeysAndValues(properties, 'String'), 'Map(String, String)'))
+                  )
+                  CODEC(ZSTD(1))
+              , INDEX properties_group_feature_flags_keys_bf mapKeys(properties_group_feature_flags) TYPE bloom_filter, INDEX properties_group_feature_flags_values_bf mapValues(properties_group_feature_flags) TYPE bloom_filter
   
       
   , _timestamp DateTime
@@ -2847,6 +3385,7 @@
       -- we'll almost never query this by session id
       -- so from least to most cardinality that's
       ORDER BY (type, team_id,  toDate(timestamp), current_url, viewport_width)
+      
   -- I am purposefully not setting index granularity
   -- the default is 8192, and we will be loading a lot of data
   -- per query, we tend to copy this 512 around the place but
@@ -2937,6 +3476,99 @@
   ORDER BY (team_id, toDate(timestamp), session_id, pageview_id, timestamp)
   
   SETTINGS storage_policy = 'hot_to_cold'
+  
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[sharded_raw_sessions]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_raw_sessions ON CLUSTER 'posthog'
+  (
+      team_id Int64,
+      session_id_v7 UInt128, -- integer representation of a uuidv7
+  
+      -- ClickHouse will pick the latest value of distinct_id for the session
+      -- this is fine since even if the distinct_id changes during a session
+      distinct_id AggregateFunction(argMax, String, DateTime64(6, 'UTC')),
+  
+      min_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
+      max_timestamp SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
+  
+      -- urls
+      urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
+      entry_url AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      end_url AggregateFunction(argMax, String, DateTime64(6, 'UTC')),
+      last_external_click_url AggregateFunction(argMax, String, DateTime64(6, 'UTC')),
+  
+      -- device
+      initial_browser AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_browser_version AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_os AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_os_version AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_device_type AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_viewport_width AggregateFunction(argMin, Int64, DateTime64(6, 'UTC')),
+      initial_viewport_height AggregateFunction(argMin, Int64, DateTime64(6, 'UTC')),
+  
+      -- geoip
+      -- only store the properties we actually use, as there's tons, see https://posthog.com/docs/cdp/geoip-enrichment
+      initial_geoip_country_code AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_geoip_subdivision_1_code AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_geoip_subdivision_1_name AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_geoip_subdivision_city_name AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_geoip_time_zone AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+  
+      -- attribution
+      initial_referring_domain AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_utm_source AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_utm_campaign AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_utm_medium AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_utm_term AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_utm_content AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_gclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_gad_source AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_gclsrc AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_dclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_gbraid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_wbraid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_fbclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_msclkid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_twclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_li_fat_id AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_mc_cid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_igshid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_ttclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+  
+      -- Count pageview, autocapture, and screen events for providing totals.
+      -- It's unclear if we can use the counts as they are not idempotent, and we had a bug on EU where events were
+      -- double-counted, so the counts were wrong. To get around this, also keep track of the unique uuids. This will be
+      -- slower and more expensive to store, but will be correct even if events are double-counted, so can be used to
+      -- verify correctness and as a backup. Ideally we will be able to delete the uniq columns in the future when we're
+      -- satisfied that counts are accurate.
+      pageview_count SimpleAggregateFunction(sum, Int64),
+      pageview_uniq AggregateFunction(uniq, Nullable(UUID)),
+      autocapture_count SimpleAggregateFunction(sum, Int64),
+      autocapture_uniq AggregateFunction(uniq, Nullable(UUID)),
+      screen_count SimpleAggregateFunction(sum, Int64),
+      screen_uniq AggregateFunction(uniq, Nullable(UUID)),
+  
+      -- replay
+      maybe_has_session_replay SimpleAggregateFunction(max, Bool), -- will be written False to by the events table mv and True to by the replay table mv
+  
+      -- as a performance optimisation, also keep track of the uniq events for all of these combined, a bounce is a session with <2 of these
+      page_screen_autocapture_uniq_up_to AggregateFunction(uniqUpTo(1), Nullable(UUID)),
+  
+      -- web vitals
+      vitals_lcp AggregateFunction(argMin, Nullable(Float64), DateTime64(6, 'UTC'))
+  ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.raw_sessions', '{replica}')
+  
+  PARTITION BY toYYYYMM(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(session_id_v7, 80)), 1000)))
+  ORDER BY (
+      team_id,
+      toStartOfHour(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(session_id_v7, 80)), 1000))),
+      cityHash64(session_id_v7),
+      session_id_v7
+  )
+  SAMPLE BY cityHash64(session_id_v7)
   
   '''
 # ---

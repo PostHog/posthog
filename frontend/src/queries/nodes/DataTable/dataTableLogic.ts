@@ -8,14 +8,7 @@ import { objectsEqual, sortedKeys } from 'lib/utils'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { getQueryFeatures, QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
 import { insightVizDataCollectionId } from '~/queries/nodes/InsightViz/InsightViz'
-import {
-    AnyDataNode,
-    DataTableNode,
-    EventsQuery,
-    HogQLExpression,
-    NodeKind,
-    TimeToSeeDataSessionsQuery,
-} from '~/queries/schema'
+import { AnyDataNode, AnyResponseType, DataTableNode, EventsQuery, HogQLExpression, NodeKind } from '~/queries/schema'
 import { QueryContext } from '~/queries/types'
 import { isDataTableNode, isEventsQuery } from '~/queries/utils'
 
@@ -26,7 +19,7 @@ export interface DataTableLogicProps {
     vizKey: string
     dataKey: string
     query: DataTableNode
-    context?: QueryContext
+    context?: QueryContext<DataTableNode>
     // Override the data logic node key if needed
     dataNodeLogicKey?: string
 }
@@ -75,7 +68,18 @@ export const dataTableLogic = kea<dataTableLogicType>([
     })),
     selectors({
         sourceKind: [(_, p) => [p.query], (query): NodeKind | null => query.source?.kind],
-        sourceFeatures: [(_, p) => [p.query], (query): Set<QueryFeature> => getQueryFeatures(query.source)],
+        sourceFeatures: [
+            (_, p) => [p.query, (_, props) => props.context],
+            (query, context): Set<QueryFeature> => {
+                const sourceFeatures = getQueryFeatures(query.source)
+                if (context?.extraDataTableQueryFeatures) {
+                    for (const feature of context.extraDataTableQueryFeatures) {
+                        sourceFeatures.add(feature)
+                    }
+                }
+                return sourceFeatures
+            },
+        ],
         orderBy: [
             (s, p) => [p.query, s.sourceFeatures],
             (query, sourceFeatures): string[] | null =>
@@ -103,14 +107,24 @@ export const dataTableLogic = kea<dataTableLogicType>([
                 columnsInResponse
             ): DataTableRow[] | null => {
                 if (response && sourceKind === NodeKind.EventsQuery) {
-                    const eventsQueryResponse = response as EventsQuery['response'] | null
+                    const eventsQueryResponse = response as AnyResponseType
                     if (eventsQueryResponse) {
                         // must be loading
                         if (!equal(columnsInQuery, columnsInResponse)) {
                             return []
                         }
 
-                        const { results } = eventsQueryResponse
+                        let results: any[] | null = []
+                        if ('results' in eventsQueryResponse) {
+                            results = eventsQueryResponse.results
+                        } else if ('result' in eventsQueryResponse) {
+                            results = eventsQueryResponse.result
+                        }
+
+                        if (!results) {
+                            return []
+                        }
+
                         const orderKey = orderBy?.[0]?.endsWith(' DESC')
                             ? orderBy[0].replace(/ DESC$/, '')
                             : orderBy?.[0]
@@ -142,12 +156,6 @@ export const dataTableLogic = kea<dataTableLogicType>([
                         }
                         return results.map((result) => ({ result }))
                     }
-                }
-
-                if (response && sourceKind === NodeKind.TimeToSeeDataSessionsQuery) {
-                    return (response as NonNullable<TimeToSeeDataSessionsQuery['response']>).results.map((row) => ({
-                        result: row,
-                    }))
                 }
 
                 const results = !response

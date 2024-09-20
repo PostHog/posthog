@@ -3,9 +3,17 @@
   '''
   
   SELECT team_id,
+         multiIf(event LIKE 'helicone%', 'helicone', event LIKE 'langfuse%', 'langfuse', event LIKE 'keywords_ai%', 'keywords_ai', event LIKE 'traceloop%', 'traceloop', 'other') AS integration,
          count(1) as count
   FROM events
-  GROUP BY team_id
+  WHERE timestamp BETWEEN '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
+    AND (event LIKE 'helicone%'
+         OR event LIKE 'langfuse%'
+         OR event LIKE 'keywords_ai%'
+         OR event LIKE 'traceloop%')
+  GROUP BY team_id,
+           integration
+  HAVING integration != 'other'
   '''
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.1
@@ -24,28 +32,36 @@
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.10
   '''
-  
-  SELECT distinct_id as team,
-         sum(JSONExtractInt(properties, 'count')) as sum
-  FROM events
-  WHERE team_id = 2
-    AND event='local evaluation usage'
-    AND timestamp between '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
-    AND has(['correct'], replaceRegexpAll(JSONExtractRaw(properties, 'token'), '^"|"$', ''))
-  GROUP BY team
+  WITH JSONExtractInt(log_comment, 'team_id') as team_id,
+       JSONExtractString(log_comment, 'query_type') as query_type,
+       JSONExtractString(log_comment, 'access_method') as access_method
+  SELECT team_id,
+         sum(read_rows) as count
+  FROM clusterAllReplicas(posthog, system.query_log)
+  WHERE (type = 'QueryFinish'
+         OR type = 'ExceptionWhileProcessing')
+    AND is_initial_query = 1
+    AND query_type IN (['hogql_query', 'HogQLQuery'])
+    AND query_start_time between '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
+    AND access_method = ''
+  GROUP BY team_id
   '''
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.11
   '''
-  
-  SELECT distinct_id as team,
-         sum(JSONExtractInt(properties, 'count')) as sum
-  FROM events
-  WHERE team_id = 2
-    AND event='local evaluation usage'
-    AND timestamp between '2022-01-01 00:00:00' AND '2022-01-10 23:59:59'
-    AND has(['correct'], replaceRegexpAll(JSONExtractRaw(properties, 'token'), '^"|"$', ''))
-  GROUP BY team
+  WITH JSONExtractInt(log_comment, 'team_id') as team_id,
+       JSONExtractString(log_comment, 'query_type') as query_type,
+       JSONExtractString(log_comment, 'access_method') as access_method
+  SELECT team_id,
+         sum(query_duration_ms) as count
+  FROM clusterAllReplicas(posthog, system.query_log)
+  WHERE (type = 'QueryFinish'
+         OR type = 'ExceptionWhileProcessing')
+    AND is_initial_query = 1
+    AND query_type IN (['hogql_query', 'HogQLQuery'])
+    AND query_start_time between '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
+    AND access_method = ''
+  GROUP BY team_id
   '''
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.12
@@ -61,7 +77,7 @@
     AND is_initial_query = 1
     AND query_type IN (['hogql_query', 'HogQLQuery'])
     AND query_start_time between '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
-    AND access_method = ''
+    AND access_method = 'personal_api_key'
   GROUP BY team_id
   '''
 # ---
@@ -78,7 +94,7 @@
     AND is_initial_query = 1
     AND query_type IN (['hogql_query', 'HogQLQuery'])
     AND query_start_time between '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
-    AND access_method = ''
+    AND access_method = 'personal_api_key'
   GROUP BY team_id
   '''
 # ---
@@ -95,7 +111,7 @@
     AND is_initial_query = 1
     AND query_type IN (['hogql_query', 'HogQLQuery'])
     AND query_start_time between '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
-    AND access_method = ''
+    AND access_method = 'personal_api_key'
   GROUP BY team_id
   '''
 # ---
@@ -110,9 +126,9 @@
   WHERE (type = 'QueryFinish'
          OR type = 'ExceptionWhileProcessing')
     AND is_initial_query = 1
-    AND query_type IN (['hogql_query', 'HogQLQuery'])
+    AND query_type IN (['EventsQuery'])
     AND query_start_time between '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
-    AND access_method = 'personal_api_key'
+    AND access_method = ''
   GROUP BY team_id
   '''
 # ---
@@ -127,9 +143,9 @@
   WHERE (type = 'QueryFinish'
          OR type = 'ExceptionWhileProcessing')
     AND is_initial_query = 1
-    AND query_type IN (['hogql_query', 'HogQLQuery'])
+    AND query_type IN (['EventsQuery'])
     AND query_start_time between '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
-    AND access_method = 'personal_api_key'
+    AND access_method = ''
   GROUP BY team_id
   '''
 # ---
@@ -144,9 +160,9 @@
   WHERE (type = 'QueryFinish'
          OR type = 'ExceptionWhileProcessing')
     AND is_initial_query = 1
-    AND query_type IN (['hogql_query', 'HogQLQuery'])
+    AND query_type IN (['EventsQuery'])
     AND query_start_time between '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
-    AND access_method = 'personal_api_key'
+    AND access_method = ''
   GROUP BY team_id
   '''
 # ---
@@ -163,7 +179,7 @@
     AND is_initial_query = 1
     AND query_type IN (['EventsQuery'])
     AND query_start_time between '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
-    AND access_method = ''
+    AND access_method = 'personal_api_key'
   GROUP BY team_id
   '''
 # ---
@@ -180,7 +196,7 @@
     AND is_initial_query = 1
     AND query_type IN (['EventsQuery'])
     AND query_start_time between '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
-    AND access_method = ''
+    AND access_method = 'personal_api_key'
   GROUP BY team_id
   '''
 # ---
@@ -213,62 +229,11 @@
     AND is_initial_query = 1
     AND query_type IN (['EventsQuery'])
     AND query_start_time between '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
-    AND access_method = ''
+    AND access_method = 'personal_api_key'
   GROUP BY team_id
   '''
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.21
-  '''
-  WITH JSONExtractInt(log_comment, 'team_id') as team_id,
-       JSONExtractString(log_comment, 'query_type') as query_type,
-       JSONExtractString(log_comment, 'access_method') as access_method
-  SELECT team_id,
-         sum(read_bytes) as count
-  FROM clusterAllReplicas(posthog, system.query_log)
-  WHERE (type = 'QueryFinish'
-         OR type = 'ExceptionWhileProcessing')
-    AND is_initial_query = 1
-    AND query_type IN (['EventsQuery'])
-    AND query_start_time between '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
-    AND access_method = 'personal_api_key'
-  GROUP BY team_id
-  '''
-# ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.22
-  '''
-  WITH JSONExtractInt(log_comment, 'team_id') as team_id,
-       JSONExtractString(log_comment, 'query_type') as query_type,
-       JSONExtractString(log_comment, 'access_method') as access_method
-  SELECT team_id,
-         sum(read_rows) as count
-  FROM clusterAllReplicas(posthog, system.query_log)
-  WHERE (type = 'QueryFinish'
-         OR type = 'ExceptionWhileProcessing')
-    AND is_initial_query = 1
-    AND query_type IN (['EventsQuery'])
-    AND query_start_time between '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
-    AND access_method = 'personal_api_key'
-  GROUP BY team_id
-  '''
-# ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.23
-  '''
-  WITH JSONExtractInt(log_comment, 'team_id') as team_id,
-       JSONExtractString(log_comment, 'query_type') as query_type,
-       JSONExtractString(log_comment, 'access_method') as access_method
-  SELECT team_id,
-         sum(query_duration_ms) as count
-  FROM clusterAllReplicas(posthog, system.query_log)
-  WHERE (type = 'QueryFinish'
-         OR type = 'ExceptionWhileProcessing')
-    AND is_initial_query = 1
-    AND query_type IN (['EventsQuery'])
-    AND query_start_time between '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
-    AND access_method = 'personal_api_key'
-  GROUP BY team_id
-  '''
-# ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.24
   '''
   
   SELECT team_id,
@@ -279,46 +244,21 @@
   GROUP BY team_id
   '''
 # ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.25
-  '''
-  
-  SELECT team_id,
-         COUNT() as count
-  FROM events
-  WHERE event = 'survey sent'
-    AND timestamp between '2022-01-01 00:00:00' AND '2022-01-10 23:59:59'
-  GROUP BY team_id
-  '''
-# ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.26
-  '''
-  
-  SELECT team,
-         sum(rows_synced)
-  FROM
-    (SELECT JSONExtractString(properties, 'job_id') AS job_id,
-            distinct_id AS team,
-            any(JSONExtractInt(properties, 'count')) AS rows_synced
-     FROM events
-     WHERE team_id = 2
-       AND event = 'external data sync job'
-       AND parseDateTimeBestEffort(JSONExtractString(properties, 'startTime')) BETWEEN '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
-     GROUP BY job_id,
-              team)
-  GROUP BY team
-  '''
-# ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.3
   '''
   
   SELECT team_id,
-         count(1) as count
+         count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
   FROM events
-  WHERE timestamp between '2022-01-01 00:00:00' AND '2022-01-10 23:59:59'
+  WHERE timestamp between '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
     AND event != '$feature_flag_called'
     AND event NOT IN ('survey sent',
                       'survey shown',
                       'survey dismissed')
+    AND person_mode IN ('full',
+                        'force_upgrade')
+    AND JSONExtractBool(properties, '$is_identified') = 0
+    AND JSONExtractString(properties, '$lib') = 'web'
   GROUP BY team_id
   '''
 # ---
@@ -342,15 +282,6 @@
   
   SELECT team_id,
          count(distinct session_id) as count
-  FROM session_replay_events
-  GROUP BY team_id
-  '''
-# ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.6
-  '''
-  
-  SELECT team_id,
-         count(distinct session_id) as count
   FROM
     (SELECT any(team_id) as team_id,
             session_id
@@ -366,7 +297,7 @@
   GROUP BY team_id
   '''
 # ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.7
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.6
   '''
   
   SELECT team_id,
@@ -386,7 +317,7 @@
   GROUP BY team_id
   '''
 # ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.8
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.7
   '''
   
   SELECT distinct_id as team,
@@ -399,16 +330,33 @@
   GROUP BY team
   '''
 # ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.9
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.8
   '''
   
   SELECT distinct_id as team,
          sum(JSONExtractInt(properties, 'count')) as sum
   FROM events
   WHERE team_id = 2
-    AND event='decide usage'
-    AND timestamp between '2022-01-01 00:00:00' AND '2022-01-10 23:59:59'
+    AND event='local evaluation usage'
+    AND timestamp between '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
     AND has(['correct'], replaceRegexpAll(JSONExtractRaw(properties, 'token'), '^"|"$', ''))
   GROUP BY team
+  '''
+# ---
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.9
+  '''
+  WITH JSONExtractInt(log_comment, 'team_id') as team_id,
+       JSONExtractString(log_comment, 'query_type') as query_type,
+       JSONExtractString(log_comment, 'access_method') as access_method
+  SELECT team_id,
+         sum(read_bytes) as count
+  FROM clusterAllReplicas(posthog, system.query_log)
+  WHERE (type = 'QueryFinish'
+         OR type = 'ExceptionWhileProcessing')
+    AND is_initial_query = 1
+    AND query_type IN (['hogql_query', 'HogQLQuery'])
+    AND query_start_time between '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
+    AND access_method = ''
+  GROUP BY team_id
   '''
 # ---

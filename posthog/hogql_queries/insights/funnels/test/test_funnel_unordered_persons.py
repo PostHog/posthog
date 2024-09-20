@@ -39,26 +39,29 @@ class TestFunnelUnorderedStepsPersons(ClickhouseTestMixin, APIBaseTest):
 
         journeys_for(events_by_person, self.team)
 
-    # def test_invalid_steps(self):
-    #     filters = {
-    #         "insight": INSIGHT_FUNNELS,
-    #         "funnel_order_type": "unordered",
-    #         "interval": "day",
-    #         "date_from": "2021-05-01 00:00:00",
-    #         "date_to": "2021-05-07 00:00:00",
-    #         "funnel_window_days": 7,
-    #         "events": [
-    #             {"id": "step one", "order": 0},
-    #             {"id": "step two", "order": 1},
-    #             {"id": "step three", "order": 2},
-    #         ],
-    #     }
+    def test_invalid_steps(self):
+        filters = {
+            "insight": INSIGHT_FUNNELS,
+            "funnel_order_type": "unordered",
+            "interval": "day",
+            "date_from": "2021-05-01 00:00:00",
+            "date_to": "2021-05-07 00:00:00",
+            "funnel_window_days": 7,
+            "events": [
+                {"id": "step one", "order": 0},
+                {"id": "step two", "order": 1},
+                {"id": "step three", "order": 2},
+            ],
+        }
 
-    #     with self.assertRaises(ValueError):
-    #         get_actors(filters, self.team, funnelStep="blah")  # type: ignore
+        with self.assertRaisesMessage(ValueError, "Input should be a valid integer"):
+            get_actors(filters, self.team, funnel_step="blah")  # type: ignore
 
-    #     with pytest.raises(ValueError):
-    #         get_actors(filters, self.team, funnelStep=-1)
+        with self.assertRaisesMessage(ValueError, "Funnel steps are 1-indexed, so step 0 doesn't exist"):
+            get_actors(filters, self.team, funnel_step=0)
+
+        with self.assertRaisesMessage(ValueError, "The first valid drop-off argument for funnelStep is -2"):
+            get_actors(filters, self.team, funnel_step=-1)
 
     def test_first_step(self):
         self._create_sample_data_multiple_dropoffs()
@@ -76,7 +79,7 @@ class TestFunnelUnorderedStepsPersons(ClickhouseTestMixin, APIBaseTest):
             ],
         }
 
-        results = get_actors(filters, self.team, funnelStep=1)
+        results = get_actors(filters, self.team, funnel_step=1)
 
         self.assertEqual(35, len(results))
 
@@ -96,7 +99,7 @@ class TestFunnelUnorderedStepsPersons(ClickhouseTestMixin, APIBaseTest):
             ],
         }
 
-        results = get_actors(filters, self.team, funnelStep=3)
+        results = get_actors(filters, self.team, funnel_step=3)
 
         self.assertEqual(5, len(results))
 
@@ -116,7 +119,7 @@ class TestFunnelUnorderedStepsPersons(ClickhouseTestMixin, APIBaseTest):
             ],
         }
 
-        results = get_actors(filters, self.team, funnelStep=-2)
+        results = get_actors(filters, self.team, funnel_step=-2)
 
         self.assertEqual(20, len(results))
 
@@ -136,7 +139,7 @@ class TestFunnelUnorderedStepsPersons(ClickhouseTestMixin, APIBaseTest):
             ],
         }
 
-        results = get_actors(filters, self.team, funnelStep=-3)
+        results = get_actors(filters, self.team, funnel_step=-3)
 
         self.assertEqual(10, len(results))
 
@@ -185,7 +188,7 @@ class TestFunnelUnorderedStepsPersons(ClickhouseTestMixin, APIBaseTest):
             ],
         }
 
-        results = get_actors(filters, self.team, funnelStep=1, includeRecordings=True)
+        results = get_actors(filters, self.team, funnel_step=1, include_recordings=True)
 
         # self.assertEqual(results[0]["id"], p1.uuid)
         self.assertEqual(results[0][0], p1.uuid)

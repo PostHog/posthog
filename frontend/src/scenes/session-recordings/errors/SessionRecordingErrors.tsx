@@ -3,7 +3,7 @@ import { LemonButton, LemonTable, LemonTabs } from '@posthog/lemon-ui'
 import { captureException } from '@sentry/react'
 import { useActions, useValues } from 'kea'
 import { JSONViewer } from 'lib/components/JSONViewer'
-import { Sparkline } from 'lib/lemon-ui/Sparkline'
+import { Sparkline } from 'lib/components/Sparkline'
 import { useState } from 'react'
 import { urls } from 'scenes/urls'
 
@@ -36,7 +36,7 @@ export function SessionRecordingErrors(): JSX.Element {
                         render: (_, cluster) => {
                             const displayTitle = parseTitle(cluster.sample)
                             return (
-                                <div title={displayTitle} className="font-semibold text-sm text-default line-clamp-1">
+                                <div title={displayTitle} className="font-semibold text-sm text-text-3000 line-clamp-1">
                                     {displayTitle}
                                 </div>
                             )
@@ -48,6 +48,7 @@ export function SessionRecordingErrors(): JSX.Element {
                         render: (_, cluster) => {
                             return (
                                 <Sparkline
+                                    className="h-8"
                                     labels={Object.keys(cluster.sparkline)}
                                     data={Object.values(cluster.sparkline)}
                                 />

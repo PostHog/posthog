@@ -12,13 +12,13 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { getProductIcon } from 'scenes/products/Products'
 import { userLogic } from 'scenes/userLogic'
 
-import { BillingProductV2Type, BillingV2FeatureType, ProductKey } from '~/types'
+import { BillingFeatureType, BillingProductV2Type, ProductKey } from '~/types'
 
 import { onboardingLogic, OnboardingStepKey } from './onboardingLogic'
 import { OnboardingStep } from './OnboardingStep'
 import { multiInstallProducts, sdksLogic } from './sdks/sdksLogic'
 
-export const Feature = ({ name, description, images }: BillingV2FeatureType): JSX.Element => {
+export const Feature = ({ name, description, images }: BillingFeatureType): JSX.Element => {
     return images ? (
         <li className="text-center">
             <div className="mb-2 w-full rounded">
@@ -32,7 +32,7 @@ export const Feature = ({ name, description, images }: BillingV2FeatureType): JS
     )
 }
 
-export const Subfeature = ({ name, description, icon_key }: BillingV2FeatureType): JSX.Element => {
+export const Subfeature = ({ name, description, icon_key }: BillingFeatureType): JSX.Element => {
     return (
         <li className="rounded-lg p-4 sm:p-6 sm:pb-8 bg-primary-alt-highlight">
             <span className="inline-block text-2xl mb-2 opacity-75">{getProductIcon(name, icon_key)}</span>
@@ -49,7 +49,7 @@ const GetStartedButton = ({ product }: { product: BillingProductV2Type }): JSX.E
     const { isFirstProductOnboarding } = useValues(onboardingLogic)
     const { hasSnippetEvents } = useValues(sdksLogic)
     const cta: Partial<Record<ProductKey, string>> = {
-        [ProductKey.SESSION_REPLAY]: 'Start recording my website',
+        [ProductKey.SESSION_REPLAY]: 'Start recording my website or mobile app',
         [ProductKey.FEATURE_FLAGS]: 'Create a feature flag or experiment',
         [ProductKey.SURVEYS]: 'Create a survey',
     }
@@ -183,7 +183,7 @@ const PricingSection = ({ product }: { product: BillingProductV2Type }): JSX.Ele
 }
 
 export function OnboardingProductIntroduction({ stepKey }: { stepKey: OnboardingStepKey }): JSX.Element | null {
-    const { product } = useValues(onboardingLogic)
+    const { billingProduct } = useValues(onboardingLogic)
     const { isCloudOrDev } = useValues(preflightLogic)
     const websiteSlug: Partial<Record<ProductKey, string>> = {
         [ProductKey.SESSION_REPLAY]: 'session-replay',
@@ -195,28 +195,28 @@ export function OnboardingProductIntroduction({ stepKey }: { stepKey: Onboarding
 
     return (
         <OnboardingStep title="Product Intro" stepKey={stepKey} continueOverride={<></>} hideHeader>
-            {product ? (
+            {billingProduct ? (
                 <div className="unsubscribed-product-landing-page -m-6 -mt-8">
                     <header className="bg-primary-alt-highlight border-b border-t border-border flex justify-center p-8">
                         <div className="grid md:grid-cols-2 items-center gap-8 w-full max-w-screen-xl">
                             <div className="">
                                 <h3 className="text-4xl font-bold" data-attr="product-intro-title">
-                                    {product.headline}
+                                    {billingProduct.headline}
                                 </h3>
-                                <p>{product.description}</p>
-                                <GetStartedButton product={product} />
+                                <p>{billingProduct.description}</p>
+                                <GetStartedButton product={billingProduct} />
                             </div>
-                            {product.image_url && (
+                            {billingProduct.image_url && (
                                 <aside className="text-right my-2 hidden md:block">
-                                    <img src={product.image_url || undefined} className="max-w-96" />
+                                    <img src={billingProduct.image_url || undefined} className="max-w-96" />
                                 </aside>
                             )}
                         </div>
                     </header>
-                    {product.screenshot_url && (
+                    {billingProduct.screenshot_url && (
                         <div className="flex justify-center">
                             <div className="max-w-6xl mt-8 -mb-12">
-                                <img src={product.screenshot_url || undefined} className="w-full" />
+                                <img src={billingProduct.screenshot_url || undefined} className="w-full" />
                             </div>
                         </div>
                     )}
@@ -225,11 +225,11 @@ export function OnboardingProductIntroduction({ stepKey }: { stepKey: Onboarding
                         <div className="max-w-screen-xl">
                             <h3 className="mb-6 text-2xl font-bold">Features</h3>
                             <ul className="list-none p-0 grid grid-cols-2 md:grid-cols-3 gap-8 mb-8 ">
-                                {product?.features
+                                {billingProduct?.features
                                     ?.filter((feature) => feature.type == 'primary')
                                     .map((feature, i) => {
                                         return (
-                                            <React.Fragment key={`${product.type}-feature-${i}`}>
+                                            <React.Fragment key={`${billingProduct.type}-feature-${i}`}>
                                                 <Feature {...feature} />
                                             </React.Fragment>
                                         )
@@ -237,28 +237,28 @@ export function OnboardingProductIntroduction({ stepKey }: { stepKey: Onboarding
                             </ul>
 
                             <ul className="list-none p-0 grid grid-cols-2 md:grid-cols-3 gap-4">
-                                {product.features
-                                    .filter((feature) => feature.type == 'secondary')
+                                {billingProduct?.features
+                                    ?.filter((feature) => feature.type == 'secondary')
                                     .map((subfeature, i) => {
                                         return (
-                                            <React.Fragment key={`${product.type}-subfeature-${i}`}>
+                                            <React.Fragment key={`${billingProduct.type}-subfeature-${i}`}>
                                                 <Subfeature {...subfeature} />
                                             </React.Fragment>
                                         )
                                     })}
                             </ul>
                             <div className="mt-12">
-                                <h3 className="mb-4 text-lg font-bold">Get the most out of {product.name}</h3>
+                                <h3 className="mb-4 text-lg font-bold">Get the most out of {billingProduct.name}</h3>
                                 <ul className="flex flex-col sm:flex-row gap-x-8 gap-y-2">
                                     <li>
-                                        <Link to={product.docs_url} target="_blank">
+                                        <Link to={billingProduct.docs_url} target="_blank">
                                             <IconStack className="mr-2 text-xl" />
                                             <span className="font-bold">Product docs</span>
                                         </Link>
                                     </li>
                                     <li>
                                         <Link
-                                            to={`https://posthog.com/tutorials/${websiteSlug[product.type]}`}
+                                            to={`https://posthog.com/tutorials/${websiteSlug[billingProduct.type]}`}
                                             target="_blank"
                                         >
                                             <IconMap className="mr-2 text-xl" />
@@ -267,7 +267,9 @@ export function OnboardingProductIntroduction({ stepKey }: { stepKey: Onboarding
                                     </li>
                                     <li>
                                         <Link
-                                            to={`https://posthog.com/questions/topic/${websiteSlug[product.type]}`}
+                                            to={`https://posthog.com/questions/topic/${
+                                                websiteSlug[billingProduct.type]
+                                            }`}
                                             target="_blank"
                                         >
                                             <IconMessage className="mr-2 text-xl" />
@@ -281,16 +283,16 @@ export function OnboardingProductIntroduction({ stepKey }: { stepKey: Onboarding
                     {isCloudOrDev && (
                         <div className="p-8 py-12 border-t border-border">
                             <div className="max-w-screen-xl m-auto">
-                                <PricingSection product={product} />
+                                <PricingSection product={billingProduct} />
                             </div>
                         </div>
                     )}
                     <div className="mb-12 flex justify-center px-8">
                         <div className="w-full max-w-screen-xl rounded bg-primary-alt-highlight border border-border p-6 flex justify-between items-center gap-x-12">
                             <div>
-                                <h3 className="mb-4 text-2xl font-bold">Get started with {product.name}</h3>
-                                <p className="text-sm max-w-2xl">{product.description}</p>
-                                <GetStartedButton product={product} />
+                                <h3 className="mb-4 text-2xl font-bold">Get started with {billingProduct.name}</h3>
+                                <p className="text-sm max-w-2xl">{billingProduct.description}</p>
+                                <GetStartedButton product={billingProduct} />
                             </div>
                             <div className="w-24 hidden sm:block">
                                 <WavingHog className="h-full w-full" />

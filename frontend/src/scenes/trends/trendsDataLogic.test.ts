@@ -7,7 +7,7 @@ import { DataNode, LifecycleQuery, NodeKind, TrendsQuery } from '~/queries/schem
 import { initKeaTests } from '~/test/init'
 import { ChartDisplayType, InsightLogicProps, InsightModel } from '~/types'
 
-import { lifecycleResult, trendPieResult, trendResult } from './__mocks__/trendsDataLogicMocks'
+import { breakdownPieResult, lifecycleResult, trendPieResult, trendResult } from './__mocks__/trendsDataLogicMocks'
 import { trendsDataLogic } from './trendsDataLogic'
 
 let logic: ReturnType<typeof trendsDataLogic.build>
@@ -60,7 +60,7 @@ describe('trendsDataLogic', () => {
                 await expectLogic(logic, () => {
                     builtDataNodeLogic.actions.loadDataSuccess(insight)
                 }).toMatchValues({
-                    indexedResults: [{ ...trendResult.result[0], id: 0, seriesIndex: 0 }],
+                    indexedResults: [{ ...trendResult.result[0], id: 0, seriesIndex: 0, colorIndex: 0 }],
                 })
             })
 
@@ -95,6 +95,57 @@ describe('trendsDataLogic', () => {
                             aggregated_value: 553348,
                             id: 2,
                             seriesIndex: 0,
+                        }),
+                    ],
+                })
+            })
+
+            it('sorts correctly for pie visualization with null and other labels', async () => {
+                const query: TrendsQuery = {
+                    kind: NodeKind.TrendsQuery,
+                    series: [],
+                    trendsFilter: {
+                        display: ChartDisplayType.ActionsPie,
+                    },
+                }
+                const insight: Partial<InsightModel> = {
+                    result: breakdownPieResult.result,
+                }
+
+                await expectLogic(logic, () => {
+                    insightVizDataLogic.findMounted(insightProps)?.actions.updateQuerySource(query)
+                    builtDataNodeLogic.actions.loadDataSuccess(insight)
+                }).toMatchValues({
+                    indexedResults: [
+                        expect.objectContaining({
+                            aggregated_value: 801,
+                            id: 0,
+                            seriesIndex: 2,
+                        }),
+                        expect.objectContaining({
+                            aggregated_value: 27,
+                            id: 1,
+                            seriesIndex: 0,
+                        }),
+                        expect.objectContaining({
+                            aggregated_value: 9,
+                            id: 2,
+                            seriesIndex: 5,
+                        }),
+                        expect.objectContaining({
+                            aggregated_value: 2,
+                            id: 3,
+                            seriesIndex: 4,
+                        }),
+                        expect.objectContaining({
+                            aggregated_value: 25_567,
+                            id: 4,
+                            seriesIndex: 3,
+                        }),
+                        expect.objectContaining({
+                            aggregated_value: 322,
+                            id: 5,
+                            seriesIndex: 1,
                         }),
                     ],
                 })

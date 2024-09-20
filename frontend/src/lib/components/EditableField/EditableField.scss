@@ -82,6 +82,7 @@
         gap: 0.5rem;
         align-items: center;
         margin-left: 0.5rem;
+        overflow: hidden;
     }
 
     input,
@@ -89,7 +90,7 @@
         max-width: 100%;
         padding: 0;
         font: inherit;
-        color: var(--default);
+        color: var(--text-3000);
         background: transparent;
         border: none;
         outline: none;

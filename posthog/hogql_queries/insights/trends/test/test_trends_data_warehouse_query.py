@@ -10,7 +10,7 @@ from posthog.schema import (
     BreakdownFilter,
     BreakdownType,
     ChartDisplayType,
-    DateRange,
+    InsightDateRange,
     DataWarehouseNode,
     DataWarehouseEventsModifier,
     TrendsQuery,
@@ -26,6 +26,7 @@ from posthog.settings import (
     OBJECT_STORAGE_BUCKET,
     OBJECT_STORAGE_ENDPOINT,
     OBJECT_STORAGE_SECRET_ACCESS_KEY,
+    XDIST_SUFFIX,
 )
 import s3fs
 from pyarrow import parquet as pq
@@ -39,7 +40,7 @@ from posthog.hogql_queries.legacy_compatibility.filter_to_query import (
     clean_entity_properties,
 )
 
-TEST_BUCKET = "test_storage_bucket-posthog.hogql.datawarehouse.trendquery"
+TEST_BUCKET = "test_storage_bucket-posthog.hogql.datawarehouse.trendquery" + XDIST_SUFFIX
 
 
 class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
@@ -98,6 +99,9 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
         )
 
     def create_parquet_file(self):
+        if not OBJECT_STORAGE_ACCESS_KEY_ID or not OBJECT_STORAGE_SECRET_ACCESS_KEY:
+            raise Exception("Missing vars")
+
         fs = s3fs.S3FileSystem(
             client_kwargs={
                 "region_name": "us-east-1",
@@ -127,7 +131,9 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
         table_name = "test_table_1"
 
         credential = DataWarehouseCredential.objects.create(
-            access_key=OBJECT_STORAGE_ACCESS_KEY_ID, access_secret=OBJECT_STORAGE_SECRET_ACCESS_KEY, team=self.team
+            access_key=OBJECT_STORAGE_ACCESS_KEY_ID,
+            access_secret=OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            team=self.team,
         )
 
         # TODO: use env vars
@@ -153,7 +159,7 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
 
         trends_query = TrendsQuery(
             kind="TrendsQuery",
-            dateRange=DateRange(date_from="2023-01-01"),
+            dateRange=InsightDateRange(date_from="2023-01-01"),
             series=[
                 DataWarehouseNode(
                     id=table_name,
@@ -178,7 +184,7 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
 
         trends_query = TrendsQuery(
             kind="TrendsQuery",
-            dateRange=DateRange(date_from="2023-01-01"),
+            dateRange=InsightDateRange(date_from="2023-01-01"),
             series=[
                 DataWarehouseNode(
                     id=table_name,
@@ -199,12 +205,12 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
         assert response.results[0][1] == [1, 0, 0, 0, 0, 0, 0]
 
     @snapshot_clickhouse_queries
-    def test_trends_property(self):
+    def test_trends_query_properties(self):
         table_name = self.create_parquet_file()
 
         trends_query = TrendsQuery(
             kind="TrendsQuery",
-            dateRange=DateRange(date_from="2023-01-01"),
+            dateRange=InsightDateRange(date_from="2023-01-01"),
             series=[
                 DataWarehouseNode(
                     id=table_name,
@@ -222,7 +228,7 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
 
         assert response.columns is not None
         assert set(response.columns).issubset({"date", "total"})
-        assert response.results[0][1] == [1, 0, 0, 0, 0, 0, 0]
+        assert response.results[0][1] == [1, 1, 1, 1, 0, 0, 0]
 
     @snapshot_clickhouse_queries
     def test_trends_breakdown(self):
@@ -230,7 +236,7 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
 
         trends_query = TrendsQuery(
             kind="TrendsQuery",
-            dateRange=DateRange(date_from="2023-01-01"),
+            dateRange=InsightDateRange(date_from="2023-01-01"),
             series=[
                 DataWarehouseNode(
                     id=table_name,
@@ -240,7 +246,7 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
                     timestamp_field="created",
                 )
             ],
-            breakdownFilter=BreakdownFilter(breakdown_type=BreakdownType.data_warehouse, breakdown="prop_1"),
+            breakdownFilter=BreakdownFilter(breakdown_type=BreakdownType.DATA_WAREHOUSE, breakdown="prop_1"),
         )
 
         with freeze_time("2023-01-07"):
@@ -267,7 +273,7 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
 
         trends_query = TrendsQuery(
             kind="TrendsQuery",
-            dateRange=DateRange(date_from="2023-01-01"),
+            dateRange=InsightDateRange(date_from="2023-01-01"),
             series=[
                 DataWarehouseNode(
                     id=table_name,
@@ -275,10 +281,10 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
                     id_field="id",
                     distinct_id_field="customer_email",
                     timestamp_field="created",
+                    properties=clean_entity_properties([{"key": "prop_1", "value": "a", "type": "data_warehouse"}]),
                 )
             ],
-            properties=clean_entity_properties([{"key": "prop_1", "value": "a", "type": "data_warehouse"}]),
-            breakdownFilter=BreakdownFilter(breakdown_type=BreakdownType.data_warehouse, breakdown="prop_1"),
+            breakdownFilter=BreakdownFilter(breakdown_type=BreakdownType.DATA_WAREHOUSE, breakdown="prop_1"),
         )
 
         with freeze_time("2023-01-07"):
@@ -296,7 +302,7 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
 
         trends_query = TrendsQuery(
             kind="TrendsQuery",
-            dateRange=DateRange(date_from="2023-01-01"),
+            dateRange=InsightDateRange(date_from="2023-01-01"),
             series=[
                 DataWarehouseNode(
                     id=table_name,
@@ -316,11 +322,11 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
         assert set(response.columns).issubset({"date", "total"})
 
     def test_column_names_with_display_type(self):
-        self.assert_column_names_with_display_type(ChartDisplayType.ActionsAreaGraph)
-        self.assert_column_names_with_display_type(ChartDisplayType.ActionsBar)
-        self.assert_column_names_with_display_type(ChartDisplayType.ActionsBarValue)
-        self.assert_column_names_with_display_type(ChartDisplayType.ActionsLineGraph)
-        self.assert_column_names_with_display_type(ChartDisplayType.ActionsPie)
-        self.assert_column_names_with_display_type(ChartDisplayType.BoldNumber)
-        self.assert_column_names_with_display_type(ChartDisplayType.WorldMap)
-        self.assert_column_names_with_display_type(ChartDisplayType.ActionsLineGraphCumulative)
+        self.assert_column_names_with_display_type(ChartDisplayType.ACTIONS_AREA_GRAPH)
+        self.assert_column_names_with_display_type(ChartDisplayType.ACTIONS_BAR)
+        self.assert_column_names_with_display_type(ChartDisplayType.ACTIONS_BAR_VALUE)
+        self.assert_column_names_with_display_type(ChartDisplayType.ACTIONS_LINE_GRAPH)
+        self.assert_column_names_with_display_type(ChartDisplayType.ACTIONS_PIE)
+        self.assert_column_names_with_display_type(ChartDisplayType.BOLD_NUMBER)
+        self.assert_column_names_with_display_type(ChartDisplayType.WORLD_MAP)
+        self.assert_column_names_with_display_type(ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE)

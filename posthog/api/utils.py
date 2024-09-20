@@ -1,11 +1,18 @@
 import json
+from rest_framework.decorators import action as drf_action
+from functools import wraps
+from posthog.api.documentation import extend_schema
 import re
 import socket
 import urllib.parse
 from enum import Enum, auto
 from ipaddress import ip_address
+from urllib.parse import urlparse
+
 from requests.adapters import HTTPAdapter
-from typing import Literal, Optional, Union
+from typing import Literal, Optional, Union, Any
+
+from rest_framework.fields import Field
 from urllib3 import HTTPSConnectionPool, HTTPConnectionPool, PoolManager
 from uuid import UUID
 
@@ -13,12 +20,16 @@ import structlog
 from django.core.exceptions import RequestDataTooBig
 from django.db.models import QuerySet
 from prometheus_client import Counter
-from rest_framework import request, status
+from rest_framework import request, status, serializers
 from rest_framework.exceptions import ValidationError
 from statshog.defaults.django import statsd
 
 from posthog.constants import EventDefinitionType
-from posthog.exceptions import RequestParsingError, generate_exception_response
+from posthog.exceptions import (
+    RequestParsingError,
+    UnspecifiedCompressionFallbackParsingError,
+    generate_exception_response,
+)
 from posthog.models import Entity, EventDefinition
 from posthog.models.entity import MathType
 from posthog.models.filters.filter import Filter
@@ -32,6 +43,14 @@ logger = structlog.get_logger(__name__)
 class PaginationMode(Enum):
     next = auto()
     previous = auto()
+
+
+# This overrides a change in DRF 3.15 that alters our behavior. If the user passes an empty argument,
+# the new version keeps it as null vs coalescing it to the default.
+# Don't add this to new classes
+class ClassicBehaviorBooleanFieldSerializer(serializers.BooleanField):
+    def __init__(self, **kwargs):
+        Field.__init__(self, allow_null=True, required=False, **kwargs)
 
 
 def get_target_entity(filter: Union[Filter, StickinessFilter]) -> Entity:
@@ -170,7 +189,7 @@ def get_data(request):
     data = None
     try:
         data = load_data_from_request(request)
-    except RequestParsingError as error:
+    except (RequestParsingError, UnspecifiedCompressionFallbackParsingError) as error:
         statsd.incr("capture_endpoint_invalid_payload")
         logger.exception(f"Invalid payload", error=error)
         return (
@@ -374,3 +393,78 @@ class PublicIPOnlyHttpAdapter(HTTPAdapter):
             "http": PublicIPOnlyHTTPConnectionPool,
             "https": PublicIPOnlyHTTPSConnectionPool,
         }
+
+
+def unparsed_hostname_in_allowed_url_list(allowed_url_list: Optional[list[str]], hostname: Optional[str]) -> bool:
+    # if the browser url encodes the hostname, we need to decode it first
+    hostname = urlparse(urllib.parse.unquote(hostname)).hostname if hostname else hostname
+    return hostname_in_allowed_url_list(allowed_url_list, hostname)
+
+
+def hostname_in_allowed_url_list(allowed_url_list: Optional[list[str]], hostname: Optional[str]) -> bool:
+    if not hostname:
+        return False
+
+    permitted_domains = []
+    if allowed_url_list:
+        for url in allowed_url_list:
+            host = parse_domain(url)
+            if host:
+                permitted_domains.append(host)
+
+    for permitted_domain in permitted_domains:
+        if "*" in permitted_domain:
+            pattern = "^{}$".format(re.escape(permitted_domain).replace("\\*", "(.*)"))
+            if re.search(pattern, hostname):
+                return True
+        elif permitted_domain == hostname:
+            return True
+
+    return False
+
+
+def parse_domain(url: Any) -> Optional[str]:
+    return urlparse(url).hostname
+
+
+# By default, DRF spectacular uses the serializer of the view as the response format for actions. However, most actions don't return a version of the model, but something custom. This function removes the response from all actions in the documentation.
+def action(methods=None, detail=None, url_path=None, url_name=None, responses=None, **kwargs):
+    """
+    Mark a ViewSet method as a routable action.
+
+    `@action`-decorated functions will be endowed with a `mapping` property,
+    a `MethodMapper` that can be used to add additional method-based behaviors
+    on the routed action.
+
+    :param methods: A list of HTTP method names this action responds to.
+                    Defaults to GET only.
+    :param detail: Required. Determines whether this action applies to
+                   instance/detail requests or collection/list requests.
+    :param url_path: Define the URL segment for this action. Defaults to the
+                     name of the method decorated.
+    :param url_name: Define the internal (`reverse`) URL name for this action.
+                     Defaults to the name of the method decorated with underscores
+                     replaced with dashes.
+    :param responses: Serializer or pydantic model of the response for documentation
+    :param kwargs: Additional properties to set on the view.  This can be used
+                   to override viewset-level *_classes settings, equivalent to
+                   how the `@renderer_classes` etc. decorators work for function-
+                   based API views.
+    """
+
+    def decorator(func):
+        @extend_schema(responses=responses)
+        @drf_action(
+            methods=methods,
+            detail=detail,
+            url_path=url_path,
+            url_name=url_name,
+            **kwargs,
+        )
+        @wraps(func)
+        def wrapped_function(*args, **kwargs):
+            return func(*args, **kwargs)
+
+        return wrapped_function
+
+    return decorator

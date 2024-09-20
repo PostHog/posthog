@@ -2,9 +2,10 @@ import { connect, kea, path, selectors } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { userLogic } from 'scenes/userLogic'
 
 import { activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
-import { SidePanelTab } from '~/types'
+import { AvailableFeature, SidePanelTab } from '~/types'
 
 import { sidePanelActivityLogic } from './panels/activity/sidePanelActivityLogic'
 import { sidePanelContextLogic } from './panels/sidePanelContextLogic'
@@ -39,6 +40,8 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
             ['status'],
             sidePanelContextLogic,
             ['sceneSidePanelContext'],
+            userLogic,
+            ['hasAvailableFeature'],
         ],
         actions: [sidePanelStateLogic, ['closeSidePanel', 'openSidePanel']],
     }),
@@ -82,14 +85,18 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
         ],
 
         visibleTabs: [
-            (s) => [s.enabledTabs, s.selectedTab, s.sidePanelOpen, s.unreadCount, s.status],
-            (enabledTabs, selectedTab, sidePanelOpen, unreadCount, status): SidePanelTab[] => {
+            (s) => [s.enabledTabs, s.selectedTab, s.sidePanelOpen, s.unreadCount, s.status, s.hasAvailableFeature],
+            (enabledTabs, selectedTab, sidePanelOpen, unreadCount, status, hasAvailableFeature): SidePanelTab[] => {
                 return enabledTabs.filter((tab) => {
                     if (tab === selectedTab && sidePanelOpen) {
                         return true
                     }
 
-                    if (tab === SidePanelTab.Activity && unreadCount) {
+                    if (
+                        tab === SidePanelTab.Activity &&
+                        unreadCount &&
+                        hasAvailableFeature(AvailableFeature.AUDIT_LOGS)
+                    ) {
                         return true
                     }
 

@@ -176,10 +176,10 @@ def determine_aggregator(entity: Entity, team: Team) -> str:
         return f'"$group_{entity.math_group_type_index}"'
     elif team.aggregate_users_by_distinct_id:
         return "e.distinct_id"
-    elif team.person_on_events_mode == PersonsOnEventsMode.person_id_no_override_properties_on_events:
+    elif team.person_on_events_mode == PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS:
         return "e.person_id"
-    elif team.person_on_events_mode == PersonsOnEventsMode.person_id_override_properties_on_events:
-        return f"if(notEmpty(overrides.person_id), overrides.person_id, e.person_id)"
+    elif team.person_on_events_mode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS:
+        return f"if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id)"
     else:
         return "pdi.person_id"
 

@@ -44,7 +44,7 @@ export function SeriesLetter({ className, hasBreakdown, seriesIndex, seriesColor
                               : hexToRGBA(color, 0.2),
                       }
                     : {
-                          color: 'var(--default)',
+                          color: 'var(--text-3000)',
                       }
             }
         >

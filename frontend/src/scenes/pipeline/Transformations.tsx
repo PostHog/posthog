@@ -2,48 +2,47 @@ import { DndContext, DragEndEvent } from '@dnd-kit/core'
 import { restrictToParentElement, restrictToVerticalAxis } from '@dnd-kit/modifiers'
 import { arrayMove, SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { LemonBadge, LemonButton, LemonModal, LemonTable, LemonTableColumn } from '@posthog/lemon-ui'
+import { LemonBadge, LemonButton, LemonModal, LemonTable, LemonTableColumn, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { PageHeader } from 'lib/components/PageHeader'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { statusColumn, updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { PluginImage } from 'scenes/plugins/plugin/PluginImage'
+import { urls } from 'scenes/urls'
 
-import { PipelineStage, ProductKey } from '~/types'
+import { PipelineNodeTab, PipelineStage, ProductKey } from '~/types'
 
+import { AppMetricSparkLine } from './AppMetricSparkLine'
 import { NewButton } from './NewButton'
-import { pipelineLogic } from './pipelineLogic'
+import { pipelineAccessLogic } from './pipelineAccessLogic'
+import { PluginImage } from './PipelinePluginImage'
 import { pipelineTransformationsLogic } from './transformationsLogic'
 import { Transformation } from './types'
 import { appColumn, nameColumn, pipelinePluginBackedNodeMenuCommonItems } from './utils'
 
 export function Transformations(): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
-    if (!featureFlags[FEATURE_FLAGS.PIPELINE_UI]) {
-        return <p>Pipeline 3000 not available yet</p>
-    }
-    const { sortedEnabledTransformations, canConfigurePlugins, shouldShowProductIntroduction } =
-        useValues(pipelineTransformationsLogic)
+    const { sortedEnabledTransformations, sortedTransformations, loading } = useValues(pipelineTransformationsLogic)
+    const { canConfigurePlugins } = useValues(pipelineAccessLogic)
     const { openReorderModal } = useActions(pipelineTransformationsLogic)
 
-    const shouldShowEmptyState = sortedEnabledTransformations.length === 0
+    const shouldShowEmptyState = sortedTransformations.length === 0 && !loading
 
     return (
         <>
-            {(shouldShowEmptyState || shouldShowProductIntroduction) && (
-                <ProductIntroduction
-                    productName="Pipeline transformations"
-                    thingName="transformation"
-                    productKey={ProductKey.PIPELINE_TRANSFORMATIONS}
-                    description="Pipeline transformations allow you to enrich your data with additional information, such as geolocation."
-                    docsURL="https://posthog.com/docs/cdp"
-                    actionElementOverride={<NewButton stage={PipelineStage.Transformation} />}
-                    isEmpty={true}
-                />
-            )}
+            <PageHeader
+                caption="Transform your incoming events before they are stored in PostHog or sent on to Destinations."
+                buttons={<NewButton stage={PipelineStage.Transformation} />}
+            />
+            <ProductIntroduction
+                productName="Pipeline transformations"
+                thingName="transformation"
+                productKey={ProductKey.PIPELINE_TRANSFORMATIONS}
+                description="Pipeline transformations allow you to enrich your data with additional information, such as geolocation."
+                docsURL="https://posthog.com/docs/cdp"
+                actionElementOverride={<NewButton stage={PipelineStage.Transformation} />}
+                isEmpty={shouldShowEmptyState}
+            />
             {sortedEnabledTransformations.length > 1 && ( // Only show rearranging if there's more then 1 sortable app
                 <>
                     <ReorderModal />
@@ -78,8 +77,9 @@ export function TransformationsTable({ inOverview = false }: { inOverview?: bool
                 loading={loading}
                 columns={[
                     {
-                        title: 'Order',
+                        title: '',
                         key: 'order',
+                        width: 0,
                         sticky: true,
                         render: function RenderOrdering(_, transformation) {
                             if (!transformation.enabled) {
@@ -90,8 +90,24 @@ export function TransformationsTable({ inOverview = false }: { inOverview?: bool
                             return sortedEnabledTransformations.findIndex((t) => t.id === transformation.id) + 1
                         },
                     },
-                    nameColumn() as LemonTableColumn<Transformation, any>,
                     appColumn() as LemonTableColumn<Transformation, any>,
+                    nameColumn() as LemonTableColumn<Transformation, any>,
+                    {
+                        title: 'Weekly volume',
+                        render: function RenderSuccessRate(_, transformation) {
+                            return (
+                                <Link
+                                    to={urls.pipelineNode(
+                                        PipelineStage.Transformation,
+                                        transformation.id,
+                                        PipelineNodeTab.Metrics
+                                    )}
+                                >
+                                    <AppMetricSparkLine pipelineNode={transformation} />
+                                </Link>
+                            )
+                        },
+                    },
                     updatedAtColumn() as LemonTableColumn<Transformation, any>,
                     statusColumn() as LemonTableColumn<Transformation, any>,
                     {
@@ -122,7 +138,7 @@ export const TransformationsMoreOverlay = ({
     transformation: Transformation
     inOverview?: boolean
 }): JSX.Element => {
-    const { canConfigurePlugins } = useValues(pipelineLogic)
+    const { canConfigurePlugins } = useValues(pipelineAccessLogic)
     const { toggleEnabled, loadPluginConfigs, openReorderModal } = useActions(pipelineTransformationsLogic)
     const { sortedEnabledTransformations } = useValues(pipelineTransformationsLogic)
 

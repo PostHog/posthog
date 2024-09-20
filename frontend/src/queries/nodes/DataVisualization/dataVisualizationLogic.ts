@@ -1,41 +1,209 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
+import { dayjs } from 'lib/dayjs'
+import { lightenDarkenColor, RGBToHex, uuid } from 'lib/utils'
+import mergeObject from 'lodash.merge'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { insightVizDataCollectionId } from '~/queries/nodes/InsightViz/InsightViz'
-import { AnyResponseType, ChartAxis, DataVisualizationNode } from '~/queries/schema'
+import {
+    AnyResponseType,
+    ChartAxis,
+    ChartSettings,
+    ChartSettingsDisplay,
+    ChartSettingsFormatting,
+    ConditionalFormattingRule,
+    DataVisualizationNode,
+} from '~/queries/schema'
 import { QueryContext } from '~/queries/types'
 import { ChartDisplayType, InsightLogicProps, ItemMode } from '~/types'
 
 import { dataNodeLogic } from '../DataNode/dataNodeLogic'
 import { getQueryFeatures, QueryFeature } from '../DataTable/queryFeatures'
 import type { dataVisualizationLogicType } from './dataVisualizationLogicType'
+import { ColumnScalar, FORMATTING_TEMPLATES } from './types'
 
 export enum SideBarTab {
     Series = 'series',
     Display = 'display',
+    ConditionalFormatting = 'conditional_formatting',
+}
+
+export interface ColumnType {
+    name: ColumnScalar
+    isNumerical: boolean
 }
 
 export interface Column {
     name: string
-    type: string
+    type: ColumnType
     label: string
     dataIndex: number
+}
+
+export interface TableDataCell<T extends string | number | boolean | Date | null> {
+    value: T
+    formattedValue: string | object | null
+    type: ColumnScalar
+}
+
+export interface AxisSeriesSettings {
+    formatting?: ChartSettingsFormatting
+    display?: ChartSettingsDisplay
 }
 
 export interface AxisSeries<T> {
     column: Column
     data: T[]
+    settings?: AxisSeriesSettings
 }
 
 export interface DataVisualizationLogicProps {
     key: string
     query: DataVisualizationNode
-    insightLogicProps: InsightLogicProps
-    context?: QueryContext
     setQuery?: (node: DataVisualizationNode) => void
+    insightLogicProps: InsightLogicProps<DataVisualizationNode>
+    context?: QueryContext<DataVisualizationNode>
     cachedResults?: AnyResponseType
+}
+
+export interface SelectedYAxis {
+    name: string
+    settings: AxisSeriesSettings
+}
+
+export const EmptyYAxisSeries: AxisSeries<number> = {
+    column: {
+        name: 'None',
+        type: {
+            name: 'INTEGER',
+            isNumerical: false,
+        },
+        label: 'None',
+        dataIndex: -1,
+    },
+    data: [],
+}
+
+const DefaultAxisSettings = (): AxisSeriesSettings => ({
+    formatting: {
+        prefix: '',
+        suffix: '',
+    },
+})
+
+export const formatDataWithSettings = (
+    data: number | string | null | object,
+    settings?: AxisSeriesSettings
+): string | object | null => {
+    if (data === null || Number.isNaN(data)) {
+        return null
+    }
+
+    if (typeof data === 'object') {
+        return data
+    }
+
+    const decimalPlaces = settings?.formatting?.decimalPlaces
+
+    let dataAsString = `${data}`
+
+    if (typeof data === 'number') {
+        dataAsString = `${decimalPlaces ? data.toFixed(decimalPlaces) : data}`
+
+        if (settings?.formatting?.style === 'number') {
+            dataAsString = data.toLocaleString(undefined, { maximumFractionDigits: decimalPlaces })
+        }
+
+        if (settings?.formatting?.style === 'percent') {
+            dataAsString = `${data.toLocaleString(undefined, { maximumFractionDigits: decimalPlaces })}%`
+        }
+    }
+
+    if (settings?.formatting?.prefix) {
+        dataAsString = `${settings.formatting.prefix}${dataAsString}`
+    }
+
+    if (settings?.formatting?.suffix) {
+        dataAsString = `${dataAsString}${settings.formatting.suffix}`
+    }
+
+    return dataAsString
+}
+
+export const convertTableValue = (
+    value: string | number | null,
+    type: ColumnScalar
+): string | number | boolean | null => {
+    if (value == null) {
+        return null
+    }
+
+    if (type === 'STRING') {
+        return value.toString()
+    }
+
+    if (type === 'INTEGER') {
+        if (typeof value === 'number') {
+            return value
+        }
+
+        return parseInt(value)
+    }
+
+    if (type === 'FLOAT' || type === 'DECIMAL') {
+        if (typeof value === 'number') {
+            return value
+        }
+
+        return parseFloat(value)
+    }
+
+    if (type === 'BOOLEAN') {
+        return Boolean(value)
+    }
+
+    if (type === 'DATE' || type === 'DATETIME') {
+        return dayjs(value).unix()
+    }
+
+    return value
+}
+
+const toFriendlyClickhouseTypeName = (type: string): ColumnScalar => {
+    if (type.indexOf('Int') !== -1) {
+        return 'INTEGER'
+    }
+    if (type.indexOf('Float') !== -1) {
+        return 'FLOAT'
+    }
+    if (type.indexOf('DateTime') !== -1) {
+        return 'DATETIME'
+    }
+    if (type.indexOf('Date') !== -1) {
+        return 'DATE'
+    }
+    if (type.indexOf('Boolean') !== -1) {
+        return 'BOOLEAN'
+    }
+    if (type.indexOf('Decimal') !== -1) {
+        return 'DECIMAL'
+    }
+    if (type.indexOf('String') !== -1) {
+        return 'STRING'
+    }
+
+    return type as ColumnScalar
+}
+
+const isNumericalType = (type: string): boolean => {
+    if (type.indexOf('Int') !== -1 || type.indexOf('Float') !== -1 || type.indexOf('Decimal') !== -1) {
+        return true
+    }
+
+    return false
 }
 
 export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
@@ -54,63 +222,118 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 dataNodeCollectionId: insightVizDataCollectionId(props.insightLogicProps, props.key),
                 loadPriority: props.insightLogicProps.loadPriority,
             }),
-            ['response', 'responseLoading'],
-        ],
-        actions: [
-            dataNodeLogic({
-                cachedResults: props.cachedResults,
-                key: props.key,
-                query: props.query.source,
-                dataNodeCollectionId: insightVizDataCollectionId(props.insightLogicProps, props.key),
-                loadPriority: props.insightLogicProps.loadPriority,
-            }),
-            ['loadDataSuccess'],
+            ['response', 'responseLoading', 'responseError', 'queryCancelled'],
+            themeLogic,
+            ['isDarkModeOn'],
         ],
     })),
     props({ query: {} } as DataVisualizationLogicProps),
-    actions({
+    actions(({ values }) => ({
         setVisualizationType: (visualizationType: ChartDisplayType) => ({ visualizationType }),
         updateXSeries: (columnName: string) => ({
             columnName,
         }),
-        updateYSeries: (seriesIndex: number, columnName: string) => ({
+        updateSeriesIndex: (seriesIndex: number, columnName: string, settings?: AxisSeriesSettings) => ({
             seriesIndex,
             columnName,
+            settings,
         }),
-        addYSeries: (columnName?: string) => ({ columnName }),
+        updateSeries: (columnName: string, settings?: AxisSeriesSettings) => ({ columnName, settings }),
+        addYSeries: (columnName?: string, settings?: AxisSeriesSettings) => ({
+            columnName,
+            settings,
+            allNumericalColumns: values.numericalColumns,
+        }),
+        addSeries: (columnName?: string, settings?: AxisSeriesSettings) => ({
+            columnName,
+            settings,
+            allColumns: values.columns,
+        }),
         deleteYSeries: (seriesIndex: number) => ({ seriesIndex }),
         clearAxis: true,
         setQuery: (node: DataVisualizationNode) => ({ node }),
+        updateChartSettings: (settings: ChartSettings) => ({ settings }),
         setSideBarTab: (tab: SideBarTab) => ({ tab }),
-    }),
-    reducers({
-        columns: [
-            [] as Column[],
-            {
-                loadDataSuccess: (_state, { response }) => {
-                    if (!response) {
-                        return []
-                    }
-
-                    const columns: string[] = response['columns'] ?? []
-                    const types: string[][] = response['types'] ?? []
-
-                    return columns.map((column, index) => {
-                        const type = types[index]?.[1]
-                        return {
-                            name: column,
-                            type,
-                            label: `${column} - ${type}`,
-                            dataIndex: index,
-                        }
-                    })
-                },
-            },
-        ],
+        toggleChartSettingsPanel: (open?: boolean) => ({ open }),
+        addConditionalFormattingRule: (rule?: ConditionalFormattingRule) => ({
+            rule: rule ?? { id: uuid() },
+            isDarkModeOn: values.isDarkModeOn,
+        }),
+        updateConditionalFormattingRule: (rule: ConditionalFormattingRule, deleteRule?: boolean) => ({
+            rule,
+            deleteRule,
+            colorMode: values.isDarkModeOn ? 'dark' : 'light',
+        }),
+        setConditionalFormattingRulesPanelActiveKeys: (keys: string[]) => ({ keys }),
+    })),
+    reducers(({ props }) => ({
         visualizationType: [
             ChartDisplayType.ActionsTable as ChartDisplayType,
             {
                 setVisualizationType: (_, { visualizationType }) => visualizationType,
+            },
+        ],
+        tabularColumnSettings: [
+            null as (SelectedYAxis | null)[] | null,
+            {
+                clearAxis: () => null,
+                addSeries: (state, { columnName, settings, allColumns }) => {
+                    if (!state && columnName !== undefined) {
+                        return [{ name: columnName, settings: settings ?? DefaultAxisSettings() }]
+                    }
+
+                    if (!state) {
+                        return [null]
+                    }
+
+                    if (!columnName) {
+                        const ungraphedColumns = allColumns.filter((n) => !state.map((m) => m?.name).includes(n.name))
+                        if (ungraphedColumns.length > 0) {
+                            return [
+                                ...state,
+                                { name: ungraphedColumns[0].name, settings: settings ?? DefaultAxisSettings() },
+                            ]
+                        }
+                    }
+
+                    return [
+                        ...state,
+                        columnName === undefined
+                            ? null
+                            : { name: columnName, settings: settings ?? DefaultAxisSettings() },
+                    ]
+                },
+                updateSeries: (state, { columnName, settings }) => {
+                    if (!state) {
+                        return null
+                    }
+
+                    const ySeries = [...state]
+
+                    const index = ySeries.findIndex((n) => n?.name === columnName)
+                    if (index < 0) {
+                        return ySeries
+                    }
+
+                    ySeries[index] = {
+                        name: columnName,
+                        settings: mergeObject(ySeries[index]?.settings ?? {}, settings),
+                    }
+                    return ySeries
+                },
+                updateSeriesIndex: (state, { seriesIndex, columnName, settings }) => {
+                    if (!state) {
+                        return null
+                    }
+
+                    const ySeries = [...state]
+
+                    ySeries[seriesIndex] = {
+                        name: columnName,
+                        settings: mergeObject(ySeries[seriesIndex]?.settings ?? {}, settings),
+                    }
+                    return ySeries
+                },
             },
         ],
         selectedXAxis: [
@@ -121,28 +344,66 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             },
         ],
         selectedYAxis: [
-            null as (string | null)[] | null,
+            null as (SelectedYAxis | null)[] | null,
             {
                 clearAxis: () => null,
-                addYSeries: (state, { columnName }) => {
+                addYSeries: (state, { columnName, settings, allNumericalColumns }) => {
                     if (!state && columnName !== undefined) {
-                        return [columnName]
+                        return [{ name: columnName, settings: settings ?? DefaultAxisSettings() }]
                     }
 
                     if (!state) {
                         return [null]
                     }
 
-                    return [...state, columnName === undefined ? null : columnName]
+                    if (!columnName) {
+                        const ungraphedColumns = allNumericalColumns.filter(
+                            (n) => !state.map((m) => m?.name).includes(n.name)
+                        )
+                        if (ungraphedColumns.length > 0) {
+                            return [
+                                ...state,
+                                { name: ungraphedColumns[0].name, settings: settings ?? DefaultAxisSettings() },
+                            ]
+                        }
+                    }
+
+                    return [
+                        ...state,
+                        columnName === undefined
+                            ? null
+                            : { name: columnName, settings: settings ?? DefaultAxisSettings() },
+                    ]
                 },
-                updateYSeries: (state, { seriesIndex, columnName }) => {
+                updateSeriesIndex: (state, { seriesIndex, columnName, settings }) => {
                     if (!state) {
                         return null
                     }
 
                     const ySeries = [...state]
 
-                    ySeries[seriesIndex] = columnName
+                    ySeries[seriesIndex] = {
+                        name: columnName,
+                        settings: mergeObject(ySeries[seriesIndex]?.settings ?? {}, settings),
+                    }
+                    return ySeries
+                },
+                updateSeries: (state, { columnName, settings }) => {
+                    if (!state) {
+                        return null
+                    }
+
+                    const ySeries = [...state]
+
+                    const index = ySeries.findIndex((n) => n?.name === columnName)
+                    if (index < 0) {
+                        return ySeries
+                    }
+
+                    ySeries[index] = {
+                        name: columnName,
+                        settings: mergeObject(ySeries[index]?.settings ?? {}, settings),
+                    }
                     return ySeries
                 },
                 deleteYSeries: (state, { seriesIndex }) => {
@@ -168,8 +429,114 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 setSideBarTab: (_state, { tab }) => tab,
             },
         ],
-    }),
+        chartSettings: [
+            props.query.chartSettings ?? ({} as ChartSettings),
+            {
+                updateChartSettings: (state, { settings }) => {
+                    return { ...mergeObject(state, settings) }
+                },
+                setQuery: (state, { node }) => {
+                    return { ...mergeObject(state, node.chartSettings ?? {}) }
+                },
+            },
+        ],
+        isChartSettingsPanelOpen: [
+            false as boolean,
+            {
+                toggleChartSettingsPanel: (state, { open }) => {
+                    if (open === undefined) {
+                        return !state
+                    }
+
+                    return open
+                },
+                setVisualizationType: (state, { visualizationType }) => {
+                    if (state) {
+                        return true
+                    }
+
+                    return visualizationType !== ChartDisplayType.ActionsTable
+                },
+            },
+        ],
+        conditionalFormattingRules: [
+            [] as ConditionalFormattingRule[],
+            {
+                addConditionalFormattingRule: (state, { rule, isDarkModeOn }) => {
+                    const rules = [...state]
+
+                    rules.push({
+                        templateId: FORMATTING_TEMPLATES[0].id,
+                        columnName: '',
+                        bytecode: [],
+                        input: '',
+                        color: isDarkModeOn ? RGBToHex(lightenDarkenColor('#FFADAD', -30)) : '#FFADAD',
+                        ...rule,
+                    })
+
+                    return rules
+                },
+                updateConditionalFormattingRule: (state, { rule, deleteRule, colorMode }) => {
+                    const rules = [...state]
+
+                    const index = rules.findIndex((n) => n.id === rule.id)
+                    if (index === -1) {
+                        return rules
+                    }
+
+                    if (deleteRule) {
+                        rules.splice(index, 1)
+                        return rules
+                    }
+
+                    rules[index] = { ...rule, colorMode: colorMode as 'light' | 'dark' }
+                    return rules
+                },
+            },
+        ],
+        conditionalFormattingRulesPanelActiveKeys: [
+            [] as string[],
+            {
+                addConditionalFormattingRule: (state, { rule: { id } }) => {
+                    return [...state, id]
+                },
+                setConditionalFormattingRulesPanelActiveKeys: (_, { keys }) => {
+                    return [...keys]
+                },
+            },
+        ],
+    })),
     selectors({
+        columns: [
+            (s) => [s.response],
+            (response): Column[] => {
+                if (!response) {
+                    return []
+                }
+
+                const columns: string[] = response['columns'] ?? []
+                const types: string[][] = response['types'] ?? []
+
+                return columns.map((column, index) => {
+                    const type = types[index]?.[1]
+                    return {
+                        name: column,
+                        type: {
+                            name: toFriendlyClickhouseTypeName(type),
+                            isNumerical: isNumericalType(type),
+                        },
+                        label: `${column} - ${type}`,
+                        dataIndex: index,
+                    }
+                })
+            },
+        ],
+        numericalColumns: [
+            (s) => [s.columns],
+            (columns): Column[] => {
+                return columns.filter((n) => n.type.isNumerical)
+            },
+        ],
         query: [(_state, props) => [props.query], (query) => query],
         showEditingUI: [
             (state, props) => [state.insightMode, props.insightLogicProps],
@@ -204,41 +571,47 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
         ],
         yData: [
             (state) => [state.selectedYAxis, state.response, state.columns],
-            (ySeries, response, columns): null | AxisSeries<number>[] => {
+            (ySeries, response, columns): AxisSeries<number>[] => {
                 if (!response || ySeries === null || ySeries.length === 0) {
-                    return null
+                    return [EmptyYAxisSeries]
                 }
 
-                const data: any[] = response?.['results'] ?? []
+                const data: any[] = response?.['results'] ?? response?.['result'] ?? []
 
                 return ySeries
-                    .map((name): AxisSeries<number> | null => {
-                        if (!name) {
-                            return {
-                                column: {
-                                    name: 'None',
-                                    type: 'None',
-                                    label: 'None',
-                                    dataIndex: -1,
-                                },
-                                data: [],
-                            }
+                    .map((series): AxisSeries<number> | null => {
+                        if (!series) {
+                            return EmptyYAxisSeries
                         }
 
-                        const column = columns.find((n) => n.name === name)
+                        const column = columns.find((n) => n.name === series.name)
                         if (!column) {
-                            return null
+                            return EmptyYAxisSeries
                         }
 
                         return {
                             column,
                             data: data.map((n) => {
                                 try {
-                                    return parseInt(n[column.dataIndex], 10)
+                                    const multiplier = series.settings.formatting?.style === 'percent' ? 100 : 1
+
+                                    if (series.settings.formatting?.decimalPlaces) {
+                                        return parseFloat(
+                                            (parseFloat(n[column.dataIndex]) * multiplier).toFixed(
+                                                series.settings.formatting.decimalPlaces
+                                            )
+                                        )
+                                    }
+
+                                    const isInt = Number.isInteger(n[column.dataIndex])
+                                    return isInt
+                                        ? parseInt(n[column.dataIndex], 10) * multiplier
+                                        : parseFloat(n[column.dataIndex]) * multiplier
                                 } catch {
                                     return 0
                                 }
                             }),
+                            settings: series.settings,
                         }
                     })
                     .filter((series): series is AxisSeries<number> => Boolean(series))
@@ -251,7 +624,10 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                     return {
                         column: {
                             name: 'None',
-                            type: 'None',
+                            type: {
+                                name: 'STRING',
+                                isNumerical: false,
+                            },
                             label: 'None',
                             dataIndex: -1,
                         },
@@ -259,7 +635,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                     }
                 }
 
-                const data: any[] = response?.['results'] ?? []
+                const data: any[] = response?.['results'] ?? response?.['result'] ?? []
 
                 const column = columns.find((n) => n.name === xSeries)
                 if (!column) {
@@ -272,20 +648,130 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 }
             },
         ],
+        tabularData: [
+            (state) => [state.tabularColumns, state.response],
+            (tabularColumns, response): TableDataCell<any>[][] => {
+                if (!response || tabularColumns === null) {
+                    return []
+                }
+
+                const data: (string | number | null)[][] = response?.['results'] ?? response?.['result'] ?? []
+
+                return data.map((row): TableDataCell<any>[] => {
+                    return tabularColumns.map((column): TableDataCell<any> => {
+                        if (!column) {
+                            return {
+                                value: null,
+                                formattedValue: null,
+                                type: 'STRING',
+                            }
+                        }
+
+                        const value = row[column.column.dataIndex]
+
+                        if (column.column.type.isNumerical) {
+                            try {
+                                if (value === null) {
+                                    return {
+                                        value: null,
+                                        formattedValue: null,
+                                        type: column.column.type.name,
+                                    }
+                                }
+
+                                const multiplier = column.settings?.formatting?.style === 'percent' ? 100 : 1
+
+                                if (column.settings?.formatting?.decimalPlaces) {
+                                    return {
+                                        value,
+                                        formattedValue: formatDataWithSettings(
+                                            parseFloat(
+                                                (parseFloat(value.toString()) * multiplier).toFixed(
+                                                    column.settings.formatting.decimalPlaces
+                                                )
+                                            ),
+                                            column.settings
+                                        ),
+                                        type: column.column.type.name,
+                                    }
+                                }
+
+                                const isInt = Number.isInteger(value)
+                                return {
+                                    value,
+                                    formattedValue: formatDataWithSettings(
+                                        isInt
+                                            ? parseInt(value.toString(), 10) * multiplier
+                                            : parseFloat(value.toString()) * multiplier,
+                                        column.settings
+                                    ),
+                                    type: column.column.type.name,
+                                }
+                            } catch {
+                                return {
+                                    value: 0,
+                                    formattedValue: '0',
+                                    type: column.column.type.name,
+                                }
+                            }
+                        }
+
+                        return {
+                            value: convertTableValue(value, column.column.type.name),
+                            formattedValue: formatDataWithSettings(value, column.settings),
+                            type: column.column.type.name,
+                        }
+                    })
+                })
+            },
+        ],
+        tabularColumns: [
+            (state) => [state.tabularColumnSettings, state.response, state.columns],
+            (tabularColumnSettings, response, columns): AxisSeries<any>[] => {
+                if (!response) {
+                    return []
+                }
+
+                return columns.map((col) => {
+                    const series = (tabularColumnSettings || []).find((n) => n?.name === col.name)
+
+                    return {
+                        column: col,
+                        data: [],
+                        settings: series?.settings ?? DefaultAxisSettings(),
+                    }
+                })
+            },
+        ],
+        dataVisualizationProps: [() => [(_, props) => props], (props): DataVisualizationLogicProps => props],
+        isTableVisualization: [
+            (state) => [state.visualizationType],
+            (visualizationType): boolean => visualizationType === ChartDisplayType.ActionsTable,
+        ],
+        showTableSettings: [
+            (state) => [state.visualizationType],
+            (visualizationType): boolean =>
+                visualizationType === ChartDisplayType.ActionsTable ||
+                visualizationType === ChartDisplayType.BoldNumber,
+        ],
     }),
-    listeners(({ props }) => ({
+    listeners(({ props, actions }) => ({
+        updateChartSettings: ({ settings }) => {
+            actions.setQuery({
+                ...props.query,
+                chartSettings: { ...(props.query.chartSettings ?? {}), ...settings },
+            })
+        },
         setQuery: ({ node }) => {
             if (props.setQuery) {
                 props.setQuery(node)
             }
         },
         setVisualizationType: ({ visualizationType }) => {
-            if (props.setQuery) {
-                props.setQuery({
-                    ...props.query,
-                    display: visualizationType,
-                })
-            }
+            actions.setQuery({
+                ...props.query,
+                display: visualizationType,
+            })
         },
     })),
     afterMount(({ actions, props }) => {
@@ -302,64 +788,139 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
 
             if (yAxis && yAxis.length) {
                 yAxis.forEach((axis) => {
-                    actions.addYSeries(axis.column)
+                    actions.addYSeries(axis.column, axis.settings)
                 })
             }
         }
+
+        if (props.query.tableSettings) {
+            if (props.query.tableSettings.columns) {
+                props.query.tableSettings.columns.forEach((column) => {
+                    actions.addSeries(column.column, column.settings)
+                })
+            }
+        }
+
+        if (props.query.tableSettings?.conditionalFormatting?.length) {
+            props.query.tableSettings.conditionalFormatting.forEach((rule) => {
+                actions.addConditionalFormattingRule(rule)
+            })
+            actions.setConditionalFormattingRulesPanelActiveKeys([])
+        }
     }),
     subscriptions(({ props, actions, values }) => ({
-        columns: (value: { name: string; type: string }[], oldValue: { name: string; type: string }[]) => {
+        columns: (value: Column[], oldValue: Column[]) => {
+            // If response is cleared, then don't update any internal values
+            if (!values.response || (!values.response.results && !values.response.result)) {
+                return
+            }
+
+            // When query columns update, clear all internal values and re-setup tabular columns and chart series
+
+            const oldTabularColumnSettings: (SelectedYAxis | null)[] | null = JSON.parse(
+                JSON.stringify(values.tabularColumnSettings)
+            )
+
             if (oldValue && oldValue.length) {
                 if (JSON.stringify(value) !== JSON.stringify(oldValue)) {
                     actions.clearAxis()
                 }
             }
 
-            // Set default axis values
+            // Set up table columns
+            if (values.response && values.tabularColumnSettings === null) {
+                value.forEach((column) => {
+                    if (oldTabularColumnSettings) {
+                        const lastValue = oldTabularColumnSettings.find((n) => n?.name === column.name)
+                        return actions.addSeries(column.name, lastValue?.settings)
+                    }
+
+                    actions.addSeries(column.name)
+                })
+            }
+
+            // Set up chart series
             if (values.response && values.selectedXAxis === null && values.selectedYAxis === null) {
-                const types: string[][] = values.response['types']
-                const yAxisTypes = types.find((n) => n[1].indexOf('Int') !== -1 || n[1].indexOf('Float') !== -1)
-                const xAxisTypes = types.find((n) => n[1].indexOf('Date') !== -1)
+                const xAxisTypes = value.find((n) => n.type.name.indexOf('DATE') !== -1)
+                const yAxisTypes = value.filter((n) => n.type.isNumerical)
 
                 if (yAxisTypes) {
-                    actions.addYSeries(yAxisTypes[0])
+                    yAxisTypes.forEach((y) => {
+                        if (oldTabularColumnSettings) {
+                            const lastValue = oldTabularColumnSettings.find((n) => n?.name === y.name)
+                            return actions.addYSeries(y.name, lastValue?.settings)
+                        }
+
+                        actions.addYSeries(y.name)
+                    })
                 }
 
                 if (xAxisTypes) {
-                    actions.updateXSeries(xAxisTypes[0])
+                    actions.updateXSeries(xAxisTypes.name)
                 }
             }
         },
         selectedXAxis: (value: string | null) => {
-            if (props.setQuery) {
-                const yColumns = values.selectedYAxis?.filter((n: string | null): n is string => Boolean(n)) ?? []
-                const xColumn: ChartAxis | undefined = value !== null ? { column: value } : undefined
-
-                props.setQuery({
-                    ...props.query,
-                    chartSettings: {
-                        ...(props.query.chartSettings ?? {}),
-                        yAxis: yColumns.map((n) => ({ column: n })),
-                        xAxis: xColumn,
-                    },
-                })
+            if (values.isTableVisualization) {
+                return
             }
+
+            const yColumns =
+                values.selectedYAxis?.filter((n: SelectedYAxis | null): n is SelectedYAxis => Boolean(n)) ?? []
+            const xColumn: ChartAxis | undefined = value !== null ? { column: value } : undefined
+
+            actions.setQuery({
+                ...props.query,
+                chartSettings: {
+                    ...(props.query.chartSettings ?? {}),
+                    yAxis: yColumns.map((n) => ({ column: n.name, settings: n.settings })),
+                    xAxis: xColumn,
+                },
+            })
         },
-        selectedYAxis: (value: (string | null)[] | null) => {
-            if (props.setQuery) {
-                const yColumns = value?.filter((n: string | null): n is string => Boolean(n)) ?? []
-                const xColumn: ChartAxis | undefined =
-                    values.selectedXAxis !== null ? { column: values.selectedXAxis } : undefined
-
-                props.setQuery({
-                    ...props.query,
-                    chartSettings: {
-                        ...(props.query.chartSettings ?? {}),
-                        yAxis: yColumns.map((n) => ({ column: n })),
-                        xAxis: xColumn,
-                    },
-                })
+        selectedYAxis: (value: (SelectedYAxis | null)[] | null) => {
+            if (values.isTableVisualization) {
+                return
             }
+
+            const yColumns = value?.filter((n: SelectedYAxis | null): n is SelectedYAxis => Boolean(n)) ?? []
+            const xColumn: ChartAxis | undefined =
+                values.selectedXAxis !== null ? { column: values.selectedXAxis } : undefined
+
+            actions.setQuery({
+                ...props.query,
+                chartSettings: {
+                    ...(props.query.chartSettings ?? {}),
+                    yAxis: yColumns.map((n) => ({ column: n.name, settings: n.settings })),
+                    xAxis: xColumn,
+                },
+            })
+        },
+        tabularColumnSettings: (value: (SelectedYAxis | null)[] | null) => {
+            if (!values.isTableVisualization) {
+                return
+            }
+
+            const columns = value?.filter((n: SelectedYAxis | null): n is SelectedYAxis => Boolean(n)) ?? []
+
+            actions.setQuery({
+                ...props.query,
+                tableSettings: {
+                    ...(props.query.tableSettings ?? {}),
+                    columns: columns.map((n) => ({ column: n.name, settings: n.settings })),
+                },
+            })
+        },
+        conditionalFormattingRules: (rules: ConditionalFormattingRule[]) => {
+            const saveableRules = rules.filter((n) => n.columnName && n.input && n.templateId && n.bytecode.length)
+
+            actions.setQuery({
+                ...props.query,
+                tableSettings: {
+                    ...(props.query.tableSettings ?? {}),
+                    conditionalFormatting: saveableRules,
+                },
+            })
         },
     })),
 ])

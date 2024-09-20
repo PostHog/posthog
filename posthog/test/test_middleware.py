@@ -117,6 +117,7 @@ class TestAutoProjectMiddleware(APIBaseTest):
     # How many queries are made in the base app
     # On Cloud there's an additional multi_tenancy_organizationbilling query
     second_team: Team
+    third_team: Team
     no_access_team: Team
     base_app_num_queries: int
 
@@ -126,6 +127,12 @@ class TestAutoProjectMiddleware(APIBaseTest):
         cls.base_app_num_queries = 45
         # Create another team that the user does have access to
         cls.second_team = create_team(organization=cls.organization, name="Second Life")
+
+        # some teams have non-standard API tokens
+        cls.third_team = create_team(organization=cls.organization, name="Third Life")
+        cls.third_team.api_token = "sTMFPsFhdP1Ssg"
+        cls.third_team.save()
+
         other_org = create_organization(name="test org")
         cls.no_access_team = create_team(organization=other_org)
 
@@ -319,6 +326,16 @@ class TestAutoProjectMiddleware(APIBaseTest):
         assert res.status_code == 302
         assert res.headers["Location"] == f"/project/{self.second_team.pk}/home"
 
+    def test_project_redirects_to_posthog_org_style_tokens(self):
+        res = self.client.get(
+            f"/project/{self.third_team.api_token}/replay/018f5c3e-1a17-7f2b-ac83-32d06be3269b?t=2601"
+        )
+        assert res.status_code == 302, res.content
+        assert (
+            res.headers["Location"]
+            == f"/project/{self.third_team.pk}/replay/018f5c3e-1a17-7f2b-ac83-32d06be3269b?t=2601"
+        )
+
     def test_project_redirects_to_current_team_when_accessing_missing_project_by_token(self):
         res = self.client.get(f"/project/phc_123/home")
         assert res.status_code == 302
@@ -510,7 +527,7 @@ class TestAutoLogoutImpersonateMiddleware(APIBaseTest):
             res = self.client.get("/api/users/@me")
             assert res.status_code == 200
             assert res.json()["email"] == "other-user@posthog.com"
-            assert self.client.session.get("loginas_started_at") == now.timestamp()
+            assert self.client.session.get("session_created_at") == now.timestamp()
 
         with freeze_time(now + timedelta(seconds=10)):
             res = self.client.get("/api/users/@me")

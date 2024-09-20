@@ -1,13 +1,11 @@
 import { useActions, useValues } from 'kea'
 import { Field, Form } from 'kea-forms'
 import { textCardModalLogic } from 'lib/components/Cards/TextCard/textCardModalLogic'
-import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonTextAreaMarkdown } from 'lib/lemon-ui/LemonTextArea'
-import { userLogic } from 'scenes/userLogic'
 
-import { AvailableFeature, DashboardType } from '~/types'
+import { DashboardType, QueryBasedInsightModel } from '~/types'
 
 export function TextCardModal({
     isOpen,
@@ -17,14 +15,12 @@ export function TextCardModal({
 }: {
     isOpen: boolean
     onClose: () => void
-    dashboard: DashboardType
+    dashboard: DashboardType<QueryBasedInsightModel>
     textTileId: number | 'new' | null
 }): JSX.Element {
     const modalLogic = textCardModalLogic({ dashboard, textTileId: textTileId ?? 'new', onClose })
     const { isTextTileSubmitting, textTileValidationErrors } = useValues(modalLogic)
     const { submitTextTile, resetTextTile } = useActions(modalLogic)
-
-    const { hasAvailableFeature } = useValues(userLogic)
 
     const handleClose = (): void => {
         resetTextTile()
@@ -46,19 +42,17 @@ export function TextCardModal({
                     >
                         Cancel
                     </LemonButton>
-                    {hasAvailableFeature(AvailableFeature.TEAM_COLLABORATION) && (
-                        <LemonButton
-                            disabledReason={textTileValidationErrors.body as string | null}
-                            loading={isTextTileSubmitting}
-                            form="text-tile-form"
-                            htmlType="submit"
-                            type="primary"
-                            onClick={submitTextTile}
-                            data-attr={textTileId === 'new' ? 'save-new-text-tile' : 'edit-text-tile-text'}
-                        >
-                            Save
-                        </LemonButton>
-                    )}
+                    <LemonButton
+                        disabledReason={textTileValidationErrors.body as string | null}
+                        loading={isTextTileSubmitting}
+                        form="text-tile-form"
+                        htmlType="submit"
+                        type="primary"
+                        onClick={submitTextTile}
+                        data-attr={textTileId === 'new' ? 'save-new-text-tile' : 'edit-text-tile-text'}
+                    >
+                        Save
+                    </LemonButton>
                 </>
             }
         >
@@ -70,11 +64,9 @@ export function TextCardModal({
                 className=""
                 enableFormOnSubmit
             >
-                <PayGateMini feature={AvailableFeature.TEAM_COLLABORATION}>
-                    <Field name="body" label="">
-                        <LemonTextAreaMarkdown data-attr="text-card-edit-area" />
-                    </Field>
-                </PayGateMini>
+                <Field name="body" label="">
+                    <LemonTextAreaMarkdown data-attr="text-card-edit-area" />
+                </Field>
             </Form>
         </LemonModal>
     )

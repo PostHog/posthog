@@ -24,6 +24,7 @@ export const CAMPAIGN_PROPERTIES: string[] = [
     'mc_cid', // mailchimp campaign id
     'igshid', // instagram
     'ttclid', // tiktok
+    'rdt_cid', // reddit
 ]
 
 // copy from https://github.com/PostHog/posthog/blob/29ac8d6b2ba5de4b65a148136b681b8e52e20429/plugin-server/src/utils/db/utils.ts#L44
@@ -66,6 +67,7 @@ export const SESSION_INITIAL_PROPERTIES_ADAPTED_FROM_EVENTS = new Set([
     'mc_cid',
     'igshid',
     'ttclid',
+    'rdt_cid',
 ])
 
 // If adding event properties with labels, check whether they should be added to
@@ -154,6 +156,10 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         $exception: {
             label: 'Exception',
             description: 'Automatically captured exceptions from the client Sentry integration',
+        },
+        $web_vitals: {
+            label: 'Web vitals',
+            description: 'Automatically captured web vitals data',
         },
         // Mobile SDKs events
         'Application Opened': {
@@ -455,6 +461,11 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             label: 'Device Manufacturer',
             description: 'The manufacturer of the device',
             examples: ['Apple', 'Samsung'],
+        },
+        $is_emulator: {
+            label: 'Is Emulator',
+            description: 'Indicates whether the app is running on an emulator or a physical device',
+            examples: ['true', 'false'],
         },
         $device_name: {
             label: 'Device Name',
@@ -817,6 +828,14 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             label: 'Survey ID',
             description: 'The unique identifier for the survey.',
         },
+        $survey_iteration: {
+            label: 'Survey Iteration Number',
+            description: 'The iteration number for the survey.',
+        },
+        $survey_iteration_start_date: {
+            label: 'Survey Iteration Start Date',
+            description: 'The start date for the current iteration of the survey.',
+        },
         $device: {
             label: 'Device',
             description: 'The mobile device that was used.',
@@ -942,6 +961,10 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             label: 'gclid',
             description: 'Google Click ID',
         },
+        rdt_cid: {
+            label: 'rdt_cid',
+            description: 'Reddit Click ID',
+        },
         gad_source: {
             label: 'gad_source',
             description: 'Google Ads Source',
@@ -990,6 +1013,40 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             label: 'ttclid',
             description: 'TikTok Click ID',
         },
+        $is_identified: {
+            label: 'Is Identified',
+            description: 'When the person was identified',
+        },
+
+        // web vitals properties
+        $web_vitals_enabled_server_side: {
+            label: 'Web vitals enabled server side',
+            description: 'Whether web vitals was enabled in remote config',
+        },
+        $web_vitals_FCP_event: {
+            label: 'Web vitals FCP measure event details',
+        },
+        $web_vitals_FCP_value: {
+            label: 'Web vitals FCP value',
+        },
+        $web_vitals_LCP_event: {
+            label: 'Web vitals LCP measure event details',
+        },
+        $web_vitals_LCP_value: {
+            label: 'Web vitals LCP value',
+        },
+        $web_vitals_INP_event: {
+            label: 'Web vitals INP measure event details',
+        },
+        $web_vitals_INP_value: {
+            label: 'Web vitals INP value',
+        },
+        $web_vitals_CLS_event: {
+            label: 'Web vitals CLS measure event details',
+        },
+        $web_vitals_CLS_value: {
+            label: 'Web vitals CLS value',
+        },
     },
     numerical_event_properties: {}, // Same as event properties, see assignment below
     person_properties: {}, // Currently person properties are the same as event properties, see assignment below
@@ -1024,7 +1081,17 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         $entry_pathname: {
             label: 'Entry pathname',
             description: <span>The first pathname visited in this session</span>,
+            examples: ['/interesting-article?parameter=true'],
+        },
+        $end_current_url: {
+            label: 'Entry URL',
+            description: <span>The first URL visited in this session</span>,
             examples: ['https://example.com/interesting-article?parameter=true'],
+        },
+        $end_pathname: {
+            label: 'Entry pathname',
+            description: <span>The first pathname visited in this session</span>,
+            examples: ['/interesting-article?parameter=true'],
         },
         $exit_current_url: {
             label: 'Exit URL',
@@ -1046,6 +1113,11 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             description: <span>The number of autocapture events in this session</span>,
             examples: ['123'],
         },
+        $screen_count: {
+            label: 'Screen count',
+            description: <span>The number of screen events in this session</span>,
+            examples: ['123'],
+        },
         $channel_type: {
             label: 'Channel type',
             description: <span>What type of acquisition channel this traffic came from.</span>,
@@ -1056,11 +1128,47 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             description: <span>Whether the session was a bounce.</span>,
             examples: ['true', 'false'],
         },
+        $last_external_click_url: {
+            label: 'Last external click URL',
+            description: <span>The last external URL clicked in this session</span>,
+            examples: ['https://example.com/interesting-article?parameter=true'],
+        },
     },
     groups: {
         $group_key: {
             label: 'Group Key',
             description: 'Specified group key',
+        },
+    },
+    replay: {
+        snapshot_source: {
+            label: 'Platform',
+            description: 'Platform the session was recorded on',
+            examples: ['web', 'mobile'],
+        },
+        console_log_level: {
+            label: 'Log level',
+            description: 'Level of console logs captured',
+            examples: ['info', 'warn', 'error'],
+        },
+        console_log_query: {
+            label: 'Console log',
+            description: 'Text of console logs captured',
+        },
+        visited_page: {
+            label: 'Visited page',
+            description: 'URL a user visited during their session',
+        },
+    },
+    log_entries: {
+        level: {
+            label: 'Console log level',
+            description: 'Level of the ',
+            examples: ['info', 'warn', 'error'],
+        },
+        message: {
+            label: 'Console log message',
+            description: 'The contents of the log message',
         },
     },
 } satisfies Partial<Record<TaxonomicFilterGroupType, Record<string, CoreFilterDefinition>>>

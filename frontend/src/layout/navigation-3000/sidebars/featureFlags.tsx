@@ -13,7 +13,8 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { groupsModel } from '~/models/groupsModel'
-import { FeatureFlagType } from '~/types'
+import { InsightVizNode, NodeKind } from '~/queries/schema'
+import { BaseMathType, FeatureFlagType } from '~/types'
 
 import { navigation3000Logic } from '../navigationLogic'
 import { ExtendedListItem, SidebarCategory } from '../types'
@@ -56,6 +57,26 @@ export const featureFlagsSidebarLogic = kea<featureFlagsSidebarLogicType>([
                         if (!featureFlag.id) {
                             throw new Error('Feature flag ID should never be missing in the sidebar')
                         }
+
+                        const query: InsightVizNode = {
+                            kind: NodeKind.InsightVizNode,
+                            source: {
+                                kind: NodeKind.TrendsQuery,
+                                series: [
+                                    {
+                                        event: '$pageview',
+                                        name: '$pageview',
+                                        kind: NodeKind.EventsNode,
+                                        math: BaseMathType.UniqueUsers,
+                                    },
+                                ],
+                                breakdownFilter: {
+                                    breakdown: `$feature/${featureFlag.key}`,
+                                    breakdown_type: 'event',
+                                },
+                            },
+                        }
+
                         return {
                             key: featureFlag.id,
                             name: featureFlag.key,
@@ -115,13 +136,7 @@ export const featureFlagsSidebarLogic = kea<featureFlagsSidebarLogicType>([
                                         },
                                         {
                                             label: 'Try out in Insights',
-                                            to: urls.insightNew({
-                                                events: [
-                                                    { id: '$pageview', name: '$pageview', type: 'events', math: 'dau' },
-                                                ],
-                                                breakdown_type: 'event',
-                                                breakdown: `$feature/${featureFlag.key}`,
-                                            }),
+                                            to: urls.insightNew(undefined, undefined, query),
                                             'data-attr': 'usage',
                                         },
                                     ],

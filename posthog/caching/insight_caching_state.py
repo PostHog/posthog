@@ -6,9 +6,12 @@ from typing import Optional, Union
 import structlog
 from django.core.paginator import Paginator
 from django.utils.timezone import now
+from prometheus_client import Counter
 
 from posthog.caching.calculate_results import calculate_cache_key
 from posthog.caching.utils import active_teams
+from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager import conversion_to_query_based
+from posthog.hogql_queries.query_runner import get_query_runner_or_none
 from posthog.models.dashboard_tile import DashboardTile
 from posthog.models.insight import Insight, InsightViewed
 from posthog.models.insight_caching_state import InsightCachingState
@@ -19,6 +22,17 @@ VERY_RECENTLY_VIEWED_THRESHOLD = timedelta(hours=48)
 GENERALLY_VIEWED_THRESHOLD = timedelta(weeks=2)
 
 logger = structlog.get_logger(__name__)
+
+TARGET_CACHE_AGE_COUNTER = Counter(
+    "insight_cache_state_target_age_calculated",
+    "Count of target cache age calculated for insight caching state",
+    labelnames=["target_cache_age"],
+)
+
+INSIGHT_CACHING_STATES_UPSERTED_COUNT = Counter(
+    "insight_cache_state_upserted_count",
+    "Count of insight caching states upserted, this is the success signal",
+)
 
 
 # :TODO: Make these configurable
@@ -66,35 +80,37 @@ class LazyLoader:
         return set(recently_viewed_insights.values_list("insight_id", flat=True))
 
 
-cacheable_query_kinds = [
-    "EventsQuery",
-    "HogQLQuery",
-    "TimeToSeeDataSessionsQuery",
-    "TimeToSeeDataQuery",
-]
-
-
 def insight_can_be_cached(insight: Optional[Insight]) -> bool:
     if insight is None:
         return False
 
-    cacheable_filter_based_insight = len(insight.filters) > 0
-    cacheable_query_based_insight = insight.query is not None and (
-        insight.query.get("kind", None) in cacheable_query_kinds
-        or insight.query.get("source", {}).get("kind") in cacheable_query_kinds
-    )
-    return cacheable_filter_based_insight or cacheable_query_based_insight
+    if insight.filters:
+        return True
+
+    if not insight.query:
+        return False
+
+    if get_query_runner_or_none(insight.query, insight.team) is not None:
+        return True
+
+    if source := insight.query.get("source"):
+        if get_query_runner_or_none(source, insight.team) is not None:
+            return True
+
+    return False
 
 
 def sync_insight_cache_states():
     lazy_loader = LazyLoader()
-    insights = Insight.objects.all().prefetch_related("team", "sharingconfiguration_set").order_by("pk")
+    insights = (
+        Insight.objects_including_soft_deleted.all().prefetch_related("team", "sharingconfiguration_set").order_by("pk")
+    )
     for page_of_insights in _iterate_large_queryset(insights, 1000):
         batch = [upsert(insight.team, insight, lazy_loader, execute=False) for insight in page_of_insights]
         _execute_insert(batch)
 
     tiles = (
-        DashboardTile.objects.all()
+        DashboardTile.objects_including_soft_deleted.all()
         .filter(insight__isnull=False)
         .prefetch_related(
             "dashboard",
@@ -110,7 +126,7 @@ def sync_insight_cache_states():
         _execute_insert(batch)
 
 
-def upsert(
+def upsert(  # TODO: Rename to `upsert_insight_caching_state` for clarity
     team: Team,
     target: Union[DashboardTile, Insight],
     lazy_loader: Optional[LazyLoader] = None,
@@ -121,21 +137,28 @@ def upsert(
     if cache_key is None:  # Non-cachable model
         return None
 
-    target_age = calculate_target_age(team, target, lazy_loader)
-    target_cache_age_seconds = target_age.value.total_seconds() if target_age.value is not None else None
-
-    model = InsightCachingState(
-        team_id=team.pk,
-        insight=target if isinstance(target, Insight) else target.insight,
-        dashboard_tile=target if isinstance(target, DashboardTile) else None,
-        cache_key=cache_key,
-        target_cache_age_seconds=target_cache_age_seconds,
-    )
-    if execute:
-        _execute_insert([model])
+    insight = target if isinstance(target, Insight) else target.insight
+    if insight is None:
         return None
-    else:
-        return model
+
+    with conversion_to_query_based(insight):
+        target_age = calculate_target_age(team, target, lazy_loader)
+        target_cache_age_seconds = target_age.value.total_seconds() if target_age.value is not None else None
+
+        TARGET_CACHE_AGE_COUNTER.labels(target_cache_age=target_age.name).inc()
+
+        model = InsightCachingState(
+            team_id=team.pk,
+            insight=insight,
+            dashboard_tile=target if isinstance(target, DashboardTile) else None,
+            cache_key=cache_key,
+            target_cache_age_seconds=target_cache_age_seconds,
+        )
+        if execute:
+            _execute_insert([model])
+            return None
+        else:
+            return model
 
 
 def sync_insight_caching_state(
@@ -158,7 +181,7 @@ def sync_insight_caching_state(
         # This is a best-effort kind synchronization, safe to ignore errors
         logger.warn(
             "Failed to sync InsightCachingState, ignoring",
-            exception=err,
+            exception=str(err),
             team_id=team_id,
             insight_id=insight_id,
             dashboard_tile_id=dashboard_tile_id,
@@ -219,7 +242,7 @@ def calculate_target_age_dashboard_tile(
         return TargetCacheAge.MID_PRIORITY
 
     if dashboard_tile.dashboard.is_sharing_enabled:
-        return TargetCacheAge.LOW_PRIORITY
+        return TargetCacheAge.HIGH_PRIORITY
 
     return TargetCacheAge.NO_CACHING
 
@@ -260,3 +283,4 @@ def _execute_insert(states: list[Optional[InsightCachingState]]):
     with connection.cursor() as cursor:
         query = INSERT_INSIGHT_CACHING_STATES_QUERY.format(values=", ".join(values))
         cursor.execute(query, params=params)
+        INSIGHT_CACHING_STATES_UPSERTED_COUNT.inc(cursor.rowcount)

@@ -1,7 +1,6 @@
-import { IconCheckCircle } from '@posthog/icons'
+import { IconCheckCircle, IconPin, IconPinFilled } from '@posthog/icons'
 import { LemonInput, LemonSegmentedButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { combineUrl } from 'kea-router'
 import api from 'lib/api'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
@@ -19,7 +18,8 @@ import { actionsLogic } from 'scenes/actions/actionsLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { actionsModel } from '~/models/actionsModel'
-import { ActionType, AvailableFeature, ChartDisplayType, InsightType, ProductKey } from '~/types'
+import { InsightVizNode, NodeKind } from '~/queries/schema'
+import { ActionType, AvailableFeature, ChartDisplayType, FilterLogicalOperator, ProductKey, ReplayTabs } from '~/types'
 
 import { NewActionButton } from '../../actions/NewActionButton'
 import { teamLogic } from '../../teamLogic'
@@ -28,16 +28,52 @@ import { urls } from '../../urls'
 export function ActionsTable(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { actionsLoading } = useValues(actionsModel({ params: 'include_count=1' }))
-    const { loadActions } = useActions(actionsModel)
+    const { loadActions, pinAction, unpinAction } = useActions(actionsModel)
 
-    const { filterType, searchTerm, actionsFiltered, shouldShowProductIntroduction, shouldShowEmptyState } =
-        useValues(actionsLogic)
+    const { filterType, searchTerm, actionsFiltered, shouldShowEmptyState } = useValues(actionsLogic)
     const { setFilterType, setSearchTerm } = useActions(actionsLogic)
 
     const { hasAvailableFeature } = useValues(userLogic)
     const { updateHasSeenProductIntroFor } = useActions(userLogic)
 
+    const tryInInsightsUrl = (action: ActionType): string => {
+        const query: InsightVizNode = {
+            kind: NodeKind.InsightVizNode,
+            source: {
+                kind: NodeKind.TrendsQuery,
+                series: [
+                    {
+                        id: action.id,
+                        name: action.name || undefined,
+                        kind: NodeKind.ActionsNode,
+                    },
+                ],
+                interval: 'day',
+                trendsFilter: { display: ChartDisplayType.ActionsLineGraph },
+            },
+        }
+        return urls.insightNew(undefined, undefined, query)
+    }
+
     const columns: LemonTableColumns<ActionType> = [
+        {
+            width: 0,
+            title: 'Pinned',
+            dataIndex: 'pinned_at',
+            sorter: (a: ActionType, b: ActionType) =>
+                (b.pinned_at ? new Date(b.pinned_at).getTime() : 0) -
+                (a.pinned_at ? new Date(a.pinned_at).getTime() : 0),
+            render: function Render(pinned, action) {
+                return (
+                    <LemonButton
+                        size="small"
+                        onClick={pinned ? () => unpinAction(action) : () => pinAction(action)}
+                        tooltip={pinned ? 'Unpin action' : 'Pin action'}
+                        icon={pinned ? <IconPinFilled /> : <IconPin />}
+                    />
+                )
+            },
+        },
         {
             title: 'Name',
             dataIndex: 'name',
@@ -61,8 +97,8 @@ export function ActionsTable(): JSX.Element {
                 return (
                     <span>
                         {action.steps?.length ? (
-                            action.steps.map((step) => (
-                                <div key={step.id}>
+                            action.steps.map((step, index) => (
+                                <div key={index}>
                                     {(() => {
                                         let url = stripHTTP(step.url || '')
                                         url = url.slice(0, 40) + (url.length > 40 ? '...' : '')
@@ -148,50 +184,35 @@ export function ActionsTable(): JSX.Element {
                                 <LemonButton to={urls.action(action.id)} fullWidth>
                                     Edit
                                 </LemonButton>
-                                <LemonButton to={urls.copyAction(action)} fullWidth>
-                                    Copy
+                                <LemonButton to={urls.duplicateAction(action)} fullWidth>
+                                    Duplicate
                                 </LemonButton>
                                 <LemonButton
-                                    to={
-                                        combineUrl(urls.replay(), {
-                                            filters: {
-                                                actions: [
-                                                    {
-                                                        id: action.id,
-                                                        type: 'actions',
-                                                        order: 0,
-                                                        name: action.name,
-                                                    },
-                                                ],
-                                            },
-                                        }).url
-                                    }
+                                    to={urls.replay(ReplayTabs.Home, {
+                                        filter_group: {
+                                            type: FilterLogicalOperator.And,
+                                            values: [
+                                                {
+                                                    type: FilterLogicalOperator.And,
+                                                    values: [
+                                                        {
+                                                            id: action.id,
+                                                            type: 'actions',
+                                                            order: 0,
+                                                            name: action.name,
+                                                        },
+                                                    ],
+                                                },
+                                            ],
+                                        },
+                                    })}
                                     sideIcon={<IconPlayCircle />}
                                     fullWidth
                                     data-attr="action-table-view-recordings"
                                 >
                                     View recordings
                                 </LemonButton>
-                                <LemonButton
-                                    to={
-                                        combineUrl(
-                                            urls.insightNew({
-                                                insight: InsightType.TRENDS,
-                                                interval: 'day',
-                                                display: ChartDisplayType.ActionsLineGraph,
-                                                actions: [
-                                                    {
-                                                        id: action.id,
-                                                        name: action.name,
-                                                        type: 'actions',
-                                                        order: 0,
-                                                    },
-                                                ],
-                                            })
-                                        ).url
-                                    }
-                                    fullWidth
-                                >
+                                <LemonButton to={tryInInsightsUrl(action)} fullWidth>
                                     Try out in Insights
                                 </LemonButton>
                                 <LemonDivider />
@@ -218,21 +239,17 @@ export function ActionsTable(): JSX.Element {
 
     return (
         <div data-attr="manage-events-table">
-            {(shouldShowEmptyState || shouldShowProductIntroduction) && (
-                <ProductIntroduction
-                    productName="Actions"
-                    productKey={ProductKey.ACTIONS}
-                    thingName="action"
-                    isEmpty={shouldShowEmptyState}
-                    description="Use actions to combine events that you want to have tracked together or to make detailed Autocapture events easier to reuse."
-                    docsURL="https://posthog.com/docs/data/actions"
-                    actionElementOverride={
-                        <NewActionButton
-                            onSelectOption={() => updateHasSeenProductIntroFor(ProductKey.ACTIONS, true)}
-                        />
-                    }
-                />
-            )}
+            <ProductIntroduction
+                productName="Actions"
+                productKey={ProductKey.ACTIONS}
+                thingName="action"
+                isEmpty={shouldShowEmptyState}
+                description="Use actions to combine events that you want to have tracked together or to make detailed Autocapture events easier to reuse."
+                docsURL="https://posthog.com/docs/data/actions"
+                actionElementOverride={
+                    <NewActionButton onSelectOption={() => updateHasSeenProductIntroFor(ProductKey.ACTIONS, true)} />
+                }
+            />
             {(shouldShowEmptyState && filterType === 'me') || !shouldShowEmptyState ? (
                 <div className="flex items-center justify-between gap-2 mb-4">
                     <LemonInput

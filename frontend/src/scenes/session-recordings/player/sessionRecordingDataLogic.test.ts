@@ -2,8 +2,10 @@ import { expectLogic } from 'kea-test-utils'
 import { api, MOCK_TEAM_ID } from 'lib/api.mock'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { convertSnapshotsByWindowId } from 'scenes/session-recordings/__mocks__/recording_snapshots'
+import { encodedWebSnapshotData } from 'scenes/session-recordings/player/__mocks__/encoded-snapshot-data'
 import {
     deduplicateSnapshots,
+    parseEncodedSnapshots,
     sessionRecordingDataLogic,
 } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -13,7 +15,6 @@ import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useAvailableFeatures } from '~/mocks/features'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { waitForExpect } from '~/test/waitForExpect'
 import { AvailableFeature, RecordingSnapshot, SessionRecordingSnapshotSource } from '~/types'
 
 import recordingEventsJson from '../__mocks__/recording_events_query'
@@ -95,8 +96,8 @@ describe('sessionRecordingDataLogic', () => {
             expect(logic.values).toMatchObject({
                 bufferedToTime: null,
                 durationMs: 0,
-                start: undefined,
-                end: undefined,
+                start: null,
+                end: null,
                 segments: [],
                 sessionEventsData: null,
                 filters: {},
@@ -147,8 +148,8 @@ describe('sessionRecordingDataLogic', () => {
                 .toMatchValues({
                     sessionPlayerData: {
                         bufferedToTime: null,
-                        start: undefined,
-                        end: undefined,
+                        start: null,
+                        end: null,
                         durationMs: 0,
                         segments: [],
                         sessionRecordingId: '2',
@@ -378,46 +379,6 @@ describe('sessionRecordingDataLogic', () => {
                 'loadSnapshotsForSourceSuccess',
             ])
         })
-
-        it('polls up to a max threshold', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.loadSnapshots()
-            })
-                .toDispatchActions([
-                    'loadSnapshotsForSource', // blob
-                    'loadSnapshotsForSourceSuccess',
-                    // the returned data isn't changing from our mock,
-                    // so we'll not keep polling indefinitely
-                    'loadSnapshotsForSource', // 1
-                    'loadSnapshotsForSourceSuccess',
-                    'loadSnapshotsForSource', // 2
-                    'loadSnapshotsForSourceSuccess',
-                    'loadSnapshotsForSource', // 3
-                    'loadSnapshotsForSourceSuccess',
-                    'loadSnapshotsForSource', // 4
-                    'loadSnapshotsForSourceSuccess',
-                    'loadSnapshotsForSource', // 5
-                    'loadSnapshotsForSourceSuccess',
-                    'loadSnapshotsForSource', // 6
-                    'loadSnapshotsForSourceSuccess',
-                    'loadSnapshotsForSource', // 7
-                    'loadSnapshotsForSourceSuccess',
-                    'loadSnapshotsForSource', // 8
-                    'loadSnapshotsForSourceSuccess',
-                    'loadSnapshotsForSource', // 9
-                    'loadSnapshotsForSourceSuccess',
-                    'loadSnapshotsForSource', // 10
-                    'loadSnapshotsForSourceSuccess',
-                ])
-                .toNotHaveDispatchedActions([
-                    // this isn't called again
-                    'loadSnapshotsForSource',
-                ])
-
-            await waitForExpect(() => {
-                expect(logic.cache.realTimePollingTimeoutID).toBeNull()
-            })
-        })
     })
 
     describe('empty realtime loading', () => {
@@ -443,6 +404,32 @@ describe('sessionRecordingDataLogic', () => {
                 'loadSnapshotsForSource',
                 'loadSnapshotsForSourceSuccess',
             ])
+        })
+    })
+
+    describe('snapshot parsing', () => {
+        const sessionId = '12345'
+        const numberOfParsedLinesInData = 8
+        it('handles normal web data', async () => {
+            const parsed = await parseEncodedSnapshots(encodedWebSnapshotData, sessionId, false)
+            expect(parsed.length).toEqual(numberOfParsedLinesInData)
+            expect(parsed).toMatchSnapshot()
+        })
+
+        it('handles data with unparseable lines', async () => {
+            const parsed = await parseEncodedSnapshots(
+                encodedWebSnapshotData.map((line, index) => {
+                    return index == 0 ? line.substring(0, line.length / 2) : line
+                }),
+                sessionId,
+                false
+            )
+
+            // unparseable lines are not returned
+            expect(encodedWebSnapshotData.length).toEqual(2)
+            expect(parsed.length).toEqual(numberOfParsedLinesInData / 2)
+
+            expect(parsed).toMatchSnapshot()
         })
     })
 })

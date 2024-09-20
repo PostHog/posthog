@@ -8,34 +8,22 @@ $lg: 992px;
 $xl: 1200px;
 $xxl: 1600px;
 $colors: (
-    'primary-highlight': rgba(#1d4aff, 0.1),
-    'primary-light': #345cff,
     'primary': #1d4aff,
-    'primary-dark': #1330a6,
     'danger-highlight': rgba(#db3707, 0.1),
     'danger-lighter': #ffa599,
     'danger-light': #df4b20,
     'danger': #db3707,
     'danger-dark': #992705,
     'warning-highlight': rgba(#f7a501, 0.1),
-    'warning-light': #f8b633,
     'warning': #f7a501,
     'warning-dark': #e09423,
     'highlight': #e49f2c,
-    'highlight-dark': #ffbd4f,
     'success-highlight': rgba(#388600, 0.1),
     'success-light': #5f9d32,
     'success': #388600,
     'success-dark': #245700,
-    'primary-alt-highlight': rgba(#35416b, 0.1),
-    'primary-alt': #35416b,
-    'primary-alt-dark': #222a46,
-    'default': #2d2d2d,
-    'default-dark': #050505,
     'muted': #5f5f5f,
-    'muted-dark': #403939,
     'muted-alt': #747ea1,
-    'muted-alt-dark': #515871,
     'mark': hsl(42deg 93% 86% / 80%),
     'white': #fff,
     'bg-light': #fff,
@@ -44,7 +32,6 @@ $colors: (
     'border': rgb(0 0 0 / 15%),
     'border-light': rgb(0 0 0 / 8%),
     'border-bold': rgb(0 0 0 / 24%),
-    'border-active': rgb(0 0 0 / 36%),
     'transparent': transparent,
     'link': var(--primary-3000),
     // Colors of the PostHog logo
@@ -53,14 +40,13 @@ $colors: (
     'brand-yellow': #f9bd2b,
     'brand-key': #000,
 
-    // This becomes white in dark mode
     // PostHog 3000
     'text-3000-light': #111,
     'text-secondary-3000-light': rgba(#111, 0.7),
     'muted-3000-light': rgba(#111, 0.6),
     'trace-3000-light': rgba(#111, 0.25),
     'primary-3000-light': #f54e01,
-    'primary-3000-highlight-light': rgba(#f54e01, 0.1),
+    'primary-highlight-light': rgba(#f54e01, 0.1),
     'primary-3000-hover-light': #f54e01,
     'primary-3000-active-light': #f54e01,
 
@@ -95,10 +81,10 @@ $colors: (
     'muted-3000-dark': rgba(#fff, 0.5),
     'trace-3000-dark': rgba(#fff, 0.25),
     'primary-3000-dark': #f7a503,
-    'primary-3000-highlight-dark': rgba(#f7a503, 0.1),
+    'primary-highlight-dark': rgba(#f7a503, 0.1),
     'primary-3000-hover-dark': #f7a503,
     'primary-3000-active-dark': #f7a503,
-    'primary-alt-highlight-3000-light': #e5e7e0,
+    'primary-alt-highlight-light': #e5e7e0,
 
     'secondary-3000-dark': #1d1f27,
     'secondary-3000-hover-dark': #575d77,
@@ -114,7 +100,7 @@ $colors: (
     'primary-3000-button-bg-dark': #e0a045,
     'primary-3000-button-border-dark': #b17816,
     'primary-3000-button-border-hover-dark': #8e5b03,
-    'primary-alt-highlight-3000-dark': #232429,
+    'primary-alt-highlight-dark': #232429,
 
     'secondary-3000-frame-bg-dark': #323232,
     'secondary-3000-button-bg-dark': #1d1f27,
@@ -126,57 +112,35 @@ $colors: (
     'danger-3000-button-border-hover-dark': #f54e00,
 
     // The derived colors
+    // `--default` is a pre-3000 alias for "default text color" (`--text-3000` now)
+    'default': var(--default),
     'text-3000': var(--text-3000),
     'text-secondary-3000': var(--text-secondary-3000),
     'muted-3000': var(--muted-3000),
-    'trace-3000': var(--trace-3000),
     'primary-3000': var(--primary-3000),
-    'primary-3000-hover': var(--primary-3000-hover),
     'secondary-3000': var(--secondary-3000),
     'secondary-3000-hover': var(--secondary-3000-hover),
     'accent-3000': var(--accent-3000),
     'bg-3000': var(--bg-3000),
-    'bg-hover-3000': var(--bg-hover-3000),
-    'border-3000': var(--border-3000),
-    'border-bold-3000': var(--border-bold-3000),
-    'glass-bg-3000': var(--glass-bg-3000),
-    'glass-border-3000': var(--border-3000),
-    'link-3000': var(--link-3000),
-    'tooltip-bg': var(--tooltip-bg),
-    'primary-3000-frame-bg': var(--primary-3000-frame-bg),
-    'primary-3000-button-bg': var(--primary-3000-button-bg),
-    'primary-3000-button-border': var(--primary-3000-button-border),
-    'primary-3000-button-border-hover': var(--primary-3000-button-border-hover),
-    'secondary-3000-frame-bg': var(--secondary-3000-frame-bg),
-    'secondary-3000-button-bg': var(--secondary-3000-button-bg),
-    'secondary-3000-button-border': var(--secondary-3000-button-border),
-    'secondary-3000-button-border-hover': var(--secondary-3000-button-border-hover),
+    'primary-highlight': var(--primary-highlight),
+    'primary-alt-highlight': var(--primary-alt-highlight),
+    'primary-alt': var(--primary-alt),
 );
 
 // These vars are modified via SCSS for legacy reasons (e.g. darken/lighten), so keeping as SCSS vars for now.
-$_primary: map.get($colors, 'primary');
-$_success: map.get($colors, 'success');
-$_danger: map.get($colors, 'danger');
-$_primary_bg_hover: rgba($_primary, 0.1);
-$_primary_bg_active: rgba($_primary, 0.2);
-$_lifecycle_new: $_primary;
-$_lifecycle_returning: $_success;
+$_lifecycle_new: map.get($colors, 'primary');
+$_lifecycle_returning: map.get($colors, 'success');
 $_lifecycle_resurrecting: #a56eff; // --data-lilac
-$_lifecycle_dormant: $_danger;
+$_lifecycle_dormant: map.get($colors, 'danger');
 
 // root variables are defined as a mixin here because
 // the toolbar needs them attached to :host not :root
 @mixin root-variables {
-    // TODO: Remove the primary-bg...
-    --primary-bg-hover: var(--primary-highlight);
-    --primary-bg-active: #{$_primary_bg_active};
-    --bg-charcoal: #2d2d2d;
     --bg-bridge: #ebece8;
 
     // Non-color vars
     --radius: 0.375rem;
     --radius-sm: 0.25rem;
-    --shadow-elevation: 0px 16px 16px -16px rgb(0 0 0 / 35%);
     --modal-shadow-elevation: 0px 16px 16px -16px rgb(0 0 0 / 35%);
     --opacity-disabled: 0.6;
     --font-medium: 500;
@@ -191,10 +155,7 @@ $_lifecycle_dormant: $_danger;
     --blue: #597dce;
     --purple: #c278cf;
     --green: var(--success);
-    --black: var(--default);
-
-    // Tag colors
-    --purple-light: #dcb1e3;
+    --black: var(--text-3000);
 
     //// Data colors (e.g. insight series). Note: colors.ts relies on these values being hexadecimal
     --data-color-1: #1d4aff;
@@ -227,37 +188,17 @@ $_lifecycle_dormant: $_danger;
     // TODO: unify with lib/colors.ts, getGraphColors()
     --funnel-axis: var(--border);
     --funnel-grid: #ddd;
-    --antd-table-background-dark: #fafafa;
-
-    // Session Recording
-    --recording-spacing: calc(2rem / 3);
-    --recording-player-container-bg: #797973;
-    --recording-buffer-bg: #faaf8c;
-    --recording-seekbar-red: var(--brand-red);
-    --recording-hover-event: var(--primary-bg-hover);
-    --recording-hover-event-mid: var(--primary-bg-active);
-    --recording-hover-event-dark: var(--primary-3000);
-    --recording-current-event: #eef2ff;
-    --recording-current-event-dark: var(--primary-alt);
-    --recording-failure-event: #fee9e2;
-    --recording-failure-event-dark: #cd3000;
-    --recording-highlight-event: var(--mark);
-    --recording-highlight-event-dark: #946508;
 
     // Z-indexes
     --z-bottom-notice: 5100;
     --z-command-palette: 1875;
     --z-force-modal-above-popovers: 1850;
-    --z-ant-message: 1070;
     --z-tooltip: 1070;
-    --z-ant-select-dropdown: 1065;
     --z-definition-popover: 1064;
     --z-popover: 1063;
     --z-graph-tooltip: 1062;
     --z-modal: 1060;
-    --z-ant-modal-wrap: 1060;
     --z-hedgehog-buddy: 1059;
-    --z-ant-modal-mask: 1050;
     --z-annotation-popover: 1049;
     --z-drawer: 950;
     --z-notifications-popover: 949; // below the TZ aware popover but over the main-nav
@@ -314,7 +255,7 @@ $_lifecycle_dormant: $_danger;
     --modal-transition-time: 200ms;
 
     // Tooltips
-    --tooltip-bg-light: var(--bg-charcoal);
+    --tooltip-bg-light: #2d2d2d;
     --tooltip-bg-dark: #656d81;
 
     // Notebooks
@@ -335,7 +276,7 @@ $_lifecycle_dormant: $_danger;
     --muted-3000: var(--muted-3000-light);
     --trace-3000: var(--trace-3000-light);
     --primary-3000: var(--primary-3000-light);
-    --primary-3000-highlight: var(--primary-3000-highlight-light);
+    --primary-highlight: var(--primary-highlight-light);
     --primary-3000-hover: var(--primary-3000-hover-light);
     --primary-3000-active: var(--primary-3000-active-light);
     --secondary-3000: var(--secondary-3000-light);
@@ -355,7 +296,7 @@ $_lifecycle_dormant: $_danger;
     --primary-3000-button-bg: var(--primary-3000-button-bg-light);
     --primary-3000-button-border: var(--primary-3000-button-border-light);
     --primary-3000-button-border-hover: var(--primary-3000-button-border-hover-light);
-    --primary-alt-highlight-3000: var(--primary-alt-highlight-3000-light);
+    --primary-alt-highlight: var(--primary-alt-highlight-light);
     --secondary-3000-frame-bg: var(--secondary-3000-frame-bg-light);
     --secondary-3000-button-bg: var(--secondary-3000-button-bg-light);
     --secondary-3000-button-border: var(--secondary-3000-button-border-light);
@@ -373,7 +314,7 @@ $_lifecycle_dormant: $_danger;
     --muted-3000: var(--muted-3000-dark);
     --trace-3000: var(--trace-3000-dark);
     --primary-3000: var(--primary-3000-dark);
-    --primary-3000-highlight: var(--primary-3000-highlight-dark);
+    --primary-highlight: var(--primary-highlight-dark);
     --primary-3000-hover: var(--primary-3000-hover-dark);
     --primary-3000-active: var(--primary-3000-active-dark);
     --secondary-3000: var(--secondary-3000-dark);
@@ -394,7 +335,7 @@ $_lifecycle_dormant: $_danger;
     --primary-3000-button-bg: var(--primary-3000-button-bg-dark);
     --primary-3000-button-border: var(--primary-3000-button-border-dark);
     --primary-3000-button-border-hover: var(--primary-3000-button-border-hover-dark);
-    --primary-alt-highlight-3000: var(--primary-alt-highlight-3000-dark);
+    --primary-alt-highlight: var(--primary-alt-highlight-dark);
     --secondary-3000-frame-bg: var(--secondary-3000-frame-bg-dark);
     --secondary-3000-button-bg: var(--secondary-3000-button-bg-dark);
     --secondary-3000-button-border: var(--secondary-3000-button-border-dark);
@@ -413,16 +354,15 @@ $_lifecycle_dormant: $_danger;
 
 // defined here so that they can be shared with the toolbar
 @mixin common-variables {
-    --default: var(--text-3000);
-    --text-secondary: var(--text-secondary-3000);
+    --primary: var(--primary-3000);
     --muted: var(--muted-3000);
+    --default: var(--text-3000);
+
+    // `--muted-alt` can be removed now, as it's the same as `--muted` after the 3000 redesign
     --muted-alt: var(--muted-3000);
     --primary-alt: var(--text-3000);
     --border: var(--border-3000);
     --border-bold: var(--border-bold-3000);
-    --mid: var(--bg-3000);
-    --side: var(--bg-3000);
-    --primary-alt-highlight: var(--primary-alt-highlight-3000);
     --data-color-1: #1d4aff;
     --data-color-1-hover: #1a3cf6;
     --data-color-10: #35416b;

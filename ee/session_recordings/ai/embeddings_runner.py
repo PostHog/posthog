@@ -3,7 +3,7 @@ import tiktoken
 import datetime
 import pytz
 
-from typing import Any
+from typing import Any, Optional
 
 from abc import ABC, abstractmethod
 from prometheus_client import Histogram, Counter
@@ -23,9 +23,18 @@ from ee.session_recordings.ai.utils import (
     only_pageview_urls,
 )
 
-# tiktoken.encoding_for_model(model_name) specifies encoder
-# model_name = "text-embedding-3-small" for this usecase
-encoding = tiktoken.get_encoding("cl100k_base")
+_encoding: Optional[tiktoken.Encoding] = None
+
+
+def get_encoding() -> tiktoken.Encoding:
+    global _encoding
+    if not _encoding:
+        # NOTE: This does an API request so we want to ensure we load it lazily and not at startup
+        # tiktoken.encoding_for_model(model_name) specifies encoder
+        # model_name = "text-embedding-3-small" for this usecase
+        _encoding = tiktoken.get_encoding("cl100k_base")
+    return _encoding
+
 
 MAX_TOKENS_FOR_MODEL = 8191
 
@@ -151,7 +160,7 @@ class SessionEmbeddingsRunner(ABC):
                 # we don't want to fail the whole batch if only a single recording fails
                 except Exception as e:
                     SESSION_EMBEDDINGS_FAILED.labels(source_type=source_type).inc()
-                    logger.error(
+                    logger.exception(
                         f"embed individual item error",
                         flow="embeddings",
                         error=e,
@@ -165,8 +174,8 @@ class SessionEmbeddingsRunner(ABC):
             # but we don't swallow errors within the wider task itself
             # if something is failing here then we're most likely having trouble with ClickHouse
             SESSION_EMBEDDINGS_FATAL_FAILED.labels(source_type=source_type).inc()
-            logger.error(f"embed items fatal error", flow="embeddings", error=e, source_type=source_type)
-            raise e
+            logger.exception(f"embed items fatal error", flow="embeddings", error=e, source_type=source_type)
+            raise
 
     def _embed(self, input: str, source_type: str):
         token_count = self._num_tokens_for_input(input)
@@ -194,7 +203,7 @@ class SessionEmbeddingsRunner(ABC):
 
     def _num_tokens_for_input(self, string: str) -> int:
         """Returns the number of tokens in a text string."""
-        return len(encoding.encode(string))
+        return len(get_encoding().encode(string))
 
     def _flush_embeddings_to_clickhouse(self, embeddings: list[dict[str, Any]], source_type: str) -> None:
         try:
@@ -204,9 +213,9 @@ class SessionEmbeddingsRunner(ABC):
             )
             SESSION_EMBEDDINGS_WRITTEN_TO_CLICKHOUSE.labels(source_type=source_type).inc(len(embeddings))
         except Exception as e:
-            logger.error(f"flush embeddings error", flow="embeddings", error=e, source_type=source_type)
+            logger.exception(f"flush embeddings error", flow="embeddings", error=e, source_type=source_type)
             SESSION_EMBEDDINGS_FAILED_TO_CLICKHOUSE.labels(source_type=source_type).inc(len(embeddings))
-            raise e
+            raise
 
 
 class ErrorEmbeddingsPreparation(EmbeddingPreparation):

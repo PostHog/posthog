@@ -7,6 +7,7 @@ on:
             - '.storybook/**'
             - 'package.json'
             - '.github/workflows/storybook-chromatic.yml'
+            - 'playwright.config.ts'
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
@@ -28,9 +29,7 @@ jobs:
                   fetch-depth: 0 # 👈 Required to retrieve git history (https://www.chromatic.com/docs/github-actions)
 
             - name: Install pnpm
-              uses: pnpm/action-setup@v2
-              with:
-                  version: 8.x.x
+              uses: pnpm/action-setup@v4
 
             - name: Set up Node.js
               uses: actions/setup-node@v4
@@ -54,7 +53,7 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 30
         container:
-            image: mcr.microsoft.com/playwright:v1.41.2
+            image: mcr.microsoft.com/playwright:v1.45.0
         strategy:
             fail-fast: false
             matrix:
@@ -107,9 +106,7 @@ jobs:
                   token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN || github.token }}
 
             - name: Install pnpm
-              uses: pnpm/action-setup@v2
-              with:
-                  version: 8.x.x
+              uses: pnpm/action-setup@v4
 
             - name: Set up Node.js
               uses: buildjet/setup-node@v3

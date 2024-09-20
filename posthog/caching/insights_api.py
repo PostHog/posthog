@@ -27,6 +27,8 @@ CLICKHOUSE_MAX_EXECUTION_TIME = timedelta(seconds=180)
 BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL = timedelta(minutes=15)
 # Wait time for short-term insights
 REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL = timedelta(minutes=3)
+# Wait time for "real-time" insights
+REAL_TIME_INSIGHT_REFRESH_INTERVAL = timedelta(minutes=1)
 # Wait time for insights on shared insight/dashboard pages
 INCREASED_MINIMUM_INSIGHT_REFRESH_INTERVAL = timedelta(minutes=30)
 

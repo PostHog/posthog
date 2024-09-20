@@ -1,9 +1,10 @@
 import json
 import time
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 from unittest.mock import ANY, patch, MagicMock, call
 from urllib.parse import urlencode
+from typing import cast
 
 from parameterized import parameterized
 from dateutil.parser import parse
@@ -23,6 +24,7 @@ from posthog.models.team import Team
 from posthog.session_recordings.queries.test.session_replay_sql import (
     produce_replay_summary,
 )
+from posthog.models.property import Property
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -167,15 +169,21 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         assert results_[0]["distinct_id"] == "user2"
         assert results_[1]["distinct_id"] in twelve_distinct_ids
 
-    @patch("posthog.session_recordings.session_recording_api.SessionRecordingListFromReplaySummary")
+    @patch("posthog.session_recordings.session_recording_api.SessionRecordingListFromFilters")
     def test_console_log_filters_are_correctly_passed_to_listing(self, mock_summary_lister):
         mock_summary_lister.return_value.run.return_value = ([], False)
 
-        self.client.get(f'/api/projects/{self.team.id}/session_recordings?console_logs=["warn", "error"]')
+        params_string = urlencode(
+            {
+                "console_log_filters": '[{"key": "console_log_level", "value": ["warn", "error"], "operator": "exact", "type": "recording"}]'
+            }
+        )
+        self.client.get(f"/api/projects/{self.team.id}/session_recordings?{params_string}")
 
         assert len(mock_summary_lister.call_args_list) == 1
         filter_passed_to_mock: SessionRecordingsFilter = mock_summary_lister.call_args_list[0].kwargs["filter"]
-        assert filter_passed_to_mock.console_logs_filter == ["warn", "error"]
+        console_filter = cast(Property, filter_passed_to_mock.console_log_filters.values[0])
+        assert console_filter.value == ["warn", "error"]
 
     @snapshot_postgres_queries
     def test_listing_recordings_is_not_nplus1_for_persons(self):
@@ -184,7 +192,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             self.client.get(f"/api/projects/{self.team.id}/session_recordings")
 
             base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
-            num_queries = FuzzyInt(12, 26)  # PoE on or off adds queries here :shrug:
+            num_queries = FuzzyInt(7, 26)  # PoE on or off adds queries here :shrug:
 
             # loop from 1 to 10
             for i in range(1, 11):
@@ -254,7 +262,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 "recording_duration": ANY,
                 "snapshot_source": "web",
                 "start_time": ANY,
-                "start_url": None,
+                "start_url": "https://not-provided-by-test.com",
                 "storage": "object_storage",
                 "viewed": False,
             },
@@ -395,11 +403,11 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             "distinct_id": "d1",
             "viewed": False,
             "recording_duration": 30,
-            "start_time": base_time.replace(tzinfo=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "start_time": base_time.replace(tzinfo=UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "end_time": (base_time + relativedelta(seconds=30)).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "click_count": 0,
             "keypress_count": 0,
-            "start_url": None,
+            "start_url": "https://not-provided-by-test.com",
             "mouse_activity_count": 0,
             "inactive_seconds": 30,
             "active_seconds": 0,

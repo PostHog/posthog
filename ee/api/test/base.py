@@ -1,9 +1,7 @@
 import datetime
 from typing import Optional, cast
-
 from zoneinfo import ZoneInfo
 
-from ee.api.test.fixtures.available_product_features import AVAILABLE_PRODUCT_FEATURES
 from ee.models.license import License, LicenseManager
 from posthog.test.base import APIBaseTest
 
@@ -38,8 +36,7 @@ class LicensedTestMixin:
                 valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7, tzinfo=ZoneInfo("UTC")),
             )
             if hasattr(cls, "organization") and cls.organization:
-                cls.organization.available_product_features = AVAILABLE_PRODUCT_FEATURES
-                cls.organization.update_available_features()
+                cls.organization.update_available_product_features()
                 cls.organization.save()
 
 

@@ -1,3 +1,5 @@
+from unittest.mock import call, patch
+
 from rest_framework import status
 
 from posthog.models.organization import Organization, OrganizationMembership
@@ -48,7 +50,8 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(response.json(), self.permission_denied_response())
 
-    def test_delete_organization_member(self):
+    @patch("posthog.models.user.User.update_billing_organization_users")
+    def test_delete_organization_member(self, mock_update_billing_organization_users):
         user = User.objects.create_and_join(self.organization, "test@x.com", None, "X")
         membership_queryset = OrganizationMembership.objects.filter(user=user, organization=self.organization)
         self.assertTrue(membership_queryset.exists())
@@ -63,14 +66,27 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, 204)
         self.assertFalse(membership_queryset.exists(), False)
 
-    def test_leave_organization(self):
+        assert mock_update_billing_organization_users.call_count == 2
+        assert mock_update_billing_organization_users.call_args_list == [
+            call(self.organization),
+            call(self.organization),
+        ]
+
+    @patch("posthog.models.user.User.update_billing_organization_users")
+    def test_leave_organization(self, mock_update_billing_organization_users):
         membership_queryset = OrganizationMembership.objects.filter(user=self.user, organization=self.organization)
         self.assertEqual(membership_queryset.count(), 1)
         response = self.client.delete(f"/api/organizations/@current/members/{self.user.uuid}/")
         self.assertEqual(response.status_code, 204)
         self.assertEqual(membership_queryset.count(), 0)
 
-    def test_change_organization_member_level(self):
+        assert mock_update_billing_organization_users.call_count == 1
+        assert mock_update_billing_organization_users.call_args_list == [
+            call(self.organization),
+        ]
+
+    @patch("posthog.models.user.User.update_billing_organization_users")
+    def test_change_organization_member_level(self, mock_update_billing_organization_users):
         self.organization_membership.level = OrganizationMembership.Level.OWNER
         self.organization_membership.save()
         user = User.objects.create_user("test@x.com", None, "X")
@@ -100,12 +116,18 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
                     "last_name": user.last_name,
                     "email": user.email,
                     "is_email_verified": None,
+                    "hedgehog_config": None,
                 },
                 "level": OrganizationMembership.Level.ADMIN.value,
             },
         )
+        assert mock_update_billing_organization_users.call_count == 1
+        assert mock_update_billing_organization_users.call_args_list == [
+            call(self.organization),
+        ]
 
-    def test_admin_can_promote_to_admin(self):
+    @patch("posthog.models.user.User.update_billing_organization_users")
+    def test_admin_can_promote_to_admin(self, mock_update_billing_organization_users):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
         user = User.objects.create_user("test@x.com", None, "X")
@@ -119,7 +141,13 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
         updated_membership = OrganizationMembership.objects.get(user=user, organization=self.organization)
         self.assertEqual(updated_membership.level, OrganizationMembership.Level.ADMIN)
 
-    def test_change_organization_member_level_requires_admin(self):
+        assert mock_update_billing_organization_users.call_count == 1
+        assert mock_update_billing_organization_users.call_args_list == [
+            call(self.organization),
+        ]
+
+    @patch("posthog.models.user.User.update_billing_organization_users")
+    def test_change_organization_member_level_requires_admin(self, mock_update_billing_organization_users):
         user = User.objects.create_user("test@x.com", None, "X")
         membership = OrganizationMembership.objects.create(user=user, organization=self.organization)
         self.assertEqual(membership.level, OrganizationMembership.Level.MEMBER)
@@ -141,6 +169,8 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
         )
         self.assertEqual(response.status_code, 403)
 
+        assert mock_update_billing_organization_users.call_count == 0
+
     def test_cannot_change_own_organization_member_level(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
@@ -161,7 +191,7 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
         )
         self.assertEqual(response.status_code, 403)
 
-    def test_pass_ownership(self):
+    def test_add_another_owner(self):
         user = User.objects.create_user("test@x.com", None, "X")
         membership: OrganizationMembership = OrganizationMembership.objects.create(
             user=user, organization=self.organization
@@ -175,16 +205,16 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
         self.organization_membership.refresh_from_db()
         membership.refresh_from_db()
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(self.organization_membership.level, OrganizationMembership.Level.ADMIN)
+        self.assertEqual(self.organization_membership.level, OrganizationMembership.Level.OWNER)
         self.assertEqual(membership.level, OrganizationMembership.Level.OWNER)
         self.assertEqual(
             OrganizationMembership.objects.filter(
                 organization=self.organization, level=OrganizationMembership.Level.OWNER
             ).count(),
-            1,
+            2,
         )
 
-    def test_pass_ownership_only_if_owner(self):
+    def test_add_owner_only_if_owner(self):
         user = User.objects.create_user("test@x.com", None, "X")
         membership: OrganizationMembership = OrganizationMembership.objects.create(
             user=user, organization=self.organization
@@ -202,7 +232,7 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
             {
                 "attr": None,
                 "code": "permission_denied",
-                "detail": "You can only pass on organization ownership if you're its owner.",
+                "detail": "You can only make another member owner if you're this organization's owner.",
                 "type": "authentication_error",
             },
         )

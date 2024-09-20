@@ -1,12 +1,13 @@
-import { lemonToast, Link } from '@posthog/lemon-ui'
+import { LemonDialog, lemonToast, Link } from '@posthog/lemon-ui'
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import { forms } from 'kea-forms'
+import { FieldNamePath, forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api, { getJSONOrNull } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { LemonBannerAction } from 'lib/lemon-ui/LemonBanner/LemonBanner'
 import { lemonBannerLogic } from 'lib/lemon-ui/LemonBanner/lemonBannerLogic'
+import { LemonButtonPropsBase } from 'lib/lemon-ui/LemonButton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { pluralize } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -14,7 +15,7 @@ import posthog from 'posthog-js'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { BillingProductV2Type, BillingV2PlanType, BillingV2Type, ProductKey } from '~/types'
+import { BillingPlanType, BillingProductV2Type, BillingType, ProductKey } from '~/types'
 
 import type { billingLogicType } from './billingLogicType'
 
@@ -33,12 +34,24 @@ export interface BillingAlertConfig {
     onClose?: () => void
 }
 
+export enum BillingAPIErrorCodes {
+    OPEN_INVOICES_ERROR = 'open_invoices_error',
+    NO_ACTIVE_PAYMENT_METHOD_ERROR = 'no_active_payment_method_error',
+    COULD_NOT_PAY_INVOICES_ERROR = 'could_not_pay_invoices_error',
+}
+
 export interface UnsubscribeError {
     detail: string | JSX.Element
     link: JSX.Element
 }
 
-const parseBillingResponse = (data: Partial<BillingV2Type>): BillingV2Type => {
+export interface BillingError {
+    status: 'info' | 'warning' | 'error'
+    message: string
+    action: LemonButtonPropsBase
+}
+
+const parseBillingResponse = (data: Partial<BillingType>): BillingType => {
     if (data.billing_period) {
         data.billing_period = {
             current_period_start: dayjs(data.billing_period.current_period_start),
@@ -59,7 +72,7 @@ const parseBillingResponse = (data: Partial<BillingV2Type>): BillingV2Type => {
         data.amount_off_expires_at = data.billing_period.current_period_end
     }
 
-    return data as BillingV2Type
+    return data as BillingType
 }
 
 export const billingLogic = kea<billingLogicType>([
@@ -70,7 +83,9 @@ export const billingLogic = kea<billingLogicType>([
         setShowLicenseDirectInput: (show: boolean) => ({ show }),
         reportBillingAlertShown: (alertConfig: BillingAlertConfig) => ({ alertConfig }),
         reportBillingAlertActionClicked: (alertConfig: BillingAlertConfig) => ({ alertConfig }),
-        reportBillingV2Shown: true,
+        reportCreditsFormSubmitted: (creditInput: number) => ({ creditInput }),
+        reportCreditsModalShown: true,
+        reportBillingShown: true,
         registerInstrumentationProps: true,
         setRedirectPath: true,
         setIsOnboarding: true,
@@ -78,6 +93,8 @@ export const billingLogic = kea<billingLogicType>([
         setUnsubscribeError: (error: null | UnsubscribeError) => ({ error }),
         resetUnsubscribeError: true,
         setBillingAlert: (billingAlert: BillingAlertConfig | null) => ({ billingAlert }),
+        showPurchaseCreditsModal: (isOpen: boolean) => ({ isOpen }),
+        setComputedDiscount: (discount: number) => ({ discount }),
     }),
     connect(() => ({
         values: [featureFlagLogic, ['featureFlags'], preflightLogic, ['preflight']],
@@ -140,47 +157,113 @@ export const billingLogic = kea<billingLogicType>([
                 setUnsubscribeError: (_, { error }) => error,
             },
         ],
+        timeRemainingInSeconds: [
+            0,
+            {
+                loadBillingSuccess: (_, { billing }) => {
+                    if (!billing?.billing_period) {
+                        return 0
+                    }
+                    const currentTime = dayjs()
+                    const periodEnd = dayjs(billing.billing_period.current_period_end)
+                    return periodEnd.diff(currentTime, 'second')
+                },
+            },
+        ],
+        timeTotalInSeconds: [
+            0,
+            {
+                loadBillingSuccess: (_, { billing }) => {
+                    if (!billing?.billing_period) {
+                        return 0
+                    }
+                    const periodStart = dayjs(billing.billing_period.current_period_start)
+                    const periodEnd = dayjs(billing.billing_period.current_period_end)
+                    return periodEnd.diff(periodStart, 'second')
+                },
+            },
+        ],
+        isPurchaseCreditsModalOpen: [
+            false,
+            {
+                showPurchaseCreditsModal: (_, { isOpen }) => isOpen,
+            },
+        ],
+        computedDiscount: [
+            0,
+            {
+                setComputedDiscount: (_, { discount }) => discount,
+            },
+        ],
     }),
     loaders(({ actions, values }) => ({
         billing: [
-            null as BillingV2Type | null,
+            null as BillingType | null,
             {
                 loadBilling: async () => {
-                    const response = await api.get('api/billing-v2')
+                    const response = await api.get('api/billing')
 
                     return parseBillingResponse(response)
                 },
 
-                updateBillingLimits: async (limits: { [key: string]: string | null }) => {
-                    const response = await api.update('api/billing-v2', { custom_limits_usd: limits })
-
-                    lemonToast.success('Billing limits updated')
-                    return parseBillingResponse(response)
+                updateBillingLimits: async (limits: { [key: string]: number | null }) => {
+                    try {
+                        const response = await api.update('api/billing', { custom_limits_usd: limits })
+                        lemonToast.success('Billing limits updated')
+                        return parseBillingResponse(response)
+                    } catch (error: any) {
+                        lemonToast.error(
+                            'There was an error updating your billing limits. Please try again or contact support.'
+                        )
+                        throw error
+                    }
                 },
 
                 deactivateProduct: async (key: string) => {
+                    // clear upgrade params from URL
+                    const currentURL = new URL(window.location.href)
+                    currentURL.searchParams.delete('upgraded')
+                    currentURL.searchParams.delete('products')
+                    router.actions.push(currentURL.pathname + currentURL.search)
+
                     actions.resetUnsubscribeError()
                     try {
-                        const response = await api.getResponse('api/billing-v2/deactivate?products=' + key)
+                        const response = await api.getResponse('api/billing/deactivate?products=' + key)
                         const jsonRes = await getJSONOrNull(response)
-                        lemonToast.success('Product unsubscribed')
+                        lemonToast.success('You have been unsubscribed')
                         actions.reportProductUnsubscribed(key)
                         return parseBillingResponse(jsonRes)
                     } catch (error: any) {
-                        if (error.detail && error.detail.includes('open invoice')) {
-                            actions.setUnsubscribeError({
-                                detail: error.detail,
-                                link: (
-                                    <Link to={values.billing?.stripe_portal_url} target="_blank">
-                                        View invoices
-                                    </Link>
-                                ),
-                            } as UnsubscribeError)
+                        if (error.code) {
+                            if (error.code === BillingAPIErrorCodes.OPEN_INVOICES_ERROR) {
+                                actions.setUnsubscribeError({
+                                    detail: error.detail,
+                                    link: (
+                                        <Link to={values.billing?.stripe_portal_url} target="_blank">
+                                            View invoices
+                                        </Link>
+                                    ),
+                                } as UnsubscribeError)
+                            } else if (error.code === BillingAPIErrorCodes.NO_ACTIVE_PAYMENT_METHOD_ERROR) {
+                                actions.setUnsubscribeError({
+                                    detail: error.detail,
+                                } as UnsubscribeError)
+                            } else if (error.code === BillingAPIErrorCodes.COULD_NOT_PAY_INVOICES_ERROR) {
+                                actions.setUnsubscribeError({
+                                    detail: error.detail,
+                                    link: (
+                                        <Link to={error.link || values.billing?.stripe_portal_url} target="_blank">
+                                            {error.link ? 'View invoice' : 'View invoices'}
+                                        </Link>
+                                    ),
+                                } as UnsubscribeError)
+                            }
                         } else {
                             actions.setUnsubscribeError({
                                 detail:
-                                    error.detail ||
-                                    `We encountered a problem. Please try again or submit a support ticket.`,
+                                    typeof error.detail === 'string'
+                                        ? error.detail
+                                        : `We encountered a problem. Please try again or submit a support ticket.`,
                             } as UnsubscribeError)
                         }
                         console.error(error)
@@ -190,11 +273,82 @@ export const billingLogic = kea<billingLogicType>([
                 },
             },
         ],
+        billingError: [
+            null as BillingError | null,
+            {
+                getInvoices: async () => {
+                    // First check to see if there are open invoices
+                    try {
+                        const res = await api.getResponse('api/billing/get_invoices?status=open')
+                        const jsonRes = await getJSONOrNull(res)
+                        const numOpenInvoices = jsonRes['count']
+                        if (numOpenInvoices > 0) {
+                            const viewInvoicesButton = {
+                                to:
+                                    numOpenInvoices == 1 && jsonRes['link']
+                                        ? jsonRes['link']
+                                        : values.billing?.stripe_portal_url,
+                                children: `View invoice${numOpenInvoices > 1 ? 's' : ''}`,
+                                targetBlank: true,
+                            }
+                            return {
+                                status: 'warning',
+                                message: `You have ${numOpenInvoices} open invoice${
+                                    numOpenInvoices > 1 ? 's' : ''
+                                }. Please pay ${
+                                    numOpenInvoices > 1 ? 'them' : 'it'
+                                } before adding items to your subscription.`,
+                                action: viewInvoicesButton,
+                            }
+                        }
+                    } catch (error: any) {
+                        console.error(error)
+                    }
+                    return null
+                },
+            },
+        ],
+        creditOverview: [
+            {
+                eligible: false,
+                estimated_monthly_credit_amount_usd: 0,
+                status: 'none',
+                invoice_url: null,
+                collection_method: null,
+                cc_last_four: null,
+                email: null,
+            },
+            {
+                loadCreditOverview: async () => {
+                    // Check if the user is subscribed
+                    if (values.billing?.has_active_subscription) {
+                        const response = await api.get('api/billing/credits/overview')
+                        if (!values.creditForm.creditInput) {
+                            actions.setCreditFormValue(
+                                'creditInput',
+                                Math.round(response.estimated_monthly_credit_amount_usd * 12)
+                            )
+                        }
+                        return response
+                    }
+                    // Return default values if not subscribed
+                    return {
+                        eligible: false,
+                        estimated_monthly_credit_amount_usd: 0,
+                        status: 'none',
+                        invoice_url: null,
+                        collection_method: null,
+                        cc_last_four: null,
+                        email: null,
+                    }
+                },
+            },
+        ],
         products: [
             [] as BillingProductV2Type[],
             {
                 loadProducts: async () => {
-                    const response = await api.get('api/billing-v2/available_products')
+                    const response = await api.get('api/billing/available_products')
                     return response
                 },
             },
@@ -206,21 +360,24 @@ export const billingLogic = kea<billingLogicType>([
             (s) => [s.preflight, s.billing],
             (preflight, billing): boolean => !!preflight?.is_debug && !billing?.billing_period,
         ],
-        projectedTotalAmountUsd: [
+        projectedTotalAmountUsdWithBillingLimits: [
             (s) => [s.billing],
-            (billing: BillingV2Type): number => {
+            (billing: BillingType): number => {
                 if (!billing) {
                     return 0
                 }
                 let projectedTotal = 0
                 for (const product of billing.products || []) {
-                    projectedTotal += parseFloat(product.projected_amount_usd || '0')
+                    const billingLimit =
+                        billing?.custom_limits_usd?.[product.type] ||
+                        (product.usage_key ? billing?.custom_limits_usd?.[product.usage_key] || 0 : 0)
+                    projectedTotal += Math.min(parseFloat(product.projected_amount_usd || '0'), billingLimit)
                 }
                 return projectedTotal
             },
         ],
         over20kAnnual: [
-            (s) => [s.billing, s.preflight, s.projectedTotalAmountUsd],
+            (s) => [s.billing, s.preflight, s.projectedTotalAmountUsdWithBillingLimits],
             (billing, preflight, projectedTotalAmountUsd) => {
                 if (!billing || !preflight?.cloud) {
                     return
@@ -233,7 +390,7 @@ export const billingLogic = kea<billingLogicType>([
                 ) {
                     return true
                 }
-                return
+                return false
             },
         ],
         isAnnualPlan: [
@@ -244,7 +401,7 @@ export const billingLogic = kea<billingLogicType>([
         ],
         supportPlans: [
             (s) => [s.billing],
-            (billing: BillingV2Type): BillingV2PlanType[] => {
+            (billing: BillingType): BillingPlanType[] => {
                 const platformAndSupportProduct = billing?.products?.find(
                     (product) => product.type == ProductKey.PLATFORM_AND_SUPPORT
                 )
@@ -261,12 +418,13 @@ export const billingLogic = kea<billingLogicType>([
         ],
         hasSupportAddonPlan: [
             (s) => [s.billing],
-            (billing: BillingV2Type): boolean => {
+            (billing: BillingType): boolean => {
                 return !!billing?.products
                     ?.find((product) => product.type == ProductKey.PLATFORM_AND_SUPPORT)
                     ?.addons.find((addon) => addon.plans.find((plan) => plan.current_plan))
             },
         ],
+        creditDiscount: [(s) => [s.computedDiscount], (computedDiscount) => computedDiscount || 0],
     }),
     forms(({ actions, values }) => ({
         activateLicense: {
@@ -277,7 +435,7 @@ export const billingLogic = kea<billingLogicType>([
             submit: async ({ license }, breakpoint) => {
                 await breakpoint(500)
                 try {
-                    await api.update('api/billing-v2/license', {
+                    await api.update('api/billing/license', {
                         license,
                     })
 
@@ -296,9 +454,64 @@ export const billingLogic = kea<billingLogicType>([
                 }
             },
         },
+        creditForm: {
+            defaults: {
+                creditInput: '',
+                collectionMethod: 'charge_automatically',
+            },
+            submit: async ({ creditInput, collectionMethod }) => {
+                values.computedDiscount * 100,
+                    await api.create('api/billing/credits/purchase', {
+                        annual_amount_usd: +Math.round(+creditInput - +creditInput * values.creditDiscount),
+                        collection_method: collectionMethod,
+                    })
+
+                actions.showPurchaseCreditsModal(false)
+                actions.loadCreditOverview()
+                actions.reportCreditsFormSubmitted(+creditInput)
+
+                LemonDialog.open({
+                    title: 'Your credit purchase has been submitted',
+                    width: 536,
+                    content:
+                        collectionMethod === 'send_invoice' ? (
+                            <>
+                                <p className="mb-4">
+                                    The invoice for your credits has been created and it will be emailed to the email on
+                                    file.
+                                </p>
+                                <p>
+                                    Once the invoice is paid we will apply the credits to your account. Until the
+                                    invoice is paid you will be charged for usage as normal.
+                                </p>
+                            </>
+                        ) : (
+                            <>
+                                <p>
+                                    Your card will be charged soon and the credits will be applied to your account.
+                                    Please make sure your{' '}
+                                    <Link to={values.billing?.stripe_portal_url} target="_blank">
+                                        card on file
+                                    </Link>{' '}
+                                    is up to date. You will receive an email when the credits are applied.
+                                </p>
+                            </>
+                        ),
+                })
+            },
+            errors: ({ creditInput, collectionMethod }) => ({
+                creditInput: !creditInput
+                    ? 'Please enter the amount of credits you want to purchase'
+                    : // This value is used because 6666 - 10% = 6000
+                    +creditInput < 6666
+                    ? 'Please enter a credit amount greater than $6,666'
+                    : undefined,
+                collectionMethod: !collectionMethod ? 'Please select a collection method' : undefined,
+            }),
+        },
     })),
     listeners(({ actions, values }) => ({
-        reportBillingV2Shown: () => {
+        reportBillingShown: () => {
             posthog.capture('billing v2 shown')
         },
         reportBillingAlertShown: ({ alertConfig }) => {
@@ -309,6 +522,14 @@ export const billingLogic = kea<billingLogicType>([
         reportBillingAlertActionClicked: ({ alertConfig }) => {
             posthog.capture('billing alert action clicked', {
                 ...alertConfig,
+            })
+        },
+        reportCreditsModalShown: () => {
+            posthog.capture('credits modal shown')
+        },
+        reportCreditsFormSubmitted: ({ creditInput }) => {
+            posthog.capture('credits modal credit form submitted', {
+                creditInput,
             })
         },
         loadBillingSuccess: () => {
@@ -323,6 +544,8 @@ export const billingLogic = kea<billingLogicType>([
             actions.registerInstrumentationProps()
 
             actions.determineBillingAlert()
+
+            actions.loadCreditOverview()
         },
         determineBillingAlert: () => {
             if (values.productSpecificAlert) {
@@ -372,7 +595,11 @@ export const billingLogic = kea<billingLogicType>([
                     title: 'Usage limit exceeded',
                     message: `You have exceeded the usage limit for ${productOverLimit.name}. Please 
                         ${productOverLimit.subscribed ? 'increase your billing limit' : 'upgrade your plan'}
-                        or data loss may occur.`,
+                        or ${
+                            productOverLimit.name === 'Data warehouse'
+                                ? 'data will not be synced'
+                                : 'data loss may occur'
+                        }.`,
                     dismissKey: 'usage-limit-exceeded',
                 })
                 return
@@ -399,6 +626,22 @@ export const billingLogic = kea<billingLogicType>([
             }
 
             actions.resetUsageLimitApproachingKey()
+        },
+        setCreditFormValue: ({ name, value }) => {
+            if (name === 'creditInput' || (name as FieldNamePath)?.[0] === 'creditInput') {
+                const spend = +value
+                let discount = 0
+                if (spend >= 100000) {
+                    discount = 0.3
+                } else if (spend >= 60000) {
+                    discount = 0.25
+                } else if (spend >= 20000) {
+                    discount = 0.2
+                } else if (spend >= 6000) {
+                    discount = 0.1
+                }
+                actions.setComputedDiscount(discount)
+            }
         },
         registerInstrumentationProps: async (_, breakpoint) => {
             await breakpoint(100)
@@ -433,9 +676,15 @@ export const billingLogic = kea<billingLogicType>([
                 posthog.register(payload)
             }
         },
+        showPurchaseCreditsModal: ({ isOpen }) => {
+            if (isOpen) {
+                actions.reportCreditsModalShown()
+            }
+        },
     })),
     afterMount(({ actions }) => {
         actions.loadBilling()
+        actions.getInvoices()
     }),
     urlToAction(({ actions }) => ({
         // IMPORTANT: This needs to be above the "*" so it takes precedence
@@ -448,6 +697,13 @@ export const billingLogic = kea<billingLogicType>([
             if (_search.products) {
                 const products = _search.products.split(',')
                 actions.setScrollToProductKey(products[0])
+            }
+            if (_search.billing_error) {
+                actions.setBillingAlert({
+                    status: 'error',
+                    title: 'Error',
+                    message: _search.billing_error,
+                })
             }
             actions.setRedirectPath()
             actions.setIsOnboarding()

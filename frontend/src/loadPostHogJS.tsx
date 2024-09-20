@@ -21,12 +21,14 @@ export function loadPostHogJS(): void {
         posthog.init(
             window.JS_POSTHOG_API_KEY,
             configWithSentry({
+                opt_out_useragent_filter: window.location.hostname === 'localhost', // we ARE a bot when running in localhost, so we need to enable this opt-out
                 api_host: window.JS_POSTHOG_HOST,
                 ui_host: window.JS_POSTHOG_UI_HOST,
                 rageclick: true,
                 persistence: 'localStorage+cookie',
                 bootstrap: window.POSTHOG_USER_IDENTITY_WITH_FLAGS ? window.POSTHOG_USER_IDENTITY_WITH_FLAGS : {},
                 opt_in_site_apps: true,
+                api_transport: 'fetch',
                 loaded: (posthog) => {
                     if (posthog.sessionRecording) {
                         posthog.sessionRecording._forceAllowLocalhostNetworkCapture = true
@@ -42,7 +44,7 @@ export function loadPostHogJS(): void {
                 autocapture: {
                     capture_copied_text: true,
                 },
-                process_person: 'identified_only',
+                person_profiles: 'always',
 
                 // Helper to capture events for assertions in Cypress
                 _onCapture: (window as any)._cypress_posthog_captures

@@ -2,7 +2,7 @@ import clsx from 'clsx'
 import { useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 import { SSO_PROVIDER_NAMES } from 'lib/constants'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonButton, LemonButtonWithoutSideActionProps } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
@@ -39,10 +39,10 @@ function SocialLoginLink({ provider, extraQueryParams, children }: SocialLoginLi
 
 interface SocialLoginButtonProps {
     provider: SSOProvider
-    redirectQueryParams?: Record<string, string>
+    extraQueryParams?: Record<string, string>
 }
 
-export function SocialLoginButton({ provider, redirectQueryParams }: SocialLoginButtonProps): JSX.Element | null {
+export function SocialLoginButton({ provider, extraQueryParams }: SocialLoginButtonProps): JSX.Element | null {
     const { preflight } = useValues(preflightLogic)
 
     if (!preflight?.available_social_auth_providers[provider]) {
@@ -50,9 +50,9 @@ export function SocialLoginButton({ provider, redirectQueryParams }: SocialLogin
     }
 
     return (
-        <SocialLoginLink provider={provider} extraQueryParams={redirectQueryParams}>
+        <SocialLoginLink provider={provider} extraQueryParams={extraQueryParams}>
             <LemonButton size="medium" icon={<SocialLoginIcon provider={provider} />}>
-                <span className="text-default">{SSO_PROVIDER_NAMES[provider]}</span>
+                <span className="text-text-3000">{SSO_PROVIDER_NAMES[provider]}</span>
             </LemonButton>
         </SocialLoginLink>
     )
@@ -65,7 +65,7 @@ interface SocialLoginButtonsProps {
     className?: string
     topDivider?: boolean
     bottomDivider?: boolean
-    redirectQueryParams?: Record<string, string>
+    extraQueryParams?: Record<string, string>
 }
 
 export function SocialLoginButtons({
@@ -77,16 +77,13 @@ export function SocialLoginButtons({
     bottomDivider,
     ...props
 }: SocialLoginButtonsProps): JSX.Element | null {
-    const { preflight } = useValues(preflightLogic)
+    const { preflight, socialAuthAvailable } = useValues(preflightLogic)
 
-    const order: string[] = Object.keys(SSO_PROVIDER_NAMES)
-
-    if (
-        !preflight?.available_social_auth_providers ||
-        !Object.values(preflight.available_social_auth_providers).filter((val) => !!val).length
-    ) {
+    if (!preflight || !socialAuthAvailable) {
         return null
     }
+
+    const order: string[] = Object.keys(SSO_PROVIDER_NAMES)
 
     return (
         <>
@@ -109,14 +106,19 @@ export function SocialLoginButtons({
     )
 }
 
-interface SSOEnforcedLoginButtonProps {
-    provider: SSOProvider
-    email: string
-}
+type SSOEnforcedLoginButtonProps = SocialLoginButtonProps &
+    Partial<LemonButtonWithoutSideActionProps> & {
+        email: string
+    }
 
-export function SSOEnforcedLoginButton({ provider, email }: SSOEnforcedLoginButtonProps): JSX.Element {
+export function SSOEnforcedLoginButton({
+    provider,
+    email,
+    extraQueryParams,
+    ...props
+}: SSOEnforcedLoginButtonProps): JSX.Element {
     return (
-        <SocialLoginLink provider={provider} extraQueryParams={{ email }}>
+        <SocialLoginLink provider={provider} extraQueryParams={{ ...extraQueryParams, email }}>
             <LemonButton
                 className="btn-bridge"
                 data-attr="sso-login"
@@ -126,6 +128,7 @@ export function SSOEnforcedLoginButton({ provider, email }: SSOEnforcedLoginButt
                 center
                 icon={<SocialLoginIcon provider={provider} />}
                 size="large"
+                {...props}
             >
                 Log in with {SSO_PROVIDER_NAMES[provider]}
             </LemonButton>

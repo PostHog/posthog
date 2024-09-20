@@ -2,13 +2,12 @@ import { IconDatabase } from '@posthog/icons'
 import { actions, afterMount, connect, kea, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
-import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
+import { pipelineAccessLogic } from 'scenes/pipeline/pipelineAccessLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { BatchExportConfiguration, PluginConfigTypeNew } from '~/types'
+import { BatchExportConfiguration, PipelineStage, PluginConfigWithPluginInfoNew } from '~/types'
 
-import { pipelineTransformationsLogic } from '../../pipeline/transformationsLogic'
 import { RenderApp } from '../../pipeline/utils'
 import type { exportsUnsubscribeTableLogicType } from './exportsUnsubscribeTableLogicType'
 
@@ -26,7 +25,7 @@ export interface ItemToDisable {
 export const exportsUnsubscribeTableLogic = kea<exportsUnsubscribeTableLogicType>([
     path(['scenes', 'pipeline', 'ExportsUnsubscribeTableLogic']),
     connect({
-        values: [pluginsLogic, ['plugins'], pipelineTransformationsLogic, ['canConfigurePlugins'], userLogic, ['user']],
+        values: [pipelineAccessLogic, ['canConfigurePlugins'], userLogic, ['user']],
     }),
 
     actions({
@@ -35,10 +34,10 @@ export const exportsUnsubscribeTableLogic = kea<exportsUnsubscribeTableLogicType
     }),
     loaders(({ values }) => ({
         pluginConfigsToDisable: [
-            {} as Record<PluginConfigTypeNew['id'], PluginConfigTypeNew>,
+            {} as Record<PluginConfigWithPluginInfoNew['id'], PluginConfigWithPluginInfoNew>,
             {
                 loadPluginConfigs: async () => {
-                    const res = await api.get<PluginConfigTypeNew[]>(
+                    const res = await api.get<PluginConfigWithPluginInfoNew[]>(
                         `api/organizations/@current/plugins/exports_unsubscribe_configs`
                     )
                     return Object.fromEntries(res.map((pluginConfig) => [pluginConfig.id, pluginConfig]))
@@ -91,17 +90,17 @@ export const exportsUnsubscribeTableLogic = kea<exportsUnsubscribeTableLogicType
             },
         ],
         itemsToDisable: [
-            (s) => [s.pluginConfigsToDisable, s.batchExportConfigs, s.plugins],
-            (pluginConfigsToDisable, batchExportConfigs, plugins) => {
+            (s) => [s.pluginConfigsToDisable, s.batchExportConfigs],
+            (pluginConfigsToDisable, batchExportConfigs) => {
                 const pluginConfigs = Object.values(pluginConfigsToDisable).map((pluginConfig) => {
                     return {
                         plugin_config_id: pluginConfig.id,
                         team_id: pluginConfig.team_id,
                         name: pluginConfig.name,
                         description: pluginConfig.description,
-                        icon: <RenderApp plugin={plugins[pluginConfig.plugin]} imageSize="small" />,
+                        icon: <RenderApp plugin={pluginConfig.plugin_info} imageSize="small" />,
                         disabled: !pluginConfig.enabled,
-                        url: urls.projectApp(pluginConfig.plugin),
+                        url: urls.pipelineNode(PipelineStage.Destination, pluginConfig.id),
                     } as ItemToDisable
                 })
                 const batchExports = Object.values(batchExportConfigs).map((batchExportConfig) => {
@@ -118,7 +117,7 @@ export const exportsUnsubscribeTableLogic = kea<exportsUnsubscribeTableLogicType
                             />
                         ),
                         disabled: batchExportConfig.paused,
-                        url: urls.batchExport(batchExportConfig.id),
+                        url: urls.pipelineNode(PipelineStage.Destination, batchExportConfig.id),
                     } as ItemToDisable
                 })
                 return [...pluginConfigs, ...batchExports]

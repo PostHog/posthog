@@ -13,6 +13,7 @@ export const sidePanelDiscussionLogic = kea<sidePanelDiscussionLogicType>([
     path(['scenes', 'navigation', 'sidepanel', 'sidePanelDiscussionLogic']),
     actions({
         loadCommentCount: true,
+        resetCommentCount: true,
     }),
     connect({
         values: [featureFlagLogic, ['featureFlags'], sidePanelContextLogic, ['sceneSidePanelContext']],
@@ -34,6 +35,9 @@ export const sidePanelDiscussionLogic = kea<sidePanelDiscussionLogicType>([
                     breakpoint()
 
                     return response
+                },
+                resetCommentCount: () => {
+                    return 0
                 },
             },
         ],
@@ -57,6 +61,8 @@ export const sidePanelDiscussionLogic = kea<sidePanelDiscussionLogicType>([
         commentsLogicProps: (props) => {
             if (props) {
                 actions.loadCommentCount()
+            } else {
+                actions.resetCommentCount()
             }
         },
     })),

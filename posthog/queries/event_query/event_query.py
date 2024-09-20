@@ -2,6 +2,7 @@ from abc import ABCMeta, abstractmethod
 from typing import Any, Optional, Union
 
 from posthog.clickhouse.materialized_columns import ColumnName
+from posthog.hogql.database.database import create_hogql_database
 from posthog.models import Cohort, Filter, Property
 from posthog.models.cohort.util import is_precalculated_query
 from posthog.models.filters import AnyFilter
@@ -20,8 +21,8 @@ from posthog.queries.person_query import PersonQuery
 from posthog.queries.query_date_range import QueryDateRange
 from posthog.schema import PersonsOnEventsMode
 from posthog.session_recordings.queries.session_query import SessionQuery
-from posthog.queries.util import PersonPropertiesMode
-from posthog.queries.person_on_events_v2_sql import PERSON_OVERRIDES_JOIN_SQL
+from posthog.queries.util import PersonPropertiesMode, alias_poe_mode_for_legacy
+from posthog.queries.person_on_events_v2_sql import PERSON_DISTINCT_ID_OVERRIDES_JOIN_SQL
 
 
 class EventQuery(metaclass=ABCMeta):
@@ -64,7 +65,7 @@ class EventQuery(metaclass=ABCMeta):
         extra_event_properties: Optional[list[PropertyName]] = None,
         extra_person_fields: Optional[list[ColumnName]] = None,
         override_aggregate_users_by_distinct_id: Optional[bool] = None,
-        person_on_events_mode: PersonsOnEventsMode = PersonsOnEventsMode.disabled,
+        person_on_events_mode: PersonsOnEventsMode = PersonsOnEventsMode.DISABLED,
         **kwargs,
     ) -> None:
         if extra_person_fields is None:
@@ -88,7 +89,14 @@ class EventQuery(metaclass=ABCMeta):
         self._should_join_persons = should_join_persons
         self._should_join_sessions = should_join_sessions
         self._extra_fields = extra_fields
-        self._person_on_events_mode = person_on_events_mode
+        self._person_on_events_mode = alias_poe_mode_for_legacy(person_on_events_mode)
+
+        # HACK: Because we're in a legacy query, we need to override hogql_context with the legacy-alised PoE mode
+        self._filter.hogql_context.modifiers.personsOnEventsMode = self._person_on_events_mode
+        # Recreate the database with the legacy-alised PoE mode
+        self._filter.hogql_context.database = create_hogql_database(
+            team_id=self._team.pk, modifiers=self._filter.hogql_context.modifiers
+        )
 
         # Guards against a ClickHouse bug involving multiple joins against the same table with the same column name.
         # This issue manifests for us with formulas, where on queries A and B we join events against itself
@@ -126,9 +134,9 @@ class EventQuery(metaclass=ABCMeta):
         pass
 
     def _get_person_id_alias(self, person_on_events_mode) -> str:
-        if person_on_events_mode == PersonsOnEventsMode.person_id_override_properties_on_events:
-            return f"if(notEmpty({self.PERSON_ID_OVERRIDES_TABLE_ALIAS}.person_id), {self.PERSON_ID_OVERRIDES_TABLE_ALIAS}.person_id, {self.EVENT_TABLE_ALIAS}.person_id)"
-        elif person_on_events_mode == PersonsOnEventsMode.person_id_no_override_properties_on_events:
+        if person_on_events_mode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS:
+            return f"if(notEmpty({self.PERSON_ID_OVERRIDES_TABLE_ALIAS}.distinct_id), {self.PERSON_ID_OVERRIDES_TABLE_ALIAS}.person_id, {self.EVENT_TABLE_ALIAS}.person_id)"
+        elif person_on_events_mode == PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS:
             return f"{self.EVENT_TABLE_ALIAS}.person_id"
 
         return f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id"
@@ -137,8 +145,8 @@ class EventQuery(metaclass=ABCMeta):
         if not self._should_join_distinct_ids:
             return ""
 
-        if self._person_on_events_mode == PersonsOnEventsMode.person_id_override_properties_on_events:
-            return PERSON_OVERRIDES_JOIN_SQL.format(
+        if self._person_on_events_mode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS:
+            return PERSON_DISTINCT_ID_OVERRIDES_JOIN_SQL.format(
                 person_overrides_table_alias=self.PERSON_ID_OVERRIDES_TABLE_ALIAS,
                 event_table_alias=self.EVENT_TABLE_ALIAS,
             )

@@ -4,6 +4,7 @@ from typing import Any, Optional
 from collections.abc import Generator
 from urllib.parse import parse_qsl, quote, urlencode, urlparse, urlunparse
 
+from pydantic import BaseModel
 import requests
 import structlog
 from openpyxl import Workbook
@@ -11,7 +12,8 @@ from django.http import QueryDict
 from sentry_sdk import capture_exception, push_scope
 from requests.exceptions import HTTPError
 
-from posthog.api.services.query import process_query
+from posthog.api.services.query import process_query_dict
+from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models.exported_asset import ExportedAsset, save_content
 from posthog.utils import absolute_uri
@@ -27,6 +29,9 @@ from ...hogql.constants import CSV_EXPORT_LIMIT, CSV_EXPORT_BREAKDOWN_LIMIT_INIT
 from ...hogql.query import LimitContext
 
 logger = structlog.get_logger(__name__)
+
+RESULT_LIMIT_KEYS = ("distinct_ids",)
+RESULT_LIMIT_LENGTH = 10
 
 
 # SUPPORTED CSV TYPES
@@ -79,25 +84,33 @@ def add_query_params(url: str, params: dict[str, str]) -> str:
 def _convert_response_to_csv_data(data: Any) -> Generator[Any, None, None]:
     if isinstance(data.get("results"), list):
         results = data.get("results")
-    elif isinstance(data.get("result"), list):
-        results = data.get("result")
-    else:
-        return None
-
-    if isinstance(data.get("results"), list):
-        # query like
         if len(results) > 0 and (isinstance(results[0], list) or isinstance(results[0], tuple)) and data.get("types"):
             # e.g. {'columns': ['count()'], 'hasMore': False, 'results': [[1775]], 'types': ['UInt64']}
             # or {'columns': ['count()', 'event'], 'hasMore': False, 'results': [[551, '$feature_flag_called'], [265, '$autocapture']], 'types': ['UInt64', 'String']}
             for row in results:
                 row_dict = {}
                 for idx, x in enumerate(row):
+                    if isinstance(x, dict):
+                        for key in filter(
+                            lambda y: y in RESULT_LIMIT_KEYS and len(x[y]) > RESULT_LIMIT_LENGTH, x.keys()
+                        ):
+                            total = len(x[key])
+                            x[key] = x[key][:RESULT_LIMIT_LENGTH]
+                            row_dict[f"{key}.total"] = f"Note: {total} {key} in total"
+
                     if not data.get("columns"):
                         row_dict[f"column_{idx}"] = x
                     else:
                         row_dict[data["columns"][idx]] = x
                 yield row_dict
             return
+
+    if isinstance(data.get("results"), list) or isinstance(data.get("results"), dict):
+        results = data.get("results")
+    elif isinstance(data.get("result"), list) or isinstance(data.get("result"), dict):
+        results = data.get("result")
+    else:
+        return None
 
     if isinstance(results, list):
         first_result = next(iter(results), None)
@@ -160,8 +173,9 @@ def _convert_response_to_csv_data(data: Any) -> Generator[Any, None, None]:
             # TRENDS LIKE
             for index, item in enumerate(results):
                 line = {"series": item.get("label", f"Series #{index + 1}")}
-                if item.get("action", {}).get("custom_name"):
-                    line["custom name"] = item.get("action").get("custom_name")
+                action = item.get("action")
+                if isinstance(action, dict) and action.get("custom_name"):
+                    line["custom name"] = action.get("custom_name")
                 if item.get("aggregated_value"):
                     line["total count"] = item.get("aggregated_value")
                 else:
@@ -202,7 +216,7 @@ def get_from_insights_api(exported_asset: ExportedAsset, limit: int, resource: d
             response = make_api_call(access_token, body, limit, method, next_url, path)
         except HTTPError as e:
             if "Query size exceeded" not in e.response.text:
-                raise e
+                raise
 
             if limit <= CSV_EXPORT_BREAKDOWN_LIMIT_LOW:
                 break  # Already tried with the lowest limit, so return what we have
@@ -248,8 +262,11 @@ def get_from_hogql_query(exported_asset: ExportedAsset, limit: int, resource: di
 
     while True:
         try:
-            query_response = process_query(
-                team=exported_asset.team, query_json=query, limit_context=LimitContext.EXPORT
+            query_response = process_query_dict(
+                team=exported_asset.team,
+                query_json=query,
+                limit_context=LimitContext.EXPORT,
+                execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
             )
         except QuerySizeExceeded:
             if "breakdownFilter" not in query or limit <= CSV_EXPORT_BREAKDOWN_LIMIT_LOW:
@@ -260,6 +277,8 @@ def get_from_hogql_query(exported_asset: ExportedAsset, limit: int, resource: di
             query["breakdownFilter"]["breakdown_limit"] = limit
             continue
 
+        if isinstance(query_response, BaseModel):
+            query_response = query_response.model_dump(by_alias=True)
         yield from _convert_response_to_csv_data(query_response)
         return
 
@@ -380,4 +399,4 @@ def export_tabular(exported_asset: ExportedAsset, limit: Optional[int] = None) -
 
         logger.error("csv_exporter.failed", exception=e, exc_info=True)
         EXPORT_FAILED_COUNTER.labels(type="csv").inc()
-        raise e
+        raise

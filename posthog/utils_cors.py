@@ -8,6 +8,9 @@ CORS_ALLOWED_TRACING_HEADERS = (
     "x-cloud-trace-context",
     "Sentry-Trace",
     "Baggage",
+    "x-highlight-request",
+    "x-datadome-clientid",
+    "x-posthog-token",
 )
 
 

@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import uuid
 import ssl
 
 import aiokafka
@@ -12,6 +13,7 @@ from structlog.processors import EventRenamer
 from structlog.typing import FilteringBoundLogger
 
 from posthog.kafka_client.topics import KAFKA_LOG_ENTRIES
+
 
 BACKGROUND_LOGGER_TASKS = set()
 
@@ -25,6 +27,19 @@ async def bind_temporal_worker_logger(team_id: int, destination: str | None = No
     temporal_context = get_temporal_context()
 
     return logger.new(team_id=team_id, destination=destination, **temporal_context)
+
+
+async def bind_temporal_org_worker_logger(
+    organization_id: uuid.UUID, destination: str | None = None
+) -> FilteringBoundLogger:
+    """Return a bound logger for Temporal Workers scoped by organization instead of team."""
+    if not structlog.is_configured():
+        configure_logger()
+
+    logger = structlog.get_logger()
+    temporal_context = get_temporal_context()
+
+    return logger.new(organization_id=str(organization_id), destination=destination, **temporal_context)
 
 
 def configure_logger(
@@ -183,7 +198,7 @@ def get_temporal_context() -> dict[str, str | int]:
         log_source_id = workflow_id.split("-Backfill")[0]
         log_source = "batch_exports_backfill"
     elif workflow_type == "external-data-job":
-        # This works because the WorkflowID is made up like f"{external_data_source_id}-{data_interval_end}"
+        # This works because the WorkflowID is made up like f"{external_data_schema_id}-{data_interval_end}"
         log_source_id = workflow_id.rsplit("-", maxsplit=3)[0]
         log_source = "external_data_jobs"
     else:

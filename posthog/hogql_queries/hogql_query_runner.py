@@ -1,8 +1,6 @@
-from datetime import timedelta
 from typing import Optional, cast
 from collections.abc import Callable
 
-from posthog.clickhouse.client.connection import Workload
 from posthog.hogql import ast
 from posthog.hogql.filters import replace_filters
 from posthog.hogql.parser import parse_select
@@ -60,7 +58,6 @@ class HogQLQueryRunner(QueryRunner):
             filters=self.query.filters,
             modifiers=self.query.modifiers or self.modifiers,
             team=self.team,
-            workload=Workload.ONLINE,
             timings=self.timings,
             limit_context=self.limit_context,
         )
@@ -68,21 +65,14 @@ class HogQLQueryRunner(QueryRunner):
             response = response.model_copy(update={**paginator.response_params(), "results": paginator.results})
         return response
 
-    def _is_stale(self, cached_result_package):
-        return True
-
-    def _refresh_frequency(self):
-        return timedelta(minutes=1)
-
-    def apply_dashboard_filters(self, dashboard_filter: DashboardFilter) -> HogQLQuery:
+    def apply_dashboard_filters(self, dashboard_filter: DashboardFilter):
         self.query.filters = self.query.filters or HogQLFilters()
-        self.query.filters.dateRange = self.query.filters.dateRange or DateRange()
 
         if dashboard_filter.date_to or dashboard_filter.date_from:
+            if self.query.filters.dateRange is None:
+                self.query.filters.dateRange = DateRange()
             self.query.filters.dateRange.date_to = dashboard_filter.date_to
             self.query.filters.dateRange.date_from = dashboard_filter.date_from
 
         if dashboard_filter.properties:
             self.query.filters.properties = (self.query.filters.properties or []) + dashboard_filter.properties
-
-        return self.query

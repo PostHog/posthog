@@ -26,6 +26,11 @@ EVENT_PARTITION_KEYS_TO_OVERRIDE = get_list(os.getenv("EVENT_PARTITION_KEYS_TO_O
 EVENTS_DEAD_LETTER_QUEUE_STATSD_METRIC = "events_added_to_dead_letter_queue"
 
 QUOTA_LIMITING_ENABLED = get_from_env("QUOTA_LIMITING_ENABLED", False, type_cast=str_to_bool)
+# when enabled we will return content in capture responses if recordings are quota limited
+# session recording clients can stop sending events if they receive a quota limited response
+RECORDINGS_QUOTA_LIMITING_RESPONSES_SAMPLE_RATE = get_from_env(
+    "RECORDINGS_QUOTA_LIMITING_RESPONSES_SAMPLE_RATE", default=0, type_cast=float
+)
 
 # Capture-side overflow detection for analytics events.
 # Not accurate enough, superseded by detection in plugin-server and should be phased out.

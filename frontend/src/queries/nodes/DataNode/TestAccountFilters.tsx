@@ -1,10 +1,7 @@
-import { IconGear } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
+import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/project/filterTestAccountDefaultsLogic'
 import { teamLogic } from 'scenes/teamLogic'
-import { urls } from 'scenes/urls'
 
 import { DataNode, EventsQuery, HogQLQuery } from '~/queries/schema'
 import { isEventsQuery, isHogQLQuery } from '~/queries/utils'
@@ -50,28 +47,12 @@ export function TestAccountFilters({ query, setQuery }: TestAccountFiltersProps)
         : undefined
 
     return (
-        <LemonSwitch
+        <TestAccountFilterSwitch
             checked={checked}
             onChange={(checked: boolean) => {
                 onChange?.(checked)
                 setLocalDefault(checked)
             }}
-            id="test-account-filter"
-            bordered
-            label={
-                <div className="flex items-center">
-                    <span>Filter out internal and test users</span>
-                    <LemonButton
-                        icon={<IconGear />}
-                        to={urls.settings('project-product-analytics', 'internal-user-filtering')}
-                        size="small"
-                        noPadding
-                        className="ml-1"
-                    />
-                </div>
-            }
-            disabledReason={!hasFilters ? "You haven't set any internal and test filters" : null}
         />
     )
-    return null
 }

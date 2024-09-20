@@ -3,7 +3,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { dataTableLogic } from '~/queries/nodes/DataTable/dataTableLogic'
-import { query } from '~/queries/query'
+import { performQuery } from '~/queries/query'
 import { DataTableNode, NodeKind } from '~/queries/schema'
 import { initKeaTests } from '~/test/init'
 
@@ -46,8 +46,8 @@ describe('dataTableLogic', () => {
             vizKey: testUniqueKey,
             query: dataTableQuery,
         })
-        const randomResponse = {}
-        ;(query as any).mockResolvedValueOnce(randomResponse)
+        const randomResponse = null
+        ;(performQuery as any).mockResolvedValueOnce(randomResponse)
         logic.mount()
         const builtDataNodeLogic = dataNodeLogic({ key: testUniqueKey, query: dataTableQuery.source })
         await expectLogic(logic).toMount([builtDataNodeLogic])
@@ -60,8 +60,16 @@ describe('dataTableLogic', () => {
             response: randomResponse,
         })
 
-        expect(query).toHaveBeenCalledWith(dataTableQuery.source, expect.anything(), false, expect.any(String))
-        expect(query).toHaveBeenCalledTimes(1)
+        expect(performQuery).toHaveBeenCalledWith(
+            dataTableQuery.source,
+            expect.anything(),
+            false,
+            expect.any(String),
+            expect.any(Function),
+            undefined,
+            false
+        )
+        expect(performQuery).toHaveBeenCalledTimes(1)
     })
 
     it('rejects if passed anything other than a DataTableNode', async () => {
@@ -179,7 +187,7 @@ describe('dataTableLogic', () => {
                 '2022-12-22T16:00:41.165000Z',
             ],
         ]
-        ;(query as any).mockResolvedValueOnce({
+        ;(performQuery as any).mockResolvedValueOnce({
             columns: ['*', 'event', 'timestamp'],
             types: [
                 "Tuple(UUID, String, String, DateTime64(6, 'UTC'), Int64, String, String, DateTime64(6, 'UTC'), UUID, DateTime64(3), String)",
@@ -201,7 +209,7 @@ describe('dataTableLogic', () => {
             },
         })
         logic.mount()
-        expect(query).toHaveBeenCalledTimes(1)
+        expect(performQuery).toHaveBeenCalledTimes(1)
 
         await expectLogic(logic)
             .toMatchValues({ responseLoading: true })

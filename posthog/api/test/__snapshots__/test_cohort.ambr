@@ -51,7 +51,8 @@
            HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1)) person ON person.person_id = behavior_query.person_id
      WHERE 1 = 1
        AND ((((has(['something'], replaceRegexpAll(JSONExtractRaw(person_props, '$some_prop'), '^"|"$', ''))))
-             OR ((performed_event_condition_X_level_level_0_level_1_level_0_0)))) ) as person
+             OR ((performed_event_condition_X_level_level_0_level_1_level_0_0)))) SETTINGS optimize_aggregation_in_order = 1,
+                                                                                           join_algorithm = 'auto' ) as person
   UNION ALL
   SELECT person_id,
          cohort_id,
@@ -62,7 +63,8 @@
   WHERE team_id = 2
     AND cohort_id = 2
     AND version < 1
-    AND sign = 1
+    AND sign = 1 SETTINGS optimize_aggregation_in_order = 1,
+                          join_algorithm = 'auto'
   '''
 # ---
 # name: TestCohort.test_async_deletion_of_cohort.10
@@ -144,7 +146,8 @@
   WHERE team_id = 2
     AND cohort_id = 2
     AND version < 2
-    AND sign = 1
+    AND sign = 1 SETTINGS optimize_aggregation_in_order = 1,
+                          join_algorithm = 'auto'
   '''
 # ---
 # name: TestCohort.test_async_deletion_of_cohort.6

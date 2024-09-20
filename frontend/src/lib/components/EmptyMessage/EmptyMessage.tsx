@@ -5,7 +5,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 export interface EmptyMessageProps {
     title: string
     description: string
-    buttonText: string
+    buttonText?: string
     buttonTo?: string
 }
 
@@ -16,9 +16,11 @@ export function EmptyMessage({ title, description, buttonText, buttonTo }: Empty
                 <h3 className="title">{title}</h3>
 
                 <p className="text-muted description">{description}</p>
-                <LemonButton type="secondary" to={buttonTo}>
-                    {buttonText}
-                </LemonButton>
+                {buttonText && (
+                    <LemonButton type="secondary" to={buttonTo}>
+                        {buttonText}
+                    </LemonButton>
+                )}
             </div>
         </div>
     )

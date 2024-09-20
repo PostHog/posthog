@@ -1,91 +1,57 @@
-import { IconGear } from '@posthog/icons'
-import { LemonButton, LemonTabs, Link } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
+import { LemonButton, Link, Spinner } from '@posthog/lemon-ui'
+import { BindLogic, useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { DataWarehouseSceneTab } from '../types'
-import { viewLinkLogic } from '../viewLinkLogic'
-import { DataWarehouseJoins } from './DataWarehouseJoins'
-import { dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
+import { PipelineTab } from '~/types'
+
+import { DataWarehouseInitialBillingLimitNotice } from '../DataWarehouseInitialBillingLimitNotice'
+import { DATAWAREHOUSE_EDITOR_ITEM_ID, dataWarehouseExternalSceneLogic } from './dataWarehouseExternalSceneLogic'
 import { DataWarehouseTables } from './DataWarehouseTables'
 
 export const scene: SceneExport = {
     component: DataWarehouseExternalScene,
-    logic: dataWarehouseSceneLogic,
-}
-
-const TABS_TO_CONTENT = {
-    [DataWarehouseSceneTab.Tables]: {
-        label: 'Tables',
-        content: <DataWarehouseTables />,
-    },
-    [DataWarehouseSceneTab.Joins]: {
-        label: 'Joins',
-        content: <DataWarehouseJoins />,
-    },
+    logic: dataWarehouseExternalSceneLogic,
 }
 
 export function DataWarehouseExternalScene(): JSX.Element {
-    const { activeSceneTab } = useValues(dataWarehouseSceneLogic)
-    const { setSceneTab } = useActions(dataWarehouseSceneLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const { toggleNewJoinModal } = useActions(viewLinkLogic)
+    const { viewLoading } = useValues(dataWarehouseExternalSceneLogic)
+
+    const logic = insightLogic({
+        dashboardItemId: DATAWAREHOUSE_EDITOR_ITEM_ID,
+        cachedInsight: null,
+    })
+    const { insightSaving, insightProps } = useValues(logic)
+    const { saveAs } = useActions(logic)
+
+    const insightDataLogicProps = {
+        ...insightProps,
+    }
 
     return (
         <div>
             <PageHeader
                 buttons={
                     <>
-                        {activeSceneTab === DataWarehouseSceneTab.Tables && (
-                            <>
-                                {featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE] && (
-                                    <LemonButton
-                                        type="primary"
-                                        data-attr="new-data-warehouse-view"
-                                        key="new-data-warehouse-view"
-                                        to={urls.insightNewHogQL('SELECT event AS event FROM events LIMIT 100')}
-                                    >
-                                        Create View
-                                    </LemonButton>
-                                )}
-                                <LemonButton
-                                    type="primary"
-                                    data-attr="new-data-warehouse-easy-link"
-                                    key="new-data-warehouse-easy-link"
-                                    to={urls.dataWarehouseTable()}
-                                >
-                                    Link Source
-                                </LemonButton>
-                            </>
-                        )}
-
-                        {activeSceneTab === DataWarehouseSceneTab.Joins && (
-                            <LemonButton
-                                type="primary"
-                                key="new-data-warehouse-join"
-                                onClick={() => toggleNewJoinModal()}
-                            >
-                                Add Join
-                            </LemonButton>
-                        )}
-
                         <LemonButton
                             type="primary"
-                            icon={<IconGear />}
-                            data-attr="new-data-warehouse-settings-link"
-                            key="new-data-warehouse-settings-link"
-                            onClick={() => router.actions.push(urls.dataWarehouseSettings())}
-                        />
+                            data-attr="save-exploration"
+                            onClick={() => saveAs(true, false)}
+                            loading={insightSaving}
+                        >
+                            Save as insight
+                        </LemonButton>
+                        <LemonButton type="secondary" to={urls.pipeline(PipelineTab.Sources)}>
+                            Manage sources
+                        </LemonButton>
                     </>
                 }
                 caption={
                     <div>
-                        Below are all the sources that can be queried within PostHog with{' '}
+                        Explore all your data in PostHog with{' '}
                         <Link to="https://posthog.com/manual/hogql" target="_blank">
                             HogQL
                         </Link>
@@ -94,16 +60,14 @@ export function DataWarehouseExternalScene(): JSX.Element {
                     </div>
                 }
             />
-
-            <LemonTabs
-                activeKey={activeSceneTab}
-                onChange={(tab) => setSceneTab(tab as DataWarehouseSceneTab)}
-                tabs={Object.values(TABS_TO_CONTENT).map((tab, index) => ({
-                    label: tab.label,
-                    key: Object.keys(TABS_TO_CONTENT)[index],
-                    content: tab.content,
-                }))}
-            />
+            <DataWarehouseInitialBillingLimitNotice />
+            {viewLoading ? (
+                <Spinner />
+            ) : (
+                <BindLogic logic={insightSceneLogic} props={{}}>
+                    <DataWarehouseTables insightProps={insightDataLogicProps} />
+                </BindLogic>
+            )}
         </div>
     )
 }

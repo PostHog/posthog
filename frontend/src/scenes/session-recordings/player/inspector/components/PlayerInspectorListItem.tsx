@@ -11,6 +11,7 @@ import useResizeObserver from 'use-resize-observer'
 
 import { SessionRecordingPlayerTab } from '~/types'
 
+import { ItemPerformanceEvent } from '../../../apm/playerInspector/ItemPerformanceEvent'
 import { IconWindow } from '../../icons'
 import { playerSettingsLogic, TimestampFormat } from '../../playerSettingsLogic'
 import { sessionRecordingPlayerLogic } from '../../sessionRecordingPlayerLogic'
@@ -18,7 +19,6 @@ import { InspectorListItem, playerInspectorLogic } from '../playerInspectorLogic
 import { ItemConsoleLog } from './ItemConsoleLog'
 import { ItemDoctor } from './ItemDoctor'
 import { ItemEvent } from './ItemEvent'
-import { ItemPerformanceEvent } from './ItemPerformanceEvent'
 
 const typeToIconAndDescription = {
     [SessionRecordingPlayerTab.ALL]: {

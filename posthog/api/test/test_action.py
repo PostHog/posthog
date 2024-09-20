@@ -1,9 +1,9 @@
-from unittest.mock import patch
+from unittest.mock import ANY, patch
 
 from freezegun import freeze_time
 from rest_framework import status
 
-from posthog.models import Action, ActionStep, Tag, User
+from posthog.models import Action, Tag, User
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -25,24 +25,45 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                         "text": "sign up",
                         "selector": "div > button",
                         "url": "/signup",
-                        "isNew": "asdf",
                     }
                 ],
                 "description": "Test description",
             },
             HTTP_ORIGIN="http://testserver",
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(response.json()["is_calculating"], False)
-        self.assertIn("last_calculated_at", response.json())
-        action = Action.objects.get()
-        self.assertEqual(action.name, "user signed up")
-        self.assertEqual(action.description, "Test description")
-        self.assertEqual(action.team, self.team)
-        self.assertEqual(action.steps.get().selector, "div > button")
-        self.assertEqual(response.json()["steps"][0]["text"], "sign up")
-        self.assertEqual(response.json()["steps"][0]["url"], "/signup")
-        self.assertNotIn("isNew", response.json()["steps"][0])
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.json() == {
+            "id": ANY,
+            "name": "user signed up",
+            "description": "Test description",
+            "post_to_slack": False,
+            "slack_message_format": "",
+            "steps": [
+                {
+                    "event": None,
+                    "properties": None,
+                    "selector": "div > button",
+                    "tag_name": None,
+                    "text": "sign up",
+                    "text_matching": None,
+                    "href": None,
+                    "href_matching": None,
+                    "url": "/signup",
+                    "url_matching": "contains",
+                }
+            ],
+            "created_at": ANY,
+            "created_by": ANY,
+            "pinned_at": None,
+            "deleted": False,
+            "creation_context": None,
+            "is_calculating": False,
+            "last_calculated_at": ANY,
+            "team_id": self.team.id,
+            "is_action": True,
+            "bytecode_error": None,
+            "tags": [],
+        }
 
         # Assert analytics are sent
         patch_capture.assert_called_once_with(
@@ -60,8 +81,31 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "match_url_count": 1,
                 "has_properties": False,
                 "deleted": False,
+                "pinned": False,
+                "pinned_at": None,
+                "creation_context": None,
             },
         )
+
+    def test_create_action_generates_bytecode(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/actions/",
+            data={
+                "name": "user signed up",
+                "steps": [
+                    {
+                        "text": "sign up",
+                        "selector": "div > button",
+                        "url": "/signup",
+                    }
+                ],
+                "description": "Test description",
+            },
+            HTTP_ORIGIN="http://testserver",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        action = Action.objects.get(pk=response.json()["id"])
+        assert action.bytecode == ["_H", 1, 32, "%/signup%", 32, "$current_url", 32, "properties", 1, 2, 17]
 
     def test_cant_create_action_with_the_same_name(self, *args):
         original_action = Action.objects.create(name="user signed up", team=self.team)
@@ -69,7 +113,6 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.client.force_login(user2)
 
         count = Action.objects.count()
-        steps_count = ActionStep.objects.count()
 
         # Make sure the endpoint works with and without the trailing slash
         response = self.client.post(
@@ -89,30 +132,31 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
 
         self.assertEqual(Action.objects.count(), count)
-        self.assertEqual(ActionStep.objects.count(), steps_count)
 
+    @freeze_time("2021-12-12")
     @patch("posthog.api.action.report_user_action")
     def test_update_action(self, patch_capture, *args):
         user = self._create_user("test_user_update")
         self.client.force_login(user)
 
-        action = Action.objects.create(name="user signed up", team=self.team)
-        ActionStep.objects.create(action=action, text="sign me up!")
-        action_id = action.steps.get().pk
+        action = Action.objects.create(
+            name="user signed up", team=self.team, steps_json=[{"event": "$autocapture", "text": "sign me up!"}]
+        )
+        action.save()
+
         response = self.client.patch(
             f"/api/projects/{self.team.id}/actions/{action.pk}/",
             data={
                 "name": "user signed up 2",
                 "steps": [
                     {
-                        "id": action_id,
-                        "isNew": "asdf",
+                        "event": "$autocapture",
                         "text": "sign up NOW",
                         "selector": "div > button",
                         "properties": [{"key": "$browser", "value": "Chrome"}],
                         "url": None,
                     },
-                    {"href": "/a-new-link"},
+                    {"event": "$pageview", "href": "/a-new-link"},
                 ],
                 "description": "updated description",
                 "created_by": {
@@ -121,21 +165,43 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     "first_name": "person",
                     "email": "person@email.com",
                 },
+                "pinned_at": "2021-12-11T00:00:00Z",
             },
             HTTP_ORIGIN="http://testserver",
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["name"], "user signed up 2")
-        self.assertEqual(response.json()["created_by"], None)
-        self.assertEqual(response.json()["steps"][0]["id"], str(action_id))
-        self.assertEqual(response.json()["steps"][1]["href"], "/a-new-link")
-        self.assertEqual(response.json()["description"], "updated description")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["name"] == "user signed up 2"
+        assert response.json()["description"] == "updated description"
+        assert not response.json()["created_by"]
+        assert response.json()["steps"] == [
+            {
+                "event": "$autocapture",
+                "properties": [{"key": "$browser", "value": "Chrome"}],
+                "selector": "div > button",
+                "tag_name": None,
+                "text": "sign up NOW",
+                "text_matching": None,
+                "href": None,
+                "href_matching": None,
+                "url": None,
+                "url_matching": "contains",
+            },
+            {
+                "event": "$pageview",
+                "properties": None,
+                "selector": None,
+                "tag_name": None,
+                "text": None,
+                "text_matching": None,
+                "href": "/a-new-link",
+                "href_matching": None,
+                "url": None,
+                "url_matching": "contains",
+            },
+        ]
 
         action.refresh_from_db()
-        steps = action.steps.all().order_by("id")
-        self.assertEqual(action.name, "user signed up 2")
-        self.assertEqual(steps[0].text, "sign up NOW")
-        self.assertEqual(steps[1].href, "/a-new-link")
+        assert action.name == "user signed up 2"
 
         # Assert analytics are sent
         patch_capture.assert_called_with(
@@ -154,18 +220,19 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "has_properties": True,
                 "updated_by_creator": False,
                 "deleted": False,
+                "pinned": True,
+                "pinned_at": "2021-12-12T00:00:00+00:00",
             },
         )
 
         # test queries
-        with self.assertNumQueries(FuzzyInt(9, 10)):
-            # Django session, PostHog user, PostHog team, PostHog org membership, PostHog org
-            # PostHog action, PostHog action step
+        with self.assertNumQueries(FuzzyInt(6, 8)):
+            # Django session,  user,  team,  org membership, instance setting,  org,
+            # count, action
             self.client.get(f"/api/projects/{self.team.id}/actions/")
 
     def test_update_action_remove_all_steps(self, *args):
-        action = Action.objects.create(name="user signed up", team=self.team)
-        ActionStep.objects.create(action=action, text="sign me up!")
+        action = Action.objects.create(name="user signed up", team=self.team, steps_json=[{"text": "sign me up!"}])
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/actions/{action.pk}/",
@@ -174,7 +241,6 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.json()["steps"]), 0)
-        self.assertEqual(ActionStep.objects.count(), 0)
 
     # When we send a user to their own site, we give them a token.
     # Make sure you can only create actions if that token is set,
@@ -252,12 +318,15 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             HTTP_ORIGIN="http://testserver",
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        action = Action.objects.get()
-        self.assertEqual(action.steps.get().event, "test_event ")
+        action = Action.objects.get(pk=response.json()["id"])
+        assert action.steps[0].event == "test_event "
 
     @freeze_time("2021-12-12")
     def test_listing_actions_is_not_nplus1(self) -> None:
-        with self.assertNumQueries(9), snapshot_postgres_queries_context(self):
+        # Pre-query to cache things like instance settings
+        self.client.get(f"/api/projects/{self.team.id}/actions/")
+
+        with self.assertNumQueries(6), snapshot_postgres_queries_context(self):
             self.client.get(f"/api/projects/{self.team.id}/actions/")
 
         Action.objects.create(
@@ -266,7 +335,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             created_by=User.objects.create_and_join(self.organization, "a", ""),
         )
 
-        with self.assertNumQueries(9), snapshot_postgres_queries_context(self):
+        with self.assertNumQueries(6), snapshot_postgres_queries_context(self):
             self.client.get(f"/api/projects/{self.team.id}/actions/")
 
         Action.objects.create(
@@ -275,7 +344,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             created_by=User.objects.create_and_join(self.organization, "b", ""),
         )
 
-        with self.assertNumQueries(9), snapshot_postgres_queries_context(self):
+        with self.assertNumQueries(6), snapshot_postgres_queries_context(self):
             self.client.get(f"/api/projects/{self.team.id}/actions/")
 
     def test_get_tags_on_non_ee_returns_empty_list(self):

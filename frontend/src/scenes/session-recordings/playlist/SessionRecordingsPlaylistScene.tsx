@@ -1,5 +1,3 @@
-import './SessionRecordingsPlaylist.scss'
-
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { EditableField } from 'lib/components/EditableField/EditableField'
@@ -11,7 +9,9 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { SceneExport } from 'scenes/sceneTypes'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 
+import { isUniversalFilters } from '../utils'
 import { SessionRecordingsPlaylist } from './SessionRecordingsPlaylist'
+import { convertLegacyFiltersToUniversalFilters } from './sessionRecordingsPlaylistLogic'
 import { sessionRecordingsPlaylistSceneLogic } from './sessionRecordingsPlaylistSceneLogic'
 
 export const scene: SceneExport = {
@@ -134,8 +134,13 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
             {playlist.short_id && pinnedRecordings !== null ? (
                 <div className="SessionRecordingPlaylistHeightWrapper">
                     <SessionRecordingsPlaylist
-                        advancedFilters={playlist.filters}
-                        hideSimpleFilters={true}
+                        logicKey={playlist.short_id}
+                        // backwards compatibilty for legacy filters
+                        filters={
+                            playlist.filters && isUniversalFilters(playlist.filters)
+                                ? playlist.filters
+                                : convertLegacyFiltersToUniversalFilters({}, playlist.filters)
+                        }
                         onFiltersChange={setFilters}
                         onPinnedChange={onPinnedChange}
                         pinnedRecordings={pinnedRecordings ?? []}

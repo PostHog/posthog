@@ -13,6 +13,9 @@ on:
     push:
         branches:
             - master
+        paths-ignore:
+            - 'rust/**'
+            - 'livestream/**'
     workflow_dispatch:
 
 jobs:
@@ -40,12 +43,6 @@ jobs:
             - name: Set up Depot CLI
               uses: depot/setup-action@v1
 
-            - name: Login to DockerHub
-              uses: docker/login-action@v3
-              with:
-                  username: posthog
-                  password: ${{ secrets.DOCKERHUB_TOKEN }}
-
             - name: Configure AWS credentials
               uses: aws-actions/configure-aws-credentials@v4
               with:
@@ -56,6 +53,12 @@ jobs:
             - name: Login to Amazon ECR
               id: aws-ecr
               uses: aws-actions/amazon-ecr-login@v2
+
+            - name: Login to DockerHub
+              uses: docker/login-action@v2
+              with:
+                  username: posthog
+                  password: ${{ secrets.DOCKERHUB_TOKEN }}
 
             - name: Build and push container image
               id: build
@@ -81,17 +84,23 @@ jobs:
                   token: ${{ secrets.GITHUB_TOKEN }}
 
             - name: Trigger PostHog Cloud deployment from Charts
-              uses: mvasigh/dispatch-action@main
+              uses: peter-evans/repository-dispatch@v3
               with:
                   token: ${{ steps.deployer.outputs.token }}
-                  repo: charts
-                  owner: PostHog
-                  event_type: posthog_deploy
-                  message: |
+                  repository: PostHog/charts
+                  event-type: commit_state_update
+                  client-payload: |
                       {
-                        "image_tag": "${{ steps.build.outputs.digest }}",
-                        "context": ${{ toJson(github) }},
-                        "github_labels": ${{ toJson(steps.labels.outputs.labels) }}
+                        "values": {
+                          "image": {
+                            "sha": "${{ steps.build.outputs.digest }}"
+                          }
+                        },
+                        "release": "posthog",
+                        "commit": ${{ toJson(github.event.head_commit) }},
+                        "repository": ${{ toJson(github.repository) }},
+                        "labels": ${{ steps.labels.outputs.labels }},
+                        "timestamp": "${{ github.event.head_commit.timestamp }}"
                       }
 
             - name: Check for changes in plugins directory
@@ -101,54 +110,99 @@ jobs:
 
             - name: Trigger Ingestion Cloud deployment
               if: steps.check_changes_plugins.outputs.changed == 'true'
-              uses: mvasigh/dispatch-action@main
+              uses: peter-evans/repository-dispatch@v3
               with:
                   token: ${{ steps.deployer.outputs.token }}
-                  repo: charts
-                  owner: PostHog
-                  event_type: ingestion_deploy
-                  message: |
+                  repository: PostHog/charts
+                  event-type: commit_state_update
+                  client-payload: |
                       {
-                        "image_tag": "${{ steps.build.outputs.digest }}",
-                        "context": ${{ toJson(github) }}
+                        "values": {
+                          "image": {
+                            "sha": "${{ steps.build.outputs.digest }}"
+                          }
+                        },
+                        "release": "ingestion",
+                        "commit": ${{ toJson(github.event.head_commit) }},
+                        "repository": ${{ toJson(github.repository) }},
+                        "labels": ${{ toJson(steps.labels.outputs.labels) }},
+                        "timestamp": "${{ github.event.head_commit.timestamp }}"
                       }
 
             - name: Check for changes that affect batch exports temporal worker
               id: check_changes_batch_exports_temporal_worker
               run: |
-                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/common|^posthog/temporal/batch_exports|^posthog/batch_exports/|^posthog/management/commands/start_temporal_worker.py$' && echo true) || echo false)" >> $GITHUB_OUTPUT
+                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/common|^posthog/temporal/batch_exports|^posthog/batch_exports/|^posthog/management/commands/start_temporal_worker.py$|^requirements.txt$' && echo true) || echo false)" >> $GITHUB_OUTPUT
 
             - name: Trigger Batch Exports Temporal Worker Cloud deployment
               if: steps.check_changes_batch_exports_temporal_worker.outputs.changed == 'true'
-              uses: mvasigh/dispatch-action@main
+              uses: peter-evans/repository-dispatch@v3
               with:
                   token: ${{ steps.deployer.outputs.token }}
-                  repo: charts
-                  owner: PostHog
-                  event_type: temporal_worker_deploy
-                  message: |
+                  repository: PostHog/charts
+                  event-type: commit_state_update
+                  client-payload: |
                       {
-                        "image_tag": "${{ steps.build.outputs.digest }}",
-                        "worker_name": "temporal-worker",
-                        "context": ${{ toJson(github) }}
+                        "values": {
+                          "image": {
+                            "sha": "${{ steps.build.outputs.digest }}"
+                          }
+                        },
+                        "release": "temporal-worker",
+                        "commit": ${{ toJson(github.event.head_commit) }},
+                        "repository": ${{ toJson(github.repository) }},
+                        "labels": ${{ steps.labels.outputs.labels }},
+                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                      }
+
+            - name: Check for changes that affect general purpose temporal worker
+              id: check_changes_general_purpose_temporal_worker
+              run: |
+                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/common|^posthog/temporal/proxy_service|^posthog/management/commands/start_temporal_worker.py$|^requirements.txt$' && echo true) || echo false)" >> $GITHUB_OUTPUT
+
+            - name: Trigger General Purpose Temporal Worker Cloud deployment
+              if: steps.check_changes_general_purpose_temporal_worker.outputs.changed == 'true'
+              uses: peter-evans/repository-dispatch@v3
+              with:
+                  token: ${{ steps.deployer.outputs.token }}
+                  repository: PostHog/charts
+                  event-type: commit_state_update
+                  client-payload: |
+                      {
+                        "values": {
+                          "image": {
+                            "sha": "${{ steps.build.outputs.digest }}"
+                          }
+                        },
+                        "release": "temporal-worker-general-purpose",
+                        "commit": ${{ toJson(github.event.head_commit) }},
+                        "repository": ${{ toJson(github.repository) }},
+                        "labels": ${{ steps.labels.outputs.labels }},
+                        "timestamp": "${{ github.event.head_commit.timestamp }}"
                       }
 
             - name: Check for changes that affect data warehouse temporal worker
               id: check_changes_data_warehouse_temporal_worker
               run: |
-                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/common|^posthog/temporal/data_imports|^posthog/warehouse/|^posthog/management/commands/start_temporal_worker.py$' && echo true) || echo false)" >> $GITHUB_OUTPUT
+                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/common|^posthog/temporal/data_imports|^posthog/warehouse/|^posthog/management/commands/start_temporal_worker.py$|^requirements.txt$' && echo true) || echo false)" >> $GITHUB_OUTPUT
 
             - name: Trigger Data Warehouse Temporal Worker Cloud deployment
               if: steps.check_changes_data_warehouse_temporal_worker.outputs.changed == 'true'
-              uses: mvasigh/dispatch-action@main
+              uses: peter-evans/repository-dispatch@v3
               with:
                   token: ${{ steps.deployer.outputs.token }}
-                  repo: charts
-                  owner: PostHog
-                  event_type: temporal_worker_deploy
-                  message: |
+                  repository: PostHog/charts
+                  event-type: commit_state_update
+                  client-payload: |
                       {
-                        "image_tag": "${{ steps.build.outputs.digest }}",
-                        "worker_name": "temporal-worker-data-warehouse",
-                        "context": ${{ toJson(github) }}
+                        "values": {
+                          "image": {
+                            "sha": "${{ steps.build.outputs.digest }}"
+                          }
+                        },
+                        "release": "temporal-worker-data-warehouse",
+                        "commit": ${{ toJson(github.event.head_commit) }},
+                        "repository": ${{ toJson(github.repository) }},
+                        "labels": ${{ steps.labels.outputs.labels }},
+                        "timestamp": "${{ github.event.head_commit.timestamp }}"
                       }

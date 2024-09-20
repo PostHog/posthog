@@ -1,3 +1,4 @@
+import posthoganalytics
 from django.contrib.auth.models import AbstractBaseUser
 from django.contrib.auth.tokens import PasswordResetTokenGenerator
 from rest_framework import exceptions
@@ -5,6 +6,18 @@ from sentry_sdk import capture_exception
 
 from posthog.models.user import User
 from posthog.tasks.email import send_email_verification
+
+VERIFICATION_DISABLED_FLAG = "email-verification-disabled"
+
+
+def is_email_verification_disabled(user: User) -> bool:
+    # using disabled here so that the default state (if no flag exists) is that verification defaults to ON.
+    return user.organization is not None and posthoganalytics.feature_enabled(
+        VERIFICATION_DISABLED_FLAG,
+        str(user.organization.id),
+        groups={"organization": str(user.organization.id)},
+        group_properties={"organization": {"id": str(user.organization.id)}},
+    )
 
 
 class EmailVerificationTokenGenerator(PasswordResetTokenGenerator):

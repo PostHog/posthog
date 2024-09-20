@@ -1,9 +1,10 @@
 import { lemonToast } from '@posthog/lemon-ui'
 import { isString } from '@tiptap/core'
-import { actions, connect, kea, path, reducers } from 'kea'
+import { actions, connect, kea, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { urlToAction } from 'kea-router'
 import api from 'lib/api'
+import { ValidatedPasswordResult, validatePassword } from 'lib/components/PasswordStrength'
 import { CLOUD_HOSTNAMES, FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import posthog from 'posthog-js'
@@ -66,9 +67,7 @@ export const signupLogic = kea<signupLogicType>([
                 password: !values.preflight?.demo
                     ? !password
                         ? 'Please enter your password to continue'
-                        : password.length < 8
-                        ? 'Password must be at least 8 characters'
-                        : undefined
+                        : values.validatedPassword.feedback
                     : undefined,
             }),
             submit: async () => {
@@ -113,6 +112,14 @@ export const signupLogic = kea<signupLogicType>([
             },
         },
     })),
+    selectors({
+        validatedPassword: [
+            (s) => [s.signupPanel1],
+            ({ password }): ValidatedPasswordResult => {
+                return validatePassword(password)
+            },
+        ],
+    }),
     urlToAction(({ actions, values }) => ({
         '/signup': (_, { email, maintenanceRedirect }) => {
             if (values.preflight?.cloud) {

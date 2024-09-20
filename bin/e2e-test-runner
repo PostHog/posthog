@@ -46,15 +46,13 @@ do
     fi
 done
 
-export DEBUG=1
-export NO_RESTART_LOOP=1
 export CYPRESS_BASE_URL=http://localhost:8080
 export SECURE_COOKIES=0
 export SKIP_SERVICE_VERSION_REQUIREMENTS=1
 export KAFKA_HOSTS=kafka:9092
 export CLICKHOUSE_DATABASE=posthog_test
-export TEST=1 # Plugin server and kafka revert to 'default' Clickhouse database if TEST is not set
 export CLICKHOUSE_SECURE=0
+export JS_URL=http://localhost:8234
 export E2E_TESTING=1
 export SECRET_KEY=e2e_test
 export EMAIL_HOST=email.test.posthog.net
@@ -66,6 +64,9 @@ export PGUSER="${PGUSER:=posthog}"
 export PGPASSWORD="${PGPASSWORD:=posthog}"
 export PGPORT="${PGPORT:=5432}"
 export DATABASE_URL="postgres://${PGUSER}:${PGPASSWORD}@${PGHOST}:${PGPORT}/${DATABASE}"
+export CLOUD_DEPLOYMENT=E2E
+
+source ./bin/celery-queues.env
 
 trap "trap - SIGTERM && kill -- -$$" SIGINT SIGTERM EXIT
 
@@ -91,8 +92,7 @@ setupDev() {
   python manage.py setup_dev &
 }
 
-nc -z localhost 9092 || ( echo -e "\033[0;31mKafka isn't running. Please run\n\tdocker compose -f docker-compose.dev.yml up zookeeper kafka clickhouse db redis\nI'll wait while you do that.\033[0m" ; bin/check_kafka_clickhouse_up )
-wget -nv -t1 --spider 'http://localhost:8123/' || ( echo -e "\033[0;31mClickhouse isn't running. Please run\n\tdocker compose -f docker-compose.dev.yml up zookeeper kafka clickhouse db redis.\nI'll wait while you do that.\033[0m" ; bin/check_kafka_clickhouse_up )
+bin/check_kafka_clickhouse_up
 
 $SKIP_RECREATE_DATABASE || recreateDatabases
 $SKIP_MIGRATE || migrateDatabases
@@ -101,5 +101,7 @@ $SKIP_SETUP_DEV || setupDev
 # parallel block
 # Only start webpack if not already running
 nc -vz 127.0.0.1 8234 2> /dev/null || ./bin/start-frontend &
-pnpm dlx cypress open --config-file cypress.e2e.config.ts &
+pnpm cypress open --config-file cypress.e2e.config.ts &
+uv pip install -r requirements.txt -r requirements-dev.txt
+python manage.py run_autoreload_celery --type=worker &
 python manage.py runserver 8080

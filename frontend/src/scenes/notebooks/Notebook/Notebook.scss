@@ -4,12 +4,6 @@
     flex-direction: column;
     width: 100%;
 
-    // overriding ::selection is necessary here because
-    // antd makes it invisible otherwise
-    span::selection {
-        color: var(--primary-3000);
-    }
-
     .NotebookEditor {
         position: relative;
         flex: 1;
@@ -128,7 +122,7 @@
             border-radius: var(--radius);
 
             &:hover {
-                background-color: var(--side);
+                background-color: var(--bg-3000);
             }
 
             & svg {

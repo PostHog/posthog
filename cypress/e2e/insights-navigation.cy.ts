@@ -1,6 +1,7 @@
 import { urls } from 'scenes/urls'
-import { randomString } from '../support/random'
+
 import { insight } from '../productAnalytics'
+import { randomString } from '../support/random'
 
 const hogQLQuery = `select event,
           count()
@@ -24,14 +25,21 @@ describe('Insights', () => {
             insight.editName(insightName)
             insight.save()
             cy.visit(urls.savedInsights())
-            cy.contains('.Link', insightName).click()
+
+            // load the named insight
+            cy.contains('.saved-insights tr', insightName).within(() => {
+                cy.get('.Link').click()
+            })
 
             cy.get('[data-attr="hogql-query-editor"]').should('not.exist')
-            cy.get('tr.DataTable__row').should('have.length.gte', 2)
+            cy.get('tr.DataVizRow').should('have.length.gte', 2)
 
             cy.get('[data-attr="insight-edit-button"]').click()
+            cy.wait(2000)
+
             insight.clickTab('RETENTION')
 
+            cy.wait(2000)
             cy.get('[data-attr="insight-save-button"]').click()
 
             cy.get('.RetentionContainer canvas').should('exist')
@@ -49,7 +57,7 @@ describe('Insights', () => {
             cy.get('[data-attr="hogql-query-editor"]').should('exist')
             insight.updateQueryEditorText(hogQLQuery, 'hogql-query-editor')
 
-            cy.get('.DataTable tr').should('have.length.gte', 2)
+            cy.get('.DataVizRow').should('have.length.gte', 2)
 
             insight.clickTab('TRENDS')
             cy.get('.TrendsInsight canvas').should('exist')
@@ -60,7 +68,7 @@ describe('Insights', () => {
             cy.get('[data-attr="hogql-query-editor"]').should('exist')
             insight.updateQueryEditorText(hogQLQuery, 'hogql-query-editor')
 
-            cy.get('.DataTable tr').should('have.length.gte', 2)
+            cy.get('.DataVizRow').should('have.length.gte', 2)
 
             insight.clickTab('TRENDS')
             cy.get('.TrendsInsight canvas').should('exist')
@@ -69,8 +77,7 @@ describe('Insights', () => {
         })
 
         it('can open event explorer as an insight', () => {
-            cy.clickNavMenu('events')
-            cy.get('[data-attr="data-table-export-menu"]').click()
+            cy.clickNavMenu('activity')
             cy.get('[data-attr="open-json-editor-button"]').click()
             cy.get('[data-attr="insight-json-tab"]').should('exist')
         })

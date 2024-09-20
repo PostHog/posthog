@@ -118,6 +118,14 @@ class BreakdownMixin(serializers.Serializer):
         return super().validate(data)
 
 
+class CompareMixin(serializers.Serializer):
+    compare = serializers.BooleanField(required=False, help_text="To compare or not")
+    compare_to = serializers.CharField(
+        required=False,
+        help_text="What to compare to",
+    )
+
+
 class ResultsMixin(serializers.Serializer):
     is_cached = serializers.BooleanField(
         help_text="Whether the result is cached. To force a refresh, pass ?refresh=true"
@@ -146,7 +154,7 @@ class TrendResultsSerializer(ResultsMixin):
     result = TrendResultSerializer(many=True)
 
 
-class TrendSerializer(GenericInsightsSerializer, BreakdownMixin):
+class TrendSerializer(GenericInsightsSerializer, BreakdownMixin, CompareMixin):
     display = serializers.ChoiceField(
         choices=get_args(DISPLAY_TYPES),
         required=False,
@@ -158,10 +166,6 @@ class TrendSerializer(GenericInsightsSerializer, BreakdownMixin):
         required=False,
         help_text="Combine the result of events or actions into a single number. For example `A + B` or `(A-B)/B`. The letters correspond to the order of the `events` or `actions` lists.",
         allow_blank=True,
-    )
-    compare = serializers.BooleanField(
-        help_text="For each returned result show the current period and the previous period. The result will contain `compare:true` and a `compare_label` with either `current` or `previous`.",
-        required=False,
     )
 
 

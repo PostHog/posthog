@@ -12,12 +12,13 @@ export interface LemonSwitchProps {
     labelClassName?: string
     id?: string
     fullWidth?: boolean
+    size?: 'small' | 'medium'
     bordered?: boolean
     disabled?: boolean
     /** Like plain `disabled`, except we enforce a reason to be shown in the tooltip. */
     disabledReason?: string | null | false
     'data-attr'?: string
-    tooltip?: string | null
+    tooltip?: string | JSX.Element | null
     handleContent?: React.ReactElement | null
     'aria-label'?: string
 }
@@ -34,6 +35,7 @@ export const LemonSwitch: React.FunctionComponent<LemonSwitchProps & React.RefAt
             checked,
             fullWidth,
             bordered,
+            size = 'medium',
             disabled,
             disabledReason,
             label,
@@ -94,7 +96,7 @@ export const LemonSwitch: React.FunctionComponent<LemonSwitchProps & React.RefAt
         return (
             <div
                 ref={ref}
-                className={clsx('LemonSwitch', className, {
+                className={clsx('LemonSwitch', className, `LemonSwitch--${size}`, {
                     'LemonSwitch--checked': checked,
                     'LemonSwitch--active': isActive,
                     'LemonSwitch--bordered': bordered,

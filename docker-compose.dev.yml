@@ -8,6 +8,17 @@
 #
 
 services:
+    proxy:
+        extends:
+            file: docker-compose.base.yml
+            service: proxy
+        ports:
+            - 8010:8000
+        depends_on:
+            - replay-capture
+            - capture
+        extra_hosts:
+            - 'web:host-gateway'
     db:
         extends:
             file: docker-compose.base.yml
@@ -26,6 +37,12 @@ services:
             service: redis
         ports:
             - '6379:6379'
+    redis7:
+        extends:
+            file: docker-compose.base.yml
+            service: redis7
+        ports:
+            - '6479:6379'
 
     flower:
         extends:
@@ -44,10 +61,15 @@ services:
             - '9440:9440'
             - '9009:9009'
         volumes:
+            # this new entrypoint file is to fix a bug detailed here https://github.com/ClickHouse/ClickHouse/pull/59991
+            # revert this when we upgrade clickhouse
+            - ./docker/clickhouse/entrypoint.sh:/entrypoint.sh
             - ./posthog/idl:/idl
             - ./docker/clickhouse/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
             - ./docker/clickhouse/config.xml:/etc/clickhouse-server/config.xml
             - ./docker/clickhouse/users-dev.xml:/etc/clickhouse-server/users.xml
+            - ./docker/clickhouse/user_defined_function.xml:/etc/clickhouse-server/user_defined_function.xml
+            - ./posthog/user_scripts:/var/lib/clickhouse/user_scripts
         extra_hosts:
             - 'host.docker.internal:host-gateway'
         depends_on:
@@ -79,10 +101,10 @@ services:
         depends_on:
             - kafka
 
-    object_storage:
+    objectstorage:
         extends:
             file: docker-compose.base.yml
-            service: object_storage
+            service: objectstorage
         ports:
             - '19000:19000'
             - '19001:19001'
@@ -95,19 +117,44 @@ services:
             - '1080:1080'
             - '1025:1025'
 
-    # Optional capture
+    webhook-tester:
+        image: tarampampam/webhook-tester:1.1.0
+        restart: on-failure
+        ports:
+            - '2080:2080'
+        environment:
+            - LISTEN_PORT=2080
+
+    # capture-rs
     capture:
-        profiles: ['capture-rs']
         extends:
             file: docker-compose.base.yml
             service: capture
-        ports:
-            - 3000:3000
         environment:
             - DEBUG=1
         depends_on:
             - redis
             - kafka
+
+    # vector replay capture
+    replay-capture:
+        extends:
+            file: docker-compose.base.yml
+            service: replay-capture
+        depends_on:
+            - redis
+            - kafka
+
+    livestream:
+        extends:
+            file: docker-compose.base.yml
+            service: livestream
+        environment:
+            - JWT.TOKEN=${SECRET_KEY}
+        ports:
+            - '8666:8080'
+        volumes:
+            - ./docker/livestream/configs-dev.yml:/configs/configs.yml
 
     # Temporal containers
     elasticsearch:

@@ -3,6 +3,7 @@ from posthog.hogql.database.models import (
     StringDatabaseField,
     DateTimeDatabaseField,
     StringJSONDatabaseField,
+    StringArrayDatabaseField,
     IntegerDatabaseField,
     Table,
     LazyJoin,
@@ -14,7 +15,7 @@ from posthog.hogql.database.schema.person_distinct_ids import (
     PersonDistinctIdsTable,
     join_with_person_distinct_ids_table,
 )
-from posthog.hogql.database.schema.sessions import join_events_table_to_sessions_table, SessionsTable
+from posthog.hogql.database.schema.sessions_v1 import join_events_table_to_sessions_table, SessionsTableV1
 
 
 class EventsPersonSubTable(VirtualTable):
@@ -111,9 +112,13 @@ class EventsTable(Table):
         ),
         "session": LazyJoin(
             from_field=["$session_id"],
-            join_table=SessionsTable(),
+            join_table=SessionsTableV1(),
             join_function=join_events_table_to_sessions_table,
         ),
+        "elements_chain_href": StringDatabaseField(name="elements_chain_href"),
+        "elements_chain_texts": StringArrayDatabaseField(name="elements_chain_texts"),
+        "elements_chain_ids": StringArrayDatabaseField(name="elements_chain_ids"),
+        "elements_chain_elements": StringArrayDatabaseField(name="elements_chain_elements"),
     }
 
     def to_printed_clickhouse(self, context):

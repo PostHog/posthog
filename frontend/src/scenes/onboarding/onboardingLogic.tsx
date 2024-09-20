@@ -1,7 +1,6 @@
 import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -10,7 +9,13 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { BillingProductV2Type, Breadcrumb, ProductKey } from '~/types'
+import {
+    AvailableOnboardingProducts,
+    BillingProductV2AddonType,
+    Breadcrumb,
+    OnboardingProduct,
+    ProductKey,
+} from '~/types'
 
 import type { onboardingLogicType } from './onboardingLogicType'
 
@@ -21,32 +26,56 @@ export interface OnboardingLogicProps {
 export enum OnboardingStepKey {
     PRODUCT_INTRO = 'product_intro',
     INSTALL = 'install',
+    LINK_DATA = 'link_data',
     PLANS = 'plans',
     VERIFY = 'verify',
     PRODUCT_CONFIGURATION = 'configure',
     REVERSE_PROXY = 'proxy',
     INVITE_TEAMMATES = 'invite_teammates',
+    DASHBOARD_TEMPLATE = 'dashboard_template',
+    DASHBOARD_TEMPLATE_CONFIGURE = 'dashboard_template_configure',
 }
 
-const productKeyToProductName = {
-    [ProductKey.PRODUCT_ANALYTICS]: 'Product Analytics',
-    [ProductKey.SESSION_REPLAY]: 'Session Replay',
-    [ProductKey.FEATURE_FLAGS]: 'Feature Flags',
-    [ProductKey.SURVEYS]: 'Surveys',
-}
+export const breadcrumbExcludeSteps = [OnboardingStepKey.DASHBOARD_TEMPLATE_CONFIGURE]
 
-const productKeyToURL = {
-    [ProductKey.PRODUCT_ANALYTICS]: urls.insights(),
-    [ProductKey.SESSION_REPLAY]: urls.replay(),
-    [ProductKey.FEATURE_FLAGS]: urls.featureFlags(),
-    [ProductKey.SURVEYS]: urls.surveys(),
-}
-
-const productKeyToScene = {
-    [ProductKey.PRODUCT_ANALYTICS]: Scene.SavedInsights,
-    [ProductKey.SESSION_REPLAY]: Scene.Replay,
-    [ProductKey.FEATURE_FLAGS]: Scene.FeatureFlags,
-    [ProductKey.SURVEYS]: Scene.Surveys,
+export const availableOnboardingProducts: AvailableOnboardingProducts = {
+    [ProductKey.PRODUCT_ANALYTICS]: {
+        name: 'Product Analytics',
+        icon: 'IconGraph',
+        iconColor: 'blue',
+        url: urls.insights(),
+        scene: Scene.SavedInsights,
+    },
+    [ProductKey.DATA_WAREHOUSE]: {
+        name: 'Data Warehouse',
+        icon: 'IconDatabase',
+        iconColor: 'salmon',
+        breadcrumbsName: 'Data Warehouse',
+        url: urls.dataWarehouse(),
+        scene: Scene.DataWarehouse,
+    },
+    [ProductKey.SESSION_REPLAY]: {
+        name: 'Session Replay',
+        icon: 'IconRewindPlay',
+        iconColor: 'var(--warning)',
+        url: urls.replay(),
+        scene: Scene.Replay,
+    },
+    [ProductKey.FEATURE_FLAGS]: {
+        name: 'Feature Flags & Experiments',
+        breadcrumbsName: 'Feature Flags',
+        icon: 'IconToggle',
+        iconColor: 'seagreen',
+        url: urls.featureFlags(),
+        scene: Scene.FeatureFlags,
+    },
+    [ProductKey.SURVEYS]: {
+        name: 'Surveys',
+        icon: 'IconMessage',
+        iconColor: 'salmon',
+        url: urls.surveys(),
+        scene: Scene.Surveys,
+    },
 }
 
 export const stepKeyToTitle = (stepKey?: OnboardingStepKey): undefined | string => {
@@ -97,17 +126,22 @@ export const onboardingLogic = kea<onboardingLogicType>([
         actions: [billingLogic, ['loadBillingSuccess'], teamLogic, ['updateCurrentTeam', 'updateCurrentTeamSuccess']],
     }),
     actions({
-        setProduct: (product: BillingProductV2Type | null) => ({ product }),
+        setProduct: (product: OnboardingProduct | null) => ({ product }),
         setProductKey: (productKey: string | null) => ({ productKey }),
-        completeOnboarding: (nextProductKey?: string) => ({ nextProductKey }),
+        completeOnboarding: (nextProductKey?: string, redirectUrlOverride?: string) => ({
+            nextProductKey,
+            redirectUrlOverride,
+        }),
         setAllOnboardingSteps: (allOnboardingSteps: AllOnboardingSteps) => ({ allOnboardingSteps }),
         setStepKey: (stepKey: OnboardingStepKey) => ({ stepKey }),
         setSubscribedDuringOnboarding: (subscribedDuringOnboarding: boolean) => ({ subscribedDuringOnboarding }),
         setIncludeIntro: (includeIntro: boolean) => ({ includeIntro }),
         setTeamPropertiesForProduct: (productKey: ProductKey) => ({ productKey }),
-        goToNextStep: true,
+        setWaitForBilling: (waitForBilling: boolean) => ({ waitForBilling }),
+        goToNextStep: (numStepsToAdvance?: number) => ({ numStepsToAdvance }),
         goToPreviousStep: true,
         resetStepKey: true,
+        setOnCompleteOnboardingRedirectUrl: (url: string | null) => ({ url }),
     }),
     reducers(() => ({
         productKey: [
@@ -117,7 +151,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
             },
         ],
         product: [
-            null as BillingProductV2Type | null,
+            null as OnboardingProduct | null,
             {
                 setProduct: (_, { product }) => product,
             },
@@ -146,6 +180,18 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 setIncludeIntro: (_, { includeIntro }) => includeIntro,
             },
         ],
+        waitForBilling: [
+            false,
+            {
+                setWaitForBilling: (_, { waitForBilling }) => waitForBilling,
+            },
+        ],
+        onCompleteOnboardingRedirectUrlOverride: [
+            null as string | null,
+            {
+                setOnCompleteOnboardingRedirectUrl: (_, { url }) => url,
+            },
+        ],
     })),
     selectors({
         breadcrumbs: [
@@ -154,11 +200,13 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 return [
                     {
                         key: Scene.Onboarding,
-                        name: productKeyToProductName[productKey ?? ''],
-                        path: productKeyToURL[productKey ?? ''],
+                        name:
+                            availableOnboardingProducts[productKey as ProductKey].breadcrumbsName ??
+                            availableOnboardingProducts[productKey as ProductKey].name,
+                        path: availableOnboardingProducts[productKey as ProductKey].url,
                     },
                     {
-                        key: productKeyToScene[productKey ?? ''],
+                        key: availableOnboardingProducts[productKey as ProductKey].scene,
                         name: stepKeyToTitle(stepKey),
                         path: urls.onboarding(productKey ?? '', stepKey),
                     },
@@ -166,8 +214,11 @@ export const onboardingLogic = kea<onboardingLogicType>([
             },
         ],
         onCompleteOnboardingRedirectUrl: [
-            (s) => [s.productKey],
-            (productKey: string | null) => {
+            (s) => [s.productKey, s.onCompleteOnboardingRedirectUrlOverride],
+            (productKey: string | null, onCompleteOnboardingRedirectUrlOverride) => {
+                if (onCompleteOnboardingRedirectUrlOverride) {
+                    return onCompleteOnboardingRedirectUrlOverride
+                }
                 return productKey ? getProductUri(productKey as ProductKey) : urls.default()
             },
         ],
@@ -201,23 +252,21 @@ export const onboardingLogic = kea<onboardingLogicType>([
             },
         ],
         shouldShowBillingStep: [
-            (s) => [s.product, s.subscribedDuringOnboarding, s.isCloudOrDev],
-            (product: BillingProductV2Type | null, subscribedDuringOnboarding: boolean, isCloudOrDev) => {
-                if (!isCloudOrDev) {
+            (s) => [s.product, s.subscribedDuringOnboarding, s.isCloudOrDev, s.billing, s.billingProduct],
+            (_product, subscribedDuringOnboarding: boolean, isCloudOrDev: boolean, billing, billingProduct) => {
+                if (!isCloudOrDev || !billing?.products || !billingProduct) {
                     return false
                 }
-                const hasAllAddons = product?.addons?.every((addon) => addon.subscribed)
-                return !product?.subscribed || !hasAllAddons || subscribedDuringOnboarding
+                const hasAllAddons = billingProduct?.addons?.every(
+                    (addon: BillingProductV2AddonType) => addon.subscribed
+                )
+                return !billingProduct?.subscribed || !hasAllAddons || subscribedDuringOnboarding
             },
         ],
         shouldShowReverseProxyStep: [
-            (s) => [s.product, s.featureFlags],
-            (product: BillingProductV2Type | null, featureFlags: FeatureFlagsSet) => {
-                const productsWithReverseProxy = []
-                if (featureFlags[FEATURE_FLAGS.REVERSE_PROXY_ONBOARDING] === 'test') {
-                    productsWithReverseProxy.push(ProductKey.FEATURE_FLAGS)
-                }
-                return productsWithReverseProxy.includes(product?.type as ProductKey)
+            (s) => [s.productKey],
+            (productKey) => {
+                return productKey && [ProductKey.FEATURE_FLAGS].includes(productKey as ProductKey)
             },
         ],
         isStepKeyInvalid: [
@@ -234,13 +283,14 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 )
             },
         ],
+        billingProduct: [
+            (s) => [s.product, s.productKey, s.billing],
+            (_product, productKey, billing) => {
+                return billing?.products?.find((p) => p.type === productKey)
+            },
+        ],
     }),
     listeners(({ actions, values }) => ({
-        loadBillingSuccess: () => {
-            if (window.location.pathname.includes('/onboarding')) {
-                actions.setProduct(values.billing?.products.find((p) => p.type === values.productKey) || null)
-            }
-        },
         setProduct: ({ product }) => {
             if (!product) {
                 window.location.href = urls.default()
@@ -270,9 +320,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 window.location.href = urls.default()
                 return
             }
-            if (values.billing?.products?.length) {
-                actions.setProduct(values.billing?.products.find((p) => p.type === values.productKey) || null)
-            }
+            actions.setProduct(availableOnboardingProducts[productKey])
         },
         setSubscribedDuringOnboarding: ({ subscribedDuringOnboarding }) => {
             if (subscribedDuringOnboarding) {
@@ -283,7 +331,10 @@ export const onboardingLogic = kea<onboardingLogicType>([
             }
         },
 
-        completeOnboarding: ({ nextProductKey }) => {
+        completeOnboarding: ({ nextProductKey, redirectUrlOverride }) => {
+            if (redirectUrlOverride) {
+                actions.setOnCompleteOnboardingRedirectUrl(redirectUrlOverride)
+            }
             if (values.productKey) {
                 const product = values.productKey
                 eventUsageLogic.actions.reportOnboardingCompleted(product)
@@ -317,23 +368,21 @@ export const onboardingLogic = kea<onboardingLogicType>([
         setStepKey: ({ stepKey }) => {
             if (stepKey) {
                 return [`/onboarding/${values.productKey}`, { ...router.values.searchParams, step: stepKey }]
-            } else {
-                return [`/onboarding/${values.productKey}`, router.values.searchParams]
             }
+            return [`/onboarding/${values.productKey}`, router.values.searchParams]
         },
-        goToNextStep: () => {
+        goToNextStep: ({ numStepsToAdvance }) => {
             const currentStepIndex = values.allOnboardingSteps.findIndex(
                 (step) => step.props.stepKey === values.stepKey
             )
-            const nextStep = values.allOnboardingSteps[currentStepIndex + 1]
+            const nextStep = values.allOnboardingSteps[currentStepIndex + (numStepsToAdvance || 1)]
             if (nextStep) {
                 return [
                     `/onboarding/${values.productKey}`,
                     { ...router.values.searchParams, step: nextStep.props.stepKey },
                 ]
-            } else {
-                return [`/onboarding/${values.productKey}`, router.values.searchParams]
             }
+            return [`/onboarding/${values.productKey}`, router.values.searchParams]
         },
         goToPreviousStep: () => {
             const currentStepIndex = values.allOnboardingSteps.findIndex(
@@ -345,9 +394,8 @@ export const onboardingLogic = kea<onboardingLogicType>([
                     `/onboarding/${values.productKey}`,
                     { ...router.values.searchParams, step: previousStep.props.stepKey },
                 ]
-            } else {
-                return [`/onboarding/${values.productKey}`, router.values.searchParams]
             }
+            return [`/onboarding/${values.productKey}`, router.values.searchParams]
         },
         updateCurrentTeamSuccess(val) {
             if (values.productKey && val.payload?.has_completed_onboarding_for?.[values.productKey]) {
@@ -373,6 +421,11 @@ export const onboardingLogic = kea<onboardingLogicType>([
             actions.setAllOnboardingSteps([])
 
             if (step) {
+                // when loading specific steps, like plans, we need to make sure we have a billing response before we can continue
+                const stepsToWaitForBilling = [OnboardingStepKey.PLANS, OnboardingStepKey.PRODUCT_INTRO]
+                if (stepsToWaitForBilling.includes(step as OnboardingStepKey)) {
+                    actions.setWaitForBilling(true)
+                }
                 actions.setStepKey(step)
             } else {
                 actions.resetStepKey()

@@ -42,6 +42,8 @@ jobs:
                         - .eslintrc.js
                         - .prettier*
                         - babel.config.js
+                        - package.json
+                        - pnpm-lock.yaml
                         - jest.*.ts
                         - tsconfig.json
                         - tsconfig.*.json
@@ -59,9 +61,7 @@ jobs:
 
             - name: Install pnpm
               if: needs.changes.outputs.frontend == 'true'
-              uses: pnpm/action-setup@v2
-              with:
-                  version: 8.x.x
+              uses: pnpm/action-setup@v4
 
             - name: Set up Node.js
               if: needs.changes.outputs.frontend == 'true'
@@ -142,9 +142,7 @@ jobs:
 
             - name: Install pnpm
               if: needs.changes.outputs.frontend == 'true'
-              uses: pnpm/action-setup@v2
-              with:
-                  version: 8.x.x
+              uses: pnpm/action-setup@v4
 
             - name: Set up Node.js
               if: needs.changes.outputs.frontend == 'true'

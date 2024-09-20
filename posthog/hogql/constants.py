@@ -1,5 +1,5 @@
 from datetime import date, datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Optional, Literal, TypeAlias
 from uuid import UUID
 from pydantic import ConfigDict, BaseModel
@@ -29,14 +29,17 @@ RESERVED_KEYWORDS = [*KEYWORDS, "team_id"]
 
 # Limit applied to SELECT statements without LIMIT clause when queried via the API
 DEFAULT_RETURNED_ROWS = 100
-# Max limit for all SELECT queries, and the default for CSV exports.
-MAX_SELECT_RETURNED_ROWS = 10000  # sync with CSV_EXPORT_LIMIT
+# Max limit for all SELECT queries, and the default for CSV exports
+# Sync with frontend/src/queries/nodes/DataTable/DataTableExport.tsx
+MAX_SELECT_RETURNED_ROWS = 50000
 # Max limit for heatmaps which don't really need 1 billion so have their own max
 MAX_SELECT_HEATMAPS_LIMIT = 1000000  # 1m datapoints
 # Max limit for all cohort calculations
 MAX_SELECT_COHORT_CALCULATION_LIMIT = 1000000000  # 1b persons
+# Max amount of memory usage when doing group by before swapping to disk. Only used in certain queries
+MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY = 22 * 1024 * 1024 * 1024
 
-CSV_EXPORT_LIMIT = 10000
+CSV_EXPORT_LIMIT = MAX_SELECT_RETURNED_ROWS
 CSV_EXPORT_BREAKDOWN_LIMIT_INITIAL = 512
 CSV_EXPORT_BREAKDOWN_LIMIT_LOW = 64  # The lowest limit we want to go to
 
@@ -44,7 +47,7 @@ BREAKDOWN_VALUES_LIMIT = 25
 BREAKDOWN_VALUES_LIMIT_FOR_COUNTRIES = 300
 
 
-class LimitContext(str, Enum):
+class LimitContext(StrEnum):
     QUERY = "query"
     QUERY_ASYNC = "query_async"
     EXPORT = "export"
@@ -53,10 +56,8 @@ class LimitContext(str, Enum):
 
 
 def get_max_limit_for_context(limit_context: LimitContext) -> int:
-    if limit_context == LimitContext.EXPORT:
-        return MAX_SELECT_RETURNED_ROWS  # 10k
-    elif limit_context in (LimitContext.QUERY, LimitContext.QUERY_ASYNC):
-        return MAX_SELECT_RETURNED_ROWS  # 10k
+    if limit_context in (LimitContext.EXPORT, LimitContext.QUERY, LimitContext.QUERY_ASYNC):
+        return MAX_SELECT_RETURNED_ROWS  # 50k
     elif limit_context == LimitContext.HEATMAPS:
         return MAX_SELECT_HEATMAPS_LIMIT  # 1M
     elif limit_context == LimitContext.COHORT_CALCULATION:
@@ -68,7 +69,7 @@ def get_max_limit_for_context(limit_context: LimitContext) -> int:
 def get_default_limit_for_context(limit_context: LimitContext) -> int:
     """Limit used if no limit is provided"""
     if limit_context == LimitContext.EXPORT:
-        return MAX_SELECT_RETURNED_ROWS  # 10k
+        return MAX_SELECT_RETURNED_ROWS  # 50k
     elif limit_context in (LimitContext.QUERY, LimitContext.QUERY_ASYNC):
         return DEFAULT_RETURNED_ROWS  # 100
     elif limit_context == LimitContext.HEATMAPS:
@@ -91,6 +92,8 @@ def get_breakdown_limit_for_context(limit_context: LimitContext) -> int:
 class HogQLQuerySettings(BaseModel):
     model_config = ConfigDict(extra="forbid")
     optimize_aggregation_in_order: Optional[bool] = None
+    date_time_output_format: Optional[str] = None
+    date_time_input_format: Optional[str] = None
 
 
 # Settings applied on top of all HogQL queries.
@@ -100,6 +103,7 @@ class HogQLGlobalSettings(HogQLQuerySettings):
     max_execution_time: Optional[int] = 60
     allow_experimental_object_type: Optional[bool] = True
     format_csv_allow_double_quotes: Optional[bool] = False
-    max_ast_elements: Optional[int] = 50000 * 20  # default value 50000
-    max_expanded_ast_elements: Optional[int] = 1000000
-    max_query_size: Optional[int] = 262144 * 2  # default value 262144 (= 256 KiB)
+    max_ast_elements: Optional[int] = 4_000_000  # default value 50000
+    max_expanded_ast_elements: Optional[int] = 4_000_000
+    max_bytes_before_external_group_by: Optional[int] = 0  # default value means we don't swap ordering by to disk
+    allow_experimental_analyzer: Optional[bool] = None

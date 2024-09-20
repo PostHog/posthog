@@ -197,7 +197,7 @@ describe('formatAggregationValue', () => {
 })
 
 describe('formatBreakdownLabel()', () => {
-    const identity = (x: any): any => x
+    const identity = (_breakdown: any, breakdown_value: any): any => breakdown_value
 
     const cohort = {
         id: 5,
@@ -205,13 +205,249 @@ describe('formatBreakdownLabel()', () => {
     }
 
     it('handles cohort breakdowns', () => {
-        expect(formatBreakdownLabel([cohort as any], identity, cohort.id, [cohort.id], 'cohort')).toEqual(cohort.name)
-        expect(formatBreakdownLabel([], identity, 3, [3], 'cohort')).toEqual('3')
+        const breakdownFilter1: BreakdownFilter = {
+            breakdown: [cohort.id],
+            breakdown_type: 'cohort',
+        }
+        expect(formatBreakdownLabel(cohort.id, breakdownFilter1, [cohort as any], identity)).toEqual(cohort.name)
+
+        const breakdownFilter2: BreakdownFilter = {
+            breakdown: [3],
+            breakdown_type: 'cohort',
+        }
+        expect(formatBreakdownLabel(3, breakdownFilter2, [], identity)).toEqual('3')
     })
 
     it('handles cohort breakdowns with all users', () => {
-        expect(formatBreakdownLabel([], identity, 'all', ['all'], 'cohort')).toEqual('All Users')
-        expect(formatBreakdownLabel([], identity, 0, [0], 'cohort')).toEqual('All Users')
+        const breakdownFilter1: BreakdownFilter = {
+            breakdown: ['all'],
+            breakdown_type: 'cohort',
+        }
+        expect(formatBreakdownLabel('all', breakdownFilter1, [], identity)).toEqual('All Users')
+
+        const breakdownFilter2: BreakdownFilter = {
+            breakdown: [0],
+            breakdown_type: 'cohort',
+        }
+        expect(formatBreakdownLabel(0, breakdownFilter2, [], identity)).toEqual('All Users')
+    })
+
+    it('handles histogram breakdowns', () => {
+        const breakdownFilter: BreakdownFilter = {
+            breakdown: '$browser_version',
+            breakdown_type: 'event',
+            breakdown_histogram_bin_count: 10,
+        }
+        expect(formatBreakdownLabel('[124.8,125.01]', breakdownFilter, [], identity)).toEqual('124.8 – 125.01')
+    })
+
+    it('handles histogram breakdowns for start and end values', () => {
+        const breakdownFilter: BreakdownFilter = {
+            breakdown: '$browser_version',
+            breakdown_type: 'event',
+            breakdown_histogram_bin_count: 10,
+        }
+        expect(formatBreakdownLabel('[124.8,124.8]', breakdownFilter, [], identity)).toEqual('124.8')
+    })
+
+    it('handles histogram breakdowns for "other" value', () => {
+        const breakdownFilter: BreakdownFilter = {
+            breakdown: '$browser_version',
+            breakdown_type: 'event',
+            breakdown_histogram_bin_count: 10,
+        }
+        expect(formatBreakdownLabel('$$_posthog_breakdown_other_$$', breakdownFilter, [], identity)).toEqual(
+            'Other (i.e. all remaining values)'
+        )
+    })
+
+    it('handles histogram breakdowns for "null" value', () => {
+        const breakdownFilter: BreakdownFilter = {
+            breakdown: '$browser_version',
+            breakdown_type: 'event',
+            breakdown_histogram_bin_count: 10,
+        }
+        expect(formatBreakdownLabel('$$_posthog_breakdown_null_$$', breakdownFilter, [], identity)).toEqual(
+            'None (i.e. no value)'
+        )
+    })
+
+    it('handles numeric breakdowns', () => {
+        const breakdownFilter: BreakdownFilter = {
+            breakdown: 'coolness_factor',
+            breakdown_type: 'event',
+        }
+        expect(formatBreakdownLabel(42, breakdownFilter, [], identity)).toEqual('42')
+    })
+
+    it('handles numeric breakdowns for "other" value', () => {
+        const breakdownFilter: BreakdownFilter = {
+            breakdown: 'coolness_factor',
+            breakdown_type: 'event',
+        }
+        expect(formatBreakdownLabel(9007199254740991, breakdownFilter, [], identity)).toEqual(
+            'Other (i.e. all remaining values)'
+        )
+    })
+
+    it('handles numeric breakdowns for "null" value', () => {
+        const breakdownFilter: BreakdownFilter = {
+            breakdown: 'coolness_factor',
+            breakdown_type: 'event',
+        }
+        expect(formatBreakdownLabel(9007199254740990, breakdownFilter, [], identity)).toEqual('None (i.e. no value)')
+    })
+
+    it('handles string breakdowns', () => {
+        const breakdownFilter: BreakdownFilter = {
+            breakdown: 'demographic',
+            breakdown_type: 'event',
+        }
+        expect(formatBreakdownLabel('millenial', breakdownFilter, [], identity)).toEqual('millenial')
+    })
+
+    it('handles string breakdowns for "other" value', () => {
+        const breakdownFilter: BreakdownFilter = {
+            breakdown: 'demographic',
+            breakdown_type: 'event',
+        }
+        expect(formatBreakdownLabel('$$_posthog_breakdown_other_$$', breakdownFilter, [], identity)).toEqual(
+            'Other (i.e. all remaining values)'
+        )
+    })
+
+    it('handles string breakdowns for "null" value', () => {
+        const breakdownFilter: BreakdownFilter = {
+            breakdown: 'demographic',
+            breakdown_type: 'event',
+        }
+        expect(formatBreakdownLabel('$$_posthog_breakdown_null_$$', breakdownFilter, [], identity)).toEqual(
+            'None (i.e. no value)'
+        )
+    })
+
+    it('handles multi-breakdowns', () => {
+        const breakdownFilter: BreakdownFilter = {
+            breakdown: ['demographic', '$browser'],
+            breakdown_type: 'event',
+        }
+        expect(formatBreakdownLabel(['millenial', 'Chrome'], breakdownFilter, [], identity)).toEqual(
+            'millenial::Chrome'
+        )
+    })
+
+    it('handles multiple breakdowns', () => {
+        const breakdownFilter: BreakdownFilter = {
+            breakdowns: [
+                {
+                    property: 'demographic',
+                    type: 'event',
+                },
+                {
+                    property: '$browser',
+                    type: 'event',
+                },
+            ],
+            breakdown: 'fallback',
+        }
+
+        expect(formatBreakdownLabel(['Engineers', 'Chrome'], breakdownFilter, [], identity, 1)).toEqual(
+            'Engineers::Chrome'
+        )
+        expect(formatBreakdownLabel([10, 'Chrome'], breakdownFilter, [], identity, 2)).toEqual('10::Chrome')
+        expect(formatBreakdownLabel([10, 'Chrome'], breakdownFilter, [], () => '10s', 0)).toEqual('10s::Chrome')
+    })
+
+    it('handles a breakdown value of a multiple breakdown', () => {
+        const breakdownFilter: BreakdownFilter = {
+            breakdowns: [
+                {
+                    property: 'demographic',
+                    type: 'event',
+                },
+                {
+                    property: '$browser',
+                    type: 'event',
+                },
+            ],
+            breakdown: 'fallback',
+        }
+
+        expect(formatBreakdownLabel('Chrome', breakdownFilter, [], identity, 1)).toEqual('Chrome')
+        expect(formatBreakdownLabel(10, breakdownFilter, [], identity, 2)).toEqual('10')
+        expect(formatBreakdownLabel(10, breakdownFilter, [], () => '10s', 0)).toEqual('10s')
+    })
+
+    it('handles stringified numbers', () => {
+        const formatter = (_breakdown: any, v: any): any => `${v}s`
+
+        const breakdownFilter1: BreakdownFilter = {
+            breakdown: '$session_duration',
+            breakdown_type: 'session',
+        }
+        expect(formatBreakdownLabel('661', breakdownFilter1, undefined, formatter)).toEqual('661s')
+
+        const breakdownFilter2: BreakdownFilter = {
+            breakdowns: [
+                {
+                    property: '$session_duration',
+                    type: 'session',
+                },
+            ],
+        }
+        expect(formatBreakdownLabel('661', breakdownFilter2, undefined, formatter, 0)).toEqual('661s')
+    })
+
+    it('handles array first', () => {
+        const formatter = (_: any, value: any, type: any): any => (type === 'session' ? `${value}s` : value)
+
+        const breakdownFilter1: BreakdownFilter = {
+            breakdown: '$session_duration',
+            breakdown_type: 'session',
+        }
+        expect(formatBreakdownLabel(['661'], breakdownFilter1, undefined, formatter)).toEqual('661s')
+
+        const breakdownFilter2: BreakdownFilter = {
+            breakdowns: [
+                {
+                    property: '$session_duration',
+                    type: 'session',
+                },
+            ],
+        }
+        expect(formatBreakdownLabel('661', breakdownFilter2, undefined, formatter, 0)).toEqual('661s')
+    })
+
+    it('handles group breakdowns', () => {
+        const formatter = jest.fn((_, v) => v)
+
+        const breakdownFilter1: BreakdownFilter = {
+            breakdown: 'name',
+            breakdown_group_type_index: 0,
+            breakdown_type: 'group',
+        }
+        expect(formatBreakdownLabel('661', breakdownFilter1, undefined, formatter)).toEqual('661')
+        expect(formatter).toHaveBeenCalledWith('name', 661, 'group', 0)
+
+        formatter.mockClear()
+
+        const breakdownFilter2: BreakdownFilter = {
+            breakdowns: [{ property: 'name', type: 'group', group_type_index: 0 }],
+        }
+        expect(formatBreakdownLabel(['661'], breakdownFilter2, undefined, formatter, 0)).toEqual('661')
+        expect(formatter).toHaveBeenCalledWith('name', 661, 'group', 0)
+
+        formatter.mockClear()
+
+        const breakdownFilter3: BreakdownFilter = {
+            breakdowns: [
+                { property: 'name', type: 'group', group_type_index: 0 },
+                { property: 'test', type: 'group', group_type_index: 1 },
+            ],
+        }
+        expect(formatBreakdownLabel(['661', '662'], breakdownFilter3, undefined, formatter, 0)).toEqual('661::662')
+        expect(formatter).toHaveBeenNthCalledWith(1, 'name', 661, 'group', 0)
+        expect(formatter).toHaveBeenNthCalledWith(2, 'test', 662, 'group', 1)
     })
 })
 

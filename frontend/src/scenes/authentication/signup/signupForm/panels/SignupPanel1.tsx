@@ -11,8 +11,8 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { signupLogic } from '../signupLogic'
 
 export function SignupPanel1(): JSX.Element | null {
-    const { preflight } = useValues(preflightLogic)
-    const { isSignupPanel1Submitting, signupPanel1 } = useValues(signupLogic)
+    const { preflight, socialAuthAvailable } = useValues(preflightLogic)
+    const { isSignupPanel1Submitting, validatedPassword } = useValues(signupLogic)
     const emailInputRef = useRef<HTMLInputElement | null>(null)
 
     useEffect(() => {
@@ -22,11 +22,9 @@ export function SignupPanel1(): JSX.Element | null {
 
     return (
         <div className="space-y-4 Signup__panel__1">
-            {!preflight?.demo && (
+            {!preflight?.demo && socialAuthAvailable && (
                 <>
-                    <div className="mt-6">
-                        <SocialLoginButtons caption="Sign up with" bottomDivider />
-                    </div>
+                    <SocialLoginButtons caption="Sign up with" bottomDivider className="mt-6" />
                     <p className="text-muted text-center mb-0">Or use email & password</p>
                 </>
             )}
@@ -38,7 +36,7 @@ export function SignupPanel1(): JSX.Element | null {
                         data-attr="signup-email"
                         placeholder="email@yourcompany.com"
                         type="email"
-                        ref={emailInputRef}
+                        inputRef={emailInputRef}
                         disabled={isSignupPanel1Submitting}
                     />
                 </LemonField>
@@ -48,9 +46,7 @@ export function SignupPanel1(): JSX.Element | null {
                         label={
                             <div className="flex flex-1 items-center justify-between">
                                 <span>Password</span>
-                                <span className="w-20">
-                                    <PasswordStrength password={signupPanel1.password} />
-                                </span>
+                                <PasswordStrength validatedPassword={validatedPassword} />
                             </div>
                         }
                     >

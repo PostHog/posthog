@@ -1,5 +1,6 @@
 import pytest
 from typing import Any
+import re
 
 from django.test import override_settings
 
@@ -69,6 +70,12 @@ class TestPropertyTypes(BaseTest):
             name="inty",
             defaults={"property_type": "Numeric", "group_type_index": 0},
         )
+        PropertyDefinition.objects.get_or_create(
+            team=self.team,
+            type=PropertyDefinition.Type.GROUP,
+            name="group_boolean",
+            defaults={"property_type": "Boolean", "group_type_index": 0},
+        )
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_resolve_property_types_event(self):
@@ -114,6 +121,52 @@ class TestPropertyTypes(BaseTest):
     def test_group_property_types(self):
         printed = self._print_select("select organization.properties.inty from events")
         assert printed == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
+    def test_group_boolean_property_types(self):
+        printed = self._print_select(
+            """select
+            organization.properties.group_boolean = true,
+            organization.properties.group_boolean = false,
+            organization.properties.group_boolean is null
+            from events"""
+        )
+        assert printed == self.snapshot
+        assert (
+            "SELECT ifNull(equals(transform(events__group_0.properties___group_boolean, hogvar, hogvar, NULL), 1), 0), ifNull(equals(transform(events__group_0.properties___group_boolean, hogvar, hogvar, NULL), 0), 0), isNull(transform(events__group_0.properties___group_boolean, hogvar, hogvar, NULL))"
+            in re.sub(r"%\(hogql_val_\d+\)s", "hogvar", printed)
+        )
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
+    def test_group_types_are_the_same_in_persons_inlined_subselect(self):
+        expr = parse_select(
+            """select table_a.id from
+                    (select
+                        events.timestamp as id,
+                        organization.properties.group_boolean = true,
+                        organization.properties.group_boolean = false,
+                        organization.properties.group_boolean is null
+                    from events) as table_a
+            join persons on table_a.id = persons.id and persons.id in (select
+                        events.timestamp as id,
+                        organization.properties.group_boolean = true,
+                        organization.properties.group_boolean = false,
+                        organization.properties.group_boolean is null
+                    from events)"""
+        )
+        query = print_ast(
+            expr,
+            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            "clickhouse",
+        )
+        query = re.sub(r"hogql_val_\d+", "hogql_val", query)
+        # We're searching for the two subselects and making sure they are exactly the same
+        results = re.findall(
+            rf"SELECT toTimeZone\(events\.timestamp.*?WHERE equals\(events\.team_id, {self.team.id}\)\)", query
+        )
+        assert results[0] == results[1]
 
     @pytest.mark.usefixtures("unittest_snapshot")
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)

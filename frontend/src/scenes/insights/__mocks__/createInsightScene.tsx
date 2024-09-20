@@ -17,7 +17,6 @@ export function createInsightStory(
         useStorybookMocks({
             get: {
                 '/api/projects/:team_id/insights/': (_, __, ctx) => [
-                    ctx.delay(100),
                     ctx.status(200),
                     ctx.json({
                         count: 1,
@@ -32,6 +31,20 @@ export function createInsightStory(
                                 },
                             },
                         ],
+                    }),
+                ],
+            },
+            post: {
+                '/api/projects/:team_id/query/': (req, __, ctx) => [
+                    ctx.status(200),
+                    ctx.json({
+                        cache_key: req.params.query,
+                        calculation_trigger: null,
+                        error: '',
+                        hasMore: false,
+                        is_cached: true,
+                        query_status: null,
+                        results: insight.result,
                     }),
                 ],
             },

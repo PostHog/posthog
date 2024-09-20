@@ -65,7 +65,7 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         timer = monotonic()
         seed = options.get("seed") or secrets.token_hex(16)
-        now = options.get("now") or dt.datetime.now(dt.timezone.utc)
+        now = options.get("now") or dt.datetime.now(dt.UTC)
         existing_team_id = options.get("team_id")
         if (
             existing_team_id is not None

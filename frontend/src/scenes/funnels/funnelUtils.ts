@@ -1,8 +1,7 @@
-import { combineUrl } from 'kea-router'
 import { FunnelLayout } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { autoCaptureEventToDescription, clamp } from 'lib/utils'
-import { elementsToAction } from 'scenes/events/createActionFromEvent'
+import { elementsToAction } from 'scenes/activity/explore/createActionFromEvent'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { Noun } from '~/models/groupsModel'
@@ -262,14 +261,6 @@ export function getIncompleteConversionWindowStartDate(
     return startDate.subtract(funnelWindowInterval, funnelWindowIntervalUnit)
 }
 
-export function generateBaselineConversionUrl(url?: string | null): string {
-    if (!url) {
-        return ''
-    }
-    const parsed = combineUrl(url)
-    return combineUrl(parsed.url, { funnel_step_breakdown: undefined }).url
-}
-
 export function stepsWithConversionMetrics(
     steps: FunnelStepWithNestedBreakdown[],
     stepReference: FunnelStepReference
@@ -396,11 +387,9 @@ export function flattenedStepsByBreakdown(
                     ...s,
                     nested_breakdown: undefined,
                     breakdown_value: 'Baseline',
-                    converted_people_url: generateBaselineConversionUrl(s.converted_people_url),
-                    dropped_people_url: generateBaselineConversionUrl(s.dropped_people_url),
                 })),
                 conversionRates: {
-                    total: (lastStep?.count ?? 0) / (baseStep?.count ?? 1),
+                    total: (lastStep?.count || 0) / (baseStep?.count || 1),
                 },
             })
         }

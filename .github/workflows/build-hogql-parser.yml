@@ -1,12 +1,6 @@
 name: Release hogql-parser
 
 on:
-    push:
-        branches:
-            - master
-        paths:
-            - hogql_parser/**
-            - .github/workflows/build-hogql-parser.yml
     pull_request:
         paths:
             - hogql_parser/**
@@ -19,7 +13,6 @@ concurrency:
 jobs:
     check-version:
         name: Check version legitimacy
-        if: github.repository == 'PostHog/posthog'
         runs-on: ubuntu-22.04
         outputs:
             parser-release-needed: ${{ steps.version.outputs.parser-release-needed }}
@@ -48,7 +41,7 @@ jobs:
                     if [[ "$published" != "$local" ]]; then
                       parser_release_needed='true'
                     else
-                      message_body="It looks like the code of \`hogql-parser\` has changed since last push, but its version stayed the same at $local. 👀\nMake sure to resolve this in \`hogql_parser/setup.py\` before merging!"
+                      message_body="It looks like the code of \`hogql-parser\` has changed since last push, but its version stayed the same at $local. 👀\nMake sure to resolve this in \`hogql_parser/setup.py\` before merging!${{ github.event.pull_request.head.repo.full_name != 'PostHog/posthog' && '\nThis needs to be performed on a branch created on the PostHog/posthog repo itself. A PostHog team member will assist with this.' || ''}}"
                       curl -s -u posthog-bot:${{ secrets.POSTHOG_BOT_GITHUB_TOKEN || secrets.GITHUB_TOKEN }} -X POST -d "{ \"body\": \"$message_body\" }" "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments"
                     fi
                   fi
@@ -59,7 +52,8 @@ jobs:
         needs: check-version
         runs-on: ${{ matrix.os }}
         timeout-minutes: 30
-        if: ${{ needs.check-version.outputs.parser-release-needed == 'true' }}
+        if: needs.check-version.outputs.parser-release-needed == 'true' &&
+            github.event.pull_request.head.repo.full_name == 'PostHog/posthog'
         strategy:
             matrix:
                 # As of October 2023, GitHub doesn't have ARM Actions runners… and ARM emulation is insanely slow
@@ -75,20 +69,27 @@ jobs:
               with:
                   python-version: '3.11'
 
+            # Compiling Python 3.11 from source on ARM. We tried using the "deadsnakes" ARM repo, but it was flakey.
             - if: ${{ endsWith(matrix.os, '-arm') }}
-              uses: deadsnakes/action@v3.1.0 # Unfortunately actions/setup-python@v4 just doesn't work on ARM! This does
-              with:
-                  python-version: '3.11'
+              name: Install Python 3.11 on ARM (compile from source)
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install -y build-essential libssl-dev zlib1g-dev \
+                  libncurses5-dev libncursesw5-dev libreadline-dev libsqlite3-dev \
+                  libgdbm-dev libdb5.3-dev libbz2-dev libexpat1-dev liblzma-dev tk-dev
+                  wget https://www.python.org/ftp/python/3.11.0/Python-3.11.0.tar.xz
+                  tar -xf Python-3.11.0.tar.xz
+                  cd Python-3.11.0
+                  ./configure --enable-optimizations
+                  make -j 2
+                  sudo make altinstall
 
             - name: Build sdist
               if: matrix.os == 'ubuntu-22.04' # Only build the sdist once
               run: cd hogql_parser && python setup.py sdist
 
-            # uv is a fast pip alternative: https://github.com/astral-sh/uv/
-            - run: pip install uv
-
             - name: Install cibuildwheel
-              run: uv pip install --system cibuildwheel==2.16.*
+              run: pip install cibuildwheel==2.16.*
 
             - name: Build wheels
               run: cd hogql_parser && python -m cibuildwheel --output-dir dist

@@ -37,7 +37,7 @@ def generate_test_events(
     team_id: int,
     possible_datetimes: list[dt.datetime],
     event_name: str,
-    inserted_at: str | dt.datetime | None = "_timestamp",
+    inserted_at: str | dt.datetime | None = "random",
     properties: dict | None = None,
     person_properties: dict | None = None,
     ip: str | None = None,
@@ -45,12 +45,15 @@ def generate_test_events(
     set_field: dict | None = None,
     set_once: dict | None = None,
     start: int = 0,
+    distinct_ids: list[str] | None = None,
 ):
     """Generate a list of events for testing."""
     _timestamp = random.choice(possible_datetimes)
 
     if inserted_at == "_timestamp":
         inserted_at_value = _timestamp.strftime("%Y-%m-%d %H:%M:%S.%f")
+    elif inserted_at == "random":
+        inserted_at_value = random.choice(possible_datetimes).strftime("%Y-%m-%d %H:%M:%S.%f")
     elif inserted_at is None:
         inserted_at_value = None
     else:
@@ -62,7 +65,7 @@ def generate_test_events(
         {
             "_timestamp": _timestamp.strftime("%Y-%m-%d %H:%M:%S"),
             "created_at": random.choice(possible_datetimes).strftime("%Y-%m-%d %H:%M:%S.%f"),
-            "distinct_id": str(uuid.uuid4()),
+            "distinct_id": random.choice(distinct_ids) if distinct_ids else str(uuid.uuid4()),
             "elements": json.dumps("css selectors;"),
             "elements_chain": "css selectors;",
             "event": event_name.format(i=i),
@@ -138,6 +141,7 @@ async def generate_test_events_in_clickhouse(
     properties: dict | None = None,
     person_properties: dict | None = None,
     inserted_at: str | dt.datetime | None = "_timestamp",
+    distinct_ids: list[str] | None = None,
     duplicate: bool = False,
     batch_size: int = 10000,
 ) -> tuple[list[EventValues], list[EventValues], list[EventValues]]:
@@ -178,6 +182,7 @@ async def generate_test_events_in_clickhouse(
             person_properties=person_properties,
             inserted_at=inserted_at,
             start=len(events),
+            distinct_ids=distinct_ids,
         )
 
         # Add duplicates if required
@@ -203,6 +208,7 @@ async def generate_test_events_in_clickhouse(
         properties=properties,
         person_properties=person_properties,
         inserted_at=inserted_at,
+        distinct_ids=distinct_ids,
     )
 
     # Events generated for a different team
@@ -214,6 +220,7 @@ async def generate_test_events_in_clickhouse(
         properties=properties,
         person_properties=person_properties,
         inserted_at=inserted_at,
+        distinct_ids=distinct_ids,
     )
 
     await insert_event_values_in_clickhouse(client=client, events=events_outside_range + events_from_other_team)

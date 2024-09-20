@@ -1,10 +1,14 @@
+from django.conf import settings
+from django.db.models import F
 from datetime import datetime, timedelta
+from enum import Enum
 from typing import Any, Optional, cast
 
 import jwt
 import requests
 import structlog
 from django.utils import timezone
+from sentry_sdk import capture_message
 from requests import JSONDecodeError  # type: ignore[attr-defined]
 from rest_framework.exceptions import NotAuthenticated
 from sentry_sdk import capture_exception
@@ -18,6 +22,10 @@ from posthog.models import Organization
 from posthog.models.organization import OrganizationMembership, OrganizationUsageInfo
 
 logger = structlog.get_logger(__name__)
+
+
+class BillingAPIErrorCodes(Enum):
+    OPEN_INVOICES_ERROR = "open_invoices_error"
 
 
 def build_billing_token(license: License, organization: Organization):
@@ -65,10 +73,11 @@ class BillingManager:
             # Ensure the license and org are updated with the latest info
             if billing_service_response.get("license"):
                 self.update_license_details(billing_service_response)
+
             if organization and billing_service_response:
                 self.update_org_details(organization, billing_service_response)
 
-            response: dict[str, Any] = {"available_features": []}
+            response: dict[str, Any] = {"available_product_features": []}
 
             response["license"] = {"plan": self.license.plan}
 
@@ -79,31 +88,34 @@ class BillingManager:
                 products = self.get_default_products(organization)
                 response["products"] = products["products"]
 
-            stripe_portal_url = self._get_stripe_portal_url(organization)
-            response["stripe_portal_url"] = stripe_portal_url
+            response["stripe_portal_url"] = f"{settings.SITE_URL}/api/billing/portal"
+
+            # Extend the products with accurate usage_limit info
+            for product in response["products"]:
+                usage_key = product.get("usage_key")
+                if not usage_key:
+                    continue
+                usage = response.get("usage_summary", {}).get(usage_key, {})
+                usage_limit = usage.get("limit")
+                billing_reported_usage = usage.get("usage") or 0
+                current_usage = billing_reported_usage
+
+                product_usage: dict[str, Any] = {}
+                if organization and organization.usage:
+                    product_usage = organization.usage.get(usage_key) or {}
+
+                if product_usage.get("todays_usage"):
+                    todays_usage = product_usage["todays_usage"]
+                    current_usage = billing_reported_usage + todays_usage
+
+                product["current_usage"] = current_usage
+                product["percentage_usage"] = current_usage / usage_limit if usage_limit else 0
         else:
             products = self.get_default_products(organization)
             response = {
-                "available_features": [],
+                "available_product_features": [],
                 "products": products["products"],
             }
-
-        # Extend the products with accurate usage_limit info
-
-        for product in response["products"]:
-            usage_key = product.get("usage_key", None)
-            if not usage_key:
-                continue
-            usage = response.get("usage_summary", {}).get(usage_key, {})
-            usage_limit = usage.get("limit")
-            current_usage = usage.get("usage") or 0
-
-            if organization and organization.usage and organization.usage.get(usage_key, {}).get("todays_usage", None):
-                todays_usage = organization.usage[usage_key]["todays_usage"]
-                current_usage = current_usage + todays_usage
-
-            product["current_usage"] = current_usage
-            product["percentage_usage"] = current_usage / usage_limit if usage_limit else 0
 
         return response
 
@@ -116,15 +128,50 @@ class BillingManager:
 
         handle_billing_service_error(res)
 
-    def update_billing_distinct_ids(self, organization: Organization) -> None:
-        distinct_ids = list(organization.members.values_list("distinct_id", flat=True))
-        self.update_billing(organization, {"distinct_ids": distinct_ids})
-
-    def update_billing_customer_email(self, organization: Organization) -> None:
+    def update_billing_organization_users(self, organization: Organization) -> None:
         try:
-            owner_membership = OrganizationMembership.objects.get(organization=organization, level=15)
-            user = owner_membership.user
-            self.update_billing(organization, {"org_customer_email": user.email})
+            distinct_ids = list(organization.members.values_list("distinct_id", flat=True))
+
+            first_owner_membership = (
+                OrganizationMembership.objects.filter(organization=organization, level=15)
+                .order_by("-joined_at")
+                .first()
+            )
+            if not first_owner_membership:
+                capture_message(f"No owner membership found for organization {organization.id}")
+                return
+            first_owner = first_owner_membership.user
+
+            admin_emails = list(
+                organization.members.filter(
+                    organization_membership__level__gte=OrganizationMembership.Level.ADMIN
+                ).values_list("email", flat=True)
+            )
+
+            org_users = list(
+                organization.members.values(
+                    "email",
+                    "distinct_id",
+                    "organization_membership__level",
+                )
+                .annotate(role=F("organization_membership__level"))
+                .filter(role__gte=OrganizationMembership.Level.ADMIN)
+                .values(
+                    "email",
+                    "distinct_id",
+                    "role",
+                )
+            )
+
+            self.update_billing(
+                organization,
+                {
+                    "distinct_ids": distinct_ids,
+                    "org_customer_email": first_owner.email,
+                    "org_admin_emails": admin_emails,
+                    "org_users": org_users,
+                },
+            )
         except Exception as e:
             capture_exception(e)
 
@@ -180,14 +227,13 @@ class BillingManager:
             f"{BILLING_SERVICE_URL}/api/billing",
             headers=self.get_auth_headers(organization),
         )
-
         handle_billing_service_error(res)
 
         data = res.json()
 
         return data
 
-    def _get_stripe_portal_url(self, organization: Organization) -> BillingStatus:
+    def _get_stripe_portal_url(self, organization: Organization) -> str:
         """
         Retrieves stripe protal url
         """
@@ -239,7 +285,7 @@ class BillingManager:
             usage_info = OrganizationUsageInfo(
                 events=usage_summary["events"],
                 recordings=usage_summary["recordings"],
-                rows_synced=usage_summary.get("rows_synced", None),
+                rows_synced=usage_summary.get("rows_synced", {}),
                 period=[
                     data["billing_period"]["current_period_start"],
                     data["billing_period"]["current_period_end"],
@@ -249,11 +295,6 @@ class BillingManager:
             if set_org_usage_summary(organization, new_usage=usage_info):
                 org_modified = True
                 sync_org_quota_limits(organization)
-
-        available_features = data.get("available_features", None)
-        if available_features and available_features != organization.available_features:
-            organization.available_features = data["available_features"]
-            org_modified = True
 
         available_product_features = data.get("available_product_features", None)
         if available_product_features and available_product_features != organization.available_product_features:
@@ -279,7 +320,7 @@ class BillingManager:
                 org_customer_trust_scores[product_key_to_usage_key[product_key]] = customer_trust_scores[product_key]
 
         if org_customer_trust_scores != organization.customer_trust_scores:
-            organization.customer_trust_scores = customer_trust_scores
+            organization.customer_trust_scores.update(org_customer_trust_scores)
             org_modified = True
 
         if org_modified:
@@ -292,3 +333,38 @@ class BillingManager:
             raise Exception("No license found")
         billing_service_token = build_billing_token(self.license, organization)
         return {"Authorization": f"Bearer {billing_service_token}"}
+
+    def get_invoices(self, organization: Organization, status: Optional[str]):
+        res = requests.get(
+            # TODO(@zach): update this to /api/invoices
+            f"{BILLING_SERVICE_URL}/api/billing/get_invoices",
+            params={"status": status},
+            headers=self.get_auth_headers(organization),
+        )
+
+        handle_billing_service_error(res)
+
+        data = res.json()
+
+        return data
+
+    def credits_overview(self, organization: Organization):
+        res = requests.get(
+            f"{BILLING_SERVICE_URL}/api/credits/overview",
+            headers=self.get_auth_headers(organization),
+        )
+
+        handle_billing_service_error(res)
+
+        return res.json()
+
+    def purchase_credits(self, organization: Organization, data: dict[str, Any]):
+        res = requests.post(
+            f"{BILLING_SERVICE_URL}/api/credits/purchase",
+            headers=self.get_auth_headers(organization),
+            json=data,
+        )
+
+        handle_billing_service_error(res)
+
+        return res.json()

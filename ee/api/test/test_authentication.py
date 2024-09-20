@@ -152,7 +152,7 @@ class TestEEAuthenticationAPI(APILicensedTest):
         self.client.logout()
         License.objects.filter(pk=-1).delete()  # No instance licenses
         self.create_enforced_domain()
-        self.organization.available_features = ["sso_enforcement"]
+        self.organization.available_product_features = [{"key": "sso_enforcement", "name": "sso_enforcement"}]
         self.organization.save()
 
         with self.settings(**GOOGLE_MOCK_SETTINGS):
@@ -225,7 +225,7 @@ class TestEEAuthenticationAPI(APILicensedTest):
     def test_login_with_sso_resets_session(self):
         with self.settings(**GOOGLE_MOCK_SETTINGS):
             first_key = self.client.session.session_key
-            self.client.post("/login/google-oauth2/", {"email_opt_in": False})
+            self.client.post("/login/google-oauth2/", {})
             second_key = self.client.session.session_key
             self.assertNotEqual(first_key, second_key)
 
@@ -652,7 +652,9 @@ YotAcSbU3p5bzd11wpyebYHB"""
         self.assertEqual(response.json(), {"sso_enforcement": "saml", "saml_available": True})
 
     def test_cannot_use_saml_without_enterprise_license(self):
-        self.organization.available_features = [AvailableFeature.SSO_ENFORCEMENT]
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.SSO_ENFORCEMENT, "name": AvailableFeature.SSO_ENFORCEMENT}
+        ]
         self.organization.save()
 
         # Enforcement is ignored
@@ -696,3 +698,12 @@ YotAcSbU3p5bzd11wpyebYHB"""
             str(e.exception),
             "Authentication failed: Your organization does not have the required license to use SAML.",
         )
+
+    # Remove after we figure out saml / xmlsec issues
+    # Test login with SAML on dev prod before removing
+    def test_xmlsec_and_lxml(self):
+        import xmlsec
+        import lxml
+
+        assert "1.3.13" == xmlsec.__version__
+        assert "4.9.4" == lxml.__version__

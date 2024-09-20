@@ -3,25 +3,27 @@ import uuid
 from rest_framework import status
 
 from posthog.models.event.util import create_event
+from posthog.models.utils import uuid7
 from posthog.test.base import APIBaseTest
 
 
 class TestSessionsAPI(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
+        s1 = str(uuid7())
 
         create_event(
             team=self.team,
             event="$pageview",
             distinct_id="d1",
-            properties={"$session_id": "s1", "utm_source": "google"},
+            properties={"$session_id": s1, "utm_source": "google"},
             event_uuid=(uuid.uuid4()),
         )
         create_event(
             team=self.team,
             event="$pageview",
             distinct_id="d1",
-            properties={"$session_id": "s1", "utm_source": "youtube"},
+            properties={"$session_id": s1, "utm_source": "youtube"},
             event_uuid=(uuid.uuid4()),
         )
 
@@ -35,8 +37,8 @@ class TestSessionsAPI(APIBaseTest):
             "$end_timestamp",
             "$entry_current_url",
             "$entry_pathname",
-            "$exit_current_url",
-            "$exit_pathname",
+            "$end_current_url",
+            "$end_pathname",
             "$entry_gad_source",
             "$entry_gclid",
             "$entry_referring_domain",
@@ -46,9 +48,11 @@ class TestSessionsAPI(APIBaseTest):
             "$entry_utm_source",
             "$entry_utm_term",
             "$pageview_count",
+            "$screen_count",
             "$session_duration",
             "$start_timestamp",
             "$is_bounce",
+            "$last_external_click_url",
         }
         assert actual_properties == expected_properties
 
@@ -82,11 +86,13 @@ class TestSessionsAPI(APIBaseTest):
             "Email",
             "Organic Search",
             "Organic Shopping",
+            "Organic Social",
             "Organic Video",
-            "Other",
-            "Paid Other",
+            "Unknown",
+            "Paid Unknown",
             "Paid Search",
             "Paid Shopping",
+            "Paid Social",
             "Paid Video",
             "Push",
             "Referral",
@@ -99,9 +105,10 @@ class TestSessionsAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         actual_values = {entry["name"] for entry in response.json()}
         expected_values = {
-            "Paid Other",
+            "Paid Unknown",
             "Paid Search",
             "Paid Shopping",
+            "Paid Social",
             "Paid Video",
         }
         assert actual_values == expected_values

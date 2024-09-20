@@ -14,18 +14,11 @@ import { List, ListRowProps, ListRowRenderer } from 'react-virtualized/dist/es/L
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { DashboardBasicType, InsightModel } from '~/types'
-
-interface SaveToDashboardModalProps {
-    isOpen: boolean
-    closeModal: () => void
-    insight: Partial<InsightModel>
-    canEditInsight: boolean
-}
+import { DashboardBasicType, InsightLogicProps } from '~/types'
 
 interface DashboardRelationRowProps {
     dashboard: DashboardBasicType
-    insight: Partial<InsightModel>
+    insightProps: InsightLogicProps
     canEditInsight: boolean
     isHighlighted: boolean
     isAlreadyOnDashboard: boolean
@@ -37,14 +30,11 @@ const DashboardRelationRow = ({
     isHighlighted,
     isAlreadyOnDashboard,
     dashboard,
-    insight,
+    insightProps,
     canEditInsight,
 }: DashboardRelationRowProps): JSX.Element => {
-    const logic = addToDashboardModalLogic({
-        insight: insight,
-    })
-    const { addToDashboard, removeFromDashboard } = useActions(logic)
-    const { dashboardWithActiveAPICall } = useValues(logic)
+    const { addToDashboard, removeFromDashboard } = useActions(addToDashboardModalLogic(insightProps))
+    const { dashboardWithActiveAPICall } = useValues(addToDashboardModalLogic(insightProps))
 
     const { currentTeam } = useValues(teamLogic)
     const isPrimary = dashboard.id === currentTeam?.primary_dashboard
@@ -84,9 +74,7 @@ const DashboardRelationRow = ({
                 size="small"
                 onClick={(e) => {
                     e.preventDefault()
-                    isAlreadyOnDashboard
-                        ? removeFromDashboard(insight, dashboard.id)
-                        : addToDashboard(insight, dashboard.id)
+                    isAlreadyOnDashboard ? removeFromDashboard(dashboard.id) : addToDashboard(dashboard.id)
                 }}
             >
                 {isAlreadyOnDashboard ? 'Remove from dashboard' : 'Add to dashboard'}
@@ -95,15 +83,20 @@ const DashboardRelationRow = ({
     )
 }
 
+interface SaveToDashboardModalProps {
+    isOpen: boolean
+    closeModal: () => void
+    insightProps: InsightLogicProps
+    canEditInsight: boolean
+}
+
 export function AddToDashboardModal({
     isOpen,
     closeModal,
-    insight,
+    insightProps,
     canEditInsight,
 }: SaveToDashboardModalProps): JSX.Element {
-    const logic = addToDashboardModalLogic({
-        insight: insight,
-    })
+    const logic = addToDashboardModalLogic(insightProps)
 
     const { searchQuery, currentDashboards, orderedDashboards, scrollIndex } = useValues(logic)
     const { setSearchQuery, addNewDashboard } = useActions(logic)
@@ -113,7 +106,7 @@ export function AddToDashboardModal({
             <DashboardRelationRow
                 key={rowIndex}
                 dashboard={orderedDashboards[rowIndex]}
-                insight={insight}
+                insightProps={insightProps}
                 canEditInsight={canEditInsight}
                 isHighlighted={rowIndex === scrollIndex}
                 isAlreadyOnDashboard={currentDashboards.some(
@@ -163,7 +156,7 @@ export function AddToDashboardModal({
                     onChange={(newValue) => setSearchQuery(newValue)}
                 />
                 <div className="text-muted-alt">
-                    This insight is referenced on <strong className="text-default">{currentDashboards.length}</strong>{' '}
+                    This insight is referenced on <strong className="text-text-3000">{currentDashboards.length}</strong>{' '}
                     {pluralize(currentDashboards.length, 'dashboard', 'dashboards', false)}
                 </div>
                 {/* eslint-disable-next-line react/forbid-dom-props */}

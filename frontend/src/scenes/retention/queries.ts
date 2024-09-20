@@ -1,6 +1,6 @@
 import { RetentionTableAppearanceType, RetentionTablePeoplePayload } from 'scenes/retention/types'
 
-import { query } from '~/queries/query'
+import { performQuery } from '~/queries/query'
 import { ActorsQuery, NodeKind, RetentionQuery } from '~/queries/schema'
 
 export function retentionToActorsQuery(query: RetentionQuery, selectedInterval: number, offset = 0): ActorsQuery {
@@ -34,7 +34,7 @@ export async function queryForActors(
     offset: number = 0
 ): Promise<RetentionTablePeoplePayload> {
     const actorsQuery = retentionToActorsQuery(retentionQuery, selectedInterval, offset)
-    const response = await query(actorsQuery)
+    const response = await performQuery(actorsQuery)
     const results: RetentionTableAppearanceType[] = response.results.map((row) => ({
         person: row[0],
         appearances: row.slice(1, row.length),

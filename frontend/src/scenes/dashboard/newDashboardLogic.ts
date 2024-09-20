@@ -9,6 +9,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
+import { getQueryBasedDashboard } from '~/queries/nodes/InsightViz/utils'
 import { DashboardTemplateType, DashboardTemplateVariableType, DashboardTile, DashboardType, JsonType } from '~/types'
 
 import type { newDashboardLogicType } from './newDashboardLogicType'
@@ -40,7 +41,7 @@ export function applyTemplate(obj: DashboardTile | JsonType, variables: Dashboar
             const variableId = obj.substring(1, obj.length - 1)
             const variable = variables.find((variable) => variable.id === variableId)
             if (variable && variable.default) {
-                return variable.default
+                return variable.default as JsonType
             }
             return obj
         }
@@ -75,11 +76,21 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
         addDashboard: (form: Partial<NewDashboardForm>) => ({ form }),
         setActiveDashboardTemplate: (template: DashboardTemplateType) => ({ template }),
         clearActiveDashboardTemplate: true,
-        createDashboardFromTemplate: (template: DashboardTemplateType, variables: DashboardTemplateVariableType[]) => ({
+        createDashboardFromTemplate: (
+            template: DashboardTemplateType,
+            variables: DashboardTemplateVariableType[],
+            redirectAfterCreation?: boolean,
+            creationContext: string | null = null
+        ) => ({
             template,
             variables,
+            redirectAfterCreation,
+            creationContext,
         }),
-        submitNewDashboardSuccessWithResult: (result: DashboardType) => ({ result }),
+        submitNewDashboardSuccessWithResult: (result: DashboardType, variables?: DashboardTemplateVariableType[]) => ({
+            result,
+            variables,
+        }),
     }),
     reducers({
         isLoading: [
@@ -136,7 +147,8 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
                     )
                     actions.hideNewDashboardModal()
                     actions.resetNewDashboard()
-                    dashboardsModel.actions.addDashboardSuccess(result)
+                    const queryBasedDashboard = getQueryBasedDashboard(result)
+                    queryBasedDashboard && dashboardsModel.actions.addDashboardSuccess(queryBasedDashboard)
                     actions.submitNewDashboardSuccessWithResult(result)
                     if (show) {
                         breakpoint()
@@ -168,7 +180,13 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
             actions.clearActiveDashboardTemplate()
             actions.resetNewDashboard()
         },
-        createDashboardFromTemplate: async ({ template, variables }) => {
+        createDashboardFromTemplate: async ({
+            template,
+            variables,
+            redirectAfterCreation = true,
+            creationContext = null,
+        }) => {
+            actions.setIsLoading(true)
             const tiles = makeTilesUsingVariables(template.tiles, variables)
             const dashboardJSON = {
                 ...template,
@@ -178,13 +196,16 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
             try {
                 const result: DashboardType = await api.create(
                     `api/projects/${teamLogic.values.currentTeamId}/dashboards/create_from_template_json`,
-                    { template: dashboardJSON }
+                    { template: dashboardJSON, creation_context: creationContext }
                 )
                 actions.hideNewDashboardModal()
                 actions.resetNewDashboard()
-                dashboardsModel.actions.addDashboardSuccess(result)
-                actions.submitNewDashboardSuccessWithResult(result)
-                router.actions.push(urls.dashboard(result.id))
+                const queryBasedDashboard = getQueryBasedDashboard(result)
+                queryBasedDashboard && dashboardsModel.actions.addDashboardSuccess(queryBasedDashboard)
+                actions.submitNewDashboardSuccessWithResult(result, variables)
+                if (redirectAfterCreation) {
+                    router.actions.push(urls.dashboard(result.id))
+                }
             } catch (e: any) {
                 if (!isBreakpoint(e)) {
                     const message = e.code && e.detail ? `${e.code}: ${e.detail}` : e

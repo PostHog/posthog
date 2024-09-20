@@ -16,10 +16,10 @@ Cypress.Commands.add('clickNavMenu', (name) => {
 
 Cypress.Commands.add('useSubscriptionStatus', (condition) => {
     if (condition === 'unsubscribed') {
-        cy.intercept('/api/billing-v2/', { fixture: 'api/billing-v2/billing-v2-unsubscribed.json' })
+        cy.intercept('/api/billing/', { fixture: 'api/billing/billing-unsubscribed.json' })
         cy.reload()
     } else if (condition === 'subscribed') {
-        cy.intercept('/api/billing-v2/', { fixture: 'api/billing-v2/billing-v2-subscribed-all.json' })
+        cy.intercept('/api/billing/', { fixture: 'api/billing/billing-subscribed-all.json' })
         cy.reload()
     }
 })

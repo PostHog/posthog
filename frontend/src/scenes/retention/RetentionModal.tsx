@@ -1,6 +1,6 @@
 import './RetentionTable.scss'
 
-import { LemonButton, LemonModal, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
@@ -14,7 +14,7 @@ import { RetentionTableAppearanceType } from 'scenes/retention/types'
 import { MissingPersonsAlert } from 'scenes/trends/persons-modal/PersonsModal'
 import { urls } from 'scenes/urls'
 
-import { EXPORT_MAX_LIMIT, startDownload } from '~/queries/nodes/DataTable/DataTableExport'
+import { MAX_SELECT_RETURNED_ROWS, startDownload } from '~/queries/nodes/DataTable/DataTableExport'
 import { DataTableNode, NodeKind } from '~/queries/schema'
 import { ExporterFormat } from '~/types'
 
@@ -53,7 +53,7 @@ export function RetentionModal(): JSX.Element | null {
             footer={
                 <div className="flex justify-between gap-2 w-full">
                     <div className="flex gap-2">
-                        {!exploreUrl && (
+                        {!!people.result?.length && !exploreUrl && (
                             <LemonButton
                                 type="secondary"
                                 onClick={() =>
@@ -68,17 +68,16 @@ export function RetentionModal(): JSX.Element | null {
                                 Download CSV
                             </LemonButton>
                         )}
-                        {!!dataTableNodeQuery && (
-                            <Tooltip delayMs={0} title={`CSV export is limited to ${EXPORT_MAX_LIMIT} persons`}>
-                                <LemonButton
-                                    type="secondary"
-                                    onClick={() => {
-                                        dataTableNodeQuery && void startDownload(dataTableNodeQuery, true, startExport)
-                                    }}
-                                >
-                                    Export all as CSV
-                                </LemonButton>
-                            </Tooltip>
+                        {!!people.result?.length && !!dataTableNodeQuery && (
+                            <LemonButton
+                                type="secondary"
+                                onClick={() => {
+                                    dataTableNodeQuery && void startDownload(dataTableNodeQuery, true, startExport)
+                                }}
+                                tooltip={`Up to ${MAX_SELECT_RETURNED_ROWS} persons will be exported`}
+                            >
+                                Export all as CSV
+                            </LemonButton>
                         )}
                     </div>
                     {exploreUrl && (
@@ -96,7 +95,7 @@ export function RetentionModal(): JSX.Element | null {
                 </div>
             }
             width={isEmpty ? undefined : '90%'}
-            title={`${dayjs(row.date).format('MMMM D, YYYY')} Cohort`}
+            title={`${dayjs.utc(row.date).format('MMMM D, YYYY')} Cohort`}
         >
             {people && !!people.missing_persons && (
                 <MissingPersonsAlert actorLabel={aggregationTargetLabel} missingActorsCount={people.missing_persons} />

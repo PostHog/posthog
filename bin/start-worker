@@ -7,7 +7,8 @@ trap 'kill $(jobs -p)' EXIT
 source ./bin/celery-queues.env
 
 # start celery worker with heartbeat (-B)
-SKIP_ASYNC_MIGRATIONS_SETUP=0 CELERY_WORKER_QUEUES=$CELERY_WORKER_QUEUES celery -A posthog worker -B --scheduler redbeat.RedBeatScheduler --without-heartbeat --without-mingle --pool=solo -Ofair -n node@%h &
+python manage.py run_autoreload_celery --type=worker &
+python manage.py run_autoreload_celery --type=beat &
 
 if [[ "$PLUGIN_SERVER_IDLE" != "1" && "$PLUGIN_SERVER_IDLE" != "true" ]]; then
   ./bin/plugin-server

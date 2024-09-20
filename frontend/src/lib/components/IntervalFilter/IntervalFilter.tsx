@@ -18,7 +18,7 @@ export function IntervalFilter({ disabled }: IntervalFilterProps): JSX.Element {
     return (
         <>
             <span>
-                <span className="hide-lte-md">grouped </span>by
+                <span className="hidden md:inline">grouped </span>by
             </span>
             <IntervalFilterStandalone
                 disabled={disabled}
@@ -26,9 +26,10 @@ export function IntervalFilter({ disabled }: IntervalFilterProps): JSX.Element {
                 onIntervalChange={(value) => {
                     updateQuerySource({ interval: value } as Partial<InsightQueryNode>)
                 }}
-                options={Object.entries(enabledIntervals).map(([value, { label, disabledReason }]) => ({
+                options={Object.entries(enabledIntervals).map(([value, { label, disabledReason, hidden }]) => ({
                     value: value as IntervalType,
                     label,
+                    hidden,
                     disabledReason,
                 }))}
             />

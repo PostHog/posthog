@@ -1,6 +1,6 @@
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 from unittest import mock
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
 from boto3 import resource
@@ -12,18 +12,18 @@ from rest_framework import status
 from ee.api.test.base import APILicensedTest
 from ee.api.test.fixtures.available_product_features import AVAILABLE_PRODUCT_FEATURES
 from posthog.models import SessionRecording, SessionRecordingPlaylistItem
+from posthog.models.user import User
 from posthog.session_recordings.models.session_recording_playlist import (
     SessionRecordingPlaylist,
 )
-from posthog.models.user import User
 from posthog.session_recordings.queries.test.session_replay_sql import (
     produce_replay_summary,
 )
 from posthog.settings import (
-    OBJECT_STORAGE_ENDPOINT,
     OBJECT_STORAGE_ACCESS_KEY_ID,
-    OBJECT_STORAGE_SECRET_ACCESS_KEY,
     OBJECT_STORAGE_BUCKET,
+    OBJECT_STORAGE_ENDPOINT,
+    OBJECT_STORAGE_SECRET_ACCESS_KEY,
 )
 
 TEST_BUCKET = "test_storage_bucket-ee.TestSessionRecordingPlaylist"
@@ -79,6 +79,8 @@ class TestSessionRecordingPlaylist(APILicensedTest):
 
     def test_creates_too_many_playlists(self):
         limit = 0
+        self.organization.available_product_features = AVAILABLE_PRODUCT_FEATURES
+        self.organization.save()
         for feature in AVAILABLE_PRODUCT_FEATURES:
             if "key" in feature and feature["key"] == "recordings_playlists":
                 limit = int(feature["limit"])
@@ -185,7 +187,7 @@ class TestSessionRecordingPlaylist(APILicensedTest):
 
         session_one = f"test_fetch_playlist_recordings-session1-{uuid4()}"
         session_two = f"test_fetch_playlist_recordings-session2-{uuid4()}"
-        three_days_ago = (datetime.now() - timedelta(days=3)).replace(tzinfo=timezone.utc)
+        three_days_ago = (datetime.now() - timedelta(days=3)).replace(tzinfo=UTC)
 
         produce_replay_summary(
             team_id=self.team.id,
@@ -240,7 +242,7 @@ class TestSessionRecordingPlaylist(APILicensedTest):
 
         session_one = f"test_fetch_playlist_recordings-session1-{uuid4()}"
         session_two = f"test_fetch_playlist_recordings-session2-{uuid4()}"
-        three_days_ago = (datetime.now() - timedelta(days=3)).replace(tzinfo=timezone.utc)
+        three_days_ago = (datetime.now() - timedelta(days=3)).replace(tzinfo=UTC)
 
         for session_id in [session_one, session_two]:
             produce_replay_summary(

@@ -1,22 +1,16 @@
 import { useValues } from 'kea'
 import { getSeriesColor } from 'lib/colors'
-import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useEffect, useState } from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { formatBreakdownLabel } from 'scenes/insights/utils'
 import { datasetToActorsQuery } from 'scenes/trends/viz/datasetToActorsQuery'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { isInsightVizNode, isTrendsQuery } from '~/queries/utils'
 import { ChartParams, GraphType } from '~/types'
 
 import { InsightEmptyState } from '../../insights/EmptyStates'
 import { LineGraph } from '../../insights/views/LineGraph/LineGraph'
-import { urlsForDatasets } from '../persons-modal/persons-modal-utils'
 import { openPersonsModal } from '../persons-modal/PersonsModal'
 import { trendsDataLogic } from '../trendsDataLogic'
 
@@ -29,11 +23,18 @@ export function ActionsHorizontalBar({ showPersonsModal = true }: ChartParams): 
     const { cohorts } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
-    const { insightProps, hiddenLegendKeys } = useValues(insightLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const { isTrends, query } = useValues(insightVizDataLogic(insightProps))
-    const { indexedResults, labelGroupType, trendsFilter, formula, showValuesOnSeries, isDataWarehouseSeries } =
-        useValues(trendsDataLogic(insightProps))
+    const { insightProps } = useValues(insightLogic)
+    const {
+        indexedResults,
+        labelGroupType,
+        trendsFilter,
+        formula,
+        showValuesOnSeries,
+        isDataWarehouseSeries,
+        querySource,
+        breakdownFilter,
+        hiddenLegendIndexes,
+    } = useValues(trendsDataLogic(insightProps))
 
     function updateData(): void {
         const _data = [...indexedResults]
@@ -48,12 +49,10 @@ export function ActionsHorizontalBar({ showPersonsModal = true }: ChartParams): 
                 breakdownValues: _data.map((item) => item.breakdown_value),
                 breakdownLabels: _data.map((item) => {
                     return formatBreakdownLabel(
-                        cohorts,
-                        formatPropertyValueForDisplay,
                         item.breakdown_value,
-                        item.filter?.breakdown,
-                        item.filter?.breakdown_type,
-                        false
+                        breakdownFilter,
+                        cohorts,
+                        formatPropertyValueForDisplay
                     )
                 }),
                 compareLabels: _data.map((item) => item.compare_label),
@@ -74,13 +73,6 @@ export function ActionsHorizontalBar({ showPersonsModal = true }: ChartParams): 
         }
     }, [indexedResults])
 
-    const isTrendsQueryWithFeatureFlagOn =
-        (featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS] || featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_TRENDS]) &&
-        isTrends &&
-        query &&
-        isInsightVizNode(query) &&
-        isTrendsQuery(query.source)
-
     return data && total > 0 ? (
         <LineGraph
             data-attr="trend-bar-value-graph"
@@ -91,7 +83,7 @@ export function ActionsHorizontalBar({ showPersonsModal = true }: ChartParams): 
             labelGroupType={labelGroupType}
             datasets={data}
             labels={data[0].labels}
-            hiddenLegendKeys={hiddenLegendKeys}
+            hiddenLegendIndexes={hiddenLegendIndexes}
             showPersonsModal={showPersonsModal}
             trendsFilter={trendsFilter}
             formula={formula}
@@ -100,29 +92,20 @@ export function ActionsHorizontalBar({ showPersonsModal = true }: ChartParams): 
                 !showPersonsModal || trendsFilter?.formula || isDataWarehouseSeries
                     ? undefined
                     : (point) => {
-                          const { index, points, crossDataset } = point
+                          const { index, points } = point
 
                           const dataset = points.referencePoint.dataset
                           const label = dataset.labels?.[point.index]
-                          const urls = urlsForDatasets(crossDataset, index, cohorts, formatPropertyValueForDisplay)
-                          const selectedUrl = urls[index]?.value
 
-                          if (isTrendsQueryWithFeatureFlagOn) {
-                              openPersonsModal({
-                                  title: label || '',
-                                  query: datasetToActorsQuery({ dataset, query: query.source, index }),
-                                  additionalSelect: {
-                                      value_at_data_point: 'event_count',
-                                      matched_recordings: 'matched_recordings',
-                                  },
-                              })
-                          } else if (selectedUrl) {
-                              openPersonsModal({
-                                  urlsIndex: index,
-                                  urls,
-                                  title: <PropertyKeyInfo value={label || ''} disablePopover />,
-                              })
-                          }
+                          openPersonsModal({
+                              title: label || '',
+                              query: datasetToActorsQuery({ dataset, query: querySource!, index }),
+                              additionalSelect: {
+                                  value_at_data_point: 'event_count',
+                                  matched_recordings: 'matched_recordings',
+                              },
+                              orderBy: ['event_count DESC, actor_id DESC'],
+                          })
                       }
             }
         />

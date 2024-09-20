@@ -5,16 +5,19 @@ from posthog.schema import FunnelConversionWindowTimeUnit, FunnelVizType, Funnel
 from rest_framework.exceptions import ValidationError
 
 
-def get_funnel_order_class(funnelsFilter: FunnelsFilter):
+def get_funnel_order_class(funnelsFilter: FunnelsFilter, use_udf=False):
     from posthog.hogql_queries.insights.funnels import (
         Funnel,
+        FunnelUDF,
         FunnelStrict,
         FunnelUnordered,
     )
 
-    if funnelsFilter.funnelOrderType == StepOrderValue.unordered:
+    if funnelsFilter.funnelOrderType == StepOrderValue.UNORDERED:
         return FunnelUnordered
-    elif funnelsFilter.funnelOrderType == StepOrderValue.strict:
+    elif use_udf:
+        return FunnelUDF
+    elif funnelsFilter.funnelOrderType == StepOrderValue.STRICT:
         return FunnelStrict
     return Funnel
 
@@ -27,15 +30,13 @@ def get_funnel_actor_class(funnelsFilter: FunnelsFilter):
         FunnelTrendsActors,
     )
 
-    if funnelsFilter.funnelVizType == FunnelVizType.trends:
+    if funnelsFilter.funnelVizType == FunnelVizType.TRENDS:
         return FunnelTrendsActors
-    else:
-        if funnelsFilter.funnelOrderType == StepOrderValue.unordered:
-            return FunnelUnorderedActors
-        elif funnelsFilter.funnelOrderType == StepOrderValue.strict:
-            return FunnelStrictActors
-        else:
-            return FunnelActors
+    if funnelsFilter.funnelOrderType == StepOrderValue.UNORDERED:
+        return FunnelUnorderedActors
+    if funnelsFilter.funnelOrderType == StepOrderValue.STRICT:
+        return FunnelStrictActors
+    return FunnelActors
 
 
 def funnel_window_interval_unit_to_sql(
@@ -64,14 +65,21 @@ def get_breakdown_expr(
 ) -> ast.Expr:
     if isinstance(breakdowns, str) or isinstance(breakdowns, int) or breakdowns is None:
         return ast.Call(
-            name="ifNull", args=[ast.Field(chain=[*properties_column.split("."), breakdowns]), ast.Constant(value="")]
+            name="ifNull",
+            args=[
+                ast.Call(name="toString", args=[ast.Field(chain=[*properties_column.split("."), breakdowns])]),
+                ast.Constant(value=""),
+            ],
         )
     else:
         exprs = []
         for breakdown in breakdowns:
             expr: ast.Expr = ast.Call(
                 name="ifNull",
-                args=[ast.Field(chain=[*properties_column.split("."), breakdown]), ast.Constant(value="")],
+                args=[
+                    ast.Call(name="toString", args=[ast.Field(chain=[*properties_column.split("."), breakdown])]),
+                    ast.Constant(value=""),
+                ],
             )
             if normalize_url:
                 regex = "[\\\\/?#]*$"

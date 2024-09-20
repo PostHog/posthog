@@ -1,7 +1,7 @@
 import os
 import time
 from contextlib import contextmanager
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 from prometheus_client import Histogram
 import json
 from typing import Any, cast
@@ -17,7 +17,7 @@ from django.http import JsonResponse, HttpResponse
 from drf_spectacular.utils import extend_schema
 from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, request, serializers, viewsets
-from rest_framework.decorators import action
+from posthog.api.utils import action
 from rest_framework.renderers import JSONRenderer
 from rest_framework.response import Response
 from rest_framework.utils.encoders import JSONEncoder
@@ -28,29 +28,23 @@ from posthog.api.utils import safe_clickhouse_string
 from posthog.auth import SharingAccessTokenAuthentication
 from posthog.cloud_utils import is_cloud
 from posthog.constants import SESSION_RECORDINGS_FILTER_IDS
-from posthog.models import User
+from posthog.models import User, Team
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.person.person import PersonDistinctId
-from posthog.schema import QueryTiming
+from posthog.schema import QueryTiming, HogQLQueryModifiers
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.models.session_recording_event import (
     SessionRecordingViewed,
 )
 
-from posthog.session_recordings.queries.session_recording_list_from_replay_summary import (
-    SessionRecordingListFromReplaySummary,
-    SessionIdEventsQuery,
-)
 from posthog.session_recordings.queries.session_recording_list_from_filters import (
     SessionRecordingListFromFilters,
+    ReplayFiltersEventsSubQuery,
 )
 from posthog.session_recordings.queries.session_recording_properties import (
     SessionRecordingProperties,
 )
-from posthog.rate_limit import (
-    ClickHouseBurstRateThrottle,
-    ClickHouseSustainedRateThrottle,
-)
+from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle, PersonalApiKeyRateThrottle
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from posthog.session_recordings.realtime_snapshots import get_realtime_snapshots, publish_subscription
 from ee.session_recordings.session_summary.summarize_session import summarize_recording
@@ -59,7 +53,13 @@ from ee.session_recordings.ai.error_clustering import error_clustering
 from posthog.session_recordings.snapshots.convert_legacy_snapshots import convert_original_version_lts_recording
 from posthog.storage import object_storage
 from prometheus_client import Counter
+from posthog.auth import PersonalAPIKeyAuthentication
 
+SNAPSHOTS_BY_PERSONAL_API_KEY_COUNTER = Counter(
+    "snapshots_personal_api_key_counter",
+    "Requests for recording snapshots per personal api key",
+    labelnames=["api_key", "source"],
+)
 
 SNAPSHOT_SOURCE_REQUESTED = Counter(
     "session_snapshots_requested_counter",
@@ -253,9 +253,20 @@ def stream_from(url: str, headers: dict | None = None) -> Generator[requests.Res
         session.close()
 
 
+class SnapshotsBurstRateThrottle(PersonalApiKeyRateThrottle):
+    scope = "snapshots_burst"
+    rate = "120/minute"
+
+
+class SnapshotsSustainedRateThrottle(PersonalApiKeyRateThrottle):
+    scope = "snapshots_sustained"
+    rate = "600/hour"
+
+
 # NOTE: Could we put the sharing stuff in the shared mixin :thinking:
 class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "session_recording"
+    scope_object_read_actions = ["list", "retrieve", "snapshots"]
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
     serializer_class = SessionRecordingSerializer
     # We don't use this
@@ -282,11 +293,12 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return list_recordings_response(filter, request, self.get_serializer_context())
 
     @extend_schema(
+        exclude=True,
         description="""
         Gets a list of event ids that match the given session recording filter.
         The filter must include a single session ID.
         And must include at least one event or action filter.
-        This API is intended for internal use and might have unannounced breaking changes."""
+        This API is intended for internal use and might have unannounced breaking changes.""",
     )
     @action(methods=["GET"], detail=False)
     def matching_events(self, request: request.Request, *args: Any, **kwargs: Any) -> JsonResponse:
@@ -302,8 +314,21 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 "Must specify at least one event or action filter",
             )
 
-        matching_events: list[str] = SessionIdEventsQuery(filter=filter, team=self.team).matching_events()
-        return JsonResponse(data={"results": matching_events})
+        distinct_id = str(cast(User, request.user).distinct_id)
+        modifiers = safely_read_modifiers_overrides(distinct_id, self.team)
+        matching_events_query_response = ReplayFiltersEventsSubQuery(
+            filter=filter, team=self.team, hogql_query_modifiers=modifiers
+        ).get_event_ids_for_session()
+
+        response = JsonResponse(data={"results": matching_events_query_response.results})
+
+        response.headers["Server-Timing"] = ", ".join(
+            f"{key};dur={round(duration, ndigits=2)}"
+            for key, duration in _generate_timings(
+                matching_events_query_response.timings, ServerTimingsGathered()
+            ).items()
+        )
+        return response
 
     # Returns metadata about the recording
     def retrieve(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
@@ -335,6 +360,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         return Response({"success": True}, status=204)
 
+    @extend_schema(exclude=True)
     @action(methods=["POST"], detail=True)
     def persist(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         recording = self.get_object()
@@ -349,7 +375,13 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         return Response({"success": True})
 
-    @action(methods=["GET"], detail=True, renderer_classes=[SurrogatePairSafeJSONRenderer])
+    @extend_schema(exclude=True)
+    @action(
+        methods=["GET"],
+        detail=True,
+        renderer_classes=[SurrogatePairSafeJSONRenderer],
+        throttle_classes=[SnapshotsBurstRateThrottle, SnapshotsSustainedRateThrottle],
+    )
     def snapshots(self, request: request.Request, **kwargs):
         """
         Snapshots can be loaded from multiple places:
@@ -387,6 +419,10 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         if source:
             SNAPSHOT_SOURCE_REQUESTED.labels(source=source).inc()
+
+        personal_api_key = PersonalAPIKeyAuthentication.find_key_with_source(request)
+        if personal_api_key:
+            SNAPSHOTS_BY_PERSONAL_API_KEY_COUNTER.labels(api_key=personal_api_key, source=source).inc()
 
         if not source:
             return self._gather_session_recording_sources(recording)
@@ -430,7 +466,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 # Keys are like 1619712000-1619712060
                 blob_key = full_key.replace(blob_prefix.rstrip("/") + "/", "")
                 blob_key_base = blob_key.split(".")[0]  # Remove the extension if it exists
-                time_range = [datetime.fromtimestamp(int(x) / 1000, tz=timezone.utc) for x in blob_key_base.split("-")]
+                time_range = [datetime.fromtimestamp(int(x) / 1000, tz=UTC) for x in blob_key_base.split("-")]
 
                 sources.append(
                     {
@@ -446,7 +482,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             newest_timestamp = min(sources, key=lambda k: k["end_timestamp"])["end_timestamp"]
 
             if might_have_realtime:
-                might_have_realtime = oldest_timestamp + timedelta(hours=24) > datetime.now(timezone.utc)
+                might_have_realtime = oldest_timestamp + timedelta(hours=24) > datetime.now(UTC)
         if might_have_realtime:
             sources.append(
                 {
@@ -486,6 +522,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return "anonymous"
 
     # Returns properties given a list of session recording ids
+    @extend_schema(exclude=True)
     @action(methods=["GET"], detail=False)
     def properties(self, request: request.Request, **kwargs):
         filter = SessionRecordingsFilter(request=request, team=self.team)
@@ -510,6 +547,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         return Response({"results": session_recording_serializer.data})
 
+    @extend_schema(exclude=True)
     @action(methods=["POST"], detail=True)
     def summarize(self, request: request.Request, **kwargs):
         if not request.user.is_authenticated:
@@ -550,6 +588,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             )
         return r
 
+    @extend_schema(exclude=True)
     @action(methods=["GET"], detail=True)
     def similar_sessions(self, request: request.Request, **kwargs):
         if not request.user.is_authenticated:
@@ -579,6 +618,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         r = Response(recordings, headers={"Cache-Control": "max-age=15"})
         return r
 
+    @extend_schema(exclude=True)
     @action(methods=["GET"], detail=False)
     def error_clusters(self, request: request.Request, **kwargs):
         if not request.user.is_authenticated:
@@ -739,8 +779,8 @@ def list_recordings(
 
     timer = ServerTimingsGathered()
 
-    with timer("load_recordings_from_clickhouse"):
-        if all_session_ids:
+    if all_session_ids:
+        with timer("load_persisted_recordings"):
             # If we specify the session ids (like from pinned recordings) we can optimise by only going to Postgres
             sorted_session_ids = sorted(all_session_ids)
 
@@ -755,39 +795,36 @@ def list_recordings(
             remaining_session_ids = list(set(all_session_ids) - {x.session_id for x in persisted_recordings})
             filter = filter.shallow_clone({SESSION_RECORDINGS_FILTER_IDS: remaining_session_ids})
 
-        if (all_session_ids and filter.session_ids) or not all_session_ids:
-            has_hog_ql_filtering = request.GET.get("hog_ql_filtering", "false") == "true"
+    if (all_session_ids and filter.session_ids) or not all_session_ids:
+        distinct_id = str(cast(User, request.user).distinct_id)
+        modifiers = safely_read_modifiers_overrides(distinct_id, team)
 
-            if has_hog_ql_filtering:
-                (ch_session_recordings, more_recordings_available, hogql_timings) = SessionRecordingListFromFilters(
-                    filter=filter, team=team
-                ).run()
-            else:
-                # Only go to clickhouse if we still have remaining specified IDs, or we are not specifying IDs
-                (
-                    ch_session_recordings,
-                    more_recordings_available,
-                ) = SessionRecordingListFromReplaySummary(filter=filter, team=team).run()
+        with timer("load_recordings_from_hogql"):
+            (ch_session_recordings, more_recordings_available, hogql_timings) = SessionRecordingListFromFilters(
+                filter=filter, team=team, hogql_query_modifiers=modifiers
+            ).run()
 
+        with timer("build_recordings"):
             recordings_from_clickhouse = SessionRecording.get_or_build_from_clickhouse(team, ch_session_recordings)
             recordings = recordings + recordings_from_clickhouse
 
-        recordings = [x for x in recordings if not x.deleted]
+            recordings = [x for x in recordings if not x.deleted]
 
-        # If we have specified session_ids we need to sort them by the order they were specified
-        if all_session_ids:
-            recordings = sorted(
-                recordings,
-                key=lambda x: cast(list[str], all_session_ids).index(x.session_id),
-            )
+            # If we have specified session_ids we need to sort them by the order they were specified
+            if all_session_ids:
+                recordings = sorted(
+                    recordings,
+                    key=lambda x: cast(list[str], all_session_ids).index(x.session_id),
+                )
 
     if not request.user.is_authenticated:  # for mypy
         raise exceptions.NotAuthenticated()
 
     # Update the viewed status for all loaded recordings
-    viewed_session_recordings = set(
-        SessionRecordingViewed.objects.filter(team=team, user=request.user).values_list("session_id", flat=True)
-    )
+    with timer("load_viewed_recordings"):
+        viewed_session_recordings = set(
+            SessionRecordingViewed.objects.filter(team=team, user=request.user).values_list("session_id", flat=True)
+        )
 
     with timer("load_persons"):
         # Get the related persons for all the recordings
@@ -820,11 +857,37 @@ def list_recordings(
     )
 
 
+def safely_read_modifiers_overrides(distinct_id: str, team: Team) -> HogQLQueryModifiers:
+    modifiers = HogQLQueryModifiers()
+
+    try:
+        groups = {"organization": str(team.organization.id)}
+        flag_key = "HOG_QL_ORG_QUERY_OVERRIDES"
+        flags_n_bags = posthoganalytics.get_all_flags_and_payloads(
+            distinct_id,
+            groups=groups,
+        )
+        # this loads nothing whereas the payload is available
+        # modifier_overrides = posthoganalytics.get_feature_flag_payload(
+        #     flag_key,
+        #     distinct_id,
+        #     groups=groups,
+        # )
+        modifier_overrides = (flags_n_bags or {}).get("featureFlagPayloads", {}).get(flag_key, None)
+        if modifier_overrides:
+            modifiers.optimizeJoinedFilters = json.loads(modifier_overrides).get("optimizeJoinedFilters", None)
+    except:
+        # be extra safe
+        pass
+
+    return modifiers
+
+
 def _generate_timings(hogql_timings: list[QueryTiming] | None, timer: ServerTimingsGathered) -> dict[str, float]:
     timings_dict = timer.get_all_timings()
     hogql_timings_dict = {}
     for key, value in hogql_timings or {}:
-        new_key = f"hogql_{key[1].lstrip('./')}"
+        new_key = f"hogql_{key[1].lstrip('./').replace('/', '_')}"
         # HogQL query timings are in seconds, convert to milliseconds
         hogql_timings_dict[new_key] = value[1] * 1000
     all_timings = {**timings_dict, **hogql_timings_dict}

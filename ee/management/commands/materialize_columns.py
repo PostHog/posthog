@@ -21,7 +21,11 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument("--dry-run", action="store_true", help="Print plan instead of executing it")
 
-        parser.add_argument("--property", help="Property to materialize. Skips analysis.")
+        parser.add_argument(
+            "--property",
+            help="Properties to materialize. Skips analysis. Allows multiple arguments --property abc '$.abc.def'",
+            nargs="+",
+        )
         parser.add_argument(
             "--property-table",
             type=str,
@@ -54,6 +58,12 @@ class Command(BaseCommand):
             help="How long of a time period to analyze. Same as MATERIALIZE_COLUMNS_ANALYSIS_PERIOD_HOURS env variable.",
         )
         parser.add_argument(
+            "--analyze-team-id",
+            type=int,
+            default=None,
+            help="Analyze queries only for a specific team_id",
+        )
+        parser.add_argument(
             "--max-columns",
             type=int,
             default=MATERIALIZE_COLUMNS_MAX_AT_ONCE,
@@ -74,8 +84,9 @@ class Command(BaseCommand):
                     (
                         options["property_table"],
                         options["table_column"],
-                        options["property"],
+                        prop,
                     )
+                    for prop in options.get("property")
                 ],
                 backfill_period_days=options["backfill_period"],
                 dry_run=options["dry_run"],
@@ -87,4 +98,5 @@ class Command(BaseCommand):
                 min_query_time=options["min_query_time"],
                 backfill_period_days=options["backfill_period"],
                 dry_run=options["dry_run"],
+                team_id_to_analyze=options["analyze_team_id"],
             )

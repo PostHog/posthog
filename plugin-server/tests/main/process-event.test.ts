@@ -11,17 +11,8 @@ import * as IORedis from 'ioredis'
 import { DateTime } from 'luxon'
 
 import { KAFKA_EVENTS_PLUGIN_INGESTION } from '../../src/config/kafka-topics'
-import {
-    ClickHouseEvent,
-    Database,
-    Hub,
-    LogLevel,
-    Person,
-    PluginsServerConfig,
-    PropertyDefinitionTypeEnum,
-    Team,
-} from '../../src/types'
-import { createHub } from '../../src/utils/db/hub'
+import { ClickHouseEvent, Database, Hub, LogLevel, Person, PluginsServerConfig, Team } from '../../src/types'
+import { closeHub, createHub } from '../../src/utils/db/hub'
 import { PostgresUse } from '../../src/utils/db/postgres'
 import { personInitialAndUTMProperties } from '../../src/utils/db/utils'
 import { posthog } from '../../src/utils/posthog'
@@ -50,11 +41,9 @@ export async function createPerson(
         null,
         false,
         new UUIDT().toString(),
-        distinctIds
+        distinctIds.map((distinctId) => ({ distinctId }))
     )
 }
-
-export type ReturnWithHub = { hub?: Hub; closeHub?: () => Promise<void> }
 
 type EventsByPerson = [string[], string[]]
 
@@ -90,21 +79,9 @@ let processEventCounter = 0
 let mockClientEventCounter = 0
 let team: Team
 let hub: Hub
-let closeHub: () => Promise<void>
 let redis: IORedis.Redis
 let eventsProcessor: EventsProcessor
 let now = DateTime.utc()
-
-async function createTestHub(additionalProps?: Record<string, any>): Promise<[Hub, () => Promise<void>]> {
-    const [hub, closeHub] = await createHub({
-        ...TEST_CONFIG,
-        ...(additionalProps ?? {}),
-    })
-
-    redis = await hub.redisPool.acquire()
-
-    return [hub, closeHub]
-}
 
 async function processEvent(
     distinctId: string,
@@ -126,7 +103,7 @@ async function processEvent(
         ...data,
     } as any as PluginEvent
 
-    const runner = new EventPipelineRunner(hub, pluginEvent)
+    const runner = new EventPipelineRunner(hub, pluginEvent, new EventsProcessor(hub))
     await runner.runEventPipeline(pluginEvent)
 
     await delayUntilEventIngested(() => hub.db.fetchEvents(), ++processEventCounter)
@@ -151,7 +128,10 @@ beforeEach(async () => {
         `
     await resetTestDatabase(testCode, TEST_CONFIG)
     await resetTestDatabaseClickhouse(TEST_CONFIG)
-    ;[hub, closeHub] = await createTestHub()
+
+    hub = await createHub({ ...TEST_CONFIG })
+    redis = await hub.redisPool.acquire()
+
     eventsProcessor = new EventsProcessor(hub)
     processEventCounter = 0
     mockClientEventCounter = 0
@@ -168,7 +148,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
     await hub.redisPool.release(redis)
-    await closeHub?.()
+    await closeHub(hub)
 })
 
 const capture = async (hub: Hub, eventName: string, properties: any = {}) => {
@@ -183,7 +163,7 @@ const capture = async (hub: Hub, eventName: string, properties: any = {}) => {
         team_id: team.id,
         uuid: new UUIDT().toString(),
     }
-    const runner = new EventPipelineRunner(hub, event)
+    const runner = new EventPipelineRunner(hub, event, new EventsProcessor(hub))
     await runner.runEventPipeline(event)
     await delayUntilEventIngested(() => hub.db.fetchEvents(), ++mockClientEventCounter)
 }
@@ -209,11 +189,20 @@ test('merge people', async () => {
     const p0 = await createPerson(hub, team, ['person_0'], { $os: 'Microsoft' })
     await delayUntilEventIngested(() => hub.db.fetchPersons(Database.ClickHouse), 1)
 
-    await hub.db.updatePersonDeprecated(p0, { created_at: DateTime.fromISO('2020-01-01T00:00:00Z') })
+    const [_person0, kafkaMessages0] = await hub.db.updatePersonDeprecated(p0, {
+        created_at: DateTime.fromISO('2020-01-01T00:00:00Z'),
+    })
 
     const p1 = await createPerson(hub, team, ['person_1'], { $os: 'Chrome', $browser: 'Chrome' })
     await delayUntilEventIngested(() => hub.db.fetchPersons(Database.ClickHouse), 2)
-    await hub.db.updatePersonDeprecated(p1, { created_at: DateTime.fromISO('2019-07-01T00:00:00Z') })
+    const [_person1, kafkaMessages1] = await hub.db.updatePersonDeprecated(p1, {
+        created_at: DateTime.fromISO('2019-07-01T00:00:00Z'),
+    })
+
+    await hub.db.kafkaProducer.queueMessages({
+        kafkaMessages: [...kafkaMessages0, ...kafkaMessages1],
+        waitForAck: true,
+    })
 
     await processEvent(
         'person_1',
@@ -269,9 +258,6 @@ test('capture new person', async () => {
         'testTag'
     )
     team = await getFirstTeam(hub)
-
-    expect(await hub.db.fetchEventDefinitions()).toEqual([])
-    expect(await hub.db.fetchPropertyDefinitions()).toEqual([])
 
     const properties = personInitialAndUTMProperties({
         distinct_id: 2,
@@ -387,6 +373,7 @@ test('capture new person', async () => {
             properties: personInitialAndUTMProperties({
                 distinct_id: 2,
                 token: team.api_token,
+                x: 123,
                 utm_medium: 'instagram',
                 $current_url: 'https://test.com/pricing',
                 $browser_version: 80,
@@ -395,6 +382,9 @@ test('capture new person', async () => {
                     { tag_name: 'a', nth_child: 1, nth_of_type: 2, attr__class: 'btn btn-sm' },
                     { tag_name: 'div', nth_child: 1, nth_of_type: 2, $el_text: '💻' },
                 ],
+                $set: {
+                    x: 123, // to make sure update happens
+                },
             }),
         } as any as PluginEvent,
         team.id,
@@ -408,6 +398,7 @@ test('capture new person', async () => {
     expect(persons.length).toEqual(1)
     expect(persons[0].version).toEqual(1)
     expectedProps = {
+        x: 123,
         $creator_event_uuid: uuid,
         $initial_browser: 'Chrome',
         $initial_browser_version: '95',
@@ -439,6 +430,7 @@ test('capture new person', async () => {
     expect(JSON.parse(chPeople2[0].properties)).toEqual(expectedProps)
 
     expect(events[1].properties.$set).toEqual({
+        x: 123,
         utm_medium: 'instagram',
         $browser: 'Firefox',
         $browser_version: 80,
@@ -483,6 +475,9 @@ test('capture new person', async () => {
                     { tag_name: 'a', nth_child: 1, nth_of_type: 2, attr__class: 'btn btn-sm' },
                     { tag_name: 'div', nth_child: 1, nth_of_type: 2, $el_text: '💻' },
                 ],
+                $set: {
+                    x: 123, // to make sure update happens
+                },
             }),
         } as any as PluginEvent,
         team.id,
@@ -499,6 +494,7 @@ test('capture new person', async () => {
     expect(persons[0].version).toEqual(1)
 
     expect(events[2].properties.$set).toEqual({
+        x: 123,
         $browser: 'Firefox',
         $current_url: 'https://test.com/pricing',
 
@@ -517,313 +513,6 @@ test('capture new person', async () => {
     expect(JSON.parse(chPeople3[0].properties)).toEqual(expectedProps)
 
     team = await getFirstTeam(hub)
-
-    expect(await hub.db.fetchEventDefinitions()).toEqual([
-        {
-            id: expect.any(String),
-            name: '$autocapture',
-            query_usage_30_day: null,
-            team_id: 2,
-            volume_30_day: null,
-            created_at: expect.any(String),
-            last_seen_at: expect.any(String),
-        },
-    ])
-    const received = await hub.db.fetchPropertyDefinitions()
-    const expected = [
-        {
-            id: expect.any(String),
-            is_numerical: true,
-            name: 'distinct_id',
-            property_type: 'Numeric',
-            property_type_format: null,
-            query_usage_30_day: null,
-            team_id: 2,
-            type: 1,
-            group_type_index: null,
-            volume_30_day: null,
-        },
-        {
-            id: expect.any(String),
-            is_numerical: false,
-            name: 'token',
-            property_type: 'String',
-            property_type_format: null,
-            query_usage_30_day: null,
-            team_id: 2,
-            type: 1,
-            group_type_index: null,
-            volume_30_day: null,
-        },
-        {
-            id: expect.any(String),
-            is_numerical: false,
-            name: '$browser',
-            property_type: 'String',
-            property_type_format: null,
-            query_usage_30_day: null,
-            team_id: 2,
-            type: 1,
-            group_type_index: null,
-            volume_30_day: null,
-        },
-        {
-            id: expect.any(String),
-            is_numerical: false,
-            name: '$current_url',
-            property_type: 'String',
-            property_type_format: null,
-            query_usage_30_day: null,
-            team_id: 2,
-            type: 1,
-            group_type_index: null,
-            volume_30_day: null,
-        },
-        {
-            id: expect.any(String),
-            is_numerical: false,
-            name: '$os',
-            property_type: 'String',
-            property_type_format: null,
-            query_usage_30_day: null,
-            team_id: 2,
-            type: 1,
-            group_type_index: null,
-            volume_30_day: null,
-        },
-        {
-            id: expect.any(String),
-            is_numerical: false,
-            name: '$browser_version',
-            property_type: 'String',
-            property_type_format: null,
-            query_usage_30_day: null,
-            team_id: 2,
-            type: 1,
-            group_type_index: null,
-            volume_30_day: null,
-        },
-        {
-            id: expect.any(String),
-            is_numerical: false,
-            name: '$referring_domain',
-            property_type: 'String',
-            property_type_format: null,
-            query_usage_30_day: null,
-            team_id: 2,
-            type: 1,
-            group_type_index: null,
-            volume_30_day: null,
-        },
-        {
-            id: expect.any(String),
-            is_numerical: false,
-            name: '$referrer',
-            property_type: 'String',
-            property_type_format: null,
-            query_usage_30_day: null,
-            team_id: 2,
-            type: 1,
-            group_type_index: null,
-            volume_30_day: null,
-        },
-        {
-            id: expect.any(String),
-            is_numerical: false,
-            name: 'utm_medium',
-            property_type: 'String',
-            property_type_format: null,
-            query_usage_30_day: null,
-            team_id: 2,
-            type: 1,
-            group_type_index: null,
-            volume_30_day: null,
-        },
-        {
-            id: expect.any(String),
-            is_numerical: false,
-            name: 'gclid',
-            property_type: 'String',
-            property_type_format: null,
-            query_usage_30_day: null,
-            team_id: 2,
-            type: 1,
-            group_type_index: null,
-            volume_30_day: null,
-        },
-        {
-            id: expect.any(String),
-            is_numerical: false,
-            name: 'msclkid',
-            property_type: 'String',
-            property_type_format: null,
-            query_usage_30_day: null,
-            team_id: 2,
-            type: 1,
-            group_type_index: null,
-            volume_30_day: null,
-        },
-        {
-            id: expect.any(String),
-            is_numerical: false,
-            name: '$ip',
-            property_type: 'String',
-            property_type_format: null,
-            query_usage_30_day: null,
-            team_id: 2,
-            type: 1,
-            group_type_index: null,
-            volume_30_day: null,
-        },
-        {
-            id: expect.any(String),
-            is_numerical: false,
-            name: 'utm_medium',
-            property_type: 'String',
-            property_type_format: null,
-            query_usage_30_day: null,
-            team_id: 2,
-            type: 2,
-            group_type_index: null,
-            volume_30_day: null,
-        },
-        {
-            id: expect.any(String),
-            is_numerical: false,
-            name: 'gclid',
-            property_type: 'String',
-            property_type_format: null,
-            query_usage_30_day: null,
-            team_id: 2,
-            type: 2,
-            group_type_index: null,
-            volume_30_day: null,
-        },
-        {
-            id: expect.any(String),
-            is_numerical: false,
-            name: 'msclkid',
-            property_type: 'String',
-            property_type_format: null,
-            query_usage_30_day: null,
-            team_id: 2,
-            type: 2,
-            group_type_index: null,
-            volume_30_day: null,
-        },
-        {
-            id: expect.any(String),
-            is_numerical: false,
-            name: '$initial_browser',
-            property_type: 'String',
-            property_type_format: null,
-            query_usage_30_day: null,
-            team_id: 2,
-            type: 2,
-            group_type_index: null,
-            volume_30_day: null,
-        },
-        {
-            id: expect.any(String),
-            is_numerical: false,
-            name: '$initial_current_url',
-            property_type: 'String',
-            property_type_format: null,
-            query_usage_30_day: null,
-            team_id: 2,
-            type: 2,
-            group_type_index: null,
-            volume_30_day: null,
-        },
-        {
-            id: expect.any(String),
-            is_numerical: false,
-            name: '$initial_os',
-            property_type: 'String',
-            property_type_format: null,
-            query_usage_30_day: null,
-            team_id: 2,
-            type: 2,
-            group_type_index: null,
-            volume_30_day: null,
-        },
-        {
-            id: expect.any(String),
-            is_numerical: false,
-            name: '$initial_browser_version',
-            property_type: 'String',
-            property_type_format: null,
-            query_usage_30_day: null,
-            team_id: 2,
-            type: 2,
-            group_type_index: null,
-            volume_30_day: null,
-        },
-        {
-            id: expect.any(String),
-            is_numerical: false,
-            name: '$initial_referring_domain',
-            property_type: 'String',
-            property_type_format: null,
-            query_usage_30_day: null,
-            team_id: 2,
-            type: 2,
-            group_type_index: null,
-            volume_30_day: null,
-        },
-        {
-            id: expect.any(String),
-            is_numerical: false,
-            name: '$initial_referrer',
-            property_type: 'String',
-            property_type_format: null,
-            query_usage_30_day: null,
-            team_id: 2,
-            type: 2,
-            group_type_index: null,
-            volume_30_day: null,
-        },
-        {
-            id: expect.any(String),
-            is_numerical: false,
-            name: '$initial_utm_medium',
-            property_type: 'String',
-            property_type_format: null,
-            query_usage_30_day: null,
-            team_id: 2,
-            type: 2,
-            group_type_index: null,
-            volume_30_day: null,
-        },
-        {
-            id: expect.any(String),
-            is_numerical: false,
-            name: '$initial_gclid',
-            property_type: 'String',
-            property_type_format: null,
-            query_usage_30_day: null,
-            team_id: 2,
-            type: 2,
-            group_type_index: null,
-            volume_30_day: null,
-        },
-        {
-            id: expect.any(String),
-            is_numerical: false,
-            name: '$initial_msclkid',
-            property_type: 'String',
-            property_type_format: null,
-            query_usage_30_day: null,
-            team_id: 2,
-            type: 2,
-            group_type_index: null,
-            volume_30_day: null,
-        },
-    ]
-    for (const element of expected) {
-        // Looping in an array to make it easier to debug
-        expect(received).toEqual(expect.arrayContaining([element]))
-    }
 })
 
 test('capture bad team', async () => {
@@ -1745,7 +1434,8 @@ describe('when handling $identify', () => {
         // completing before continuing with the first identify.
         const originalCreatePerson = hub.db.createPerson.bind(hub.db)
         const createPersonMock = jest.fn(async (...args) => {
-            const result = await originalCreatePerson(...args)
+            // We need to slice off the txn arg, or else we conflict with the `identify` below.
+            const result = await originalCreatePerson(...args.slice(0, -1))
 
             if (createPersonMock.mock.calls.length === 1) {
                 // On second invocation, make another identify call
@@ -1907,96 +1597,6 @@ describe('when handling $create_alias', () => {
     })
 })
 
-test('team event_properties', async () => {
-    expect(await hub.db.fetchEventDefinitions()).toEqual([])
-    expect(await hub.db.fetchEventProperties()).toEqual([])
-    expect(await hub.db.fetchPropertyDefinitions()).toEqual([])
-
-    await processEvent(
-        'xxx',
-        '127.0.0.1',
-        '',
-        { event: 'purchase', properties: { price: 299.99, name: 'AirPods Pro' } } as any as PluginEvent,
-        team.id,
-        now,
-        new UUIDT().toString()
-    )
-
-    team = await getFirstTeam(hub)
-
-    expect(await hub.db.fetchEventDefinitions()).toEqual([
-        {
-            id: expect.any(String),
-            name: 'purchase',
-            query_usage_30_day: null,
-            team_id: 2,
-            volume_30_day: null,
-            created_at: expect.any(String),
-            last_seen_at: expect.any(String),
-        },
-    ])
-    expect(await hub.db.fetchPropertyDefinitions()).toEqual([
-        {
-            id: expect.any(String),
-            is_numerical: false,
-            name: '$ip',
-            property_type: 'String',
-            property_type_format: null,
-            query_usage_30_day: null,
-            team_id: 2,
-            volume_30_day: null,
-            type: PropertyDefinitionTypeEnum.Event,
-            group_type_index: null,
-        },
-        {
-            id: expect.any(String),
-            is_numerical: false,
-            name: 'name',
-            property_type: 'String',
-            property_type_format: null,
-            query_usage_30_day: null,
-            team_id: 2,
-            volume_30_day: null,
-            type: PropertyDefinitionTypeEnum.Event,
-            group_type_index: null,
-        },
-        {
-            id: expect.any(String),
-            is_numerical: true,
-            name: 'price',
-            property_type: 'Numeric',
-            property_type_format: null,
-            query_usage_30_day: null,
-            team_id: 2,
-            volume_30_day: null,
-            type: PropertyDefinitionTypeEnum.Event,
-            group_type_index: null,
-        },
-    ])
-
-    // flushed every minute normally, triggering flush now, it's tested elsewhere
-    expect(await hub.db.fetchEventProperties()).toEqual([
-        {
-            id: expect.any(Number),
-            event: 'purchase',
-            property: '$ip',
-            team_id: 2,
-        },
-        {
-            id: expect.any(Number),
-            event: 'purchase',
-            property: 'name',
-            team_id: 2,
-        },
-        {
-            id: expect.any(Number),
-            event: 'purchase',
-            property: 'price',
-            team_id: 2,
-        },
-    ])
-})
-
 test('event name object json', async () => {
     await processEvent(
         'xxx',
@@ -2054,7 +1654,7 @@ describe('validates eventUuid', () => {
             properties: { price: 299.99, name: 'AirPods Pro' },
         }
 
-        const runner = new EventPipelineRunner(hub, pluginEvent)
+        const runner = new EventPipelineRunner(hub, pluginEvent, new EventsProcessor(hub))
         const result = await runner.runEventPipeline(pluginEvent)
 
         expect(result.error).toBeDefined()
@@ -2073,7 +1673,7 @@ describe('validates eventUuid', () => {
             properties: { price: 299.99, name: 'AirPods Pro' },
         }
 
-        const runner = new EventPipelineRunner(hub, pluginEvent)
+        const runner = new EventPipelineRunner(hub, pluginEvent, new EventsProcessor(hub))
         const result = await runner.runEventPipeline(pluginEvent)
 
         expect(result.error).toBeDefined()
@@ -2421,8 +2021,10 @@ test('person and group properties on events', async () => {
     const events = await hub.db.fetchEvents()
     const event = [...events].find((e: any) => e['event'] === 'test event')
     expect(event?.person_properties).toEqual({ pineapple: 'on', pizza: 1, new: 5 })
-    expect(event?.group0_properties).toEqual({ foo: 'bar' })
-    expect(event?.group1_properties).toEqual({ pineapple: 'yummy' })
+    expect(event?.properties.$group_0).toEqual('org:5')
+    expect(event?.properties.$group_1).toEqual('second_key')
+    expect(event?.group0_properties).toEqual({}) // We stopped writing these to the event as queries don't use them
+    expect(event?.group1_properties).toEqual({}) // We stopped writing these to the event as queries don't use them
 })
 
 test('set and set_once on the same key', async () => {

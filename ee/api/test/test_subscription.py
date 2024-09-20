@@ -49,7 +49,7 @@ class TestSubscription(APILicensedTest):
 
     @pytest.mark.skip_on_multitenancy
     def test_cannot_list_subscriptions_without_proper_license(self, mock_subscription_tasks):
-        self.organization.available_features = []
+        self.organization.available_product_features = []
         self.organization.save()
         response = self.client.get(f"/api/projects/{self.team.id}/subscriptions/")
         assert response.status_code == status.HTTP_402_PAYMENT_REQUIRED

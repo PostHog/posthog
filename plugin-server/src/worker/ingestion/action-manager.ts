@@ -1,29 +1,66 @@
-import { Action, ActionStep, Hook, RawAction, Team } from '../../types'
+import * as schedule from 'node-schedule'
+
+import { Action, Hook, PluginsServerConfig, RawAction, Team } from '../../types'
 import { PostgresRouter, PostgresUse } from '../../utils/db/postgres'
+import { PubSub } from '../../utils/pubsub'
 import { status } from '../../utils/status'
 
 export type ActionMap = Record<Action['id'], Action>
 type ActionCache = Record<Team['id'], ActionMap>
 
 export class ActionManager {
+    private started: boolean
     private ready: boolean
-    private postgres: PostgresRouter
     private actionCache: ActionCache
+    private pubSub: PubSub
+    private refreshJob?: schedule.Job
 
-    constructor(postgres: PostgresRouter) {
+    constructor(private postgres: PostgresRouter, private serverConfig: PluginsServerConfig) {
+        this.started = false
         this.ready = false
-        this.postgres = postgres
         this.actionCache = {}
+
+        this.pubSub = new PubSub(this.serverConfig, {
+            'reload-action': async (message) => {
+                const { actionId, teamId } = JSON.parse(message)
+                await this.reloadAction(teamId, actionId)
+            },
+            'drop-action': (message) => {
+                const { actionId, teamId } = JSON.parse(message)
+                this.dropAction(teamId, actionId)
+            },
+        })
     }
 
-    public async prepare(): Promise<void> {
+    public async start(): Promise<void> {
+        // TRICKY - when running with individual capabilities, this won't run twice but locally or as a complete service it will...
+        if (this.started) {
+            return
+        }
+        this.started = true
+        await this.pubSub.start()
         await this.reloadAllActions()
+
+        // every 5 minutes all ActionManager caches are reloaded for eventual consistency
+        this.refreshJob = schedule.scheduleJob('*/5 * * * *', async () => {
+            await this.reloadAllActions().catch((error) => {
+                status.error('🍿', 'Error reloading actions:', error)
+            })
+        })
         this.ready = true
+    }
+
+    public async stop(): Promise<void> {
+        if (this.refreshJob) {
+            schedule.cancelJob(this.refreshJob)
+        }
+
+        await this.pubSub.stop()
     }
 
     public getTeamActions(teamId: Team['id']): ActionMap {
         if (!this.ready) {
-            throw new Error('ActionManager is not ready! Run actionManager.prepare() before this')
+            throw new Error('ActionManager is not ready! Run actionManager.start() before this')
         }
         return this.actionCache[teamId] || {}
     }
@@ -77,6 +114,7 @@ export async function fetchAllActionsGroupedByTeam(
 ): Promise<Record<Team['id'], Record<Action['id'], Action>>> {
     const restHooks = await fetchActionRestHooks(client)
     const restHookActionIds = restHooks.map(({ resource_id }) => resource_id)
+    const additionalActionIds = [...restHookActionIds]
 
     const rawActions = (
         await client.query<RawAction>(
@@ -95,29 +133,17 @@ export async function fetchAllActionsGroupedByTeam(
                 is_calculating,
                 updated_at,
                 last_calculated_at,
+                steps_json,
                 bytecode,
                 bytecode_error
             FROM posthog_action
             WHERE deleted = FALSE AND (post_to_slack OR id = ANY($1))
         `,
-            [restHookActionIds],
+            [additionalActionIds],
             'fetchActions'
         )
     ).rows
 
-    const pluginIds: number[] = rawActions.map(({ id }) => id)
-    const actionSteps: (ActionStep & { team_id: Team['id'] })[] = (
-        await client.query(
-            PostgresUse.COMMON_READ,
-            `
-                SELECT posthog_actionstep.*, posthog_action.team_id
-                FROM posthog_actionstep JOIN posthog_action ON (posthog_action.id = posthog_actionstep.action_id)
-                WHERE posthog_action.id = ANY($1)
-            `,
-            [pluginIds],
-            'fetchActionSteps'
-        )
-    ).rows
     const actions: Record<Team['id'], Record<Action['id'], Action>> = {}
     for (const rawAction of rawActions) {
         if (!actions[rawAction.team_id]) {
@@ -126,18 +152,13 @@ export async function fetchAllActionsGroupedByTeam(
 
         actions[rawAction.team_id][rawAction.id] = {
             ...rawAction,
-            steps: [],
+            steps: rawAction.steps_json ?? [],
             hooks: [],
         }
     }
     for (const hook of restHooks) {
         if (hook.resource_id !== null && actions[hook.team_id]?.[hook.resource_id]) {
             actions[hook.team_id][hook.resource_id].hooks.push(hook)
-        }
-    }
-    for (const actionStep of actionSteps) {
-        if (actions[actionStep.team_id]?.[actionStep.action_id]) {
-            actions[actionStep.team_id][actionStep.action_id].steps.push(actionStep)
         }
     }
     return actions
@@ -180,16 +201,8 @@ export async function fetchAction(client: PostgresRouter, id: Action['id']): Pro
         return null
     }
 
-    const [steps, hooks] = await Promise.all([
-        client.query<ActionStep>(
-            PostgresUse.COMMON_READ,
-            `SELECT * FROM posthog_actionstep WHERE action_id = $1`,
-            [id],
-            'fetchActionSteps'
-        ),
-        fetchActionRestHooks(client, id),
-    ])
+    const hooks = await fetchActionRestHooks(client, id)
 
-    const action: Action = { ...rawActions[0], steps: steps.rows, hooks }
+    const action: Action = { ...rawActions[0], steps: rawActions[0].steps_json ?? [], hooks }
     return action.post_to_slack || action.hooks.length > 0 ? action : null
 }

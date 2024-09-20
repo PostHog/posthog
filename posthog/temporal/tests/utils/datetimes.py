@@ -16,4 +16,4 @@ def to_isoformat(d: str | None) -> str | None:
     """Parse a string and return it as default isoformatted."""
     if d is None:
         return None
-    return dt.datetime.fromisoformat(d).replace(tzinfo=dt.timezone.utc).isoformat()
+    return dt.datetime.fromisoformat(d).replace(tzinfo=dt.UTC).isoformat()

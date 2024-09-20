@@ -1,6 +1,7 @@
 import './EditorFilters.scss'
 
-import { LemonBanner, Link } from '@posthog/lemon-ui'
+import { IconInfo } from '@posthog/icons'
+import { LemonBanner, Link, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useValues } from 'kea'
 import { NON_BREAKDOWN_DISPLAY_TYPES } from 'lib/constants'
@@ -46,10 +47,9 @@ export interface EditorFiltersProps {
 }
 
 export function EditorFilters({ query, showing, embedded }: EditorFiltersProps): JSX.Element | null {
-    const { user } = useValues(userLogic)
-    const availableFeatures = user?.organization?.available_features || []
+    const { hasAvailableFeature } = useValues(userLogic)
 
-    const { insight, insightProps } = useValues(insightLogic)
+    const { insightProps } = useValues(insightLogic)
     const {
         isTrends,
         isFunnels,
@@ -74,7 +74,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
         (isTrends && !NON_BREAKDOWN_DISPLAY_TYPES.includes(display || ChartDisplayType.ActionsLineGraph)) ||
         isStepsFunnel ||
         isTrendsFunnel
-    const hasPathsAdvanced = availableFeatures.includes(AvailableFeature.PATHS_ADVANCED)
+    const hasPathsAdvanced = hasAvailableFeature(AvailableFeature.PATHS_ADVANCED)
     const hasAttribution = isStepsFunnel
     const hasPathsHogQL = isPaths && pathsFilter?.includeEventTypes?.includes(PathType.HogQL)
 
@@ -178,39 +178,62 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                 hasBreakdown
                     ? {
                           key: 'breakdown',
-                          label: 'Breakdown by',
                           position: 'right',
-                          tooltip: (
-                              <>
-                                  Use breakdown to see the aggregation (total volume, active users, etc.) for each value
-                                  of that property. For example, breaking down by Current URL with total volume will
-                                  give you the event volume for each URL your users have visited.
-                              </>
-                          ),
                           component: Breakdown,
                       }
                     : null,
                 hasAttribution
                     ? {
                           key: 'attribution',
-                          label: 'Attribution type',
-                          position: 'right',
-                          tooltip: (
-                              <div>
-                                  When breaking funnels down by a property, you can choose how to assign users to the
-                                  various property values. This is useful because property values can change for a
-                                  user/group as someone travels through the funnel.
-                                  <ul className="list-disc pl-4 pt-4">
-                                      <li>First step: the first property value seen from all steps is chosen.</li>
-                                      <li>Last step: last property value seen from all steps is chosen.</li>
-                                      <li>Specific step: the property value seen at that specific step is chosen.</li>
-                                      <li>All steps: the property value must be seen in all steps.</li>
-                                      <li>
-                                          Any step: the property value must be seen on at least one step of the funnel.
-                                      </li>
-                                  </ul>
+                          label: () => (
+                              <div className="flex">
+                                  <span>Attribution type</span>
+                                  <Tooltip
+                                      closeDelayMs={200}
+                                      title={
+                                          <div className="space-y-2">
+                                              <div>
+                                                  When breaking down funnels, it's possible that the same properties
+                                                  don't exist on every event. For example, if you want to break down by
+                                                  browser on a funnel that contains both frontend and backend events.
+                                              </div>
+                                              <div>
+                                                  In this case, you can choose from which step the properties should be
+                                                  selected from by modifying the attribution type. There are four modes
+                                                  to choose from:
+                                              </div>
+                                              <ul className="list-disc pl-4">
+                                                  <li>
+                                                      First touchpoint: the first property value seen in any of the
+                                                      steps is chosen.
+                                                  </li>
+                                                  <li>
+                                                      Last touchpoint: the last property value seen from all steps is
+                                                      chosen.
+                                                  </li>
+                                                  <li>
+                                                      All steps: the property value must be seen in all steps to be
+                                                      considered in the funnel.
+                                                  </li>
+                                                  <li>
+                                                      Specific step: only the property value seen at the selected step
+                                                      is chosen.
+                                                  </li>
+                                              </ul>
+                                              <div>
+                                                  Read more in the{' '}
+                                                  <Link to="https://posthog.com/docs/product-analytics/funnels#attribution-types">
+                                                      documentation.
+                                                  </Link>
+                                              </div>
+                                          </div>
+                                      }
+                                  >
+                                      <IconInfo className="text-xl text-muted-alt shrink-0 ml-1" />
+                                  </Tooltip>
                               </div>
                           ),
+                          position: 'right',
                           component: Attribution,
                       }
                     : null,
@@ -291,7 +314,6 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                         <EditorFilterGroup
                             key={editorFilterGroup.title}
                             editorFilterGroup={editorFilterGroup}
-                            insight={insight}
                             insightProps={insightProps}
                             query={query}
                         />
@@ -299,7 +321,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                 </div>
 
                 {shouldShowSessionAnalysisWarning ? (
-                    <LemonBanner type="info">
+                    <LemonBanner type="info" className="mt-2">
                         When using sessions and session properties, events without session IDs will be excluded from the
                         set of results.{' '}
                         <Link to="https://posthog.com/docs/user-guides/sessions">Learn more about sessions.</Link>

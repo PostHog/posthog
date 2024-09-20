@@ -4,11 +4,13 @@ import clsx from 'clsx'
 import { BindLogic, useValues } from 'kea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useCallback, useState } from 'react'
-import { EventDetails } from 'scenes/events/EventDetails'
+import { EventDetails } from 'scenes/activity/explore/EventDetails'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 import { PersonDeleteModal } from 'scenes/persons/PersonDeleteModal'
 import { SessionPlayerModal } from 'scenes/session-recordings/player/modal/SessionPlayerModal'
@@ -38,6 +40,7 @@ import {
 import { EventName } from '~/queries/nodes/EventsNode/EventName'
 import { EventPropertyFilters } from '~/queries/nodes/EventsNode/EventPropertyFilters'
 import { HogQLQueryEditor } from '~/queries/nodes/HogQLQuery/HogQLQueryEditor'
+import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { EditHogQLButton } from '~/queries/nodes/Node/EditHogQLButton'
 import { OpenEditorButton } from '~/queries/nodes/Node/OpenEditorButton'
 import { PersonPropertyFilters } from '~/queries/nodes/PersonsNode/PersonPropertyFilters'
@@ -50,6 +53,7 @@ import {
     EventsQuery,
     HogQLQuery,
     PersonsNode,
+    SessionAttributionExplorerQuery,
 } from '~/queries/schema'
 import { QueryContext } from '~/queries/types'
 import {
@@ -61,14 +65,16 @@ import {
     taxonomicEventFilterToHogQL,
     taxonomicPersonFilterToHogQL,
 } from '~/queries/utils'
-import { EventType } from '~/types'
+import { EventType, InsightLogicProps } from '~/types'
+
+import { DataTableOpenEditor } from './DataTableOpenEditor'
 
 interface DataTableProps {
     uniqueKey?: string | number
     query: DataTableNode
     setQuery?: (query: DataTableNode) => void
     /** Custom table columns */
-    context?: QueryContext
+    context?: QueryContext<DataTableNode>
     /* Cached Results are provided when shared or exported,
     the data node logic becomes read only implicitly */
     cachedResults?: AnyResponseType
@@ -86,23 +92,20 @@ const personGroupTypes = [TaxonomicFilterGroupType.HogQLExpression, TaxonomicFil
 
 let uniqueNode = 0
 
-export function DataTable({
-    uniqueKey,
-    query,
-    setQuery,
-    context,
-    cachedResults,
-    dataNodeLogicKey,
-}: DataTableProps): JSX.Element {
+export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }: DataTableProps): JSX.Element {
     const [uniqueNodeKey] = useState(() => uniqueNode++)
     const [dataKey] = useState(() => `DataNode.${uniqueKey || uniqueNodeKey}`)
-    const [vizKey] = useState(() => `DataTable.${uniqueNodeKey}`)
-
+    const insightProps: InsightLogicProps<DataTableNode> = context?.insightProps || {
+        dashboardItemId: `new-AdHoc.${dataKey}`,
+        dataNodeCollectionId: dataKey,
+    }
+    const vizKey = insightVizDataNodeKey(insightProps)
     const dataNodeLogicProps: DataNodeLogicProps = {
         query: query.source,
-        key: dataNodeLogicKey ?? dataKey,
+        key: vizKey,
         cachedResults: cachedResults,
         dataNodeCollectionId: context?.insightProps?.dataNodeCollectionId || dataKey,
+        alwaysRefresh: context?.alwaysRefresh,
     }
     const builtDataNodeLogic = dataNodeLogic(dataNodeLogicProps)
 
@@ -122,12 +125,13 @@ export function DataTable({
         query,
         vizKey: vizKey,
         dataKey: dataKey,
-        dataNodeLogicKey,
+        dataNodeLogicKey: dataNodeLogicProps.key,
         context,
     }
     const { dataTableRows, columnsInQuery, columnsInResponse, queryWithDefaults, canSort, sourceFeatures } = useValues(
         dataTableLogic(dataTableLogicProps)
     )
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const {
         showActions,
@@ -164,7 +168,7 @@ export function DataTable({
         ...columnsInLemonTable.map((key, index) => ({
             dataIndex: key as any,
             ...renderColumnMeta(key, query, context),
-            render: function RenderDataTableColumn(_: any, { result, label }: DataTableRow) {
+            render: function RenderDataTableColumn(_: any, { result, label }: DataTableRow, recordIndex: number) {
                 if (label) {
                     if (index === (expandable ? 1 : 0)) {
                         return {
@@ -175,9 +179,9 @@ export function DataTable({
                     return { props: { colSpan: 0 } }
                 } else if (result) {
                     if (sourceFeatures.has(QueryFeature.resultIsArrayOfArrays)) {
-                        return renderColumn(key, result[index], result, query, setQuery, context)
+                        return renderColumn(key, result[index], result, recordIndex, query, setQuery, context)
                     }
-                    return renderColumn(key, result[key], result, query, setQuery, context)
+                    return renderColumn(key, result[key], result, recordIndex, query, setQuery, context)
                 }
             },
             sorter: undefined, // using custom sorting code
@@ -382,7 +386,8 @@ export function DataTable({
     ].filter((column) => !query.hiddenColumns?.includes(column.dataIndex) && column.dataIndex !== '*')
 
     const setQuerySource = useCallback(
-        (source: EventsNode | EventsQuery | PersonsNode | ActorsQuery | HogQLQuery) => setQuery?.({ ...query, source }),
+        (source: EventsNode | EventsQuery | PersonsNode | ActorsQuery | HogQLQuery | SessionAttributionExplorerQuery) =>
+            setQuery?.({ ...query, source }),
         [setQuery]
     )
 
@@ -401,7 +406,11 @@ export function DataTable({
             />
         ) : null,
         showDateRange && sourceFeatures.has(QueryFeature.dateRangePicker) ? (
-            <DateRange key="date-range" query={query.source as HogQLQuery | EventsQuery} setQuery={setQuerySource} />
+            <DateRange
+                key="date-range"
+                query={query.source as HogQLQuery | EventsQuery | SessionAttributionExplorerQuery}
+                setQuery={setQuerySource}
+            />
         ) : null,
         showEventFilter && sourceFeatures.has(QueryFeature.eventNameFilter) ? (
             <EventName key="event-name" query={query.source as EventsQuery} setQuery={setQuerySource} />
@@ -410,7 +419,12 @@ export function DataTable({
             <PersonsSearch key="persons-search" query={query.source as PersonsNode} setQuery={setQuerySource} />
         ) : null,
         showPropertyFilter && sourceFeatures.has(QueryFeature.eventPropertyFilters) ? (
-            <EventPropertyFilters key="event-property" query={query.source as EventsQuery} setQuery={setQuerySource} />
+            <EventPropertyFilters
+                key="event-property"
+                query={query.source as EventsQuery | HogQLQuery | SessionAttributionExplorerQuery}
+                setQuery={setQuerySource}
+                taxonomicGroupTypes={Array.isArray(showPropertyFilter) ? showPropertyFilter : undefined}
+            />
         ) : null,
         showPropertyFilter && sourceFeatures.has(QueryFeature.personPropertyFilters) ? (
             <PersonPropertyFilters
@@ -430,9 +444,10 @@ export function DataTable({
         ) : null,
     ].filter((x) => !!x)
 
+    const isAutoReloadAvailable = !featureFlags[FEATURE_FLAGS.LIVE_EVENTS]
     const secondRowLeft = [
         showReload ? <Reload key="reload" /> : null,
-        showReload && canLoadNewData ? <AutoLoad key="auto-load" /> : null,
+        showReload && canLoadNewData && isAutoReloadAvailable ? <AutoLoad key="auto-load" /> : null,
         showElapsedTime ? <ElapsedTime key="elapsed-time" showTimings={showTimings} /> : null,
     ].filter((x) => !!x)
 
@@ -442,6 +457,9 @@ export function DataTable({
             <ColumnConfigurator key="column-configurator" query={query} setQuery={setQuery} />
         ) : null,
         showExport ? <DataTableExport key="data-table-export" query={query} setQuery={setQuery} /> : null,
+        showExport && showOpenEditorButton ? (
+            <DataTableOpenEditor key="data-table-export" query={query} setQuery={setQuery} />
+        ) : null,
     ].filter((x) => !!x)
 
     const showFirstRow = !isReadOnly && (firstRowLeft.length > 0 || firstRowRight.length > 0)

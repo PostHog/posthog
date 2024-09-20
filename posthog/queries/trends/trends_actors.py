@@ -61,18 +61,18 @@ class TrendsActors(ActorBaseQuery):
                         value=lower_bound,
                         operator="gte",
                         type=self._filter.breakdown_type,
-                        group_type_index=self._filter.breakdown_group_type_index
-                        if self._filter.breakdown_type == "group"
-                        else None,
+                        group_type_index=(
+                            self._filter.breakdown_group_type_index if self._filter.breakdown_type == "group" else None
+                        ),
                     ),
                     Property(
                         key=self._filter.breakdown,
                         value=upper_bound,
                         operator="lt",
                         type=self._filter.breakdown_type,
-                        group_type_index=self._filter.breakdown_group_type_index
-                        if self._filter.breakdown_type == "group"
-                        else None,
+                        group_type_index=(
+                            self._filter.breakdown_group_type_index if self._filter.breakdown_type == "group" else None
+                        ),
                     ),
                 ]
             else:
@@ -81,9 +81,9 @@ class TrendsActors(ActorBaseQuery):
                         key=self._filter.breakdown,
                         value=self._filter.breakdown_value,
                         type=self._filter.breakdown_type,
-                        group_type_index=self._filter.breakdown_group_type_index
-                        if self._filter.breakdown_type == "group"
-                        else None,
+                        group_type_index=(
+                            self._filter.breakdown_group_type_index if self._filter.breakdown_type == "group" else None
+                        ),
                     )
                 ]
 
@@ -104,7 +104,7 @@ class TrendsActors(ActorBaseQuery):
             team=self._team,
             entity=self.entity,
             should_join_distinct_ids=not self.is_aggregating_by_groups
-            and self._team.person_on_events_mode != PersonsOnEventsMode.person_id_no_override_properties_on_events,
+            and self._team.person_on_events_mode != PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS,
             extra_event_properties=["$window_id", "$session_id"] if self._filter.include_recordings else [],
             extra_fields=extra_fields,
             person_on_events_mode=self._team.person_on_events_mode,

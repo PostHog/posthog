@@ -17,7 +17,8 @@
         "resolveJsonModule": true,
         "strict": true,
         "noImplicitAny": true,
-        "useUnknownInCatchVariables": false
+        "useUnknownInCatchVariables": false,
+        "isolatedModules": true
     },
     "include": ["src"],
     "exclude": ["node_modules", "dist", "bin"]

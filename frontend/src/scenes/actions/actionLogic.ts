@@ -5,7 +5,7 @@ import { DataManagementTab } from 'scenes/data-management/DataManagementScene'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { ActionType, Breadcrumb } from '~/types'
+import { ActionType, Breadcrumb, HogFunctionType } from '~/types'
 
 import { actionEditLogic } from './actionEditLogic'
 import type { actionLogicType } from './actionLogicType'
@@ -24,14 +24,27 @@ export const actionLogic = kea<actionLogicType>([
         setIsComplete: (isComplete) => ({ isComplete }),
     })),
     loaders(({ props }) => ({
-        action: {
-            loadAction: async () => {
-                if (!props.id) {
-                    throw new Error('Cannot fetch an unsaved action from the API.')
-                }
-                return await api.actions.get(props.id)
+        action: [
+            null as ActionType | null,
+            {
+                loadAction: async () => {
+                    if (!props.id) {
+                        throw new Error('Cannot fetch an unsaved action from the API.')
+                    }
+                    return await api.actions.get(props.id)
+                },
             },
-        },
+        ],
+        matchingHogFunctions: [
+            null as HogFunctionType[] | null,
+            {
+                loadMatchingHogFunctions: async () => {
+                    const res = await api.hogFunctions.list({ filters: { actions: [{ id: `${props.id}` }] } })
+
+                    return res.results
+                },
+            },
+        ],
     })),
     reducers(() => ({
         pollTimeout: [

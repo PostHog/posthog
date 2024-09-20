@@ -12,7 +12,7 @@ import { Responsive as ReactGridLayout } from 'react-grid-layout'
 import { BREAKPOINT_COLUMN_COUNTS, BREAKPOINTS, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 
 import { insightsModel } from '~/models/insightsModel'
-import { DashboardMode, DashboardPlacement, DashboardTile, DashboardType } from '~/types'
+import { DashboardMode, DashboardPlacement, DashboardType } from '~/types'
 
 export function DashboardItems(): JSX.Element {
     const {
@@ -26,7 +26,8 @@ export function DashboardItems(): JSX.Element {
         highlightedInsightId,
         refreshStatus,
         canEditDashboard,
-        stale,
+        itemsLoading,
+        temporaryFilters,
     } = useValues(dashboardLogic)
     const {
         updateLayouts,
@@ -34,7 +35,7 @@ export function DashboardItems(): JSX.Element {
         updateTileColor,
         removeTile,
         duplicateTile,
-        refreshAllDashboardItems,
+        refreshDashboardItem,
         moveToDashboard,
         setDashboardMode,
     } = useActions(dashboardLogic)
@@ -59,6 +60,7 @@ export function DashboardItems(): JSX.Element {
                 <ReactGridLayout
                     width={gridWrapperWidth}
                     className={className}
+                    draggableHandle=".CardMeta,.TextCard__body"
                     isDraggable={dashboardMode === DashboardMode.Edit}
                     isResizable={dashboardMode === DashboardMode.Edit}
                     layouts={layouts}
@@ -98,9 +100,9 @@ export function DashboardItems(): JSX.Element {
                             isDragging.current = false
                         }, 250)
                     }}
-                    draggableCancel=".anticon,.ant-dropdown,table,button,.Popover"
+                    draggableCancel="a,table,button,.Popover"
                 >
-                    {tiles?.map((tile: DashboardTile) => {
+                    {tiles?.map((tile) => {
                         const { insight, text } = tile
                         const smLayout = layouts['sm']?.find((l) => {
                             return l.i == tile.id.toString()
@@ -138,19 +140,20 @@ export function DashboardItems(): JSX.Element {
                                 <InsightCard
                                     key={tile.id}
                                     insight={insight}
-                                    stale={stale}
                                     loadingQueued={isRefreshingQueued(insight.short_id)}
                                     loading={isRefreshing(insight.short_id)}
                                     apiErrored={refreshStatus[insight.short_id]?.error || false}
                                     highlighted={highlightedInsightId && insight.short_id === highlightedInsightId}
                                     updateColor={(color) => updateTileColor(tile.id, color)}
                                     ribbonColor={tile.color}
-                                    refresh={() => refreshAllDashboardItems({ tiles: [tile], action: 'refresh' })}
+                                    refresh={() => refreshDashboardItem({ tile })}
+                                    refreshEnabled={!itemsLoading}
                                     rename={() => renameInsight(insight)}
                                     duplicate={() => duplicateInsight(insight)}
                                     showDetailsControls={placement != DashboardPlacement.Export}
                                     placement={placement}
                                     loadPriority={smLayout ? smLayout.y * 1000 + smLayout.x : undefined}
+                                    filtersOverride={temporaryFilters}
                                     {...commonTileProps}
                                 />
                             )

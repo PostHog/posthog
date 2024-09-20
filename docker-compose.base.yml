@@ -3,6 +3,45 @@
 #
 
 services:
+    proxy:
+        image: caddy
+        entrypoint: sh
+        restart: always
+        command: -c 'set -x && echo "$$CADDYFILE" > /etc/caddy/Caddyfile && exec caddy run -c /etc/caddy/Caddyfile'
+        volumes:
+            - /root/.caddy
+        environment:
+            CADDYFILE: |
+                http://localhost:8000 {
+                    @replay-capture {
+                        path /s
+                        path /s/*
+                    }
+
+                    @capture {
+                        path /e
+                        path /e/*
+                        path /i/v0/e
+                        path /i/v0/e*
+                        path /batch
+                        path /batch*
+                        path /capture
+                        path /capture*
+                    }
+
+                    handle @capture {
+                        reverse_proxy capture:3000
+                    }
+
+                    handle @replay-capture {
+                        reverse_proxy replay-capture:3000
+                    }
+
+                    handle {
+                        reverse_proxy web:8000
+                    }
+                }
+
     db:
         image: postgres:12-alpine
         restart: on-failure
@@ -19,13 +58,28 @@ services:
         image: redis:6.2.7-alpine
         restart: on-failure
         command: redis-server --maxmemory-policy allkeys-lru --maxmemory 200mb
+        healthcheck:
+            test: ['CMD', 'redis-cli', 'ping']
+            interval: 3s
+            timeout: 10s
+            retries: 10
+
+    redis7:
+        image: redis:7.2-alpine
+        restart: on-failure
+        command: redis-server --maxmemory-policy allkeys-lru --maxmemory 200mb
+        healthcheck:
+            test: ['CMD', 'redis-cli', 'ping']
+            interval: 3s
+            timeout: 10s
+            retries: 10
 
     clickhouse:
         #
         # Note: please keep the default version in sync across
         #       `posthog` and the `charts-clickhouse` repos
         #
-        image: ${CLICKHOUSE_SERVER_IMAGE:-clickhouse/clickhouse-server:23.12.5.81-alpine}
+        image: ${CLICKHOUSE_SERVER_IMAGE:-clickhouse/clickhouse-server:23.12.6.19-alpine}
         restart: on-failure
 
     zookeeper:
@@ -42,6 +96,11 @@ services:
             KAFKA_CFG_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
             KAFKA_CFG_ZOOKEEPER_CONNECT: zookeeper:2181
             ALLOW_PLAINTEXT_LISTENER: 'true'
+        healthcheck:
+            test: kafka-cluster.sh cluster-id --bootstrap-server localhost:9092 || exit 1
+            interval: 3s
+            timeout: 10s
+            retries: 10
 
     kafka_ui:
         image: provectuslabs/kafka-ui:latest
@@ -51,7 +110,7 @@ services:
             KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
             DYNAMIC_CONFIG_ENABLED: 'true'
 
-    object_storage:
+    objectstorage:
         image: minio/minio:RELEASE.2022-06-25T15-50-16Z
         restart: on-failure
         environment:
@@ -74,7 +133,7 @@ services:
     worker: &worker
         command: ./bin/docker-worker-celery --with-scheduler
         restart: on-failure
-        environment:
+        environment: &worker_env
             DISABLE_SECURE_SSL_REDIRECT: 'true'
             IS_BEHIND_PROXY: 'true'
             DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
@@ -95,13 +154,32 @@ services:
         restart: on-failure
 
     capture:
-        image: ghcr.io/posthog/capture:main
+        image: ghcr.io/posthog/posthog/capture:master
+        build:
+            context: rust/
+            args:
+                BIN: capture
         restart: on-failure
         environment:
             ADDRESS: '0.0.0.0:3000'
             KAFKA_TOPIC: 'events_plugin_ingestion'
             KAFKA_HOSTS: 'kafka:9092'
             REDIS_URL: 'redis://redis:6379/'
+            CAPTURE_MODE: events
+
+    replay-capture:
+        image: ghcr.io/posthog/posthog/capture:master
+        build:
+            context: rust/
+            args:
+                BIN: capture
+        restart: on-failure
+        environment:
+            ADDRESS: '0.0.0.0:3000'
+            KAFKA_TOPIC: 'session_recording_snapshot_item_events'
+            KAFKA_HOSTS: 'kafka:9092'
+            REDIS_URL: 'redis://redis:6379/'
+            CAPTURE_MODE: recordings
 
     plugins:
         command: ./bin/plugin-server --no-restart-loop
@@ -114,6 +192,13 @@ services:
             CLICKHOUSE_DATABASE: 'posthog'
             CLICKHOUSE_SECURE: 'false'
             CLICKHOUSE_VERIFY: 'false'
+
+    livestream:
+        image: 'ghcr.io/posthog/livestream:main'
+        restart: on-failure
+        depends_on:
+            kafka:
+                condition: service_started
 
     migrate:
         <<: *worker
@@ -133,6 +218,7 @@ services:
         deploy:
             replicas: 0
         environment:
+            <<: *worker_env
             SKIP_ASYNC_MIGRATIONS_SETUP: 0
 
     # Temporal containers
@@ -193,4 +279,5 @@ services:
         command: ./bin/temporal-django-worker
         restart: on-failure
         environment:
+            <<: *worker_env
             TEMPORAL_HOST: temporal

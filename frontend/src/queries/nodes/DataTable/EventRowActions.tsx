@@ -5,7 +5,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
-import { createActionFromEvent } from 'scenes/events/createActionFromEvent'
+import { createActionFromEvent } from 'scenes/activity/explore/createActionFromEvent'
 import { insightUrlForEvent } from 'scenes/insights/utils'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -59,7 +59,6 @@ export function EventRowActions({ event }: EventActionProps): JSX.Element {
                     {!!event.properties?.$session_id && (
                         <LemonButton
                             to={urls.replaySingle(event.properties.$session_id)}
-                            disableClientSideRouting
                             onClick={(e) => {
                                 e.preventDefault()
                                 if (event.properties.$session_id) {

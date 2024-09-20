@@ -32,7 +32,7 @@ export function RecordingRow({ recording }: RecordingRowProps): JSX.Element {
             subtitle={`Recorded ${dayjs(recording.start_time).fromNow()}`}
             prefix={<ProfilePicture name={asDisplay(recording.person)} />}
             suffix={
-                <div className="flex items-center justify-end text-default">
+                <div className="flex items-center justify-end text-text-3000">
                     <span>{humanFriendlyDuration(recording.recording_duration)}</span>
                     <IconPlayCircle className="text-2xl ml-2" />
                 </div>

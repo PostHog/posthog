@@ -3,14 +3,14 @@ import { actions, afterMount, connect, kea, listeners, path, props, propsChanged
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
-import { fromParamsGivenUrl, isGroupType } from 'lib/utils'
+import { isGroupType } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { urls } from 'scenes/urls'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
-import { query as performQuery } from '~/queries/query'
+import { performQuery } from '~/queries/query'
 import {
     ActorsQuery,
     DataTableNode,
@@ -19,6 +19,7 @@ import {
     InsightActorsQuery,
     InsightActorsQueryOptions,
     InsightActorsQueryOptionsResponse,
+    insightActorsQueryOptionsResponseKeys,
     NodeKind,
 } from '~/queries/schema'
 import {
@@ -74,7 +75,7 @@ export const personsModalLogic = kea<personsModalLogicType>([
     }),
     connect({
         values: [groupsModel, ['groupTypes', 'aggregationLabel']],
-        actions: [eventUsageLogic, ['reportCohortCreatedFromPersonsModal', 'reportPersonsModalViewed']],
+        actions: [eventUsageLogic, ['reportPersonsModalViewed']],
     }),
 
     loaders(({ values, actions, props }) => ({
@@ -99,17 +100,11 @@ export const personsModalLogic = kea<personsModalLogicType>([
                         return res
                     }
                     if (values.actorsQuery) {
-                        const response = await performQuery(
-                            {
-                                ...values.actorsQuery,
-                                limit: offset ? offset * 2 : RESULTS_PER_PAGE,
-                                offset,
-                            } as ActorsQuery,
-                            undefined,
-                            undefined,
-                            undefined,
-                            url ?? undefined
-                        )
+                        const response = await performQuery({
+                            ...values.actorsQuery,
+                            limit: offset ? offset * 2 : RESULTS_PER_PAGE,
+                            offset,
+                        } as ActorsQuery)
                         breakpoint()
 
                         const assembledSelectFields = values.selectFields
@@ -180,8 +175,13 @@ export const personsModalLogic = kea<personsModalLogicType>([
                         kind: NodeKind.InsightActorsQueryOptions,
                         source: query,
                     }
-                    const response = await performQuery(optionsQuery)
-                    return response
+                    const response = await performQuery(optionsQuery, { async: false })
+
+                    return Object.fromEntries(
+                        Object.entries(response).filter(([key, _]) =>
+                            insightActorsQueryOptionsResponseKeys.includes(key)
+                        )
+                    )
                 },
             },
         ],
@@ -250,33 +250,16 @@ export const personsModalLogic = kea<personsModalLogicType>([
                 is_static: true,
                 name: cohortName,
             }
-            if (values.actorsQuery) {
-                const cohort = await api.create('api/cohort', { ...cohortParams, query: values.actorsQuery })
-                cohortsModel.actions.cohortCreated(cohort)
-                lemonToast.success('Cohort saved', {
-                    toastId: `cohort-saved-${cohort.id}`,
-                    button: {
-                        label: 'View cohort',
-                        action: () => router.actions.push(urls.cohort(cohort.id)),
-                    },
-                })
-                actions.setIsCohortModalOpen(false)
-            } else {
-                const qs = props.url?.split('?').pop() || ''
-                const cohort = await api.create('api/cohort?' + qs, cohortParams)
-                cohortsModel.actions.cohortCreated(cohort)
-                lemonToast.success('Cohort saved', {
-                    toastId: `cohort-saved-${cohort.id}`,
-                    button: {
-                        label: 'View cohort',
-                        action: () => router.actions.push(urls.cohort(cohort.id)),
-                    },
-                })
-
-                const filters = fromParamsGivenUrl('?' + qs)
-                actions.setIsCohortModalOpen(false)
-                actions.reportCohortCreatedFromPersonsModal(filters)
-            }
+            const cohort = await api.create('api/cohort', { ...cohortParams, query: values.actorsQuery })
+            cohortsModel.actions.cohortCreated(cohort)
+            lemonToast.success('Cohort saved', {
+                toastId: `cohort-saved-${cohort.id}`,
+                button: {
+                    label: 'View cohort',
+                    action: () => router.actions.push(urls.cohort(cohort.id)),
+                },
+            })
+            actions.setIsCohortModalOpen(false)
         },
         loadNextActors: () => {
             if (values.actorsResponse?.next) {
@@ -378,7 +361,7 @@ export const personsModalLogic = kea<personsModalLogicType>([
                     source,
                     full: true,
                 }
-                return urls.insightNew(undefined, undefined, JSON.stringify(query))
+                return urls.insightNew(undefined, undefined, query)
             },
         ],
     }),

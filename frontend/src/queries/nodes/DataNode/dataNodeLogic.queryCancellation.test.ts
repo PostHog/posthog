@@ -46,39 +46,6 @@ describe('dataNodeLogic - query cancellation', () => {
     })
     afterEach(() => logic?.unmount())
 
-    it.skip('cancels a running query', async () => {
-        ;(libUtils as any).uuid = jest.fn().mockReturnValueOnce('uuid-first').mockReturnValueOnce('uuid-second')
-        logic = dataNodeLogic({
-            key: testUniqueKey,
-            query: {
-                kind: NodeKind.TrendsQuery,
-                series: [],
-                dateRange: { date_from: '-180d' },
-            },
-        })
-        logic.mount()
-
-        setTimeout(() => {
-            dataNodeLogic({
-                key: testUniqueKey,
-                query: {
-                    kind: NodeKind.TrendsQuery,
-                    series: [],
-                    dateRange: { date_from: '-90d' },
-                },
-            })
-        }, 200)
-
-        await expectLogic(logic).toDispatchActions([
-            'loadData',
-            'abortAnyRunningQuery',
-            'loadData',
-            'abortAnyRunningQuery',
-            logic.actionCreators.abortQuery({ queryId: 'uuid-first' }),
-            logic.actionCreators.loadDataSuccess({ result: ['result from api'] }),
-        ])
-    })
-
     it('cancels a running query on click', async () => {
         ;(libUtils as any).uuid = jest.fn().mockReturnValueOnce('uuid-first').mockReturnValueOnce('uuid-second')
         logic = dataNodeLogic({

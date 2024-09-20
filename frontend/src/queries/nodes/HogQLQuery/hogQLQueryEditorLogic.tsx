@@ -1,38 +1,36 @@
 import type { Monaco } from '@monaco-editor/react'
 import { LemonDialog, LemonInput } from '@posthog/lemon-ui'
 import { actions, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
-import { combineUrl } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-// Note: we can oly import types and not values from monaco-editor, because otherwise some Monaco code breaks
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+// Note: we can only import types and not values from monaco-editor, because otherwise some Monaco code breaks
 // auto reload in development. Specifically, on this line:
 // `export const suggestWidgetStatusbarMenu = new MenuId('suggestWidgetStatusBar')`
 // `new MenuId('suggestWidgetStatusBar')` causes the app to crash, because it cannot be called twice in the same
 // JS context, and that's exactly what happens on auto-reload when the new script chunks are loaded. Unfortunately
 // esbuild doesn't support manual chunks as of 2023, so we can't just put Monaco in its own chunk, which would prevent
 // re-importing. As for @monaco-editor/react, it does some lazy loading and doesn't have this problem.
-import type { editor, MarkerSeverity } from 'monaco-editor'
-import { dataWarehouseSavedQueriesLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseSavedQueriesLogic'
+import type { editor } from 'monaco-editor'
+import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
+import { dataWarehouseSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSceneLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { urls } from 'scenes/urls'
 
-import { query } from '~/queries/query'
-import { HogQLMetadata, HogQLNotice, HogQLQuery, NodeKind } from '~/queries/schema'
+import { DataNode, HogQLQuery, NodeKind } from '~/queries/schema'
 
 import type { hogQLQueryEditorLogicType } from './hogQLQueryEditorLogicType'
 
-export interface ModelMarker extends editor.IMarkerData {
-    hogQLFix?: string
-    start: number
-    end: number
-}
-
 export interface HogQLQueryEditorLogicProps {
-    key: number
+    key: string | number
     query: HogQLQuery
     setQuery?: (query: HogQLQuery) => void
     onChange?: (query: string) => void
     monaco?: Monaco | null
     editor?: editor.IStandaloneCodeEditor | null
+    metadataSource?: DataNode
 }
 
 export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
@@ -40,106 +38,64 @@ export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
     props({} as HogQLQueryEditorLogicProps),
     key((props) => props.key),
     propsChanged(({ actions, props }, oldProps) => {
+        const selection = props.editor?.getSelection()
+        const model = props.editor?.getModel()
+        const highlightedQuery = selection && model ? model.getValueInRange(selection) : null
+
+        if (highlightedQuery && props.query.query === highlightedQuery) {
+            return
+        }
+
         if (props.query.query !== oldProps.query.query || props.editor !== oldProps.editor) {
             actions.setQueryInput(props.query.query)
         }
     }),
     connect({
-        actions: [dataWarehouseSavedQueriesLogic, ['createDataWarehouseSavedQuery']],
+        values: [featureFlagLogic, ['featureFlags']],
+        actions: [dataWarehouseViewsLogic, ['createDataWarehouseSavedQuery'], dataWarehouseSceneLogic, ['updateView']],
     }),
     actions({
-        saveQuery: true,
+        saveQuery: (queryOverride?: string) => ({ queryOverride }),
         setQueryInput: (queryInput: string) => ({ queryInput }),
-        setModelMarkers: (markers: ModelMarker[]) => ({ markers }),
         setPrompt: (prompt: string) => ({ prompt }),
         setPromptError: (error: string | null) => ({ error }),
         draftFromPrompt: true,
         draftFromPromptComplete: true,
         saveAsView: true,
         saveAsViewSuccess: (name: string) => ({ name }),
-        setIsValidView: (isValid: boolean) => ({ isValid }),
+        onUpdateView: true,
     }),
     reducers(({ props }) => ({
         queryInput: [props.query.query, { setQueryInput: (_, { queryInput }) => queryInput }],
-        modelMarkers: [[] as ModelMarker[], { setModelMarkers: (_, { markers }) => markers }],
         prompt: ['', { setPrompt: (_, { prompt }) => prompt }],
         promptError: [
             null as string | null,
             { setPromptError: (_, { error }) => error, draftFromPrompt: () => null, saveQuery: () => null },
         ],
         promptLoading: [false, { draftFromPrompt: () => true, draftFromPromptComplete: () => false }],
-        isValidView: [false, { setIsValidView: (_, { isValid }) => isValid }],
     })),
     selectors({
-        hasErrors: [
-            (s) => [s.modelMarkers],
-            (modelMarkers) => !!(modelMarkers ?? []).filter((e) => e.severity === 8 /* MarkerSeverity.Error */).length,
-        ],
-        error: [
-            (s) => [s.hasErrors, s.modelMarkers],
-            (hasErrors, modelMarkers) => {
-                const firstError = modelMarkers.find((e) => e.severity === 8 /* MarkerSeverity.Error */)
-                return hasErrors && firstError
-                    ? `Error on line ${firstError.startLineNumber}, column ${firstError.startColumn}`
-                    : null
-            },
-        ],
         aiAvailable: [() => [preflightLogic.selectors.preflight], (preflight) => preflight?.openai_available],
+        multitab: [
+            (s) => [s.featureFlags, () => !!dataWarehouseSceneLogic.findMounted()?.values.editingView],
+            (featureFlags, isEditingView) =>
+                !!(
+                    featureFlags[FEATURE_FLAGS.MULTITAB_EDITOR] &&
+                    router.values.location.pathname.includes(urls.dataWarehouse()) &&
+                    Object.keys(router.values.hashParams).length === 0 &&
+                    !isEditingView
+                ),
+        ],
     }),
     listeners(({ actions, props, values }) => ({
-        saveQuery: () => {
+        saveQuery: ({ queryOverride }) => {
             const query = values.queryInput
             // TODO: Is below line necessary if the only way for queryInput to change is already through setQueryInput?
             actions.setQueryInput(query)
-            props.setQuery?.({ ...props.query, query })
-        },
-        setQueryInput: async (_, breakpoint) => {
-            if (!props.editor || !props.monaco) {
-                return
-            }
-            const model = props.editor?.getModel()
-            if (!model) {
-                return
-            }
-            await breakpoint(300)
-            const { queryInput } = values
-            const response = await query<HogQLMetadata>({
-                kind: NodeKind.HogQLMetadata,
-                select: queryInput,
-                filters: props.query.filters,
-            })
-            breakpoint()
-            const markers: ModelMarker[] = []
 
-            function noticeToMarker(error: HogQLNotice, severity: MarkerSeverity): void {
-                if (!model) {
-                    return
-                }
-                const start = model.getPositionAt(error.start ?? 0)
-                const end = model.getPositionAt(error.end ?? queryInput.length)
-                markers.push({
-                    start: error.start ?? 0,
-                    startLineNumber: start.lineNumber,
-                    startColumn: start.column,
-                    end: error.end ?? queryInput.length,
-                    endLineNumber: end.lineNumber,
-                    endColumn: end.column,
-                    message: error.message ?? 'Unknown error',
-                    severity: severity,
-                    hogQLFix: error.fix,
-                })
-            }
-            for (const notice of response?.errors ?? []) {
-                noticeToMarker(notice, 8 /* MarkerSeverity.Error */)
-            }
-            for (const notice of response?.warnings ?? []) {
-                noticeToMarker(notice, 4 /* MarkerSeverity.Warning */)
-            }
-            for (const notice of response?.notices ?? []) {
-                noticeToMarker(notice, 1 /* MarkerSeverity.Hint */)
-            }
-            actions.setIsValidView(response?.isValidView || false)
-            actions.setModelMarkers(markers)
+            props.setQuery?.({ ...props.query, query: queryOverride ?? query })
+        },
+        setQueryInput: async ({ queryInput }) => {
             props.onChange?.(queryInput)
         },
         draftFromPrompt: async () => {
@@ -163,12 +119,6 @@ export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
                 actions.draftFromPromptComplete()
             }
         },
-        setModelMarkers: ({ markers }) => {
-            const model = props.editor?.getModel()
-            if (model) {
-                props.monaco?.editor.setModelMarkers(model, 'hogql', markers)
-            }
-        },
         saveAsView: async () => {
             LemonDialog.openForm({
                 title: 'Save as view',
@@ -189,7 +139,10 @@ export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
                 kind: NodeKind.HogQLQuery,
                 query: values.queryInput,
             }
-            await dataWarehouseSavedQueriesLogic.asyncActions.createDataWarehouseSavedQuery({ name, query })
+            await dataWarehouseViewsLogic.asyncActions.createDataWarehouseSavedQuery({ name, query })
+        },
+        onUpdateView: async () => {
+            actions.updateView(values.queryInput)
         },
     })),
 ])

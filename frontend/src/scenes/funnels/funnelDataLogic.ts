@@ -1,5 +1,5 @@
-import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
-import { BIN_COUNT_AUTO, FEATURE_FLAGS } from 'lib/constants'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { BIN_COUNT_AUTO } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { average, percentage, sum } from 'lib/utils'
@@ -23,6 +23,7 @@ import {
     FunnelVizType,
     HistogramGraphDatum,
     InsightLogicProps,
+    InsightType,
     StepOrderValue,
     TrendResult,
 } from '~/types'
@@ -70,6 +71,8 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
 
     actions({
         hideSkewWarning: true,
+        setHiddenLegendBreakdowns: (hiddenLegendBreakdowns: string[]) => ({ hiddenLegendBreakdowns }),
+        toggleLegendBreakdownVisibility: (breakdown: string) => ({ breakdown }),
     }),
 
     reducers({
@@ -82,14 +85,6 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
     }),
 
     selectors(() => ({
-        hogQLInsightsFunnelsFlagEnabled: [
-            (s) => [s.featureFlags],
-            (featureFlags): boolean => {
-                return !!(
-                    featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS] || featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_FUNNELS]
-                )
-            },
-        ],
         querySource: [
             (s) => [s.vizQuerySource],
             (vizQuerySource) => (isFunnelsQuery(vizQuerySource) ? vizQuerySource : null),
@@ -163,8 +158,22 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
             },
         ],
         steps: [
-            (s) => [s.breakdownFilter, s.results, s.isTimeToConvertFunnel],
-            (breakdownFilter, results, isTimeToConvertFunnel): FunnelStepWithNestedBreakdown[] => {
+            (s) => [s.insightData, s.querySource, s.breakdownFilter, s.results, s.isTimeToConvertFunnel],
+            (
+                insightData,
+                querySource,
+                breakdownFilter,
+                results,
+                isTimeToConvertFunnel
+            ): FunnelStepWithNestedBreakdown[] => {
+                if (
+                    // TODO: Ideally we don't check filters anymore, but tests are still using this
+                    insightData?.filters?.insight !== InsightType.FUNNELS &&
+                    querySource?.kind !== NodeKind.FunnelsQuery
+                ) {
+                    return []
+                }
+
                 // we need to check wether results are an array, since isTimeToConvertFunnel can be false,
                 // while still having "time-to-convert" results in insightData
                 if (!isTimeToConvertFunnel && Array.isArray(results)) {
@@ -198,6 +207,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                 return flattenedStepsByBreakdown(steps, funnelsFilter?.layout, disableBaseline, true)
             },
         ],
+        hiddenLegendBreakdowns: [(s) => [s.funnelsFilter], (funnelsFilter) => funnelsFilter?.hiddenLegendBreakdowns],
         visibleStepsWithConversionMetrics: [
             (s) => [s.stepsWithConversionMetrics, s.funnelsFilter, s.flattenedBreakdowns],
             (steps, funnelsFilter, flattenedBreakdowns): FunnelStepWithConversionMetrics[] => {
@@ -216,7 +226,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                         ?.filter(
                             (b) =>
                                 isOnlySeries ||
-                                !funnelsFilter?.hidden_legend_breakdowns?.includes(getVisibilityKey(b.breakdown_value))
+                                !funnelsFilter?.hiddenLegendBreakdowns?.includes(getVisibilityKey(b.breakdown_value))
                         ),
                 }))
             },
@@ -260,8 +270,16 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
             },
         ],
         hasFunnelResults: [
-            (s) => [s.funnelsFilter, s.steps, s.histogramGraphData],
-            (funnelsFilter, steps, histogramGraphData) => {
+            (s) => [s.insightData, s.funnelsFilter, s.steps, s.histogramGraphData, s.querySource],
+            (insightData, funnelsFilter, steps, histogramGraphData, querySource) => {
+                if (
+                    // TODO: Ideally we don't check filters anymore, but tests are still using this
+                    insightData?.filters?.insight !== InsightType.FUNNELS &&
+                    querySource?.kind !== NodeKind.FunnelsQuery
+                ) {
+                    return false
+                }
+
                 if (funnelsFilter?.funnelVizType === FunnelVizType.Steps || !funnelsFilter?.funnelVizType) {
                     return !!(steps && steps[0] && steps[0].count > -1)
                 } else if (funnelsFilter.funnelVizType === FunnelVizType.TimeToConvert) {
@@ -388,5 +406,16 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
             (steps) =>
                 Array.isArray(steps) ? steps.map((step, index) => ({ ...step, seriesIndex: index, id: index })) : [],
         ],
+    })),
+
+    listeners(({ actions, values }) => ({
+        setHiddenLegendBreakdowns: ({ hiddenLegendBreakdowns }) => {
+            actions.updateInsightFilter({ hiddenLegendBreakdowns })
+        },
+        toggleLegendBreakdownVisibility: ({ breakdown }) => {
+            values.hiddenLegendBreakdowns?.includes(breakdown)
+                ? actions.setHiddenLegendBreakdowns(values.hiddenLegendBreakdowns.filter((b) => b !== breakdown))
+                : actions.setHiddenLegendBreakdowns([...(values.hiddenLegendBreakdowns || []), breakdown])
+        },
     })),
 ])

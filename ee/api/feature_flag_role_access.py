@@ -77,7 +77,7 @@ class FeatureFlagRoleAccessViewSet(
     permission_classes = [FeatureFlagRoleAccessPermissions]
     serializer_class = FeatureFlagRoleAccessSerializer
     queryset = FeatureFlagRoleAccess.objects.select_related("feature_flag")
-    filter_rewrite_rules = {"team_id": "feature_flag__team_id"}
+    filter_rewrite_rules = {"project_id": "feature_flag__team__project_id"}
 
     def safely_get_queryset(self, queryset):
         filters = self.request.GET.dict()

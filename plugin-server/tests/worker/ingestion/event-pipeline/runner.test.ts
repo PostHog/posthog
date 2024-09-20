@@ -11,6 +11,7 @@ import { prepareEventStep } from '../../../../src/worker/ingestion/event-pipelin
 import { processPersonsStep } from '../../../../src/worker/ingestion/event-pipeline/processPersonsStep'
 import { processOnEventStep } from '../../../../src/worker/ingestion/event-pipeline/runAsyncHandlersStep'
 import { EventPipelineRunner } from '../../../../src/worker/ingestion/event-pipeline/runner'
+import { EventsProcessor } from '../../../../src/worker/ingestion/process-event'
 
 jest.mock('../../../../src/worker/ingestion/event-pipeline/populateTeamDataStep')
 jest.mock('../../../../src/worker/ingestion/event-pipeline/pluginsProcessEventStep')
@@ -91,13 +92,17 @@ describe('EventPipelineRunner', () => {
 
     beforeEach(() => {
         hub = {
+            kafkaProducer: { queueMessage: jest.fn() },
+            teamManager: {
+                fetchTeam: jest.fn(() => {}),
+            },
             db: {
                 kafkaProducer: { queueMessage: jest.fn() },
                 fetchPerson: jest.fn(),
             },
             eventsToDropByToken: createEventsToDropByToken('drop_token:drop_id,drop_token_all:*'),
         }
-        runner = new TestEventPipelineRunner(hub, pluginEvent)
+        runner = new TestEventPipelineRunner(hub, pluginEvent, new EventsProcessor(hub))
 
         jest.mocked(populateTeamDataStep).mockResolvedValue(pluginEvent)
         jest.mocked(pluginsProcessEventStep).mockResolvedValue(pluginEvent)
@@ -121,6 +126,7 @@ describe('EventPipelineRunner', () => {
                 'processPersonsStep',
                 'prepareEventStep',
                 'extractHeatmapDataStep',
+                'enrichExceptionEventStep',
                 'createEventStep',
             ])
             expect(runner.stepsWithArgs).toMatchSnapshot()
@@ -149,6 +155,7 @@ describe('EventPipelineRunner', () => {
                 'processPersonsStep',
                 'prepareEventStep',
                 'extractHeatmapDataStep',
+                'enrichExceptionEventStep',
                 'createEventStep',
             ])
         })
@@ -171,7 +178,7 @@ describe('EventPipelineRunner', () => {
             const result = await runner.runEventPipeline(pipelineEvent)
             expect(result.error).toBeUndefined()
 
-            expect(pipelineStepMsSummarySpy).toHaveBeenCalledTimes(7)
+            expect(pipelineStepMsSummarySpy).toHaveBeenCalledTimes(8)
             expect(pipelineLastStepCounterSpy).toHaveBeenCalledTimes(1)
             expect(eventProcessedAndIngestedCounterSpy).toHaveBeenCalledTimes(1)
             expect(pipelineStepMsSummarySpy).toHaveBeenCalledWith('createEventStep')
@@ -265,7 +272,7 @@ describe('EventPipelineRunner', () => {
                         kafkaProducer: { queueMessage: jest.fn() },
                     },
                 }
-                const runner = new TestEventPipelineRunner(hub, event)
+                const runner = new TestEventPipelineRunner(hub, event, new EventsProcessor(hub))
                 jest.mocked(populateTeamDataStep).mockResolvedValue(event)
 
                 await runner.runEventPipeline(event)
@@ -283,6 +290,49 @@ describe('EventPipelineRunner', () => {
                         message: 'My warning message!',
                     }),
                 })
+            })
+        })
+
+        describe('$$heatmap events', () => {
+            let heatmapEvent: PipelineEvent
+            beforeEach(() => {
+                heatmapEvent = {
+                    ...pipelineEvent,
+                    event: '$$heatmap',
+                    properties: {
+                        ...pipelineEvent.properties,
+                        $heatmap_data: {
+                            url1: ['data'],
+                            url2: ['more data'],
+                        },
+                    },
+                }
+
+                // setup just enough mocks that the right pipeline runs
+
+                runner = new TestEventPipelineRunner(hub, heatmapEvent, new EventsProcessor(hub))
+
+                jest.mocked(populateTeamDataStep).mockResolvedValue(heatmapEvent as any)
+
+                const heatmapPreIngestionEvent = {
+                    ...preIngestionEvent,
+                    event: '$$heatmap',
+                    properties: {
+                        ...heatmapEvent.properties,
+                    },
+                }
+                jest.mocked(prepareEventStep).mockResolvedValue(heatmapPreIngestionEvent)
+            })
+
+            it('runs the expected steps for heatmap_data', async () => {
+                await runner.runEventPipeline(heatmapEvent)
+
+                expect(runner.steps).toEqual([
+                    'populateTeamDataStep',
+                    'normalizeEventStep',
+                    'prepareEventStep',
+                    'extractHeatmapDataStep',
+                ])
             })
         })
     })
@@ -303,7 +353,7 @@ describe('EventPipelineRunner $process_person_profile=false', () => {
                     kafkaProducer: { queueMessage: jest.fn() },
                 },
             }
-            const runner = new TestEventPipelineRunner(hub, event)
+            const runner = new TestEventPipelineRunner(hub, event, new EventsProcessor(hub))
             jest.mocked(populateTeamDataStep).mockResolvedValue(event)
 
             await runner.runEventPipeline(event)

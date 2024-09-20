@@ -5,6 +5,7 @@ import api from 'lib/api'
 import { SECURE_URL_REGEX } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature, OrganizationDomainType } from '~/types'
 
@@ -31,7 +32,7 @@ export const isSecureURL = (url: string): boolean => {
 
 export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
     path(['scenes', 'organization', 'verifiedDomainsLogic']),
-    connect({ values: [organizationLogic, ['currentOrganization']] }),
+    connect({ values: [organizationLogic, ['currentOrganization']], logic: [userLogic] }),
     actions({
         replaceDomain: (domain: OrganizationDomainType) => ({ domain }),
         setAddModalShown: (shown: boolean) => ({ shown }),
@@ -134,14 +135,12 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
                 (verifyingId && verifiedDomains.find(({ id }) => id === verifyingId)) || null,
         ],
         isSSOEnforcementAvailable: [
-            (s) => [s.currentOrganization],
-            (currentOrganization): boolean =>
-                currentOrganization?.available_features.includes(AvailableFeature.SSO_ENFORCEMENT) ?? false,
+            () => [userLogic.selectors.hasAvailableFeature],
+            (hasAvailableFeature): boolean => hasAvailableFeature(AvailableFeature.SSO_ENFORCEMENT),
         ],
         isSAMLAvailable: [
-            (s) => [s.currentOrganization],
-            (currentOrganization): boolean =>
-                currentOrganization?.available_features.includes(AvailableFeature.SAML) ?? false,
+            () => [userLogic.selectors.hasAvailableFeature],
+            (hasAvailableFeature): boolean => hasAvailableFeature(AvailableFeature.SAML),
         ],
     }),
     afterMount(({ actions }) => actions.loadVerifiedDomains()),

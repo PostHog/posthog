@@ -94,7 +94,7 @@ def _sensible_last_timestamp(
             if isinstance(first_timestamp, str):
                 first_timestamp = parse(first_timestamp)
 
-            sensible_timestamp = (first_timestamp - relativedelta(seconds=3600)).isoformat()
+            sensible_timestamp = (first_timestamp + relativedelta(seconds=3600)).isoformat()
 
     return format_clickhouse_timestamp(cast_timestamp_or_now(sensible_timestamp))
 
@@ -105,7 +105,7 @@ def produce_replay_summary(
     distinct_id: Optional[str] = None,
     first_timestamp: Optional[str | datetime] = None,
     last_timestamp: Optional[str | datetime] = None,
-    first_url: Optional[str | None] = None,
+    first_url: Optional[str | None] = "https://not-provided-by-test.com",
     click_count: Optional[int] = None,
     keypress_count: Optional[int] = None,
     mouse_activity_count: Optional[int] = None,
@@ -115,6 +115,8 @@ def produce_replay_summary(
     console_error_count: Optional[int] = None,
     log_messages: dict[str, list[str]] | None = None,
     snapshot_source: str | None = None,
+    *,
+    ensure_analytics_event_in_session: bool = True,
 ):
     if log_messages is None:
         log_messages = {}
@@ -146,6 +148,19 @@ def produce_replay_summary(
         sql=INSERT_SINGLE_SESSION_REPLAY,
         data=data,
     )
+    if ensure_analytics_event_in_session:
+        # Only importing from posthog.test.base if needed
+        from posthog.test.base import _create_event, flush_persons_and_events
+
+        # It's best to also create a random analytics event, since sessions querying does a JOIN with events in
+        # any person-ID-on-events mode - sessions without an analytics event are excluded
+        _create_event(
+            distinct_id=data["distinct_id"],
+            event="foobarino",
+            properties={"$session_id": data["session_id"]},
+            team_id=team_id,
+        )
+        flush_persons_and_events()
 
     for level, messages in log_messages.items():
         for message in messages:

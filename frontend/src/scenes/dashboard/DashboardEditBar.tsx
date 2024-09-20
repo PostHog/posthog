@@ -1,5 +1,5 @@
 import { IconCalendar } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
@@ -7,20 +7,32 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 
 import { groupsModel } from '~/models/groupsModel'
+import { DashboardMode } from '~/types'
 
 export function DashboardEditBar(): JSX.Element {
-    const { dashboard, canEditDashboard, editMode, temporaryFilters, stale } = useValues(dashboardLogic)
-    const { setDates, setProperties, cancelTemporary, applyTemporary, setEditMode } = useActions(dashboardLogic)
+    const { dashboard, temporaryFilters, dashboardMode } = useValues(dashboardLogic)
+    const { setDates, setProperties, setDashboardMode } = useActions(dashboardLogic)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
 
     return (
-        <div className="flex gap-2 items-center justify-between flex-wrap">
+        <div
+            className={clsx(
+                'flex gap-2 items-center justify-between flex-wrap border',
+                dashboardMode === DashboardMode.Edit
+                    ? '-m-1.5 p-1.5 border-border-bold border-dashed rounded-lg'
+                    : 'border-transparent'
+            )}
+        >
             <DateFilter
                 showCustom
                 dateFrom={temporaryFilters.date_from}
                 dateTo={temporaryFilters.date_to}
-                onChange={setDates}
-                disabled={!canEditDashboard || !editMode}
+                onChange={(from_date, to_date) => {
+                    if (dashboardMode !== DashboardMode.Edit) {
+                        setDashboardMode(DashboardMode.Edit, null)
+                    }
+                    setDates(from_date, to_date)
+                }}
                 makeLabel={(key) => (
                     <>
                         <IconCalendar />
@@ -29,8 +41,12 @@ export function DashboardEditBar(): JSX.Element {
                 )}
             />
             <PropertyFilters
-                disabled={!canEditDashboard || !editMode}
-                onChange={setProperties}
+                onChange={(properties) => {
+                    if (dashboardMode !== DashboardMode.Edit) {
+                        setDashboardMode(DashboardMode.Edit, null)
+                    }
+                    setProperties(properties)
+                }}
                 pageKey={'dashboard_' + dashboard?.id}
                 propertyFilters={temporaryFilters.properties}
                 taxonomicGroupTypes={[
@@ -43,25 +59,6 @@ export function DashboardEditBar(): JSX.Element {
                     TaxonomicFilterGroupType.HogQLExpression,
                 ]}
             />
-            {canEditDashboard && !editMode ? (
-                <LemonButton type="secondary" size="small" onClick={() => setEditMode(true)}>
-                    Edit filters
-                </LemonButton>
-            ) : (
-                <>
-                    <LemonButton onClick={cancelTemporary} type="secondary" size="small" className="ml-4">
-                        Cancel
-                    </LemonButton>
-                    <LemonButton
-                        onClick={applyTemporary}
-                        type="primary"
-                        size="small"
-                        disabledReason={!stale ? 'No changes to apply' : undefined}
-                    >
-                        Apply and save dashboard
-                    </LemonButton>
-                </>
-            )}
         </div>
     )
 }

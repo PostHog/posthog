@@ -1,16 +1,14 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api, { ApiConfig } from 'lib/api'
-import { PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE } from 'lib/components/PropertyFilters/utils'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { IconSwapHoriz } from 'lib/lemon-ui/icons'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { getFilterLabel } from 'lib/taxonomy'
 import { identifierToHuman, isUserLoggedIn, resolveWebhookService } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { getAppContext } from 'lib/utils/getAppContext'
 
-import { CorrelationConfigType, PropertyOperator, TeamPublicType, TeamType } from '~/types'
+import { CorrelationConfigType, TeamPublicType, TeamType } from '~/types'
 
 import { organizationLogic } from './organizationLogic'
 import type { teamLogicType } from './teamLogicType'
@@ -69,7 +67,7 @@ export const teamLogic = kea<teamLogicType>([
                     try {
                         return await api.get('api/projects/@current')
                     } catch {
-                        return null
+                        return values.currentTeam
                     }
                 },
                 updateCurrentTeam: async (payload: Partial<TeamType>, breakpoint) => {
@@ -174,45 +172,6 @@ export const teamLogic = kea<teamLogicType>([
                 (!!currentTeam?.effective_membership_level &&
                     currentTeam.effective_membership_level >= OrganizationMembershipLevel.Admin) ||
                 currentTeam?.user_access_level === 'admin',
-        ],
-        testAccountFilterWarningLabels: [
-            (selectors) => [selectors.currentTeam],
-            (currentTeam) => {
-                if (!currentTeam) {
-                    return null
-                }
-                const positiveFilterOperators = [
-                    PropertyOperator.Exact,
-                    PropertyOperator.IContains,
-                    PropertyOperator.Regex,
-                    PropertyOperator.IsSet,
-                ]
-                const positiveFilters = []
-                for (const filter of currentTeam.test_account_filters || []) {
-                    if (
-                        'operator' in filter &&
-                        !!filter.operator &&
-                        positiveFilterOperators.includes(filter.operator)
-                    ) {
-                        positiveFilters.push(filter)
-                    }
-                }
-
-                return positiveFilters.map((filter) => {
-                    if (!!filter.type && !!filter.key) {
-                        // person properties can be checked for a label as if they were event properties
-                        // so, we can check each acceptable type and see if it returns a value
-                        return (
-                            getFilterLabel(
-                                filter.key,
-                                PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[filter.type]
-                            ) || filter.key
-                        )
-                    } else {
-                        return filter.key
-                    }
-                })
-            },
         ],
         testAccountFilterFrequentMistakes: [
             (selectors) => [selectors.currentTeam],

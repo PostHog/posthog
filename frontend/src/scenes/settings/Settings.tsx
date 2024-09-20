@@ -4,6 +4,7 @@ import { LemonBanner, LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { NotFound } from 'lib/components/NotFound'
+import { TimeSensitiveAuthenticationArea } from 'lib/components/TimeSensitiveAuthentication/TimeSensitiveAuthentication'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { IconChevronRight, IconLink } from 'lib/lemon-ui/icons'
 import { capitalizeFirstLetter, inStorybookTestRunner } from 'lib/utils'
@@ -84,21 +85,23 @@ export function Settings({
                 </>
             )}
 
-            <div className="flex-1 w-full space-y-2 min-w-0">
-                {!hideSections && selectedLevel === 'project' && (
-                    <LemonBanner type="info">
-                        These settings only apply to the current project{' '}
-                        {currentTeam?.name ? (
-                            <>
-                                (<b>{currentTeam.name}</b>)
-                            </>
-                        ) : null}
-                        .
-                    </LemonBanner>
-                )}
+            <TimeSensitiveAuthenticationArea>
+                <div className="flex-1 w-full space-y-2 min-w-0">
+                    {!hideSections && selectedLevel === 'project' && (
+                        <LemonBanner type="info">
+                            These settings only apply to the current project{' '}
+                            {currentTeam?.name ? (
+                                <>
+                                    (<b>{currentTeam.name}</b>)
+                                </>
+                            ) : null}
+                            .
+                        </LemonBanner>
+                    )}
 
-                <SettingsRenderer {...props} />
-            </div>
+                    <SettingsRenderer {...props} />
+                </div>
+            </TimeSensitiveAuthenticationArea>
         </div>
     )
 }
@@ -120,7 +123,7 @@ function SettingsRenderer(props: SettingsLogicProps): JSX.Element {
                             }}
                         />
                         <h2 className="flex gap-2 items-center">
-                            {x.title}{' '}
+                            {x.title}
                             <LemonButton icon={<IconLink />} size="small" onClick={() => selectSetting?.(x.id)} />
                         </h2>
                         {x.description && <p>{x.description}</p>}

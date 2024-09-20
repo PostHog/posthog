@@ -36,6 +36,7 @@ import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/
 import { teamLogic } from 'scenes/teamLogic'
 
 import { Noun } from '~/models/groupsModel'
+import { MAX_SELECT_RETURNED_ROWS } from '~/queries/nodes/DataTable/DataTableExport'
 import {
     ActorType,
     ExporterFormat,
@@ -44,6 +45,7 @@ import {
     SessionRecordingType,
 } from '~/types'
 
+import { cleanedInsightActorsQueryOptions } from './persons-modal-utils'
 import { PersonModalLogicProps, personsModalLogic } from './personsModalLogic'
 import { SaveCohortModal } from './SaveCohortModal'
 
@@ -160,15 +162,26 @@ export function PersonsModal({
                     ) : null}
 
                     {query &&
-                        Object.entries(insightActorsQueryOptions ?? {})
-                            .filter(([, value]) => {
-                                if (Array.isArray(value)) {
-                                    return !!value.length
-                                }
-
-                                return !!value
-                            })
-                            .map(([key, options]) => (
+                        cleanedInsightActorsQueryOptions(insightActorsQueryOptions, query).map(([key, options]) =>
+                            key === 'breakdowns' ? (
+                                options.map(({ values }, index) => (
+                                    <div key={`${key}_${index}`}>
+                                        <LemonSelect
+                                            fullWidth
+                                            className="mb-2"
+                                            value={query?.breakdown?.[index] ?? null}
+                                            onChange={(v) => {
+                                                const breakdown = Array.isArray(query.breakdown)
+                                                    ? [...query.breakdown]
+                                                    : []
+                                                breakdown[index] = v
+                                                updateActorsQuery({ breakdown })
+                                            }}
+                                            options={values}
+                                        />
+                                    </div>
+                                ))
+                            ) : (
                                 <div key={key}>
                                     <LemonSelect
                                         fullWidth
@@ -178,7 +191,8 @@ export function PersonsModal({
                                         options={options}
                                     />
                                 </div>
-                            ))}
+                            )
+                        )}
 
                     <div className="flex items-center gap-2 text-muted">
                         {actorsResponseLoading ? (
@@ -245,22 +259,32 @@ export function PersonsModal({
                 <LemonModal.Footer>
                     <div className="flex justify-between gap-2 w-full">
                         <div className="flex gap-2">
-                            <LemonButton
-                                type="secondary"
-                                onClick={() => {
-                                    startExport({
-                                        export_format: ExporterFormat.CSV,
-                                        export_context: query
-                                            ? { source: actorsQuery as Record<string, any> }
-                                            : { path: originalUrl },
-                                    })
-                                }}
-                                data-attr="person-modal-download-csv"
-                                disabled={!actors.length}
-                            >
-                                Download CSV
-                            </LemonButton>
-                            {actors && actors.length > 0 && !isGroupType(actors[0]) && (
+                            {actors.length > 0 && (
+                                <LemonButton
+                                    type="secondary"
+                                    onClick={() => {
+                                        startExport({
+                                            export_format: ExporterFormat.CSV,
+                                            export_context: query
+                                                ? {
+                                                      source: {
+                                                          ...actorsQuery,
+                                                          select: actorsQuery!.select?.filter(
+                                                              (c) => c !== 'matched_recordings'
+                                                          ),
+                                                          source: { ...actorsQuery!.source, includeRecordings: false },
+                                                      },
+                                                  }
+                                                : { path: originalUrl },
+                                        })
+                                    }}
+                                    tooltip={`Up to ${MAX_SELECT_RETURNED_ROWS} persons will be exported`}
+                                    data-attr="person-modal-download-csv"
+                                >
+                                    Download CSV
+                                </LemonButton>
+                            )}
+                            {actors.length > 0 && !isGroupType(actors[0]) && (
                                 <LemonButton
                                     onClick={() => setIsCohortModalOpen(true)}
                                     type="secondary"
@@ -379,7 +403,7 @@ export function ActorRow({ actor, onOpenRecording, propertiesTimelineFilter }: A
             </div>
 
             {expanded ? (
-                <div className="PersonsModal__tabs bg-side border-t rounded-b">
+                <div className="PersonsModal__tabs bg-bg-3000 border-t rounded-b">
                     <LemonTabs
                         activeKey={tab}
                         onChange={setTab}

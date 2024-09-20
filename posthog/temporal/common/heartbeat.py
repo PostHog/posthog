@@ -4,7 +4,7 @@ import typing
 from temporalio import activity
 
 
-class Heartbeatter:
+class Heartbeater:
     """Regular heartbeatting during Temporal activity execution.
 
     This class manages two heartbeat tasks via a context manager:
@@ -20,7 +20,7 @@ class Heartbeatter:
             maintained while in the context manager to avoid garbage collection.
     """
 
-    def __init__(self, details: tuple[typing.Any, ...] = (), factor: int = 2):
+    def __init__(self, details: tuple[typing.Any, ...] = (), factor: int = 12):
         self._details: tuple[typing.Any, ...] = details
         self.factor = factor
         self.heartbeat_task: asyncio.Task | None = None

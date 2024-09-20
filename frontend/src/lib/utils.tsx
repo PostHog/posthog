@@ -21,10 +21,8 @@ import { CUSTOM_OPTION_KEY } from './components/DateFilter/types'
 import { LemonTagType } from './lemon-ui/LemonTag'
 import { getAppContext } from './utils/getAppContext'
 
-/**
- * WARNING: Be very careful importing things here. This file is heavily used and can trigger a lot of cyclic imports
- * Preferably create a dedicated file in utils/..
- */
+// WARNING: Be very careful importing things here. This file is heavily used and can trigger a lot of cyclic imports
+// Preferably create a dedicated file in utils/..
 
 export function uuid(): string {
     return '10000000-1000-4000-8000-100000000000'.replace(/[018]/g, (c) =>
@@ -45,15 +43,23 @@ export function areObjectValuesEmpty(obj?: Record<string, any>): boolean {
 }
 
 // taken from https://stackoverflow.com/questions/10420352/converting-file-size-in-bytes-to-human-readable-string/10420404
-export const humanizeBytes = (fileSizeInBytes: number): string => {
+export const humanizeBytes = (fileSizeInBytes: number | null): string => {
+    if (fileSizeInBytes === null) {
+        return ''
+    }
+
     let i = -1
+    let convertedBytes = fileSizeInBytes
     const byteUnits = ['kB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB']
     do {
-        fileSizeInBytes = fileSizeInBytes / 1024
+        convertedBytes = convertedBytes / 1024
         i++
-    } while (fileSizeInBytes > 1024)
+    } while (convertedBytes > 1024)
 
-    return Math.max(fileSizeInBytes, 0.1).toFixed(1) + ' ' + byteUnits[i]
+    if (convertedBytes < 0.1) {
+        return fileSizeInBytes + ' bytes'
+    }
+    return convertedBytes.toFixed(2) + ' ' + byteUnits[i]
 }
 
 export function toParams(obj: Record<string, any>, explodeArrays: boolean = false): string {
@@ -221,6 +227,11 @@ export const selectorOperatorMap: Record<string, string> = {
     is_not: "≠ doesn't equal",
 }
 
+export const cohortOperatorMap: Record<string, string> = {
+    in: 'user in',
+    not_in: 'user not in',
+}
+
 export const allOperatorsMapping: Record<string, string> = {
     ...dateTimeOperatorMap,
     ...stringOperatorMap,
@@ -229,6 +240,7 @@ export const allOperatorsMapping: Record<string, string> = {
     ...booleanOperatorMap,
     ...durationOperatorMap,
     ...selectorOperatorMap,
+    ...cohortOperatorMap,
     // slight overkill to spread all of these into the map
     // but gives freedom for them to diverge more over time
 }
@@ -240,6 +252,7 @@ const operatorMappingChoice: Record<keyof typeof PropertyType, Record<string, st
     Boolean: booleanOperatorMap,
     Duration: durationOperatorMap,
     Selector: selectorOperatorMap,
+    Cohort: cohortOperatorMap,
 }
 
 export function chooseOperatorMap(propertyType: PropertyType | undefined): Record<string, string> {
@@ -256,7 +269,14 @@ export function isOperatorMulti(operator: PropertyOperator): boolean {
 
 export function isOperatorFlag(operator: PropertyOperator): boolean {
     // these filter operators can only be just set, no additional parameter
-    return [PropertyOperator.IsSet, PropertyOperator.IsNotSet].includes(operator)
+    return [PropertyOperator.IsSet, PropertyOperator.IsNotSet, PropertyOperator.In, PropertyOperator.NotIn].includes(
+        operator
+    )
+}
+
+export function isOperatorCohort(operator: PropertyOperator): boolean {
+    // these filter operators use value different ( to represent the number of the cohort )
+    return [PropertyOperator.In, PropertyOperator.NotIn].includes(operator)
 }
 
 export function isOperatorRegex(operator: PropertyOperator): boolean {
@@ -295,6 +315,10 @@ export function isObject(candidate: unknown): candidate is Record<string, unknow
 
 export function isEmptyObject(candidate: unknown): boolean {
     return isObject(candidate) && Object.keys(candidate).length === 0
+}
+
+export function isNonEmptyObject(candidate: unknown): candidate is Record<string, unknown> {
+    return isObject(candidate) && !isEmptyObject(candidate)
 }
 
 // https://stackoverflow.com/questions/25421233/javascript-removing-undefined-fields-from-an-object
@@ -409,6 +433,22 @@ export function humanFriendlyNumber(d: number, precision: number = DEFAULT_DECIM
         precision = DEFAULT_DECIMAL_PLACES
     }
     return d.toLocaleString('en-US', { maximumFractionDigits: precision })
+}
+
+/** Format currency from string with commas and 2 decimal places. */
+export function humanFriendlyCurrency(d: string | undefined | number): string {
+    if (!d) {
+        d = '0.00'
+    }
+
+    let number: number
+    if (typeof d === 'string') {
+        number = parseFloat(d)
+    } else {
+        number = d
+    }
+
+    return `$${number.toLocaleString('en-US', { maximumFractionDigits: 2, minimumFractionDigits: 2 })}`
 }
 
 export function humanFriendlyLargeNumber(d: number): string {
@@ -592,9 +632,9 @@ export function stripHTTP(url: string): string {
     return url
 }
 
-export function isDomain(url: string): boolean {
+export function isDomain(url: string | URL): boolean {
     try {
-        const parsedUrl = new URL(url)
+        const parsedUrl = typeof url === 'string' ? new URL(url) : url
         if (parsedUrl.protocol.includes('http') && (!parsedUrl.pathname || parsedUrl.pathname === '/')) {
             return true
         }
@@ -611,7 +651,7 @@ export function isURL(input: any): boolean {
     if (!input || typeof input !== 'string') {
         return false
     }
-    const regexp = /^http(s)?:\/\/[\w*.-]+[\w*.-]+[\w\-._~:/?#[\]@%!$&'()*+,;=]+$/
+    const regexp = /^(http|capacitor|https):\/\/[\w*.-]+[\w*.-]+[\w\-._~:/?#[\]@%!$&'()*+,;=]+$/
     return !!input.trim().match(regexp)
 }
 
@@ -797,14 +837,14 @@ export const dateMapping: DateMappingOption[] = [
     {
         key: 'This month',
         values: ['mStart'],
-        getFormattedDate: (date: dayjs.Dayjs): string => formatDateRange(date.startOf('m'), date.endOf('d')),
+        getFormattedDate: (date: dayjs.Dayjs): string => formatDateRange(date.startOf('month'), date.endOf('month')),
         defaultInterval: 'day',
     },
     {
         key: 'Previous month',
         values: ['-1mStart', '-1mEnd'],
         getFormattedDate: (date: dayjs.Dayjs): string =>
-            formatDateRange(date.subtract(1, 'm').startOf('M'), date.subtract(1, 'm').endOf('M')),
+            formatDateRange(date.subtract(1, 'month').startOf('month'), date.subtract(1, 'month').endOf('month')),
         inactive: true,
         defaultInterval: 'day',
     },
@@ -911,6 +951,16 @@ export function dateFilterToText(
     }
 
     return defaultValue
+}
+
+// Converts a dateFrom string ("-2w") into english: "2 weeks"
+export function dateFromToText(dateFrom: string): string | undefined {
+    const dateOption: (typeof dateOptionsMap)[keyof typeof dateOptionsMap] = dateOptionsMap[dateFrom.slice(-1)]
+    const counter = parseInt(dateFrom.slice(1, -1))
+    if (dateOption && counter) {
+        return `${counter} ${dateOption}${counter > 1 ? 's' : ''}`
+    }
+    return undefined
 }
 
 export function dateStringToComponents(date: string | null): {
@@ -1055,11 +1105,17 @@ export const areDatesValidForInterval = (
             parsedOldDateTo.diff(parsedOldDateFrom, 'hour') >= 2 &&
             parsedOldDateTo.diff(parsedOldDateFrom, 'hour') < 24 * 7 * 2 // 2 weeks
         )
+    } else if (interval === 'minute') {
+        return (
+            parsedOldDateTo.diff(parsedOldDateFrom, 'minute') >= 2 &&
+            parsedOldDateTo.diff(parsedOldDateFrom, 'minute') < 60 * 12 // 12 hours. picked based on max graph resolution
+        )
     }
     throw new UnexpectedNeverError(interval)
 }
 
 const defaultDatesForInterval = {
+    minute: { dateFrom: '-1h', dateTo: null },
     hour: { dateFrom: '-24h', dateTo: null },
     day: { dateFrom: '-7d', dateTo: null },
     week: { dateFrom: '-28d', dateTo: null },
@@ -1078,6 +1134,19 @@ export const updateDatesWithInterval = (
         }
     }
     return defaultDatesForInterval[interval]
+}
+
+export function is12HoursOrLess(dateFrom: string | undefined | null): boolean {
+    if (!dateFrom) {
+        return false
+    }
+    return dateFrom.search(/^-([0-9]|1[0-2])h$/) != -1
+}
+export function isLessThan2Days(dateFrom: string | undefined | null): boolean {
+    if (!dateFrom) {
+        return false
+    }
+    return dateFrom.search(/^-(4[0-7]|[0-3]?[0-9])h|[1-2]d$/) != -1
 }
 
 export function clamp(value: number, min: number, max: number): number {
@@ -1366,6 +1435,12 @@ export function hexToRGBA(hex: string, alpha = 1): string {
     return `rgba(${[r, g, b, a].join(',')})`
 }
 
+export function RGBToHex(rgb: string): string {
+    const rgbValues = rgb.replace('rgb(', '').replace(')', '').split(',').map(Number)
+
+    return `#${rgbValues.map((val) => val.toString(16).padStart(2, '0')).join('')}`
+}
+
 export function RGBToRGBA(rgb: string, a: number): string {
     const [r, g, b] = rgb.slice(4, rgb.length - 1).split(',')
     return `rgba(${[r, g, b, a].join(',')})`
@@ -1645,10 +1720,21 @@ export function inStorybookTestRunner(): boolean {
     return navigator.userAgent.includes('StorybookTestRunner')
 }
 
+export function inStorybook(): boolean {
+    return '__STORYBOOK_CLIENT_API__' in window
+}
+
+/** We issue a cancel request, when the request is aborted or times out (frontend side), since in these cases the backend query might still be running. */
 export function shouldCancelQuery(error: any): boolean {
-    // We cancel queries "manually" when the request times out or is aborted since in these cases
-    // the query will continue running in ClickHouse
-    return error.name === 'AbortError' || error.message?.name === 'AbortError' || error.status === 504
+    return isAbortedRequest(error) || isTimedOutRequest(error)
+}
+
+export function isAbortedRequest(error: any): boolean {
+    return error.name === 'AbortError' || error.message?.name === 'AbortError'
+}
+
+export function isTimedOutRequest(error: any): boolean {
+    return error.status === 504
 }
 
 export function flattenObject(ob: Record<string, any>): Record<string, any> {
@@ -1722,4 +1808,15 @@ export function hasFormErrors(object: any): boolean {
         return Object.values(object).some(hasFormErrors)
     }
     return !!object
+}
+
+export function debounce<F extends (...args: Parameters<F>) => ReturnType<F>>(
+    func: F,
+    waitFor: number
+): (...args: Parameters<F>) => void {
+    let timeout: ReturnType<typeof setTimeout>
+    return (...args: Parameters<F>): void => {
+        clearTimeout(timeout)
+        timeout = setTimeout(() => func(...args), waitFor)
+    }
 }

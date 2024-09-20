@@ -149,7 +149,7 @@ $glyph_height: 23px; // Based on .funnel-step-glyph
 
                 &.outside {
                     left: calc(100% + #{$label_position_offset});
-                    color: var(--default);
+                    color: var(--text-3000);
                 }
             }
         }

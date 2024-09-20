@@ -6,57 +6,36 @@ import { subscriptions } from 'kea-subscriptions'
 import { windowValues } from 'kea-window-values'
 import { elementToSelector, escapeRegex } from 'lib/actionUtils'
 import { PaginatedResponse } from 'lib/api'
+import {
+    CommonFilters,
+    HeatmapFilters,
+    HeatmapFixedPositionMode,
+    HeatmapJsData,
+    HeatmapJsDataPoint,
+    HeatmapRequestType,
+} from 'lib/components/heatmaps/types'
+import { calculateViewportRange, DEFAULT_HEATMAP_FILTERS } from 'lib/components/IframedToolbarBrowser/utils'
 import { dateFilterToText } from 'lib/utils'
+import { createVersionChecker } from 'lib/utils/semver'
 import { PostHog } from 'posthog-js'
 import { collectAllElementsDeep, querySelectorAllDeep } from 'query-selector-shadow-dom'
 
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
 import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
 import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
-import {
-    CountedHTMLElement,
-    ElementsEventType,
-    HeatmapElement,
-    HeatmapRequestType,
-    HeatmapResponseType,
-} from '~/toolbar/types'
+import { CountedHTMLElement, ElementsEventType, HeatmapElement, HeatmapResponseType } from '~/toolbar/types'
 import { elementToActionStep, trimElement } from '~/toolbar/utils'
 import { FilterType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import type { heatmapLogicType } from './heatmapLogicType'
 
-export const SCROLL_DEPTH_JS_VERSION = [1, 99]
+export const doesVersionSupportScrollDepth = createVersionChecker('1.99')
 
 const emptyElementsStatsPages: PaginatedResponse<ElementsEventType> = {
     next: undefined,
     previous: undefined,
     results: [],
 }
-
-export type CommonFilters = {
-    date_from?: string
-    date_to?: string
-}
-
-export type HeatmapFilters = {
-    enabled: boolean
-    type?: string
-    viewportAccuracy?: number
-    aggregation?: HeatmapRequestType['aggregation']
-}
-
-export type HeatmapJsDataPoint = {
-    x: number
-    y: number
-    value: number
-}
-
-export type HeatmapJsData = {
-    data: HeatmapJsDataPoint[]
-    max: number
-    min: number
-}
-export type HeatmapFixedPositionMode = 'fixed' | 'relative' | 'hidden'
 
 export const HEATMAP_COLOR_PALETTE_OPTIONS: LemonSelectOption<string>[] = [
     { value: 'default', label: 'Default (multicolor)' },
@@ -124,18 +103,13 @@ export const heatmapLogic = kea<heatmapLogicType>([
             },
         ],
         commonFilters: [
-            {} as CommonFilters,
+            { date_from: '-7d' } as CommonFilters,
             {
                 setCommonFilters: (_, { filters }) => filters,
             },
         ],
         heatmapFilters: [
-            {
-                enabled: true,
-                type: 'click',
-                viewportAccuracy: 0.9,
-                aggregation: 'total_count',
-            } as HeatmapFilters,
+            DEFAULT_HEATMAP_FILTERS,
             { persist: true },
             {
                 setHeatmapFilters: (_, { filters }) => filters,
@@ -143,7 +117,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
             },
         ],
         clickmapsEnabled: [
-            true,
+            false,
             { persist: true },
             {
                 toggleClickmapsEnabled: (state, { enabled }) => (enabled === undefined ? !state : enabled),
@@ -225,7 +199,11 @@ export const heatmapLogic = kea<heatmapLogicType>([
                     }
 
                     return {
-                        results: [...(values.elementStats?.results || []), ...paginatedResults.results],
+                        results: [
+                            // if url is present we are paginating and merge results, otherwise we only use the new results
+                            ...(url ? values.elementStats?.results || [] : []),
+                            ...(paginatedResults.results || []),
+                        ],
                         next: paginatedResults.next,
                         previous: paginatedResults.previous,
                     } as PaginatedResponse<ElementsEventType>
@@ -444,35 +422,32 @@ export const heatmapLogic = kea<heatmapLogicType>([
 
         viewportRange: [
             (s) => [s.heatmapFilters, s.windowWidth],
-            (heatmapFilters, windowWidth): { max: number; min: number } => {
-                const viewportAccuracy = heatmapFilters.viewportAccuracy ?? 0.2
-                const extraPixels = windowWidth - windowWidth * viewportAccuracy
+            (heatmapFilters, windowWidth) => calculateViewportRange(heatmapFilters, windowWidth),
+        ],
 
-                const minWidth = Math.max(0, windowWidth - extraPixels)
-                const maxWidth = windowWidth + extraPixels
-
-                return {
-                    min: Math.round(minWidth),
-                    max: Math.round(maxWidth),
+        heatmapTooltipLabel: [
+            (s) => [s.heatmapFilters],
+            (heatmapFilters) => {
+                if (heatmapFilters.aggregation === 'unique_visitors') {
+                    return 'visitors'
                 }
+                return heatmapFilters.type + 's'
             },
         ],
 
         scrollDepthPosthogJsError: [
             (s) => [s.posthog],
             (posthog: PostHog): 'version' | 'disabled' | null => {
-                const posthogVersion = posthog?._calculate_event_properties('test', {})?.['$lib_version'] ?? '0.0.0'
-                const majorMinorVersion = posthogVersion.split('.')
-                const majorVersion = parseInt(majorMinorVersion[0], 10)
-                const minorVersion = parseInt(majorMinorVersion[1], 10)
+                const posthogVersion =
+                    posthog?.version ??
+                    posthog?._calculate_event_properties('test', {}, new Date())?.['$lib_version'] ??
+                    '0.0.0'
 
                 if (!(posthog as any)?.scrollManager?.scrollY) {
                     return 'version'
                 }
 
-                const isSupported =
-                    majorVersion > SCROLL_DEPTH_JS_VERSION[0] ||
-                    (majorVersion === SCROLL_DEPTH_JS_VERSION[0] && minorVersion >= SCROLL_DEPTH_JS_VERSION[1])
+                const isSupported = doesVersionSupportScrollDepth(posthogVersion)
                 const isDisabled = posthog?.config.disable_scroll_properties
 
                 return !isSupported ? 'version' : isDisabled ? 'disabled' : null
@@ -554,10 +529,12 @@ export const heatmapLogic = kea<heatmapLogicType>([
 
             return await response.json()
         },
+
         enableHeatmap: () => {
             actions.loadAllEnabled()
             toolbarPosthogJS.capture('toolbar mode triggered', { mode: 'heatmap', enabled: true })
         },
+
         disableHeatmap: () => {
             actions.resetElementStats()
             toolbarPosthogJS.capture('toolbar mode triggered', { mode: 'heatmap', enabled: false })
@@ -569,6 +546,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
             actions.maybeLoadHeatmap()
             actions.maybeLoadClickmap()
         },
+
         maybeLoadClickmap: async ({ delayMs }, breakpoint) => {
             await breakpoint(delayMs)
             if (values.heatmapEnabled && values.clickmapsEnabled) {
@@ -633,7 +611,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
         window.addEventListener('keyup', cache.keyUpListener)
 
         cache.scrollCheckTimer = setInterval(() => {
-            const scrollY = (values.posthog as any)?.scrollManager?.scrollY() ?? 0
+            const scrollY = values.posthog?.scrollManager?.scrollY() ?? 0
             if (values.heatmapScrollY !== scrollY) {
                 actions.setHeatmapScrollY(scrollY)
             }

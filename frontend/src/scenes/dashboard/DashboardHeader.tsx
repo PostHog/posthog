@@ -26,7 +26,7 @@ import { userLogic } from 'scenes/userLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { notebooksModel } from '~/models/notebooksModel'
 import { tagsModel } from '~/models/tagsModel'
-import { AvailableFeature, DashboardMode, DashboardType, ExporterFormat } from '~/types'
+import { DashboardMode, DashboardType, ExporterFormat, QueryBasedInsightModel } from '~/types'
 
 import { DASHBOARD_RESTRICTION_OPTIONS } from './DashboardCollaborators'
 import { dashboardCollaboratorsLogic } from './dashboardCollaboratorsLogic'
@@ -56,7 +56,7 @@ export function DashboardHeader(): JSX.Element | null {
 
     const { setDashboardTemplate, openDashboardTemplateEditor } = useActions(dashboardTemplateEditorLogic)
 
-    const { hasAvailableFeature, user } = useValues(userLogic)
+    const { user } = useValues(userLogic)
 
     const { showDuplicateDashboardModal } = useActions(duplicateDashboardLogic)
     const { showDeleteDashboardModal } = useActions(deleteDashboardLogic)
@@ -120,19 +120,39 @@ export function DashboardHeader(): JSX.Element | null {
             <PageHeader
                 buttons={
                     dashboardMode === DashboardMode.Edit ? (
-                        <LemonButton
-                            data-attr="dashboard-edit-mode-save"
-                            type="primary"
-                            onClick={() => setDashboardMode(null, DashboardEventSource.DashboardHeader)}
-                            tabIndex={10}
-                            disabled={dashboardLoading}
-                        >
-                            Done editing
-                        </LemonButton>
+                        <>
+                            <LemonButton
+                                data-attr="dashboard-edit-mode-discard"
+                                type="secondary"
+                                onClick={() =>
+                                    setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges)
+                                }
+                                tabIndex={9}
+                            >
+                                Cancel
+                            </LemonButton>
+                            <LemonButton
+                                data-attr="dashboard-edit-mode-save"
+                                type="primary"
+                                onClick={() =>
+                                    setDashboardMode(null, DashboardEventSource.DashboardHeaderSaveDashboard)
+                                }
+                                tabIndex={10}
+                                disabledReason={
+                                    dashboardLoading
+                                        ? 'Wait for dashboard to finish loading'
+                                        : canEditDashboard
+                                        ? undefined
+                                        : 'Not privileged to edit this dashboard'
+                                }
+                            >
+                                Save
+                            </LemonButton>
+                        </>
                     ) : dashboardMode === DashboardMode.Fullscreen ? (
                         <LemonButton
                             type="secondary"
-                            onClick={() => setDashboardMode(null, DashboardEventSource.DashboardHeader)}
+                            onClick={() => setDashboardMode(null, DashboardEventSource.DashboardHeaderExitFullscreen)}
                             data-attr="dashboard-exit-presentation-mode"
                             disabled={dashboardLoading}
                         >
@@ -308,11 +328,7 @@ export function DashboardHeader(): JSX.Element | null {
                                 multiline
                                 name="description"
                                 markdown
-                                value={
-                                    (hasAvailableFeature(AvailableFeature.TEAM_COLLABORATION) &&
-                                        dashboard.description) ||
-                                    ''
-                                }
+                                value={dashboard.description}
                                 placeholder="Description (optional)"
                                 onSave={(value) =>
                                     updateDashboard({ id: dashboard.id, description: value, allowUndo: true })
@@ -320,7 +336,6 @@ export function DashboardHeader(): JSX.Element | null {
                                 saveOnBlur={true}
                                 compactButtons
                                 mode={!canEditDashboard ? 'view' : undefined}
-                                paywallFeature={AvailableFeature.TEAM_COLLABORATION}
                             />
                         )}
                         {dashboard?.tags && (
@@ -356,7 +371,7 @@ function CollaboratorBubbles({
     dashboard,
     onClick,
 }: {
-    dashboard: DashboardType
+    dashboard: DashboardType<QueryBasedInsightModel>
     onClick: () => void
 }): JSX.Element | null {
     const { allCollaborators } = useValues(dashboardCollaboratorsLogic({ dashboardId: dashboard.id }))

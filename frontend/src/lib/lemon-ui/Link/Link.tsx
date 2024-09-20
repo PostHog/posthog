@@ -1,7 +1,6 @@
 import './Link.scss'
 
 import clsx from 'clsx'
-import { useActions } from 'kea'
 import { router } from 'kea-router'
 import { isExternalLink } from 'lib/utils'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
@@ -96,8 +95,6 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
             href: typeof to === 'string' ? to : undefined,
         })
 
-        const { openSidePanel } = useActions(sidePanelStateLogic)
-
         const onClick = (event: React.MouseEvent<HTMLElement>): void => {
             if (event.metaKey || event.ctrlKey) {
                 event.stopPropagation()
@@ -111,8 +108,26 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
                 return
             }
 
-            if (typeof to === 'string' && isPostHogComDocs(to)) {
+            const mountedSidePanelLogic = sidePanelStateLogic.findMounted()
+
+            if (typeof to === 'string' && isPostHogComDocs(to) && mountedSidePanelLogic) {
+                // TRICKY: We do this instead of hooks as there is some weird cyclic issue in tests
+                const { sidePanelOpen } = mountedSidePanelLogic.values
+                const { openSidePanel } = mountedSidePanelLogic.actions
+
                 event.preventDefault()
+
+                const target = event.currentTarget
+                const container = document.getElementsByTagName('main')[0]
+                const topBar = document.getElementsByClassName('TopBar3000')[0]
+                if (!sidePanelOpen && container.contains(target)) {
+                    setTimeout(() => {
+                        // Little delay to allow the rendering of the side panel
+                        const y = container.scrollTop + target.getBoundingClientRect().top - topBar.clientHeight
+                        container.scrollTo({ top: y })
+                    }, 50)
+                }
+
                 openSidePanel(SidePanelTab.Docs, to)
                 return
             }
@@ -132,7 +147,7 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
         const rel = typeof to === 'string' && isPostHogDomain(to) ? 'noopener' : 'noopener noreferrer'
         const href = to
             ? typeof to === 'string'
-                ? isDirectLink(to)
+                ? isDirectLink(to) || disableClientSideRouting
                     ? to
                     : addProjectIdIfMissing(to)
                 : '#'

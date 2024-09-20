@@ -21,18 +21,16 @@ import { CohortCriteriaGroups } from 'scenes/cohorts/CohortFilters/CohortCriteri
 import { COHORT_TYPE_OPTIONS } from 'scenes/cohorts/CohortFilters/constants'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 import { urls } from 'scenes/urls'
-import { userLogic } from 'scenes/userLogic'
 
 import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
 import { Query } from '~/queries/Query/Query'
-import { AvailableFeature, NotebookNodeType } from '~/types'
+import { NotebookNodeType } from '~/types'
 
 export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
     const logicProps = { id }
     const logic = cohortEditLogic(logicProps)
     const { deleteCohort, setOuterGroupsType, setQuery, duplicateCohort } = useActions(logic)
     const { cohort, cohortLoading, cohortMissing, query, duplicatedCohortLoading } = useValues(logic)
-    const { hasAvailableFeature } = useValues(userLogic)
     const isNewCohort = cohort.id === 'new' || cohort.id === undefined
 
     if (cohortMissing) {
@@ -188,13 +186,11 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                             </div>
                         )}
                     </div>
-                    {hasAvailableFeature(AvailableFeature.TEAM_COLLABORATION) && (
-                        <div className="ph-ignore-input">
-                            <LemonField name="description" label="Description" data-attr="cohort-description">
-                                <LemonTextArea />
-                            </LemonField>
-                        </div>
-                    )}
+                    <div className="ph-ignore-input">
+                        <LemonField name="description" label="Description" data-attr="cohort-description">
+                            <LemonTextArea />
+                        </LemonField>
+                    </div>
                 </div>
                 {cohort.is_static ? (
                     <div className="mt-4 ph-ignore-input">
@@ -217,24 +213,20 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                         onChange={(files) => onChange(files[0])}
                                         showUploadedFiles={false}
                                         callToAction={
-                                            <div className="flex flex-col items-center justify-center flex-1 cohort-csv-dragger text-default space-y-1">
+                                            <div className="flex flex-col items-center justify-center flex-1 cohort-csv-dragger text-text-3000 space-y-1">
                                                 {cohort.csv ? (
                                                     <>
                                                         <IconUploadFile
                                                             style={{ fontSize: '3rem', color: 'var(--muted-alt)' }}
                                                         />
-                                                        <div className="ant-upload-text">
-                                                            {cohort.csv?.name ?? 'File chosen'}
-                                                        </div>
+                                                        <div>{cohort.csv?.name ?? 'File chosen'}</div>
                                                     </>
                                                 ) : (
                                                     <>
                                                         <IconUploadFile
                                                             style={{ fontSize: '3rem', color: 'var(--muted-alt)' }}
                                                         />
-                                                        <div className="ant-upload-text">
-                                                            Drag a file here or click to browse for a file
-                                                        </div>
+                                                        <div>Drag a file here or click to browse for a file</div>
                                                     </>
                                                 )}
                                             </div>
@@ -301,7 +293,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                     minutes.
                                 </div>
                             ) : (
-                                <Query query={query} setQuery={setQuery} />
+                                <Query query={query} setQuery={setQuery} context={{ alwaysRefresh: true }} />
                             )}
                         </div>
                     </>

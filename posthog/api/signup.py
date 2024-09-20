@@ -15,7 +15,7 @@ from sentry_sdk import capture_exception
 from social_core.pipeline.partial import partial
 from social_django.strategy import DjangoStrategy
 
-from posthog.api.email_verification import EmailVerifier
+from posthog.api.email_verification import EmailVerifier, is_email_verification_disabled
 from posthog.api.shared import UserBasicSerializer
 from posthog.demo.matrix import MatrixManager
 from posthog.demo.products.hedgebox import HedgeboxMatrix
@@ -39,14 +39,22 @@ logger = structlog.get_logger(__name__)
 
 
 def verify_email_or_login(request: HttpRequest, user: User) -> None:
-    if is_email_available() and not user.is_email_verified:
+    if is_email_available() and not user.is_email_verified and not is_email_verification_disabled(user):
         EmailVerifier.create_token_and_send_email_verification(user)
     else:
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
 
 
 def get_redirect_url(uuid: str, is_email_verified: bool) -> str:
-    return "/verify_email/" + uuid if is_email_available() and not is_email_verified and not settings.DEMO else "/"
+    user = User.objects.get(uuid=uuid)
+    return (
+        "/verify_email/" + uuid
+        if is_email_available()
+        and not is_email_verified
+        and not is_email_verification_disabled(user)
+        and not settings.DEMO
+        else "/"
+    )
 
 
 class SignupSerializer(serializers.Serializer):
@@ -58,7 +66,6 @@ class SignupSerializer(serializers.Serializer):
     role_at_organization: serializers.Field = serializers.CharField(
         max_length=128, required=False, allow_blank=True, default=""
     )
-    email_opt_in: serializers.Field = serializers.BooleanField(default=True)
     referral_source: serializers.Field = serializers.CharField(max_length=1000, required=False, allow_blank=True)
 
     # Slightly hacky: self vars for internal use
@@ -154,7 +161,7 @@ class SignupSerializer(serializers.Serializer):
         return self._user
 
     def create_team(self, organization: Organization, user: User) -> Team:
-        return Team.objects.create_with_data(user=user, organization=organization)
+        return Team.objects.create_with_data(initiating_user=user, organization=organization)
 
     def to_representation(self, instance) -> dict:
         data = UserBasicSerializer(instance=instance).data
@@ -171,7 +178,6 @@ class SignupViewset(generics.CreateAPIView):
 class InviteSignupSerializer(serializers.Serializer):
     first_name: serializers.Field = serializers.CharField(max_length=128, required=False)
     password: serializers.Field = serializers.CharField(required=False)
-    email_opt_in: serializers.Field = serializers.BooleanField(default=True)
     role_at_organization: serializers.Field = serializers.CharField(
         max_length=128, required=False, allow_blank=True, default=""
     )
@@ -401,9 +407,9 @@ def process_social_invite_signup(strategy: DjangoStrategy, invite_id: str, email
 
 
 def process_social_domain_jit_provisioning_signup(
-    email: str, full_name: str, user: Optional[User] = None
+    strategy: DjangoStrategy, email: str, full_name: str, user: Optional[User] = None
 ) -> Optional[User]:
-    # Check if the user is on a allowed domain
+    # Check if the user is on an allowed domain
     domain = email.split("@")[-1]
     try:
         logger.info(f"process_social_domain_jit_provisioning_signup", domain=domain)
@@ -423,19 +429,37 @@ def process_social_domain_jit_provisioning_signup(
         )
         if domain_instance.is_verified and domain_instance.jit_provisioning_enabled:
             if not user:
-                user = User.objects.create_and_join(
-                    organization=domain_instance.organization,
-                    email=email,
-                    password=None,
-                    first_name=full_name,
-                    is_email_verified=True,
-                )
-                logger.info(
-                    f"process_social_domain_jit_provisioning_join_complete",
-                    domain=domain,
-                    user=user.email,
-                    organization=domain_instance.organization_id,
-                )
+                try:
+                    invite: OrganizationInvite = OrganizationInvite.objects.get(
+                        target_email=email, organization=domain_instance.organization
+                    )
+                    invite.validate(user=None, email=email)
+
+                    try:
+                        user = strategy.create_user(
+                            email=email, first_name=full_name, password=None, is_email_verified=True
+                        )
+                        assert isinstance(user, User)  # type hinting
+                        invite.use(user, prevalidated=True)
+                    except Exception as e:
+                        capture_exception(e)
+                        message = "Account unable to be created. This account may already exist. Please try again or use different credentials."
+                        raise ValidationError(message, code="unknown", params={"source": "social_create_user"})
+
+                except OrganizationInvite.DoesNotExist:
+                    user = User.objects.create_and_join(
+                        organization=domain_instance.organization,
+                        email=email,
+                        password=None,
+                        first_name=full_name,
+                        is_email_verified=True,
+                    )
+                    logger.info(
+                        f"process_social_domain_jit_provisioning_join_complete",
+                        domain=domain,
+                        user=user.email,
+                        organization=domain_instance.organization_id,
+                    )
             if not user.organizations.filter(pk=domain_instance.organization_id).exists():
                 user.join(organization=domain_instance.organization)
                 logger.info(
@@ -465,7 +489,7 @@ def social_create_user(
             user.set_unusable_password()
             user.is_email_verified = True
             user.save()
-        process_social_domain_jit_provisioning_signup(user.email, user.first_name, user)
+        process_social_domain_jit_provisioning_signup(strategy, user.email, user.first_name, user)
         return {"is_new": False}
 
     backend_processor = "social_create_user"
@@ -495,7 +519,7 @@ def social_create_user(
 
     else:
         # JIT Provisioning?
-        user = process_social_domain_jit_provisioning_signup(email, full_name)
+        user = process_social_domain_jit_provisioning_signup(strategy, email, full_name)
         logger.info(
             f"social_create_user_jit_user",
             full_name_len=len(full_name),

@@ -12,11 +12,11 @@ import React from 'react'
 import { urls } from 'scenes/urls'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { DashboardBasicType, DashboardTile } from '~/types'
+import { DashboardBasicType, DashboardTile, QueryBasedInsightModel } from '~/types'
 
 interface TextCardProps extends React.HTMLAttributes<HTMLDivElement>, Resizeable {
     dashboardId?: string | number
-    textTile: DashboardTile
+    textTile: DashboardTile<QueryBasedInsightModel>
     children?: JSX.Element
     removeFromDashboard?: () => void
     duplicate?: () => void
@@ -78,7 +78,7 @@ export function TextCardInternal(
             ref={ref}
         >
             {showEditingControls && (
-                <div className="border-b flex justify-end">
+                <div className="absolute right-4 top-4">
                     <More
                         overlay={
                             <>
@@ -143,7 +143,7 @@ export function TextCardInternal(
             )}
 
             <div className="TextCard__body w-full">
-                <TextContent text={text.body} />
+                <TextContent text={text.body} className="p-4" />
             </div>
 
             {showResizeHandles && (

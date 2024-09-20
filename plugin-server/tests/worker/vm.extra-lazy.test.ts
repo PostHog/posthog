@@ -1,7 +1,7 @@
 import fetch from 'node-fetch'
 
 import { Hub, PluginTaskType } from '../../src/types'
-import { createHub } from '../../src/utils/db/hub'
+import { closeHub, createHub } from '../../src/utils/db/hub'
 import { pluginDigest } from '../../src/utils/utils'
 import { LazyPluginVM } from '../../src/worker/vm/lazy'
 import { plugin60, pluginConfig39 } from '../helpers/plugins'
@@ -9,14 +9,13 @@ import { resetTestDatabase } from '../helpers/sql'
 
 describe('VMs are extra lazy 💤', () => {
     let hub: Hub
-    let closeHub: () => Promise<void>
 
     beforeEach(async () => {
-        ;[hub, closeHub] = await createHub()
+        hub = await createHub()
     })
 
     afterEach(async () => {
-        await closeHub()
+        await closeHub(hub)
         jest.clearAllMocks()
     })
     test('VM with scheduled tasks gets setup immediately', async () => {
@@ -33,7 +32,7 @@ describe('VMs are extra lazy 💤', () => {
 
         const pluginConfig = { ...pluginConfig39, plugin: plugin60 }
         const lazyVm = new LazyPluginVM(hub, pluginConfig)
-        pluginConfig.vm = lazyVm
+        pluginConfig.instance = lazyVm
         jest.spyOn(lazyVm, 'setupPluginIfNeeded')
         await lazyVm.initialize!(indexJs, pluginDigest(plugin60))
 
@@ -58,7 +57,7 @@ describe('VMs are extra lazy 💤', () => {
 
         const pluginConfig = { ...pluginConfig39, plugin: plugin60 }
         const lazyVm = new LazyPluginVM(hub, pluginConfig)
-        pluginConfig.vm = lazyVm
+        pluginConfig.instance = lazyVm
         jest.spyOn(lazyVm, 'setupPluginIfNeeded')
         await lazyVm.initialize!(indexJs, pluginDigest(plugin60))
 
@@ -80,7 +79,7 @@ describe('VMs are extra lazy 💤', () => {
         await resetTestDatabase(indexJs)
         const pluginConfig = { ...pluginConfig39, plugin: plugin60 }
         const lazyVm = new LazyPluginVM(hub, pluginConfig)
-        pluginConfig.vm = lazyVm
+        pluginConfig.instance = lazyVm
         jest.spyOn(lazyVm, 'setupPluginIfNeeded')
         await lazyVm.initialize!(indexJs, pluginDigest(plugin60))
 
@@ -88,7 +87,7 @@ describe('VMs are extra lazy 💤', () => {
         expect(lazyVm.setupPluginIfNeeded).not.toHaveBeenCalled()
         expect(fetch).not.toHaveBeenCalled()
 
-        await lazyVm.getOnEvent()
+        await lazyVm.getPluginMethod('onEvent')
         expect(lazyVm.ready).toEqual(true)
         expect(lazyVm.setupPluginIfNeeded).toHaveBeenCalled()
         expect(fetch).toHaveBeenCalledWith('https://onevent.com/', undefined)
@@ -107,14 +106,14 @@ describe('VMs are extra lazy 💤', () => {
         await resetTestDatabase(indexJs)
         const pluginConfig = { ...pluginConfig39, plugin: plugin60 }
         const lazyVm = new LazyPluginVM(hub, pluginConfig)
-        pluginConfig.vm = lazyVm
+        pluginConfig.instance = lazyVm
         jest.spyOn(lazyVm, 'setupPluginIfNeeded')
         await lazyVm.initialize!(indexJs, pluginDigest(plugin60))
 
         lazyVm.ready = false
         lazyVm.inErroredState = true
 
-        const onEvent = await lazyVm.getOnEvent()
+        const onEvent = await lazyVm.getPluginMethod('onEvent')
         expect(onEvent).toBeNull()
         expect(lazyVm.ready).toEqual(false)
         expect(lazyVm.setupPluginIfNeeded).toHaveBeenCalled()

@@ -5,6 +5,7 @@ import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { TZLabel } from 'lib/components/TZLabel'
+import { isEventFilter } from 'lib/components/UniversalFilters/utils'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
@@ -17,11 +18,21 @@ import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/Note
 import { RelatedFeatureFlags } from 'scenes/persons/RelatedFeatureFlags'
 import { SceneExport } from 'scenes/sceneTypes'
 import { SessionRecordingsPlaylist } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
+import { filtersFromUniversalFilterGroups } from 'scenes/session-recordings/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { Query } from '~/queries/Query/Query'
-import { Group as IGroup, NotebookNodeType, PersonsTabType, PropertyDefinitionType } from '~/types'
+import {
+    ActionFilter,
+    FilterLogicalOperator,
+    Group as IGroup,
+    NotebookNodeType,
+    PersonsTabType,
+    PropertyDefinitionType,
+    PropertyFilterType,
+    PropertyOperator,
+} from '~/types'
 
 interface GroupSceneProps {
     groupTypeIndex?: string
@@ -117,7 +128,11 @@ export function Group(): JSX.Element {
                         key: PersonsTabType.EVENTS,
                         label: <span data-attr="groups-events-tab">Events</span>,
                         content: groupEventsQuery ? (
-                            <Query query={groupEventsQuery} setQuery={setGroupEventsQuery} />
+                            <Query
+                                query={groupEventsQuery}
+                                setQuery={setGroupEventsQuery}
+                                context={{ alwaysRefresh: true }}
+                            />
                         ) : (
                             <Spinner />
                         ),
@@ -141,24 +156,42 @@ export function Group(): JSX.Element {
                                         <SessionRecordingsPlaylist
                                             logicKey="groups-recordings"
                                             updateSearchParams
-                                            advancedFilters={{
-                                                events: [
+                                            filters={{
+                                                duration: [
                                                     {
-                                                        type: 'events',
-                                                        order: 0,
-                                                        name: 'All events',
-                                                        properties: [
-                                                            {
-                                                                key: `$group_${groupTypeIndex} = '${groupKey}'`,
-                                                                type: 'hogql',
-                                                            },
-                                                        ],
+                                                        type: PropertyFilterType.Recording,
+                                                        key: 'duration',
+                                                        value: 1,
+                                                        operator: PropertyOperator.GreaterThan,
                                                     },
                                                 ],
+                                                filter_group: {
+                                                    type: FilterLogicalOperator.And,
+                                                    values: [
+                                                        {
+                                                            type: FilterLogicalOperator.And,
+                                                            values: [
+                                                                {
+                                                                    type: 'events',
+                                                                    name: 'All events',
+                                                                    properties: [
+                                                                        {
+                                                                            key: `$group_${groupTypeIndex} = '${groupKey}'`,
+                                                                            type: 'hogql',
+                                                                        },
+                                                                    ],
+                                                                } as ActionFilter,
+                                                            ],
+                                                        },
+                                                    ],
+                                                },
                                             }}
                                             onFiltersChange={(filters) => {
-                                                const stillHasGroupFilter = filters.events?.some((event) => {
-                                                    return event.properties.some(
+                                                const eventFilters =
+                                                    filtersFromUniversalFilterGroups(filters).filter(isEventFilter)
+
+                                                const stillHasGroupFilter = eventFilters?.some((event) => {
+                                                    return event.properties?.some(
                                                         (prop: Record<string, any>) =>
                                                             prop.key === `$group_${groupTypeIndex} = '${groupKey}'`
                                                     )

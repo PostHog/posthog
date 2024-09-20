@@ -1,4 +1,4 @@
-from enum import Enum
+from enum import StrEnum
 from functools import wraps
 from typing import Any, TypeVar, Union, cast
 from collections.abc import Callable
@@ -6,19 +6,18 @@ from collections.abc import Callable
 from django.urls import resolve
 from django.utils.timezone import now
 from rest_framework.request import Request
-from rest_framework.viewsets import GenericViewSet
 from statshog.defaults.django import statsd
+from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.caching.utils import is_stale_filter
 
 from posthog.clickhouse.query_tagging import tag_queries
-from posthog.models import User
 from posthog.models.filters.utils import get_filter
 from posthog.utils import refresh_requested_by_client
 
 from .utils import generate_cache_key, get_safe_cache
 
 
-class CacheType(str, Enum):
+class CacheType(StrEnum):
     TRENDS = "Trends"
     FUNNEL = "Funnel"
     RETENTION = "Retention"
@@ -29,7 +28,7 @@ class CacheType(str, Enum):
 ResultPackage = Union[dict[str, Any], list[dict[str, Any]]]
 
 T = TypeVar("T", bound=ResultPackage)
-U = TypeVar("U", bound=GenericViewSet)
+U = TypeVar("U", bound=TeamAndOrgViewSetMixin)
 
 
 def cached_by_filters(f: Callable[[U, Request], T]) -> Callable[[U, Request], T]:
@@ -44,11 +43,11 @@ def cached_by_filters(f: Callable[[U, Request], T]) -> Callable[[U, Request], T]
     """
 
     @wraps(f)
-    def wrapper(self, request) -> T:
+    def wrapper(self: U, request: Request) -> T:
         from posthog.caching.insight_cache import update_cached_state
 
         # prepare caching params
-        team = cast(User, request.user).team
+        team = self.team
         if not team:
             return f(self, request)
 

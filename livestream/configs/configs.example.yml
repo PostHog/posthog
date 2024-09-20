@@ -1,0 +1,13 @@
+prod: true
+sentry:
+    dsn: 'david://cramer'
+kafka:
+    brokers: 'localhost:9092'
+    topic: ''
+    group_id: 'livestream-dev'
+mmdb:
+    path: 'mmdb.db'
+jwt:
+    token: '<randomly generated secret key>'
+postgres:
+    url: 'postgres://postgres:postgres@localhost:5432/postgres'

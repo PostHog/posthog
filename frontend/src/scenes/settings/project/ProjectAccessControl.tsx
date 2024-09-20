@@ -1,7 +1,7 @@
 import { IconCrown, IconLeave, IconLock, IconUnlock } from '@posthog/icons'
 import { LemonButton, LemonSelect, LemonSelectOption, LemonSnack, LemonSwitch, LemonTable } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { RestrictedArea, RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { OrganizationMembershipLevel, TeamMembershipLevel } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -135,6 +135,10 @@ function ActionsComponent(member: FusedTeamMemberType): JSX.Element | null {
 export function ProjectTeamMembers(): JSX.Element | null {
     const { user } = useValues(userLogic)
     const { allMembers, allMembersLoading } = useValues(teamMembersLogic)
+    const restrictionReason = useRestrictedArea({
+        minimumAccessLevel: OrganizationMembershipLevel.Admin,
+        scope: RestrictionScope.Project,
+    })
 
     if (!user) {
         return null
@@ -189,11 +193,7 @@ export function ProjectTeamMembers(): JSX.Element | null {
         <>
             <h3 className="flex justify-between items-center mt-4">
                 Members with Project Access
-                <RestrictedArea
-                    Component={AddMembersModalWithButton}
-                    minimumAccessLevel={OrganizationMembershipLevel.Admin}
-                    scope={RestrictionScope.Project}
-                />
+                <AddMembersModalWithButton disabledReason={restrictionReason} />
             </h3>
 
             <LemonTable
@@ -212,7 +212,7 @@ export function ProjectAccessControl(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
 
-    const isRestricted = !!useRestrictedArea({
+    const restrictionReason = useRestrictedArea({
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
     })
 
@@ -256,12 +256,16 @@ export function ProjectAccessControl(): JSX.Element {
                         : updateCurrentTeam({ access_control: checked })
                 }}
                 checked={!!currentTeam?.access_control}
-                disabled={
-                    isRestricted ||
-                    !currentOrganization ||
-                    !currentTeam ||
-                    currentOrganizationLoading ||
-                    currentTeamLoading
+                disabledReason={
+                    !currentOrganization
+                        ? 'Organization not loaded'
+                        : !currentTeam
+                        ? 'Project not loaded'
+                        : currentOrganizationLoading
+                        ? 'Loading organization…'
+                        : currentTeamLoading
+                        ? 'Loading project…'
+                        : restrictionReason
                 }
                 bordered
                 label="Make project private"

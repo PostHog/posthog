@@ -1,18 +1,18 @@
 import { expectLogic, partial } from 'kea-test-utils'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { query } from '~/queries/query'
-import { NodeKind } from '~/queries/schema'
+import { performQuery } from '~/queries/query'
+import { DashboardFilter, NodeKind } from '~/queries/schema'
 import { initKeaTests } from '~/test/init'
 
 jest.mock('~/queries/query', () => {
     return {
         __esModules: true,
         ...jest.requireActual('~/queries/query'),
-        query: jest.fn(),
+        performQuery: jest.fn(),
     }
 })
-const mockedQuery = query as jest.MockedFunction<typeof query>
+const mockedQuery = performQuery as jest.MockedFunction<typeof performQuery>
 
 const testUniqueKey = 'testUniqueKey'
 
@@ -43,7 +43,7 @@ describe('dataNodeLogic', () => {
             },
         })
         logic.mount()
-        expect(query).toHaveBeenCalledTimes(1)
+        expect(performQuery).toHaveBeenCalledTimes(1)
         await expectLogic(logic)
             .toMatchValues({ responseLoading: true, response: null })
             .delay(0)
@@ -59,7 +59,7 @@ describe('dataNodeLogic', () => {
                 select: ['*', 'event', 'timestamp', 'person'],
             },
         })
-        expect(query).toHaveBeenCalledTimes(2)
+        expect(performQuery).toHaveBeenCalledTimes(2)
         await expectLogic(logic)
             .toMatchValues({ responseLoading: true, response: partial({ results }) })
             .delay(0)
@@ -73,7 +73,7 @@ describe('dataNodeLogic', () => {
                 select: ['*', 'event', 'timestamp', 'person'],
             },
         })
-        expect(query).toHaveBeenCalledTimes(2)
+        expect(performQuery).toHaveBeenCalledTimes(2)
         await expectLogic(logic).toMatchValues({ responseLoading: false, response: partial({ results: results2 }) })
 
         // changing the query kind will clear the results and trigger a new query
@@ -85,7 +85,7 @@ describe('dataNodeLogic', () => {
                 kind: NodeKind.PersonsNode,
             },
         })
-        expect(query).toHaveBeenCalledTimes(3)
+        expect(performQuery).toHaveBeenCalledTimes(3)
         await expectLogic(logic)
             .toMatchValues({ responseLoading: true, response: null })
             .delay(0)
@@ -442,11 +442,62 @@ describe('dataNodeLogic', () => {
                 kind: NodeKind.EventsQuery,
                 select: ['*', 'event', 'timestamp'],
             },
-            cachedResults: { some: 'results' },
+            cachedResults: { result: [1, 2, 3] },
         })
         logic.mount()
-        expect(query).toHaveBeenCalledTimes(0)
+        expect(performQuery).toHaveBeenCalledTimes(0)
 
-        await expectLogic(logic).toMatchValues({ response: { some: 'results' } })
+        await expectLogic(logic).toMatchValues({ response: { result: [1, 2, 3] } })
+    })
+
+    it('passes filtersOverride to api', async () => {
+        const filtersOverride: DashboardFilter = {
+            date_from: '2022-12-24T17:00:41.165000Z',
+        }
+        const query = {
+            kind: NodeKind.EventsQuery,
+            select: ['*', 'event', 'timestamp'],
+        }
+
+        logic = dataNodeLogic({
+            key: 'key',
+            query,
+            filtersOverride,
+        })
+        logic.mount()
+
+        expect(performQuery).toHaveBeenCalledWith(
+            query,
+            expect.anything(),
+            false,
+            expect.any(String),
+            expect.any(Function),
+            filtersOverride,
+            false
+        )
+    })
+
+    it("doesn't pass undefined filtersOverride to api", async () => {
+        const query = {
+            kind: NodeKind.EventsQuery,
+            select: ['*', 'event', 'timestamp'],
+        }
+
+        logic = dataNodeLogic({
+            key: 'key',
+            query,
+            filtersOverride: undefined,
+        })
+        logic.mount()
+
+        expect(performQuery).toHaveBeenCalledWith(
+            query,
+            expect.anything(),
+            false,
+            expect.any(String),
+            expect.any(Function),
+            undefined,
+            false
+        )
     })
 })

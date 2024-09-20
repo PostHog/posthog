@@ -53,7 +53,7 @@ export const sharingLogic = kea<sharingLogicType>([
         ({ insightShortId, dashboardId, recordingId }) =>
             `sharing-${insightShortId || dashboardId || recordingId || ''}`
     ),
-    connect([preflightLogic, userLogic, dashboardsModel]),
+    connect(() => [preflightLogic, userLogic, dashboardsModel]),
 
     actions({
         togglePreview: true,
@@ -96,8 +96,8 @@ export const sharingLogic = kea<sharingLogicType>([
     selectors({
         siteUrl: [() => [preflightLogic.selectors.preflight], (preflight) => preflight?.site_url],
         whitelabelAvailable: [
-            () => [userLogic.selectors.user],
-            (user) => (user?.organization?.available_features || []).includes(AvailableFeature.WHITE_LABELLING),
+            () => [userLogic.selectors.hasAvailableFeature],
+            (hasAvailableFeature) => hasAvailableFeature(AvailableFeature.WHITE_LABELLING),
         ],
 
         params: [

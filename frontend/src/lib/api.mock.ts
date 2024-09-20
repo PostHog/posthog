@@ -1,4 +1,5 @@
 import apiReal from 'lib/api'
+import { dayjs } from 'lib/dayjs'
 
 import {
     CohortType,
@@ -11,6 +12,7 @@ import {
     PluginConfigWithPluginInfo,
     PluginInstallationType,
     PluginType,
+    ProjectType,
     PropertyFilterType,
     PropertyOperator,
     TeamType,
@@ -72,12 +74,13 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     session_recording_sample_rate: '1.0',
     session_recording_minimum_duration_milliseconds: null,
     session_recording_linked_flag: null,
-    session_recording_network_payload_capture_config: null,
+    session_recording_network_payload_capture_config: { recordHeaders: true, recordBody: true },
     session_replay_config: null,
     capture_console_log_opt_in: true,
     capture_performance_opt_in: true,
     heatmaps_opt_in: true,
     autocapture_exceptions_opt_in: false,
+    autocapture_web_vitals_opt_in: false,
     autocapture_exceptions_errors_to_ignore: [],
     effective_membership_level: OrganizationMembershipLevel.Admin,
     user_access_level: 'admin',
@@ -86,7 +89,14 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     primary_dashboard: 1,
     live_events_columns: null,
     person_on_events_querying_enabled: true,
-    groups_on_events_querying_enabled: true,
+    live_events_token: '123',
+}
+
+export const MOCK_DEFAULT_PROJECT: ProjectType = {
+    id: MOCK_TEAM_ID,
+    name: 'MockHog App + Marketing',
+    organization_id: MOCK_ORGANIZATION_ID,
+    created_at: '2020-06-30T09:53:35.932534Z',
 }
 
 export const MOCK_DEFAULT_ORGANIZATION: OrganizationType = {
@@ -100,11 +110,11 @@ export const MOCK_DEFAULT_ORGANIZATION: OrganizationType = {
     plugins_access_level: PluginsAccessLevel.Root,
     enforce_2fa: false,
     teams: [MOCK_DEFAULT_TEAM],
-    available_features: [],
     is_member_join_email_enabled: true,
     metadata: {},
     available_product_features: [],
     member_count: 2,
+    logo_media_id: null,
 }
 
 export const MOCK_DEFAULT_BASIC_USER: UserBasicType = {
@@ -121,7 +131,6 @@ export const MOCK_DEFAULT_USER: UserType = {
     distinct_id: MOCK_DEFAULT_BASIC_USER.uuid,
     first_name: MOCK_DEFAULT_BASIC_USER.first_name,
     email: MOCK_DEFAULT_BASIC_USER.email,
-    email_opt_in: true,
     notification_settings: { plugin_disabled: false },
     anonymize_data: false,
     toolbar_mode: 'toolbar',
@@ -131,6 +140,7 @@ export const MOCK_DEFAULT_USER: UserType = {
     is_email_verified: true,
     is_2fa_enabled: false,
     has_social_auth: false,
+    sensitive_session_expires_at: dayjs().add(1, 'hour').toISOString(),
     theme_mode: null,
     team: MOCK_DEFAULT_TEAM,
     organization: MOCK_DEFAULT_ORGANIZATION,
@@ -139,6 +149,7 @@ export const MOCK_DEFAULT_USER: UserType = {
         name,
         slug,
         membership_level,
+        logo_media_id: null,
     })),
     events_column_config: {
         active: 'DEFAULT',
@@ -182,6 +193,7 @@ export const MOCK_DEFAULT_ORGANIZATION_INVITE: OrganizationInviteType = {
     created_by: MOCK_DEFAULT_BASIC_USER,
     created_at: '2022-03-11T16:44:01.264613Z',
     updated_at: '2022-03-11T16:44:01.318717Z',
+    level: OrganizationMembershipLevel.Member,
 }
 
 export const MOCK_PERSON_PROPERTIES: PersonProperty[] = [

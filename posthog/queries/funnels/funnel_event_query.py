@@ -49,7 +49,7 @@ class FunnelEventQuery(EventQuery):
 
         _fields += [f"{self.EVENT_TABLE_ALIAS}.{field} AS {field}" for field in self._extra_fields]
 
-        if self._person_on_events_mode != PersonsOnEventsMode.disabled:
+        if self._person_on_events_mode != PersonsOnEventsMode.DISABLED:
             _fields += [f"{self._person_id_alias} as person_id"]
 
             _fields.extend(
@@ -95,7 +95,7 @@ class FunnelEventQuery(EventQuery):
 
         null_person_filter = (
             f"AND notEmpty({self.EVENT_TABLE_ALIAS}.person_id)"
-            if self._person_on_events_mode != PersonsOnEventsMode.disabled
+            if self._person_on_events_mode != PersonsOnEventsMode.DISABLED
             else ""
         )
 
@@ -131,9 +131,9 @@ class FunnelEventQuery(EventQuery):
         )
         is_using_cohort_propertes = self._column_optimizer.is_using_cohort_propertes
 
-        if self._person_on_events_mode == PersonsOnEventsMode.person_id_override_properties_on_events:
+        if self._person_on_events_mode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS:
             self._should_join_distinct_ids = True
-        elif self._person_on_events_mode == PersonsOnEventsMode.person_id_no_override_properties_on_events or (
+        elif self._person_on_events_mode == PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS or (
             non_person_id_aggregation and not is_using_cohort_propertes
         ):
             self._should_join_distinct_ids = False
@@ -142,7 +142,7 @@ class FunnelEventQuery(EventQuery):
 
     def _determine_should_join_persons(self) -> None:
         EventQuery._determine_should_join_persons(self)
-        if self._person_on_events_mode != PersonsOnEventsMode.disabled:
+        if self._person_on_events_mode != PersonsOnEventsMode.DISABLED:
             self._should_join_persons = False
 
     def _get_entity_query(self, entities=None, entity_name="events") -> tuple[str, dict[str, Any]]:
@@ -160,4 +160,4 @@ class FunnelEventQuery(EventQuery):
         if None in events:
             return "AND 1 = 1", {}
 
-        return f"AND event IN %({entity_name})s", {entity_name: sorted(events)}
+        return f"AND event IN %({entity_name})s", {entity_name: sorted([x for x in events if x])}

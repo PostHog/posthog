@@ -1,4 +1,4 @@
-import { LemonButton, LemonDivider, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonTag, Link } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
@@ -28,7 +28,6 @@ export const scene: SceneExport = {
 
 export function SurveyComponent({ id }: { id?: string } = {}): JSX.Element {
     const { isEditingSurvey, surveyMissing } = useValues(surveyLogic)
-    const showSurveyForm = id === 'new' || isEditingSurvey
 
     if (surveyMissing) {
         return <NotFound object="survey" />
@@ -40,7 +39,7 @@ export function SurveyComponent({ id }: { id?: string } = {}): JSX.Element {
                 <LemonSkeleton />
             ) : (
                 <BindLogic logic={surveyLogic} props={{ id }}>
-                    {showSurveyForm ? <SurveyForm id={id} /> : <SurveyView id={id} />}
+                    {isEditingSurvey ? <SurveyForm id={id} /> : <SurveyView id={id} />}
                 </BindLogic>
             )}
         </div>
@@ -48,8 +47,17 @@ export function SurveyComponent({ id }: { id?: string } = {}): JSX.Element {
 }
 
 export function SurveyForm({ id }: { id: string }): JSX.Element {
-    const { survey, surveyLoading, isEditingSurvey, targetingFlagFilters } = useValues(surveyLogic)
+    const { survey, surveyLoading, targetingFlagFilters } = useValues(surveyLogic)
     const { loadSurvey, editingSurvey } = useActions(surveyLogic)
+
+    const handleCancelClick = (): void => {
+        editingSurvey(false)
+        if (id === 'new') {
+            router.actions.push(urls.surveys())
+        } else {
+            loadSurvey()
+        }
+    }
 
     return (
         <Form id="survey" formKey="survey" logic={surveyLogic} props={{ id }} className="space-y-4" enableFormOnSubmit>
@@ -60,14 +68,7 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                             data-attr="cancel-survey"
                             type="secondary"
                             loading={surveyLoading}
-                            onClick={() => {
-                                if (isEditingSurvey) {
-                                    editingSurvey(false)
-                                    loadSurvey()
-                                } else {
-                                    router.actions.push(urls.surveys())
-                                }
-                            }}
+                            onClick={handleCancelClick}
                         >
                             Cancel
                         </LemonButton>
@@ -86,33 +87,13 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
             <LemonDivider />
             <SurveyEdit />
             <LemonDivider />
-            <SurveyReleaseSummary id={id} survey={survey} targetingFlagFilters={targetingFlagFilters} />
+            <SurveyDisplaySummary id={id} survey={survey} targetingFlagFilters={targetingFlagFilters} />
             <LemonDivider />
-            <div className="flex items-center gap-2 justify-end">
-                <LemonButton
-                    data-attr="cancel-survey"
-                    type="secondary"
-                    loading={surveyLoading}
-                    onClick={() => {
-                        if (isEditingSurvey) {
-                            editingSurvey(false)
-                            loadSurvey()
-                        } else {
-                            router.actions.push(urls.surveys())
-                        }
-                    }}
-                >
-                    Cancel
-                </LemonButton>
-                <LemonButton type="primary" data-attr="save-survey" htmlType="submit" loading={surveyLoading}>
-                    {id === 'new' ? 'Save as draft' : 'Save'}
-                </LemonButton>
-            </div>
         </Form>
     )
 }
 
-export function SurveyReleaseSummary({
+export function SurveyDisplaySummary({
     id,
     survey,
     targetingFlagFilters,
@@ -121,11 +102,17 @@ export function SurveyReleaseSummary({
     survey: Survey | NewSurvey
     targetingFlagFilters?: FeatureFlagFilters
 }): JSX.Element {
+    const hasConditions =
+        survey.conditions?.url || survey.conditions?.selector || survey.conditions?.seenSurveyWaitPeriodInDays
+    const hasFeatureFlags = survey.linked_flag_id || targetingFlagFilters
+
     return (
         <div className="flex flex-col mt-2 gap-2">
-            <div className="font-semibold">Release conditions summary</div>
+            <div className="font-semibold">Display conditions summary</div>
             <span className="text-muted">
-                By default surveys will be released to everyone unless targeting options are set.
+                {hasConditions || hasFeatureFlags
+                    ? 'Surveys will be displayed to users that match the following conditions:'
+                    : 'Surveys will be displayed to everyone.'}
             </span>
             {survey.conditions?.url && (
                 <div className="flex flex-col font-medium gap-1">
@@ -137,15 +124,14 @@ export function SurveyReleaseSummary({
                             ].slice(2)}
                             :
                         </span>{' '}
-                        <span className="simple-tag tag-light-blue text-primary-alt">{survey.conditions.url}</span>
+                        <LemonTag>{survey.conditions.url}</LemonTag>
                     </div>
                 </div>
             )}
             {survey.conditions?.selector && (
                 <div className="flex flex-col font-medium gap-1">
                     <div className="flex-row">
-                        <span>Selector matches:</span>{' '}
-                        <span className="simple-tag tag-light-blue text-primary-alt">{survey.conditions.selector}</span>
+                        <span>Selector matches:</span> <LemonTag>{survey.conditions.selector}</LemonTag>
                     </div>
                 </div>
             )}
@@ -159,6 +145,17 @@ export function SurveyReleaseSummary({
                     ) : (
                         <FlagSelector value={survey.linked_flag_id} readOnly={true} onChange={() => {}} />
                     )}
+                </div>
+            )}
+            {survey.conditions?.seenSurveyWaitPeriodInDays && (
+                <div className="flex flex-col font-medium gap-1">
+                    <div className="flex-row">
+                        <span>Wait period after seeing survey:</span>{' '}
+                        <LemonTag>
+                            {survey.conditions.seenSurveyWaitPeriodInDays}{' '}
+                            {survey.conditions.seenSurveyWaitPeriodInDays === 1 ? 'day' : 'days'}
+                        </LemonTag>
+                    </div>
                 </div>
             )}
             {targetingFlagFilters && (

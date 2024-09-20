@@ -6,19 +6,20 @@ from celery.canvas import Signature
 from celery.schedules import crontab
 from django.conf import settings
 
+from posthog.caching.warming import schedule_warming_for_teams_task
 from posthog.celery import app
+from posthog.tasks.alerts.checks import check_all_alerts_task, checks_cleanup_task
+from posthog.tasks.integrations import refresh_integrations
 from posthog.tasks.tasks import (
     calculate_cohort,
     calculate_decide_usage,
     calculate_replay_embeddings,
     check_async_migration_health,
-    check_data_import_row_limits,
     check_flags_to_rollback,
     clean_stale_partials,
     clear_clickhouse_deleted_person,
     clickhouse_clear_removed_data,
     clickhouse_errors_count,
-    clickhouse_lag,
     clickhouse_mark_all_materialized,
     clickhouse_materialize_columns,
     clickhouse_mutation_count,
@@ -26,7 +27,6 @@ from posthog.tasks.tasks import (
     clickhouse_row_count,
     clickhouse_send_license_usage,
     delete_expired_exported_assets,
-    demo_reset_master_team,
     ee_persist_finished_recordings,
     find_flags_with_enriched_analytics,
     graphile_worker_queue_size,
@@ -39,14 +39,16 @@ from posthog.tasks.tasks import (
     redis_celery_queue_depth,
     redis_heartbeat,
     schedule_all_subscriptions,
-    schedule_cache_updates_task,
     send_org_usage_reports,
-    sync_all_organization_available_features,
-    sync_insight_cache_states_task,
+    start_poll_query_performance,
+    stop_surveys_reached_target,
+    sync_all_organization_available_product_features,
     update_event_partitions,
     update_quota_limiting,
     verify_persons_data_in_sync,
-    stop_surveys_reached_target,
+    update_survey_iteration,
+    replay_count_metrics,
+    calculate_external_data_rows_synced,
 )
 from posthog.utils import get_crontab
 
@@ -88,6 +90,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     # Heartbeat every 10sec to make sure the worker is alive
     add_periodic_task_with_expiry(sender, 10, redis_heartbeat.s(), "10 sec heartbeat")
 
+    add_periodic_task_with_expiry(sender, 20, start_poll_query_performance.s(), "20 sec query performance heartbeat")
+
+    sender.add_periodic_task(
+        crontab(hour="*", minute="0"),
+        schedule_warming_for_teams_task.s(),
+        name="schedule warming for largest teams",
+    )
+
     # Update events table partitions twice a week
     sender.add_periodic_task(
         crontab(day_of_week="mon,fri", hour="0", minute="0"),
@@ -128,39 +138,17 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
 
     # Reset master project data every Monday at Thursday at 5 AM UTC. Mon and Thu because doing this every day
     # would be too hard on ClickHouse, and those days ensure most users will have data at most 3 days old.
-    sender.add_periodic_task(crontab(day_of_week="mon,thu", hour="5", minute="0"), demo_reset_master_team.s())
+    # sender.add_periodic_task(crontab(day_of_week="mon,thu", hour="5", minute="0"), demo_reset_master_team.s())
 
     sender.add_periodic_task(crontab(day_of_week="fri", hour="0", minute="0"), clean_stale_partials.s())
 
-    # Sync all Organization.available_features every hour, only for billing v1 orgs
-    sender.add_periodic_task(crontab(minute="30", hour="*"), sync_all_organization_available_features.s())
-
-    sync_insight_cache_states_schedule = get_crontab(settings.SYNC_INSIGHT_CACHE_STATES_SCHEDULE)
-    if sync_insight_cache_states_schedule:
-        sender.add_periodic_task(
-            sync_insight_cache_states_schedule,
-            sync_insight_cache_states_task.s(),
-            name="sync insight cache states",
-        )
-
-    add_periodic_task_with_expiry(
-        sender,
-        settings.UPDATE_CACHED_DASHBOARD_ITEMS_INTERVAL_SECONDS,
-        schedule_cache_updates_task.s(),
-        "check dashboard items",
-    )
+    # Sync all Organization.available_product_features every hour, only for billing v1 orgs
+    sender.add_periodic_task(crontab(minute="30", hour="*"), sync_all_organization_available_product_features.s())
 
     sender.add_periodic_task(crontab(minute="*/15"), check_async_migration_health.s())
 
     if settings.INGESTION_LAG_METRIC_TEAM_IDS:
         sender.add_periodic_task(60, ingestion_lag.s(), name="ingestion lag")
-
-    add_periodic_task_with_expiry(
-        sender,
-        120,
-        clickhouse_lag.s(),
-        name="clickhouse table lag",
-    )
 
     add_periodic_task_with_expiry(
         sender,
@@ -204,6 +192,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         pg_plugin_server_query_timing.s(),
         name="PG plugin server query timing",
     )
+
     add_periodic_task_with_expiry(
         sender,
         60,
@@ -225,6 +214,8 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="process scheduled changes",
     )
 
+    add_periodic_task_with_expiry(sender, 3600, replay_count_metrics.s(), name="replay_count_metrics")
+
     if clear_clickhouse_crontab := get_crontab(settings.CLEAR_CLICKHOUSE_REMOVED_DATA_SCHEDULE_CRON):
         sender.add_periodic_task(
             clear_clickhouse_crontab,
@@ -243,6 +234,24 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="*/12"),
         stop_surveys_reached_target.s(),
         name="stop surveys that reached responses limits",
+    )
+
+    sender.add_periodic_task(
+        crontab(hour="*/12"),
+        update_survey_iteration.s(),
+        name="update survey iteration based on date",
+    )
+
+    sender.add_periodic_task(
+        crontab(hour="*", minute="45"),
+        check_all_alerts_task.s(),
+        name="check alerts for matches and send notifications",
+    )
+
+    sender.add_periodic_task(
+        crontab(hour="8", minute="0"),
+        checks_cleanup_task.s(),
+        name="clean up old alert checks",
     )
 
     if settings.EE_AVAILABLE:
@@ -305,8 +314,17 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
             name="delete expired exported assets",
         )
 
+    # Every 20 minutes try to retrieve and calculate total rows synced in period
     sender.add_periodic_task(
         crontab(minute="*/20"),
-        check_data_import_row_limits.s(),
-        name="check external data rows synced",
+        calculate_external_data_rows_synced.s(),
+        name="calculate external data rows synced",
+    )
+
+    # Check integrations to refresh every minute
+    add_periodic_task_with_expiry(
+        sender,
+        60,
+        refresh_integrations.s(),
+        name="refresh integrations",
     )

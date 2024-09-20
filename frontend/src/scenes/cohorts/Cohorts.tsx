@@ -5,7 +5,6 @@ import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 import { ListHog } from 'lib/components/hedgehogs'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -14,27 +13,18 @@ import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/Le
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useState } from 'react'
 import { urls } from 'scenes/urls'
-import { userLogic } from 'scenes/userLogic'
 
-import { AvailableFeature, CohortType, ProductKey } from '~/types'
+import { CohortType, ProductKey } from '~/types'
 
 import { cohortsModel } from '../../models/cohortsModel'
 
 export function Cohorts(): JSX.Element {
     const { cohorts, cohortsSearch, cohortsLoading } = useValues(cohortsModel)
     const { deleteCohort, exportCohortPersons } = useActions(cohortsModel)
-    const { hasAvailableFeature } = useValues(userLogic)
     const { searchParams } = useValues(router)
     const [searchTerm, setSearchTerm] = useState<string>('')
-    const { user } = useValues(userLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const shouldShowEmptyState = cohorts?.length == 0 && !cohortsLoading
-    const shouldShowProductIntroduction =
-        !user?.has_seen_product_intro_for?.[ProductKey.COHORTS] &&
-        !!featureFlags[FEATURE_FLAGS.SHOW_PRODUCT_INTRO_EXISTING_PRODUCTS]
 
     const columns: LemonTableColumns<CohortType> = [
         {
@@ -49,9 +39,7 @@ export function Cohorts(): JSX.Element {
                         <LemonTableLink
                             to={combineUrl(urls.cohort(id), searchParams).url}
                             title={name ? <>{name}</> : 'Untitled'}
-                            description={
-                                hasAvailableFeature(AvailableFeature.TEAM_COLLABORATION) ? description : undefined
-                            }
+                            description={description}
                         />
                     </>
                 )
@@ -148,40 +136,35 @@ export function Cohorts(): JSX.Element {
     ]
 
     return (
-        <div>
-            {(shouldShowProductIntroduction || shouldShowEmptyState) && (
-                <ProductIntroduction
-                    productName="Cohorts"
-                    productKey={ProductKey.COHORTS}
-                    thingName="cohort"
-                    description="Use cohorts to group people together, such as users who used your app in the last week, or people who viewed the signup page but didn’t convert."
-                    isEmpty={cohorts?.length == 0}
-                    docsURL="https://posthog.com/docs/data/cohorts"
-                    action={() => router.actions.push(urls.cohort('new'))}
-                    customHog={ListHog}
+        <>
+            <ProductIntroduction
+                productName="Cohorts"
+                productKey={ProductKey.COHORTS}
+                thingName="cohort"
+                description="Use cohorts to group people together, such as users who used your app in the last week, or people who viewed the signup page but didn’t convert."
+                isEmpty={cohorts?.length == 0 && !cohortsLoading}
+                docsURL="https://posthog.com/docs/data/cohorts"
+                action={() => router.actions.push(urls.cohort('new'))}
+                customHog={ListHog}
+            />
+
+            <div className="flex justify-between items-center mb-4 gap-2">
+                <LemonInput
+                    type="search"
+                    placeholder="Search for cohorts"
+                    onChange={setSearchTerm}
+                    value={searchTerm}
                 />
-            )}
-            {!shouldShowEmptyState && (
-                <>
-                    <div className="flex justify-between items-center mb-4 gap-2">
-                        <LemonInput
-                            type="search"
-                            placeholder="Search for cohorts"
-                            onChange={setSearchTerm}
-                            value={searchTerm}
-                        />
-                    </div>
-                    <LemonTable
-                        columns={columns}
-                        loading={cohortsLoading}
-                        rowKey="id"
-                        pagination={{ pageSize: 100 }}
-                        dataSource={searchTerm ? cohortsSearch(searchTerm) : cohorts ?? []}
-                        nouns={['cohort', 'cohorts']}
-                        data-attr="cohorts-table"
-                    />
-                </>
-            )}
-        </div>
+            </div>
+            <LemonTable
+                columns={columns}
+                loading={cohortsLoading}
+                rowKey="id"
+                pagination={{ pageSize: 100 }}
+                dataSource={searchTerm ? cohortsSearch(searchTerm) : cohorts ?? []}
+                nouns={['cohort', 'cohorts']}
+                data-attr="cohorts-table"
+            />
+        </>
     )
 }

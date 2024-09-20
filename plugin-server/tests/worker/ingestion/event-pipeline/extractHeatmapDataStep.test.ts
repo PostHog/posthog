@@ -14,7 +14,6 @@ const preIngestionEvent: PreIngestionEvent = {
         $pathname: '/',
         $viewport_height: 1328,
         $viewport_width: 1071,
-        distinct_id: '018eebf3-79b1-7082-a7c6-eeb56a36002f',
         $device_id: '018eebf3-79b1-7082-a7c6-eeb56a36002f',
         $session_id: '018eebf3-79cd-70da-895f-b6cf352bd688',
         $window_id: '018eebf3-79cd-70da-895f-b6d09add936a',
@@ -133,9 +132,12 @@ describe('extractHeatmapDataStep()', () => {
             hub: {
                 kafkaProducer: {
                     produce: jest.fn((e) => Promise.resolve(e)),
+                    queueMessage: jest.fn((e) => Promise.resolve(e)),
+                },
+                teamManager: {
+                    fetchTeam: jest.fn(() => Promise.resolve({ heatmaps_opt_in: true })),
                 },
             },
-            nextStep: (...args: any[]) => args,
         }
     })
 
@@ -169,20 +171,6 @@ describe('extractHeatmapDataStep()', () => {
 
         // The rest we can just compare the buffers
         expect(runner.hub.kafkaProducer.produce.mock.calls).toMatchSnapshot()
-    })
-
-    it('ignores events without $heatmap_data', async () => {
-        event.properties.$heatmap_data = null
-        const response = await extractHeatmapDataStep(runner, event)
-        expect(response).toEqual([event, []])
-        expect(response[0].properties.$heatmap_data).toBeUndefined()
-    })
-
-    it('ignores events with bad $heatmap_data', async () => {
-        event.properties.$heatmap_data = 'wat'
-        const response = await extractHeatmapDataStep(runner, event)
-        expect(response).toEqual([event, []])
-        expect(response[0].properties.$heatmap_data).toBeUndefined()
     })
 
     it('additionally parses ', async () => {
@@ -222,5 +210,100 @@ describe('extractHeatmapDataStep()', () => {
               "y": 14,
             }
         `)
+    })
+
+    it('drops if the associated team has explicit opt out', async () => {
+        runner.hub.teamManager.fetchTeam = jest.fn(() => Promise.resolve({ heatmaps_opt_in: false }))
+        const response = await extractHeatmapDataStep(runner, event)
+        expect(response[0]).toEqual(event)
+        expect(response[0].properties.$heatmap_data).toBeUndefined()
+        expect(response[1]).toHaveLength(0)
+        expect(runner.hub.kafkaProducer.produce).toBeCalledTimes(0)
+    })
+
+    describe('validation', () => {
+        it('handles empty array $heatmap_data', async () => {
+            event.properties.$heatmap_data = []
+            const response = await extractHeatmapDataStep(runner, event)
+            expect(response).toEqual([event, []])
+            expect(response[0].properties.$heatmap_data).toBeUndefined()
+        })
+
+        it('handles empty object $heatmap_data', async () => {
+            event.properties.$heatmap_data = {}
+            const response = await extractHeatmapDataStep(runner, event)
+            expect(response).toEqual([event, []])
+            expect(response[0].properties.$heatmap_data).toBeUndefined()
+        })
+
+        it('ignores events without $heatmap_data', async () => {
+            event.properties.$heatmap_data = null
+            const response = await extractHeatmapDataStep(runner, event)
+            expect(response).toEqual([event, []])
+            expect(response[0].properties.$heatmap_data).toBeUndefined()
+        })
+
+        it('ignores events with bad $heatmap_data', async () => {
+            event.properties.$heatmap_data = 'wat'
+            const response = await extractHeatmapDataStep(runner, event)
+            expect(response).toEqual([event, []])
+            expect(response[0].properties.$heatmap_data).toBeUndefined()
+        })
+
+        it.each([
+            [
+                {
+                    '    ': [
+                        {
+                            x: 1020,
+                            y: 363,
+                            target_fixed: false,
+                            type: 'mousemove',
+                        },
+                    ],
+                },
+            ],
+            [
+                {
+                    'x must be a number': [
+                        {
+                            x: '1020',
+                            y: 363,
+                            target_fixed: false,
+                            type: 'mousemove',
+                        },
+                    ],
+                },
+            ],
+            [
+                {
+                    'y must be a number': [
+                        {
+                            x: 1020,
+                            y: '363',
+                            target_fixed: false,
+                            type: 'mousemove',
+                        },
+                    ],
+                },
+            ],
+            [
+                {
+                    'type must be present': [
+                        {
+                            x: 1020,
+                            y: 363,
+                            target_fixed: false,
+                            type: '     ',
+                        },
+                    ],
+                },
+            ],
+        ])('only includes valid heatmap data', async (invalidEvent) => {
+            event.properties.$heatmap_data = invalidEvent
+            const response = await extractHeatmapDataStep(runner, event)
+            expect(response).toEqual([event, []])
+            expect(response[0].properties.$heatmap_data).toBeUndefined()
+        })
     })
 })

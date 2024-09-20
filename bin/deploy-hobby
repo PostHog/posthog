@@ -120,6 +120,7 @@ envsubst > Caddyfile <<EOF
 $TLS_BLOCK
 }
 $DOMAIN, http://, https:// {
+encode gzip zstd
 reverse_proxy http://web:8000
 }
 EOF
@@ -183,7 +184,7 @@ if ! command -v docker &> /dev/null; then
     # Setup Docker
     sudo apt install -y apt-transport-https ca-certificates curl software-properties-common
     curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo -E apt-key add -
-    sudo add-apt-repository -y "deb [arch=amd64] https://download.docker.com/linux/ubuntu bionic stable"
+    sudo add-apt-repository -y "deb [arch=amd64] https://download.docker.com/linux/ubuntu jammy stable"
     sudo apt update
     sudo apt-cache policy docker-ce
     sudo apt install -y docker-ce

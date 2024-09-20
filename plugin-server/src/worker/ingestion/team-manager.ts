@@ -113,7 +113,13 @@ export class TeamManager {
                 'setTeamIngestedEvent'
             )
 
-            // First event for the team captured
+            // So long as team id is used as the partition key, this helps avoid
+            // double-firing of the first events, but it's not perfect (pod crashes
+            // or other rebalances, for example, can still cause double-firing). Exactly
+            // once is hard.
+            this.teamCache.set(team.id, { ...team, ingested_event: true })
+
+            // First event for the team captured - we fire this because comms and others rely on this event for onboarding flows in downstream systems (e.g. customer.io)
             const organizationMembers = await this.postgres.query(
                 PostgresUse.COMMON_WRITE,
                 'SELECT distinct_id FROM posthog_user JOIN posthog_organizationmembership ON posthog_user.id = posthog_organizationmembership.user_id WHERE organization_id = $1',
@@ -155,8 +161,10 @@ export async function fetchTeam(client: PostgresRouter, teamId: Team['id']): Pro
                 api_token,
                 slack_incoming_webhook,
                 session_recording_opt_in,
+                heatmaps_opt_in,
                 ingested_event,
-                person_display_name_properties
+                person_display_name_properties,
+                test_account_filters
             FROM posthog_team
             WHERE id = $1
             `,
@@ -179,7 +187,9 @@ export async function fetchTeamByToken(client: PostgresRouter, token: string): P
                 api_token,
                 slack_incoming_webhook,
                 session_recording_opt_in,
-                ingested_event
+                heatmaps_opt_in,
+                ingested_event,
+                test_account_filters
             FROM posthog_team
             WHERE api_token = $1
             LIMIT 1

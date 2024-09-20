@@ -95,16 +95,35 @@ class TestUserAPI(APIBaseTest):
                     "id": str(self.organization.id),
                     "name": self.organization.name,
                     "slug": slugify(self.organization.name),
+                    "logo_media_id": None,
                     "membership_level": 1,
                 },
                 {
                     "id": str(self.new_org.id),
                     "name": "New Organization",
                     "slug": "new-organization",
+                    "logo_media_id": None,
                     "membership_level": 1,
                 },
             ],
         )
+
+    def test_hedgehog_config_is_unset(self):
+        self.user.hedgehog_config = None
+        self.user.save()
+
+        response = self.client.get(f"/api/users/@me/hedgehog_config/")
+        assert response.status_code == status.HTTP_200_OK
+        # the front end assumes it will _always_ get JSON
+        assert response.json() == {}
+
+    def test_hedgehog_config_is_set(self):
+        self.user.hedgehog_config = {"a bag": "of data"}
+        self.user.save()
+
+        response = self.client.get(f"/api/users/@me/hedgehog_config/")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"a bag": "of data"}
 
     def test_can_only_list_yourself(self):
         """
@@ -163,7 +182,6 @@ class TestUserAPI(APIBaseTest):
             {
                 "first_name": "Cooper",
                 "anonymize_data": True,
-                "email_opt_in": False,
                 "events_column_config": {"active": ["column_1", "column_2"]},
                 "notification_settings": {"plugin_disabled": False},
                 "has_seen_product_intro_for": {"feature_flags": True},
@@ -180,7 +198,6 @@ class TestUserAPI(APIBaseTest):
         self.assertNotEqual(response_data["uuid"], 1)
         self.assertEqual(response_data["first_name"], "Cooper")
         self.assertEqual(response_data["anonymize_data"], True)
-        self.assertEqual(response_data["email_opt_in"], False)
         self.assertEqual(response_data["events_column_config"], {"active": ["column_1", "column_2"]})
         self.assertEqual(response_data["organization"]["id"], str(self.organization.id))
         self.assertEqual(response_data["team"]["id"], self.team.id)
@@ -200,7 +217,6 @@ class TestUserAPI(APIBaseTest):
             properties={
                 "updated_attrs": [
                     "anonymize_data",
-                    "email_opt_in",
                     "events_column_config",
                     "first_name",
                     "has_seen_product_intro_for",

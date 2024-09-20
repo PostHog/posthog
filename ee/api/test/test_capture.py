@@ -1,10 +1,13 @@
 import json
+
+from django.http import HttpResponse
 from django.test.client import Client
 from kafka.errors import NoBrokersAvailable
 from rest_framework import status
-from typing import Any
+from typing import Any, Optional
 from unittest.mock import patch
 
+from ee.billing.quota_limiting import QuotaResource
 from posthog.settings.data_stores import KAFKA_EVENTS_PLUGIN_INGESTION
 from posthog.test.base import APIBaseTest
 
@@ -17,6 +20,59 @@ class TestCaptureAPI(APIBaseTest):
     def setUp(self):
         super().setUp()
         self.client = Client()
+
+    def _send_event(self, expected_status_code: int = status.HTTP_200_OK) -> HttpResponse:
+        event_response = self.client.post(
+            "/e/",
+            data={
+                "data": json.dumps(
+                    [
+                        {"event": "beep", "properties": {"distinct_id": "eeee", "token": self.team.api_token}},
+                        {"event": "boop", "properties": {"distinct_id": "aaaa", "token": self.team.api_token}},
+                    ]
+                ),
+                "api_key": self.team.api_token,
+            },
+        )
+        assert event_response.status_code == expected_status_code
+        return event_response
+
+    def _send_session_recording_event(
+        self,
+        number_of_events=1,
+        event_data: Optional[dict] = None,
+        snapshot_source=3,
+        snapshot_type=1,
+        session_id="abc123",
+        window_id="def456",
+        distinct_id="ghi789",
+        timestamp=1658516991883,
+        expected_status_code: int = status.HTTP_200_OK,
+    ) -> tuple[dict, HttpResponse]:
+        if event_data is None:
+            event_data = {}
+
+        event = {
+            "event": "$snapshot",
+            "properties": {
+                "$snapshot_data": {
+                    "type": snapshot_type,
+                    "data": {"source": snapshot_source, "data": event_data},
+                    "timestamp": timestamp,
+                },
+                "$session_id": session_id,
+                "$window_id": window_id,
+                "distinct_id": distinct_id,
+            },
+            "offset": 1993,
+        }
+
+        capture_recording_response = self.client.post(
+            "/s/", data={"data": json.dumps([event for _ in range(number_of_events)]), "api_key": self.team.api_token}
+        )
+        assert capture_recording_response.status_code == expected_status_code
+
+        return event, capture_recording_response
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_produce_to_kafka(self, kafka_produce):
@@ -202,3 +258,52 @@ class TestCaptureAPI(APIBaseTest):
 
             kafka_produce_call = kafka_produce.call_args_list[1].kwargs
             self.assertEqual(kafka_produce_call["key"], None)
+
+    @patch("ee.billing.quota_limiting.list_limited_team_attributes")
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_quota_limited_recordings_return_retry_after_header_when_enabled(
+        self, _kafka_produce, _fake_token_limiting
+    ) -> None:
+        with self.settings(QUOTA_LIMITING_ENABLED=True, RECORDINGS_QUOTA_LIMITING_RESPONSES_SAMPLE_RATE=1):
+
+            def fake_limiter(*args, **kwargs):
+                return [self.team.api_token] if args[0] == QuotaResource.RECORDINGS else []
+
+            _fake_token_limiting.side_effect = fake_limiter
+
+            _, response = self._send_session_recording_event()
+            # it is three hours to midnight
+            json_data = json.loads(response.content.decode("utf-8"))
+            assert json_data.get("quota_limited", None) == ["recordings"]
+
+    @patch("ee.billing.quota_limiting.list_limited_team_attributes")
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_quota_limited_recordings_do_not_return_retry_after_header_when_disabled(
+        self, _kafka_produce, _fake_token_limiting
+    ) -> None:
+        with self.settings(QUOTA_LIMITING_ENABLED=True, RECORDINGS_QUOTA_LIMITING_RESPONSES_SAMPLE_RATE=0):
+
+            def fake_limiter(*args, **kwargs):
+                return [self.team.api_token] if args[0] == QuotaResource.RECORDINGS else []
+
+            _fake_token_limiting.side_effect = fake_limiter
+
+            _, response = self._send_session_recording_event()
+            # it is three hours to midnight
+            json_data = json.loads(response.content.decode("utf-8"))
+            assert "quota_limited" not in json_data
+
+    @patch("ee.billing.quota_limiting.list_limited_team_attributes")
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_quota_limited_events_do_not_return_retry_after_header(self, _kafka_produce, _fake_token_limiting) -> None:
+        with self.settings(QUOTA_LIMITING_ENABLED=True):
+
+            def fake_limiter(*args, **kwargs):
+                return [self.team.api_token] if args[0] == QuotaResource.RECORDINGS else []
+
+            _fake_token_limiting.side_effect = fake_limiter
+
+            response = self._send_event()
+
+            json_data = json.loads(response.content.decode("utf-8"))
+            assert "quota_limited" not in json_data

@@ -17,10 +17,12 @@ from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.organization import OrganizationMembership
 from posthog.models.signals import mute_selected_signals
 from posthog.models.team.util import delete_bulky_postgres_data
+from posthog.models.uploaded_media import UploadedMedia
 from posthog.permissions import (
     CREATE_ACTIONS,
     APIScopePermission,
     OrganizationAdminWritePermissions,
+    TimeSensitiveActionPermission,
     extract_organization,
 )
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
@@ -70,6 +72,9 @@ class OrganizationSerializer(
     teams = serializers.SerializerMethodField()
     metadata = serializers.SerializerMethodField()
     member_count = serializers.SerializerMethodField()
+    logo_media_id = serializers.PrimaryKeyRelatedField(
+        queryset=UploadedMedia.objects.all(), required=False, allow_null=True
+    )
 
     class Meta:
         model = Organization
@@ -77,12 +82,12 @@ class OrganizationSerializer(
             "id",
             "name",
             "slug",
+            "logo_media_id",
             "created_at",
             "updated_at",
             "membership_level",
             "plugins_access_level",
             "teams",
-            "available_features",
             "available_product_features",
             "is_member_join_email_enabled",
             "metadata",
@@ -98,7 +103,6 @@ class OrganizationSerializer(
             "membership_level",
             "plugins_access_level",
             "teams",
-            "available_features",
             "available_product_features",
             "metadata",
             "customer_id",
@@ -114,7 +118,6 @@ class OrganizationSerializer(
         serializers.raise_errors_on_nested_writes("create", self, validated_data)
         user = self.context["request"].user
         organization, _, _ = Organization.objects.bootstrap(user, **validated_data)
-
         return organization
 
     def get_membership_level(self, organization: Organization) -> Optional[OrganizationMembership.Level]:
@@ -152,7 +155,7 @@ class OrganizationSerializer(
 class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "organization"
     serializer_class = OrganizationSerializer
-    permission_classes = [OrganizationPermissionsWithDelete]
+    permission_classes = [OrganizationPermissionsWithDelete, TimeSensitiveActionPermission]
     queryset = Organization.objects.none()
     lookup_field = "id"
     ordering = "-created_by"
@@ -169,6 +172,7 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 for permission in [
                     permissions.IsAuthenticated,
                     PremiumMultiorganizationPermissions,
+                    TimeSensitiveActionPermission,
                     APIScopePermission,
                 ]
             ]

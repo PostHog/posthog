@@ -2,7 +2,7 @@ import * as IORedis from 'ioredis'
 import { DateTime } from 'luxon'
 
 import { Hub, ISOTimestamp, Person, PreIngestionEvent } from '../../../src/types'
-import { createHub } from '../../../src/utils/db/hub'
+import { closeHub, createHub } from '../../../src/utils/db/hub'
 import { UUIDT } from '../../../src/utils/utils'
 import { EventsProcessor } from '../../../src/worker/ingestion/process-event'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../../helpers/clickhouse'
@@ -13,7 +13,6 @@ jest.mock('../../../src/utils/status')
 jest.setTimeout(600000) // 600 sec timeout.
 
 let hub: Hub
-let closeHub: () => Promise<void>
 let redis: IORedis.Redis
 let eventsProcessor: EventsProcessor
 
@@ -24,7 +23,7 @@ beforeAll(async () => {
 beforeEach(async () => {
     await resetTestDatabase()
     await resetTestDatabaseClickhouse()
-    ;[hub, closeHub] = await createHub()
+    hub = await createHub()
     redis = await hub.redisPool.acquire()
     await redis.flushdb()
 
@@ -33,7 +32,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
     await hub.redisPool.release(redis)
-    await closeHub?.()
+    await closeHub(hub)
 })
 
 describe('EventsProcessor#createEvent()', () => {
@@ -63,13 +62,13 @@ describe('EventsProcessor#createEvent()', () => {
             null,
             false,
             personUuid,
-            ['my_id']
+            [{ distinctId: 'my_id' }]
         )
     })
 
     it('emits event with person columns, re-using event properties', async () => {
         const processPerson = true
-        await eventsProcessor.createEvent(preIngestionEvent, person, processPerson)
+        eventsProcessor.createEvent(preIngestionEvent, person, processPerson)
 
         await eventsProcessor.kafkaProducer.flush()
 
@@ -115,7 +114,7 @@ describe('EventsProcessor#createEvent()', () => {
         )
 
         const processPerson = true
-        await eventsProcessor.createEvent(
+        eventsProcessor.createEvent(
             { ...preIngestionEvent, properties: { $group_0: 'group_key' } },
             person,
             processPerson
@@ -130,13 +129,6 @@ describe('EventsProcessor#createEvent()', () => {
                 $group_2: '',
                 $group_3: '',
                 $group_4: '',
-                group0_properties: {
-                    group_prop: 'value',
-                },
-                group1_properties: {},
-                group2_properties: {},
-                group3_properties: {},
-                group4_properties: {},
                 person_mode: 'full',
             })
         )
@@ -144,7 +136,7 @@ describe('EventsProcessor#createEvent()', () => {
 
     it('when $process_person_profile=false, emits event with without person properties or groups', async () => {
         const processPerson = false
-        await eventsProcessor.createEvent(
+        eventsProcessor.createEvent(
             { ...preIngestionEvent, properties: { $group_0: 'group_key' } },
             person,
             processPerson
@@ -174,7 +166,7 @@ describe('EventsProcessor#createEvent()', () => {
     it('force_upgrade persons are recorded as such', async () => {
         const processPerson = false
         person.force_upgrade = true
-        await eventsProcessor.createEvent(
+        eventsProcessor.createEvent(
             { ...preIngestionEvent, properties: { $group_0: 'group_key' } },
             person,
             processPerson
@@ -217,7 +209,7 @@ describe('EventsProcessor#createEvent()', () => {
             properties_last_operation: {},
         }
         const processPerson = true
-        await eventsProcessor.createEvent(
+        eventsProcessor.createEvent(
             { ...preIngestionEvent, distinctId: 'no-such-person' },
             nonExistingPerson,
             processPerson

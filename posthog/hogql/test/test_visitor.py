@@ -58,7 +58,7 @@ class TestVisitor(BaseTest):
                         args=[
                             ast.Alias(
                                 alias="d",
-                                expr=ast.Placeholder(field="e"),
+                                expr=ast.Placeholder(chain=["e"]),
                             ),
                             ast.OrderExpr(
                                 expr=ast.Field(chain=["c"]),
@@ -85,7 +85,8 @@ class TestVisitor(BaseTest):
                                     op=ast.CompareOperationOp.Eq,
                                     left=ast.Field(chain=["d"]),
                                     right=ast.Field(chain=["e"]),
-                                )
+                                ),
+                                constraint_type="ON",
                             ),
                         ),
                         sample=ast.SampleExpr(

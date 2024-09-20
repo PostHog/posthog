@@ -3,7 +3,7 @@ import re
 from typing import Any
 from django.contrib.postgres.search import SearchQuery, SearchRank, SearchVector
 from django.db.models import Model, Value, CharField, F, QuerySet
-from django.db.models.functions import Cast, JSONObject  # type: ignore
+from django.db.models.functions import Cast, JSONObject
 from django.http import HttpResponse
 from rest_framework import viewsets, serializers
 from rest_framework.request import Request
@@ -91,15 +91,20 @@ class SearchViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         query = params["q"]
 
         # empty queryset to union things onto it
-        qs = Dashboard.objects.annotate(type=Value("empty", output_field=CharField())).filter(team=self.team).none()
+        qs = (
+            Dashboard.objects.annotate(type=Value("empty", output_field=CharField()))
+            .filter(team__project_id=self.project_id)
+            .none()
+        )
 
         # add entities
         for entity_meta in [ENTITY_MAP[entity] for entity in entities]:
             klass_qs, entity_name = class_queryset(
                 view=self,
-                klass=entity_meta.get("klass"),  # type: ignore
+                klass=entity_meta.get("klass"),
+                project_id=self.project_id,
                 query=query,
-                search_fields=entity_meta.get("search_fields"),  # type: ignore
+                search_fields=entity_meta.get("search_fields"),
                 extra_fields=entity_meta.get("extra_fields"),
             )
             qs = qs.union(klass_qs)
@@ -132,6 +137,7 @@ def process_query(query: str):
 def class_queryset(
     view: TeamAndOrgViewSetMixin,
     klass: type[Model],
+    project_id: int,
     query: str | None,
     search_fields: dict[str, str],
     extra_fields: dict | None,
@@ -140,7 +146,7 @@ def class_queryset(
     entity_type = class_to_entity_name(klass)
     values = ["type", "result_id", "extra_fields"]
 
-    qs: QuerySet[Any] = klass.objects.filter(team=view.team)  # filter team
+    qs: QuerySet[Any] = klass.objects.filter(team__project_id=project_id)  # filter team
     qs = view.user_access_control.filter_queryset_by_access_level(qs)  # filter access level
 
     # :TRICKY: can't use an annotation here as `type` conflicts with a field on some models

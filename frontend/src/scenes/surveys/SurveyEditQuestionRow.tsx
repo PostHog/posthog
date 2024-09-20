@@ -4,7 +4,7 @@ import { DraggableSyntheticListeners } from '@dnd-kit/core'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { IconPlusSmall, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonInput, LemonSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonDialog, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Group } from 'kea-forms'
 import { SortableDragIcon } from 'lib/lemon-ui/icons'
@@ -13,13 +13,14 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Survey, SurveyQuestionType } from '~/types'
 
 import { defaultSurveyFieldValues, NewSurvey, SurveyQuestionLabel } from './constants'
+import { QuestionBranchingInput } from './QuestionBranchingInput'
 import { HTMLEditor } from './SurveyAppearanceUtils'
 import { surveyLogic } from './surveyLogic'
 
 type SurveyQuestionHeaderProps = {
     index: number
     survey: Survey | NewSurvey
-    setSelectedQuestion: (index: number) => void
+    setSelectedPageIndex: (index: number) => void
     setSurveyValue: (key: string, value: any) => void
 }
 
@@ -32,9 +33,11 @@ const DragHandle = ({ listeners }: { listeners: DraggableSyntheticListeners | un
 export function SurveyEditQuestionHeader({
     index,
     survey,
-    setSelectedQuestion,
+    setSelectedPageIndex,
     setSurveyValue,
 }: SurveyQuestionHeaderProps): JSX.Element {
+    const { hasBranchingLogic } = useValues(surveyLogic)
+    const { deleteBranchingLogic } = useActions(surveyLogic)
     const { setNodeRef, attributes, transform, transition, listeners, isDragging } = useSortable({
         id: index.toString(),
     })
@@ -68,12 +71,39 @@ export function SurveyEditQuestionHeader({
                     icon={<IconTrash />}
                     data-attr={`delete-survey-question-${index}`}
                     onClick={(e) => {
-                        e.stopPropagation()
-                        setSelectedQuestion(index <= 0 ? 0 : index - 1)
-                        setSurveyValue(
-                            'questions',
-                            survey.questions.filter((_, i) => i !== index)
-                        )
+                        const deleteQuestion = (): void => {
+                            e.stopPropagation()
+                            setSelectedPageIndex(index <= 0 ? 0 : index - 1)
+                            setSurveyValue(
+                                'questions',
+                                survey.questions.filter((_, i) => i !== index)
+                            )
+                        }
+
+                        if (hasBranchingLogic) {
+                            LemonDialog.open({
+                                title: 'Your survey has active branching logic',
+                                description: (
+                                    <p className="py-2">
+                                        Deleting the question will remove your branching logic. Are you sure you want to
+                                        continue?
+                                    </p>
+                                ),
+                                primaryButton: {
+                                    children: 'Continue',
+                                    status: 'danger',
+                                    onClick: () => {
+                                        deleteBranchingLogic()
+                                        deleteQuestion()
+                                    },
+                                },
+                                secondaryButton: {
+                                    children: 'Cancel',
+                                },
+                            })
+                        } else {
+                            deleteQuestion()
+                        }
                     }}
                     tooltipPlacement="top-end"
                 />
@@ -83,8 +113,28 @@ export function SurveyEditQuestionHeader({
 }
 
 export function SurveyEditQuestionGroup({ index, question }: { index: number; question: any }): JSX.Element {
-    const { survey, writingHTMLDescription } = useValues(surveyLogic)
-    const { setDefaultForQuestionType, setWritingHTMLDescription, setSurveyValue } = useActions(surveyLogic)
+    const { survey, descriptionContentType } = useValues(surveyLogic)
+    const { setDefaultForQuestionType, setSurveyValue, resetBranchingForQuestion } = useActions(surveyLogic)
+
+    const initialDescriptionContentType = descriptionContentType(index) ?? 'text'
+
+    const handleQuestionValueChange = (key: string, val: string): void => {
+        const updatedQuestion = survey.questions.map((question, idx) => {
+            if (index === idx) {
+                return {
+                    ...question,
+                    [key]: val,
+                }
+            }
+            return question
+        })
+        setSurveyValue('questions', updatedQuestion)
+    }
+
+    const handleTabChange = (key: string): void => {
+        handleQuestionValueChange('descriptionContentType', key)
+    }
+
     return (
         <Group name={`questions.${index}`} key={index}>
             <div className="flex flex-col gap-2">
@@ -99,7 +149,7 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                 question.description
                             const editingThankYouMessage =
                                 defaultSurveyFieldValues[question.type].appearance.thankYouMessageHeader !==
-                                survey.appearance.thankYouMessageHeader
+                                survey.appearance?.thankYouMessageHeader
                             setDefaultForQuestionType(
                                 index,
                                 newType,
@@ -107,43 +157,52 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                 editingDescription,
                                 editingThankYouMessage
                             )
+                            resetBranchingForQuestion(index)
                         }}
                         options={[
                             {
                                 label: SurveyQuestionLabel[SurveyQuestionType.Open],
                                 value: SurveyQuestionType.Open,
+                                'data-attr': `survey-question-type-${index}-${SurveyQuestionType.Open}`,
                             },
                             {
                                 label: 'Link/Notification',
                                 value: SurveyQuestionType.Link,
+                                'data-attr': `survey-question-type-${index}-${SurveyQuestionType.Link}`,
                             },
                             {
                                 label: 'Rating',
                                 value: SurveyQuestionType.Rating,
+                                'data-attr': `survey-question-type-${index}-${SurveyQuestionType.Rating}`,
                             },
                             ...[
                                 {
                                     label: 'Single choice select',
                                     value: SurveyQuestionType.SingleChoice,
+                                    'data-attr': `survey-question-type-${index}-${SurveyQuestionType.SingleChoice}`,
                                 },
                                 {
                                     label: 'Multiple choice select',
                                     value: SurveyQuestionType.MultipleChoice,
+                                    'data-attr': `survey-question-type-${index}-${SurveyQuestionType.MultipleChoice}`,
                                 },
                             ],
                         ]}
                     />
                 </LemonField>
                 <LemonField name="question" label="Label">
-                    <LemonInput value={question.question} />
+                    <LemonInput data-attr={`survey-question-label-${index}`} value={question.question} />
                 </LemonField>
                 <LemonField name="description" label="Description (optional)">
                     {({ value, onChange }) => (
                         <HTMLEditor
                             value={value}
-                            onChange={onChange}
-                            writingHTMLDescription={writingHTMLDescription}
-                            setWritingHTMLDescription={setWritingHTMLDescription}
+                            onChange={(val) => {
+                                onChange(val)
+                                handleQuestionValueChange('description', val)
+                            }}
+                            onTabChange={handleTabChange}
+                            activeTab={initialDescriptionContentType}
                         />
                     )}
                 </LemonField>
@@ -171,6 +230,11 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                         const newQuestions = [...survey.questions]
                                         newQuestions[index] = newQuestion
                                         setSurveyValue('questions', newQuestions)
+                                        setSurveyValue(
+                                            'appearance.ratingButtonColor',
+                                            val === 'emoji' ? '#939393' : 'white'
+                                        )
+                                        resetBranchingForQuestion(index)
                                     }}
                                 />
                             </LemonField>
@@ -182,8 +246,20 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                             label: '1 - 5',
                                             value: 5,
                                         },
-                                        ...(question.display === 'number' ? [{ label: '0 - 10', value: 10 }] : []),
+                                        ...(question.display === 'number'
+                                            ? [
+                                                  { label: '1 - 7 (7 Point Likert Scale)', value: 7 },
+                                                  { label: '0 - 10 (Net Promoter Score)', value: 10 },
+                                              ]
+                                            : []),
                                     ]}
+                                    onChange={(val) => {
+                                        const newQuestion = { ...survey.questions[index], scale: val }
+                                        const newQuestions = [...survey.questions]
+                                        newQuestions[index] = newQuestion
+                                        setSurveyValue('questions', newQuestions)
+                                        resetBranchingForQuestion(index)
+                                    }}
                                 />
                             </LemonField>
                         </div>
@@ -278,6 +354,20 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                                                 Add open-ended choice
                                                             </LemonButton>
                                                         )}
+                                                        <LemonField name="shuffleOptions" className="mt-2">
+                                                            {({
+                                                                value: shuffleOptions,
+                                                                onChange: toggleShuffleOptions,
+                                                            }) => (
+                                                                <LemonCheckbox
+                                                                    checked={!!shuffleOptions}
+                                                                    label="Shuffle options"
+                                                                    onChange={(checked) =>
+                                                                        toggleShuffleOptions(checked)
+                                                                    }
+                                                                />
+                                                            )}
+                                                        </LemonField>
                                                     </>
                                                 )}
                                             </div>
@@ -291,10 +381,13 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                 <LemonField name="buttonText" label="Button text">
                     <LemonInput
                         value={
-                            question.buttonText === undefined ? survey.appearance.submitButtonText : question.buttonText
+                            question.buttonText === undefined
+                                ? survey.appearance?.submitButtonText ?? 'Submit'
+                                : question.buttonText
                         }
                     />
                 </LemonField>
+                <QuestionBranchingInput questionIndex={index} question={question} />
             </div>
         </Group>
     )

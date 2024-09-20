@@ -1,4 +1,4 @@
-import { buildIntegerMatcher, buildStringMatcher } from '../../../src/config/config'
+import { buildStringMatcher } from '../../../src/config/config'
 import { KAFKA_EVENTS_PLUGIN_INGESTION } from '../../../src/config/kafka-topics'
 import {
     eachBatchParallelIngestion,
@@ -15,13 +15,14 @@ import {
     ClickHouseTimestamp,
     ClickHouseTimestampSecondPrecision,
     ISOTimestamp,
-    PluginMethod,
     PostIngestionEvent,
     RawClickHouseEvent,
 } from '../../../src/types'
 import { ActionManager } from '../../../src/worker/ingestion/action-manager'
 import { ActionMatcher } from '../../../src/worker/ingestion/action-matcher'
+import { GroupTypeManager } from '../../../src/worker/ingestion/group-type-manager'
 import { HookCommander } from '../../../src/worker/ingestion/hooks'
+import { OrganizationManager } from '../../../src/worker/ingestion/organization-manager'
 import { runOnEvent } from '../../../src/worker/plugins/run'
 import { pluginConfig39 } from '../../helpers/plugins'
 
@@ -52,7 +53,7 @@ const event: PostIngestionEvent = {
     timestamp: '2020-02-23T02:15:00.000Z' as ISOTimestamp,
     event: '$pageview',
     properties: {},
-    elementsList: [],
+    elementsList: undefined,
     person_id: 'F99FA0A1-E0C2-4CFE-A09A-4C3C4327A4CC',
     person_created_at: '2020-02-20T02:15:00.000Z' as ISOTimestamp,
     person_properties: {},
@@ -134,7 +135,6 @@ describe('eachBatchX', () => {
                 WORKER_CONCURRENCY: 1,
                 TASKS_PER_WORKER: 10,
                 INGESTION_CONCURRENCY: 4,
-                BUFFER_CONVERSION_SECONDS: 60,
                 kafkaProducer: {
                     queueMessage: jest.fn(),
                 },
@@ -151,9 +151,9 @@ describe('eachBatchX', () => {
             expect(runOnEvent).toHaveBeenCalledWith(
                 expect.anything(),
                 expect.objectContaining({
-                    uuid: 'uuid1',
-                    team_id: 2,
-                    distinct_id: 'my_id',
+                    eventUuid: 'uuid1',
+                    teamId: 2,
+                    distinctId: 'my_id',
                 })
             )
         })
@@ -162,52 +162,16 @@ describe('eachBatchX', () => {
             await eachBatchAppsOnEventHandlers(createKafkaJSBatch(clickhouseEvent), queue)
             expect(runOnEvent).not.toHaveBeenCalled()
         })
-        it('parses elements when useful', async () => {
-            queue.pluginsServer.pluginConfigsPerTeam.set(2, [
-                { ...pluginConfig39, plugin_id: 60, method: PluginMethod.onEvent },
-                { ...pluginConfig39, plugin_id: 33, method: PluginMethod.onEvent },
-            ])
-            queue.pluginsServer.pluginConfigsToSkipElementsParsing = buildIntegerMatcher('12,60,100', true)
-            await eachBatchAppsOnEventHandlers(
-                createKafkaJSBatch({ ...clickhouseEvent, elements_chain: 'random' }),
-                queue
-            )
-            expect(runOnEvent).toHaveBeenCalledWith(
-                expect.anything(),
-                expect.objectContaining({
-                    uuid: 'uuid1',
-                    team_id: 2,
-                    distinct_id: 'my_id',
-                    elements: [{ attributes: {}, order: 0, tag_name: 'random' }],
-                })
-            )
-        })
-        it('skips elements parsing when not useful', async () => {
-            queue.pluginsServer.pluginConfigsPerTeam.set(2, [
-                { ...pluginConfig39, plugin_id: 60, method: PluginMethod.onEvent },
-                { ...pluginConfig39, plugin_id: 100, method: PluginMethod.onEvent },
-            ])
-            queue.pluginsServer.pluginConfigsToSkipElementsParsing = buildIntegerMatcher('12,60,100', true)
-            await eachBatchAppsOnEventHandlers(
-                createKafkaJSBatch({ ...clickhouseEvent, elements_chain: 'random' }),
-                queue
-            )
-            expect(runOnEvent).toHaveBeenCalledWith(
-                expect.anything(),
-                expect.objectContaining({
-                    uuid: 'uuid1',
-                    team_id: 2,
-                    distinct_id: 'my_id',
-                    elements: [],
-                })
-            )
-        })
     })
 
     describe('eachBatchWebhooksHandlers', () => {
         it('calls runWebhooksHandlersEventPipeline', async () => {
-            const actionManager = new ActionManager(queue.pluginsServer.postgres)
-            const actionMatcher = new ActionMatcher(queue.pluginsServer.postgres, actionManager)
+            const actionManager = new ActionManager(queue.pluginsServer.postgres, queue.pluginsServer)
+            const actionMatcher = new ActionMatcher(
+                queue.pluginsServer.postgres,
+                actionManager,
+                queue.pluginsServer.teamManager
+            )
             const hookCannon = new HookCommander(
                 queue.pluginsServer.postgres,
                 queue.pluginsServer.teamManager,
@@ -216,23 +180,35 @@ describe('eachBatchX', () => {
                 queue.pluginsServer.appMetrics,
                 queue.pluginsServer.EXTERNAL_REQUEST_TIMEOUT_MS
             )
+            const groupTypeManager: GroupTypeManager = {
+                fetchGroupTypes: jest.fn(() => Promise.resolve({})),
+            } as unknown as GroupTypeManager
+            const organizatonManager: OrganizationManager = {
+                hasAvailableFeature: jest.fn(() => Promise.resolve(true)),
+            } as unknown as GroupTypeManager
+
             const matchSpy = jest.spyOn(actionMatcher, 'match')
             // mock hasWebhooks to return true
             actionMatcher.hasWebhooks = jest.fn(() => true)
-            await eachBatchWebhooksHandlers(createKafkaJSBatch(clickhouseEvent), actionMatcher, hookCannon, 10)
+            await eachBatchWebhooksHandlers(
+                createKafkaJSBatch(clickhouseEvent),
+                actionMatcher,
+                hookCannon,
+                10,
+                groupTypeManager,
+                organizatonManager
+            )
 
             // NOTE: really it would be nice to verify that fire has been called
             // on hookCannon, but that would require a little more setup, and it
             // is at the least testing a little bit more than we were before.
-            expect(matchSpy).toHaveBeenCalledWith(
-                {
-                    ...event,
-                    properties: {
-                        $ip: '127.0.0.1',
-                    },
+            expect(matchSpy).toHaveBeenCalledWith({
+                ...event,
+                groups: {},
+                properties: {
+                    $ip: '127.0.0.1',
                 },
-                []
-            )
+            })
         })
 
         it('it batches events properly', () => {
@@ -390,7 +366,7 @@ describe('eachBatchX', () => {
                 ip: null,
                 now: null,
                 sent_at: null,
-                site_url: null,
+                site_url: '',
                 team_id: 1,
                 uuid: 'uuid1',
             })

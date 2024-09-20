@@ -4,7 +4,8 @@ import api from 'lib/api'
 import { DashboardLogicProps } from 'scenes/dashboard/dashboardLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { DashboardPlacement, InsightModel, PersonType } from '~/types'
+import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
+import { DashboardPlacement, InsightModel, PersonType, QueryBasedInsightModel } from '~/types'
 
 import type { projectHomepageLogicType } from './projectHomepageLogicType'
 
@@ -30,12 +31,13 @@ export const projectHomepageLogic = kea<projectHomepageLogicType>([
 
     loaders(({ values }) => ({
         recentInsights: [
-            [] as InsightModel[],
+            [] as QueryBasedInsightModel[],
             {
                 loadRecentInsights: async () => {
-                    return await api.get(
-                        `api/projects/${values.currentTeamId}/insights/my_last_viewed?include_query_insights=true`
+                    const insights = await api.get<InsightModel[]>(
+                        `api/projects/${values.currentTeamId}/insights/my_last_viewed`
                     )
+                    return insights.map((legacyInsight) => getQueryBasedInsightModel(legacyInsight))
                 },
             },
         ],

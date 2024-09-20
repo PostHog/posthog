@@ -12,14 +12,14 @@ import { InsightErrorState } from 'scenes/insights/EmptyStates'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { DashboardMode, DashboardPlacement, DashboardType } from '~/types'
+import { DashboardMode, DashboardPlacement, DashboardType, QueryBasedInsightModel } from '~/types'
 
 import { DashboardHeader } from './DashboardHeader'
 import { EmptyDashboardComponent } from './EmptyDashboardComponent'
 
 interface DashboardProps {
     id?: string
-    dashboard?: DashboardType
+    dashboard?: DashboardType<QueryBasedInsightModel>
     placement?: DashboardPlacement
 }
 
@@ -96,17 +96,13 @@ function DashboardScene(): JSX.Element {
                 <EmptyDashboardComponent loading={itemsLoading} canEdit={canEditDashboard} />
             ) : (
                 <div>
-                    <div className="flex gap-2 items-center justify-between flex-wrap">
+                    <div className="flex gap-2 items-start justify-between flex-wrap">
                         {![
                             DashboardPlacement.Public,
                             DashboardPlacement.Export,
                             DashboardPlacement.FeatureFlag,
                         ].includes(placement) &&
-                            dashboard && (
-                                <div className="flex space-x-4 items-center">
-                                    <DashboardEditBar />
-                                </div>
-                            )}
+                            dashboard && <DashboardEditBar />}
                         {placement === DashboardPlacement.FeatureFlag && dashboard?.id && (
                             <LemonButton type="secondary" size="small" to={urls.dashboard(dashboard.id)}>
                                 Edit dashboard
@@ -121,9 +117,9 @@ function DashboardScene(): JSX.Element {
                                 >
                                     {[DashboardPlacement.Public].includes(placement) ? (
                                         <LastRefreshText />
-                                    ) : (
+                                    ) : !(dashboardMode === DashboardMode.Edit) ? (
                                         <DashboardReloadAction />
-                                    )}
+                                    ) : null}
                                 </div>
                             </div>
                         )}

@@ -1,30 +1,28 @@
-// eslint-disable-next-line no-restricted-imports
-import { PieChartFilled } from '@ant-design/icons'
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 import { CardMeta } from 'lib/components/Cards/CardMeta'
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { DashboardPrivilegeLevel } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
 import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonTableLoader } from 'lib/lemon-ui/LemonTable/LemonTableLoader'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Splotch, SplotchColor } from 'lib/lemon-ui/Splotch'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { capitalizeFirstLetter } from 'lib/utils'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import React from 'react'
+import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { summarizeInsight } from 'scenes/insights/summarizeInsight'
-import { mathsLogic } from 'scenes/trends/mathsLogic'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
 import { urls } from 'scenes/urls'
 
-import { cohortsModel } from '~/models/cohortsModel'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { groupsModel } from '~/models/groupsModel'
-import { ExporterFormat, InsightColor } from '~/types'
+import { ExporterFormat, InsightColor, QueryBasedInsightModel } from '~/types'
 
 import { InsightCardProps } from './InsightCard'
 import { InsightDetails } from './InsightDetails'
@@ -32,12 +30,12 @@ import { InsightDetails } from './InsightDetails'
 interface InsightMetaProps
     extends Pick<
         InsightCardProps,
-        | 'insight'
         | 'ribbonColor'
         | 'updateColor'
         | 'removeFromDashboard'
         | 'deleteWithUndo'
         | 'refresh'
+        | 'refreshEnabled'
         | 'loading'
         | 'rename'
         | 'duplicate'
@@ -46,7 +44,9 @@ interface InsightMetaProps
         | 'showEditingControls'
         | 'showDetailsControls'
         | 'moreButtons'
+        | 'filtersOverride'
     > {
+    insight: QueryBasedInsightModel
     areDetailsShown?: boolean
     setAreDetailsShown?: React.Dispatch<React.SetStateAction<boolean>>
 }
@@ -56,9 +56,11 @@ export function InsightMeta({
     ribbonColor,
     dashboardId,
     updateColor,
+    filtersOverride,
     removeFromDashboard,
     deleteWithUndo,
     refresh,
+    refreshEnabled,
     loading,
     rename,
     duplicate,
@@ -69,37 +71,36 @@ export function InsightMeta({
     showDetailsControls = true,
     moreButtons,
 }: InsightMetaProps): JSX.Element {
-    const { short_id, name, dashboards } = insight
-    const { exporterResourceParams, insightProps } = useValues(insightLogic)
-    const { reportDashboardItemRefreshed } = useActions(eventUsageLogic)
-    const { aggregationLabel } = useValues(groupsModel)
-    const { cohortsById } = useValues(cohortsModel)
+    const { short_id, name, dashboards, next_allowed_client_refresh: nextAllowedClientRefresh } = insight
+    const { insightProps } = useValues(insightLogic)
+    const { exportContext } = useValues(insightDataLogic(insightProps))
+    const { samplingFactor } = useValues(insightVizDataLogic(insightProps))
     const { nameSortedDashboards } = useValues(dashboardsModel)
-    const { mathDefinitions } = useValues(mathsLogic)
 
     const otherDashboards = nameSortedDashboards.filter((d) => !dashboards?.includes(d.id))
     const editable = insight.effective_privilege_level >= DashboardPrivilegeLevel.CanEdit
 
-    // not all interactions are currently implemented for queries
-    const allInteractionsAllowed = !insight.query
-
-    const summary = summarizeInsight(insight.query, insight.filters, {
-        aggregationLabel,
-        cohortsById,
-        mathDefinitions,
-    })
+    const summary = useSummarizeInsight()(insight.query)
+    const refreshDisabledReason =
+        nextAllowedClientRefresh && dayjs(nextAllowedClientRefresh).isAfter(dayjs())
+            ? 'You are viewing the most recent calculated results.'
+            : loading || !refreshEnabled
+            ? 'Refreshing...'
+            : undefined
 
     return (
         <CardMeta
             ribbonColor={ribbonColor}
             showEditingControls={showEditingControls}
             showDetailsControls={showDetailsControls}
+            refresh={refresh}
+            refreshDisabledReason={refreshDisabledReason}
             setAreDetailsShown={setAreDetailsShown}
             areDetailsShown={areDetailsShown}
             topHeading={<TopHeading insight={insight} />}
             meta={
                 <>
-                    <Link to={urls.insightView(short_id)}>
+                    <Link to={urls.insightView(short_id, filtersOverride)}>
                         <h4 title={name} data-attr="insight-card-title">
                             {name || <i>{summary}</i>}
                             {loading && (
@@ -116,40 +117,36 @@ export function InsightMeta({
                         </h4>
                     </Link>
 
-                    {!!insight.description && <div className="CardMeta__description">{insight.description}</div>}
+                    {!!insight.description && (
+                        <LemonMarkdown className="CardMeta__description" lowKeyHeadings>
+                            {insight.description}
+                        </LemonMarkdown>
+                    )}
                     {insight.tags && insight.tags.length > 0 && <ObjectTags tags={insight.tags} staticOnly />}
 
                     {loading && <LemonTableLoader loading={true} />}
                 </>
             }
             metaDetails={<InsightDetails insight={insight} />}
-            samplingNotice={
-                insight.filters.sampling_factor && insight.filters.sampling_factor < 1 ? (
-                    <Tooltip title={`Results calculated from ${100 * insight.filters.sampling_factor}% of users`}>
-                        <PieChartFilled className="mr-2" style={{ color: 'var(--primary-3000-hover)' }} />
-                    </Tooltip>
-                ) : null
-            }
+            samplingFactor={samplingFactor}
             moreButtons={
                 <>
-                    {allInteractionsAllowed && (
-                        <>
-                            <LemonButton to={urls.insightView(short_id)} fullWidth>
-                                View
+                    <>
+                        <LemonButton to={urls.insightView(short_id, filtersOverride)} fullWidth>
+                            View
+                        </LemonButton>
+                        {refresh && (
+                            <LemonButton
+                                onClick={() => {
+                                    refresh()
+                                }}
+                                disabledReason={refreshDisabledReason}
+                                fullWidth
+                            >
+                                Refresh
                             </LemonButton>
-                            {refresh && (
-                                <LemonButton
-                                    onClick={() => {
-                                        refresh()
-                                        reportDashboardItemRefreshed(insight)
-                                    }}
-                                    fullWidth
-                                >
-                                    Refresh
-                                </LemonButton>
-                            )}
-                        </>
-                    )}
+                        )}
+                    </>
                     {editable && updateColor && (
                         <LemonButtonWithDropdown
                             dropdown={{
@@ -205,7 +202,7 @@ export function InsightMeta({
                         </LemonButtonWithDropdown>
                     )}
                     <LemonDivider />
-                    {editable && allInteractionsAllowed && (
+                    {editable && (
                         <LemonButton to={urls.insightEdit(short_id)} fullWidth>
                             Edit
                         </LemonButton>
@@ -224,7 +221,7 @@ export function InsightMeta({
                     >
                         Duplicate
                     </LemonButton>
-                    {exporterResourceParams ? (
+                    {exportContext ? (
                         <>
                             <LemonDivider />
                             <ExportButton
@@ -237,11 +234,11 @@ export function InsightMeta({
                                     },
                                     {
                                         export_format: ExporterFormat.CSV,
-                                        export_context: exporterResourceParams,
+                                        export_context: exportContext,
                                     },
                                     {
                                         export_format: ExporterFormat.XLSX,
-                                        export_context: exporterResourceParams,
+                                        export_context: exportContext,
                                     },
                                 ]}
                             />
@@ -260,11 +257,11 @@ export function InsightMeta({
                                 <LemonButton status="danger" onClick={removeFromDashboard} fullWidth>
                                     Remove from dashboard
                                 </LemonButton>
-                            ) : allInteractionsAllowed ? (
+                            ) : (
                                 <LemonButton status="danger" onClick={() => void deleteWithUndo?.()} fullWidth>
                                     Delete insight
                                 </LemonButton>
-                            ) : null}
+                            )}
                         </>
                     )}
                 </>

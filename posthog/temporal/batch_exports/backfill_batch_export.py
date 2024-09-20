@@ -4,6 +4,7 @@ import dataclasses
 import datetime as dt
 import json
 import typing
+import zoneinfo
 
 import temporalio
 import temporalio.activity
@@ -37,11 +38,8 @@ class HeartbeatDetails(typing.NamedTuple):
     """Details sent over in a Temporal Activity heartbeat."""
 
     schedule_id: str
-    start_at: str
-    # Note that this `end_at` is not optional, because heartbeats details describe the last concrete
-    # period of time we were waiting to backfill, and not the entire backfill job itself.
-    end_at: str
-    wait_start_at: str
+    workflow_id: str
+    last_batch_data_interval_end: str
 
     def make_activity_heartbeat_while_running(
         self, function_to_run: collections.abc.Callable, heartbeat_every: dt.timedelta
@@ -111,21 +109,75 @@ class BackfillScheduleInputs:
     start_at: str
     end_at: str | None
     frequency_seconds: float
-    buffer_limit: int = 1
-    wait_delay: float = 5.0
+    start_delay: float = 5.0
 
 
 def get_utcnow():
     """Return the current time in UTC. This function is only required for mocking during tests,
     because mocking the global datetime breaks Temporal."""
-    return dt.datetime.now(dt.timezone.utc)
+    return dt.datetime.now(dt.UTC)
+
+
+def adjust_bound_datetime_to_schedule_time_zone(
+    bound_dt: dt.datetime, schedule_time_zone_name: str | None, frequency: dt.timedelta
+) -> dt.datetime:
+    """Adjust the bound datetime of a backfill to match the schedule's timezone.
+
+    First the happy paths:
+    1. The bound datetime's timezone is the same as the schedule's.
+    2. The schedule's timezone is `None` and the bound datetime's timezone is UTC.
+      * Temporal defaults to UTC if `time_zone_name` is not set.
+
+    In both cases, we simply return.
+
+    However, in the event that the schedule's timezone and the bound datetime's timezone do
+    not match we must assume that either:
+    1. The project's timezone has changed from when the batch export was created.
+    2. The batch export is naive (i.e. the schedule's timezone is `None`, which defaults to "UTC").
+
+    There are two solutions depending on the schedule's frequency:
+    * Daily exports always run at midnight, so we can just replace the bound datetime's timezone
+      with the schedule's timezone.
+    * Other frequencies are converted to the timezone instead.
+
+    The second solution is pretty optimal as users will be able to backfill as they see things in the
+    UI: Run times will match in the list view with the bounds of the backfill, as the UI will re-convert
+    timestamps back into the project's timezone.
+
+    The first solution is not optimal as users see that the runs in the list are not happening at
+    midnight, and the days selected to backfill may be off by 1. Unfortunately, when selecting a date in
+    the frontend with day granularity we set the time component to 00:00:00. Ideally, we would set it
+    to the offset to the schedule's midnight (in whatever timezone the schedule is at). But I can't
+    figure out a way to do it, and it may require implementing further work to support switching when the
+    schedule runs to other than midnight.
+    """
+    if bound_dt.tzinfo is None:
+        raise ValueError("Only timezone aware datetime objects are supported")
+
+    if (schedule_time_zone_name is not None and schedule_time_zone_name == bound_dt.tzname()) or (
+        schedule_time_zone_name is None and bound_dt.tzname() == "UTC"
+    ):
+        return bound_dt
+
+    if schedule_time_zone_name is None:
+        required_timezone = zoneinfo.ZoneInfo("UTC")
+
+    else:
+        required_timezone = zoneinfo.ZoneInfo(schedule_time_zone_name)
+
+    if frequency == dt.timedelta(days=1):
+        bound_dt = bound_dt.replace(tzinfo=required_timezone)
+    else:
+        bound_dt = bound_dt.astimezone(required_timezone)
+
+    return bound_dt
 
 
 @temporalio.activity.defn
 async def backfill_schedule(inputs: BackfillScheduleInputs) -> None:
     """Temporal Activity to backfill a Temporal Schedule.
 
-    The backfill is broken up into batches of inputs.buffer_limit size. After a backfill batch is
+    The backfill is broken up into batches of 1. After a backfill batch is
     requested, we wait for it to be done before continuing with the next.
 
     This activity heartbeats while waiting to allow cancelling an ongoing backfill.
@@ -151,28 +203,41 @@ async def backfill_schedule(inputs: BackfillScheduleInputs) -> None:
         # Let's not double-backfill and instead wait for any outstanding runs.
         last_activity_details = HeartbeatDetails(*details[0])
 
+        workflow_handle = client.get_workflow_handle(last_activity_details.workflow_id)
         details = HeartbeatDetails(
             schedule_id=inputs.schedule_id,
-            start_at=last_activity_details.start_at,
-            end_at=last_activity_details.end_at,
-            wait_start_at=last_activity_details.wait_start_at,
+            workflow_id=workflow_handle.id,
+            last_batch_data_interval_end=last_activity_details.last_batch_data_interval_end,
         )
 
-        await wait_for_schedule_backfill_in_range_with_heartbeat(details, client, heartbeat_timeout, inputs.wait_delay)
+        await wait_for_workflow_with_heartbeat(details, workflow_handle, heartbeat_timeout)
 
         # Update start_at to resume from the end of the period we just waited for
-        start_at = dt.datetime.fromisoformat(last_activity_details.end_at)
+        start_at = dt.datetime.fromisoformat(last_activity_details.last_batch_data_interval_end)
 
-    handle = client.get_schedule_handle(inputs.schedule_id)
+    schedule_handle = client.get_schedule_handle(inputs.schedule_id)
 
-    description = await handle.describe()
-    jitter = description.schedule.spec.jitter
-
+    description = await schedule_handle.describe()
     frequency = dt.timedelta(seconds=inputs.frequency_seconds)
-    full_backfill_range = backfill_range(start_at, end_at, frequency * inputs.buffer_limit)
 
-    for backfill_start_at, backfill_end_at in full_backfill_range:
+    start_at = adjust_bound_datetime_to_schedule_time_zone(
+        start_at,
+        schedule_time_zone_name=description.schedule.spec.time_zone_name,
+        frequency=frequency,
+    )
+    if end_at is not None:
+        end_at = adjust_bound_datetime_to_schedule_time_zone(
+            end_at, schedule_time_zone_name=description.schedule.spec.time_zone_name, frequency=frequency
+        )
+
+    full_backfill_range = backfill_range(start_at, end_at, frequency)
+
+    for _, backfill_end_at in full_backfill_range:
+        if await check_temporal_schedule_exists(client, description.id) is False:
+            raise TemporalScheduleNotFoundError(description.id)
+
         utcnow = get_utcnow()
+        backfill_end_at = backfill_end_at.astimezone(dt.UTC)
 
         if end_at is None and backfill_end_at >= utcnow:
             # This backfill (with no `end_at`) has caught up with real time and should unpause the
@@ -180,110 +245,65 @@ async def backfill_schedule(inputs: BackfillScheduleInputs) -> None:
             await sync_to_async(unpause_batch_export)(client, inputs.schedule_id)
             return
 
-        if jitter is not None:
-            backfill_end_at = backfill_end_at + jitter
+        schedule_action: temporalio.client.ScheduleActionStartWorkflow = description.schedule.action
 
-        backfill = temporalio.client.ScheduleBackfill(
-            start_at=backfill_start_at,
-            end_at=backfill_end_at,
-            overlap=temporalio.client.ScheduleOverlapPolicy.ALLOW_ALL,
+        search_attributes = [
+            temporalio.common.SearchAttributePair(
+                key=temporalio.common.SearchAttributeKey.for_text("TemporalScheduledById"), value=description.id
+            ),
+            temporalio.common.SearchAttributePair(
+                key=temporalio.common.SearchAttributeKey.for_datetime("TemporalScheduledStartTime"),
+                value=backfill_end_at,
+            ),
+        ]
+
+        args = await client.data_converter.decode(schedule_action.args)
+        args[0]["is_backfill"] = True
+
+        await asyncio.sleep(inputs.start_delay)
+
+        workflow_handle = await client.start_workflow(
+            schedule_action.workflow,
+            *args,
+            id=f"{description.id}-{backfill_end_at:%Y-%m-%dT%H:%M:%S}Z",
+            task_queue=schedule_action.task_queue,
+            run_timeout=schedule_action.run_timeout,
+            task_timeout=schedule_action.task_timeout,
+            id_reuse_policy=temporalio.common.WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+            search_attributes=temporalio.common.TypedSearchAttributes(search_attributes=search_attributes),
         )
-        await handle.backfill(backfill)
-
         details = HeartbeatDetails(
             schedule_id=inputs.schedule_id,
-            start_at=backfill_start_at.isoformat(),
-            end_at=backfill_end_at.isoformat(),
-            wait_start_at=utcnow.isoformat(),
+            workflow_id=workflow_handle.id,
+            last_batch_data_interval_end=backfill_end_at.isoformat(),
         )
+        temporalio.activity.heartbeat(details)
 
-        await wait_for_schedule_backfill_in_range_with_heartbeat(details, client, heartbeat_timeout, inputs.wait_delay)
+        await wait_for_workflow_with_heartbeat(details, workflow_handle, heartbeat_timeout, inputs.start_delay)
 
 
-async def wait_for_schedule_backfill_in_range_with_heartbeat(
+async def wait_for_workflow_with_heartbeat(
     heartbeat_details: HeartbeatDetails,
-    client: temporalio.client.Client,
+    workflow_handle: temporalio.client.WorkflowHandle,
     heartbeat_timeout: dt.timedelta | None = None,
-    wait_delay: float = 5.0,
+    sleep_on_failure: float = 5.0,
 ):
     """Decide if heartbeating is required while waiting for a backfill in range to finish."""
     if heartbeat_timeout:
         wait_func = heartbeat_details.make_activity_heartbeat_while_running(
-            wait_for_schedule_backfill_in_range, heartbeat_every=dt.timedelta(seconds=1)
+            workflow_handle.result, heartbeat_every=dt.timedelta(seconds=1)
         )
     else:
-        wait_func = wait_for_schedule_backfill_in_range
+        wait_func = workflow_handle.result
 
-    await wait_func(
-        client,
-        heartbeat_details.schedule_id,
-        dt.datetime.fromisoformat(heartbeat_details.start_at),
-        dt.datetime.fromisoformat(heartbeat_details.end_at),
-        dt.datetime.fromisoformat(heartbeat_details.wait_start_at),
-        wait_delay,
-    )
-
-
-async def wait_for_schedule_backfill_in_range(
-    client: temporalio.client.Client,
-    schedule_id: str,
-    start_at: dt.datetime,
-    end_at: dt.datetime,
-    now: dt.datetime,
-    wait_delay: float = 5.0,
-) -> None:
-    """Wait for a Temporal Schedule backfill in a date range to be finished.
-
-    We can use the TemporalScheduledById and the TemporalScheduledStartTime to identify the Workflow executions
-    runs that fall under this Temporal Schedule's backfill. However, there could be regularly scheduled runs returned
-    by a query on just these two fields. So, we take the 'now' argument to provide a lower bound for the Workflow
-    execution start time, assuming that backfill runs will have started recently after 'now' whereas regularly
-    scheduled runs happened sometime in the past, before 'now'. This should hold true for historical backfills,
-    but the heuristic fails for "future backfills", which should not be allowed.
-
-    Raises:
-         TemporalScheduleNotFoundError: If we detect the Temporal Schedule we are waiting on doesn't exist.
-    """
-    if await check_temporal_schedule_exists(client, schedule_id) is False:
-        raise TemporalScheduleNotFoundError(schedule_id)
-
-    query = (
-        f'TemporalScheduledById="{schedule_id}" '
-        f'AND TemporalScheduledStartTime >= "{start_at.isoformat()}" '
-        f'AND TemporalScheduledStartTime <= "{end_at.isoformat()}" '
-        f'AND StartTime >= "{now.isoformat()}"'
-    )
-
-    workflows = [workflow async for workflow in client.list_workflows(query=query)]
-
-    if workflows and check_workflow_executions_not_running(workflows) is True:
-        return
-
-    done = False
-    while not done:
-        await asyncio.sleep(wait_delay)
-
-        if await check_temporal_schedule_exists(client, schedule_id) is False:
-            raise TemporalScheduleNotFoundError(schedule_id)
-
-        workflows = [workflow async for workflow in client.list_workflows(query=query)]
-
-        if not workflows:
-            # Backfill hasn't started yet.
-            continue
-
-        if check_workflow_executions_not_running(workflows) is False:
-            continue
-
-        done = True
-
-
-def check_workflow_executions_not_running(workflow_executions: list[temporalio.client.WorkflowExecution]) -> bool:
-    """Check if a list of Worflow Executions has any still running."""
-    return all(
-        workflow_execution.status != temporalio.client.WorkflowExecutionStatus.RUNNING
-        for workflow_execution in workflow_executions
-    )
+    try:
+        await wait_func()
+    except temporalio.client.WorkflowFailureError:
+        # `WorkflowFailureError` includes cancellations, terminations, timeouts, and errors.
+        # Common errors should be handled by the workflow itself (i.e. by retrying an activity).
+        # We briefly sleep to allow heartbeating to potentially receive a cancellation request.
+        # TODO: Log anyways if we land here.
+        await asyncio.sleep(sleep_on_failure)
 
 
 async def check_temporal_schedule_exists(client: temporalio.client.Client, schedule_id: str) -> bool:
@@ -366,7 +386,9 @@ class BackfillBatchExportWorkflow(PostHogWorkflow):
             get_schedule_frequency,
             inputs.batch_export_id,
             start_to_close_timeout=dt.timedelta(minutes=1),
-            retry_policy=temporalio.common.RetryPolicy(maximum_attempts=0),
+            retry_policy=temporalio.common.RetryPolicy(
+                maximum_attempts=0, non_retryable_error_types=["TemporalScheduleNotFoundError"]
+            ),
         )
 
         # Temporal requires that we set a timeout.
@@ -387,8 +409,7 @@ class BackfillBatchExportWorkflow(PostHogWorkflow):
             start_at=inputs.start_at,
             end_at=inputs.end_at,
             frequency_seconds=frequency_seconds,
-            buffer_limit=inputs.buffer_limit,
-            wait_delay=inputs.wait_delay,
+            start_delay=inputs.start_delay,
         )
         try:
             await temporalio.workflow.execute_activity(

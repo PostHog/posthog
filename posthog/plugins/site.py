@@ -45,14 +45,14 @@ def get_transpiled_site_source(id: int, token: str) -> Optional[WebJsSource]:
     if not response:
         return None
 
-    return WebJsSource(*(list(response)))  # type: ignore
+    return WebJsSource(*(list(response)))
 
 
 def get_decide_site_apps(team: "Team", using_database: str = "default") -> list[dict]:
     from posthog.models import PluginConfig, PluginSourceFile
 
     sources = (
-        PluginConfig.objects.using(using_database)
+        PluginConfig.objects.db_manager(using_database)
         .filter(
             team=team,
             enabled=True,

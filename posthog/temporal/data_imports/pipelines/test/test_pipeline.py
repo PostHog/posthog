@@ -6,7 +6,7 @@ import pytest
 import structlog
 from asgiref.sync import sync_to_async
 from posthog.temporal.data_imports.pipelines.pipeline import DataImportPipeline, PipelineInputs
-from posthog.temporal.data_imports.pipelines.stripe.helpers import stripe_source
+from posthog.temporal.data_imports.pipelines.stripe import stripe_source
 from posthog.test.base import APIBaseTest
 from posthog.warehouse.models.external_data_job import ExternalDataJob
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
@@ -43,24 +43,23 @@ class TestDataImportPipeline(APIBaseTest):
         pipeline = DataImportPipeline(
             inputs=PipelineInputs(
                 source_id=source.pk,
-                run_id=job.pk,
+                run_id=str(job.pk),
                 schema_id=schema.pk,
-                dataset_name=job.folder_path,
-                job_type="Stripe",
+                dataset_name=job.folder_path(),
+                job_type=ExternalDataSource.Type.STRIPE,
                 team_id=self.team.pk,
             ),
             source=stripe_source(
                 api_key="",
                 account_id="",
-                endpoints=tuple(schema_name),
+                endpoint=schema_name,
+                is_incremental=False,
                 team_id=self.team.pk,
-                job_id=job.pk,
-                schema_id=schema.pk,
-                start_date=None,
-                end_date=None,
+                job_id=str(job.pk),
             ),
             logger=structlog.get_logger(),
             incremental=incremental,
+            reset_pipeline=False,
         )
 
         return pipeline
@@ -78,6 +77,8 @@ class TestDataImportPipeline(APIBaseTest):
             patch(
                 "posthog.temporal.data_imports.pipelines.pipeline.validate_schema_and_update_table"
             ) as mock_validate_schema_and_update_table,
+            patch("posthog.temporal.data_imports.pipelines.pipeline.get_delta_tables"),
+            patch("posthog.temporal.data_imports.pipelines.pipeline.update_last_synced_at"),
         ):
             pipeline = await self._create_pipeline("Customer", False)
             res = await pipeline.run()
@@ -98,6 +99,8 @@ class TestDataImportPipeline(APIBaseTest):
             patch(
                 "posthog.temporal.data_imports.pipelines.pipeline.validate_schema_and_update_table"
             ) as mock_validate_schema_and_update_table,
+            patch("posthog.temporal.data_imports.pipelines.pipeline.get_delta_tables"),
+            patch("posthog.temporal.data_imports.pipelines.pipeline.update_last_synced_at"),
         ):
             pipeline = await self._create_pipeline("Customer", True)
             res = await pipeline.run()

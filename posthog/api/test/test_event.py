@@ -10,7 +10,7 @@ from django.utils import timezone
 from freezegun import freeze_time
 from rest_framework import status
 
-from posthog.models import Action, ActionStep, Element, Organization, Person, User
+from posthog.models import Action, Element, Organization, Person, User
 from posthog.models.cohort import Cohort
 from posthog.models.event.query_event_list import insight_query_with_columns
 from posthog.test.base import (
@@ -96,8 +96,8 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
         # Django session, PostHog user, PostHog team, PostHog org membership,
-        # 4x instance setting check, person and distinct id
-        with self.assertNumQueries(12):
+        # instance setting check, person and distinct id
+        with self.assertNumQueries(7):
             response = self.client.get(f"/api/projects/{self.team.id}/events/?event=event_name").json()
             self.assertEqual(response["results"][0]["event"], "event_name")
 
@@ -123,9 +123,9 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
         # Django session, PostHog user, PostHog team, PostHog org membership,
-        # look up if rate limit is enabled (cached after first lookup), 5x non-cached instance
+        # look up if rate limit is enabled (cached after first lookup), instance
         # setting (poe, rate limit), person and distinct id
-        expected_queries = 14
+        expected_queries = 8
 
         with self.assertNumQueries(expected_queries):
             response = self.client.get(
@@ -394,8 +394,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
             response = self.client.get(f"/api/projects/{self.team.id}/events/?before=4d").json()
             self.assertEqual(len(response["results"]), 1)
 
-        action = Action.objects.create(team=self.team)
-        ActionStep.objects.create(action=action, event="sign up")
+        action = Action.objects.create(team=self.team, steps_json=[{"event": "sign up"}])
 
         response = self.client.get(
             f"/api/projects/{self.team.id}/events/?after=2020-01-09T00:00:00.000Z&action_id=%s" % action.pk

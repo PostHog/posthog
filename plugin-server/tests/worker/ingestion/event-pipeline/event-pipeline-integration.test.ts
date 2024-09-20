@@ -3,9 +3,9 @@ import { DateTime } from 'luxon'
 import fetch from 'node-fetch'
 
 import { Hook, Hub } from '../../../../src/types'
-import { createHub } from '../../../../src/utils/db/hub'
+import { closeHub, createHub } from '../../../../src/utils/db/hub'
 import { PostgresUse } from '../../../../src/utils/db/postgres'
-import { convertToIngestionEvent } from '../../../../src/utils/event'
+import { convertToPostIngestionEvent } from '../../../../src/utils/event'
 import { UUIDT } from '../../../../src/utils/utils'
 import { ActionManager } from '../../../../src/worker/ingestion/action-manager'
 import { ActionMatcher } from '../../../../src/worker/ingestion/action-matcher'
@@ -15,6 +15,7 @@ import {
 } from '../../../../src/worker/ingestion/event-pipeline/runAsyncHandlersStep'
 import { EventPipelineRunner } from '../../../../src/worker/ingestion/event-pipeline/runner'
 import { HookCommander } from '../../../../src/worker/ingestion/hooks'
+import { EventsProcessor } from '../../../../src/worker/ingestion/process-event'
 import { setupPlugins } from '../../../../src/worker/plugins/setup'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../../../helpers/clickhouse'
 import { commonUserId } from '../../../helpers/plugins'
@@ -27,12 +28,11 @@ describe('Event Pipeline integration test', () => {
     let actionManager: ActionManager
     let actionMatcher: ActionMatcher
     let hookCannon: HookCommander
-    let closeServer: () => Promise<void>
 
     const ingestEvent = async (event: PluginEvent) => {
-        const runner = new EventPipelineRunner(hub, event)
+        const runner = new EventPipelineRunner(hub, event, new EventsProcessor(hub))
         const result = await runner.runEventPipeline(event)
-        const postIngestionEvent = convertToIngestionEvent(result.args[0])
+        const postIngestionEvent = convertToPostIngestionEvent(result.args[0])
         return Promise.all([
             processOnEventStep(runner.hub, postIngestionEvent),
             processWebhooksStep(postIngestionEvent, actionMatcher, hookCannon),
@@ -43,11 +43,11 @@ describe('Event Pipeline integration test', () => {
         await resetTestDatabase()
         await resetTestDatabaseClickhouse()
         process.env.SITE_URL = 'https://example.com'
-        ;[hub, closeServer] = await createHub()
+        hub = await createHub()
 
-        actionManager = new ActionManager(hub.db.postgres)
-        await actionManager.prepare()
-        actionMatcher = new ActionMatcher(hub.db.postgres, actionManager)
+        actionManager = new ActionManager(hub.db.postgres, hub)
+        await actionManager.start()
+        actionMatcher = new ActionMatcher(hub.db.postgres, actionManager, hub.teamManager)
         hookCannon = new HookCommander(
             hub.db.postgres,
             hub.teamManager,
@@ -62,7 +62,7 @@ describe('Event Pipeline integration test', () => {
     })
 
     afterEach(async () => {
-        await closeServer()
+        await closeHub(hub)
     })
 
     it('handles plugins setting properties', async () => {
@@ -176,7 +176,7 @@ describe('Event Pipeline integration test', () => {
         await hub.db.postgres.query(
             PostgresUse.COMMON_WRITE,
             `UPDATE posthog_organization
-             SET available_features = '{"zapier"}'`,
+                SET available_product_features = array ['{"key": "zapier", "name": "zapier"}'::jsonb]`,
             [],
             'testTag'
         )
@@ -221,7 +221,6 @@ describe('Event Pipeline integration test', () => {
                 timestamp,
                 teamId: 2,
                 distinctId: 'abc',
-                elementsList: [],
                 person: {
                     created_at: expect.any(String),
                     properties: {
@@ -229,6 +228,7 @@ describe('Event Pipeline integration test', () => {
                     },
                     uuid: expect.any(String),
                 },
+                elementsList: [],
             },
         }
 
@@ -255,13 +255,13 @@ describe('Event Pipeline integration test', () => {
             uuid: new UUIDT().toString(),
         }
 
-        await new EventPipelineRunner(hub, event).runEventPipeline(event)
+        await new EventPipelineRunner(hub, event, new EventsProcessor(hub)).runEventPipeline(event)
 
         expect(hub.db.fetchPerson).toHaveBeenCalledTimes(1) // we query before creating
         expect(hub.db.createPerson).toHaveBeenCalledTimes(1)
 
         // second time single fetch
-        await new EventPipelineRunner(hub, event).runEventPipeline(event)
+        await new EventPipelineRunner(hub, event, new EventsProcessor(hub)).runEventPipeline(event)
         expect(hub.db.fetchPerson).toHaveBeenCalledTimes(2)
     })
 })

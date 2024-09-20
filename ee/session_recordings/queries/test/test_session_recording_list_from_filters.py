@@ -1,5 +1,4 @@
 from itertools import product
-from unittest import mock
 from uuid import uuid4
 
 from dateutil.relativedelta import relativedelta
@@ -9,6 +8,10 @@ from parameterized import parameterized
 
 from ee.clickhouse.materialized_columns.columns import materialize
 from posthog.clickhouse.client import sync_execute
+from posthog.hogql.ast import CompareOperation, And, SelectQuery
+from posthog.hogql.base import Expr
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.printer import print_ast
 from posthog.models import Person
 from posthog.models.filters import SessionRecordingsFilter
 from posthog.schema import PersonsOnEventsMode
@@ -26,9 +29,16 @@ from posthog.test.base import (
 )
 
 
+# The HogQL pair of TestClickhouseSessionRecordingsListFromSessionReplay can be renamed when delete the old one
 @freeze_time("2021-01-01T13:46:23")
-class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
-    __test__ = False
+class TestClickhouseSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
+    def _print_query(self, query: SelectQuery) -> str:
+        return print_ast(
+            query,
+            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            "clickhouse",
+            pretty=True,
+        )
 
     def tearDown(self) -> None:
         sync_execute(TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL())
@@ -64,64 +74,35 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
                 True,
                 False,
                 False,
-                PersonsOnEventsMode.person_id_no_override_properties_on_events,
-                {
-                    "kperson_filter_pre__0": "rgInternal",
-                    "kpersonquery_person_filter_fin__0": "rgInternal",
-                    "person_uuid": None,
-                    "vperson_filter_pre__0": ["false"],
-                    "vpersonquery_person_filter_fin__0": ["false"],
-                },
-                True,
-                False,
+                PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS,
             ],
             [
-                "test_poe_being_unavailable_we_fall_back_to_person_subquery",
+                "test_poe_being_unavailable_we_fall_back_to_person_id_overrides",
                 False,
                 False,
                 False,
-                PersonsOnEventsMode.disabled,
-                {
-                    "kperson_filter_pre__0": "rgInternal",
-                    "kpersonquery_person_filter_fin__0": "rgInternal",
-                    "person_uuid": None,
-                    "vperson_filter_pre__0": ["false"],
-                    "vpersonquery_person_filter_fin__0": ["false"],
-                },
-                True,
+                PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
+            ],
+            [
+                "test_poe_being_unavailable_we_fall_back_to_person_subquery_but_still_use_mat_props",
                 False,
+                False,
+                False,
+                PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
             ],
             [
                 "test_allow_denormalised_props_fix_does_not_stop_all_poe_processing",
                 False,
                 True,
                 False,
-                PersonsOnEventsMode.person_id_override_properties_on_events,
-                {
-                    "event_names": [],
-                    "event_start_time": mock.ANY,
-                    "event_end_time": mock.ANY,
-                    "kglobal_0": "rgInternal",
-                    "vglobal_0": ["false"],
-                },
-                False,
-                True,
+                PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS,
             ],
             [
                 "test_poe_v2_available_person_properties_are_used_in_replay_listing",
                 False,
                 True,
                 True,
-                PersonsOnEventsMode.person_id_override_properties_on_events,
-                {
-                    "event_end_time": mock.ANY,
-                    "event_names": [],
-                    "event_start_time": mock.ANY,
-                    "kglobal_0": "rgInternal",
-                    "vglobal_0": ["false"],
-                },
-                False,
-                True,
+                PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS,
             ],
         ]
     )
@@ -132,9 +113,6 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         poe_v2: bool,
         allow_denormalized_props: bool,
         expected_poe_mode: PersonsOnEventsMode,
-        expected_query_params: dict,
-        unmaterialized_person_column_used: bool,
-        materialized_event_column_used: bool,
     ) -> None:
         with self.settings(
             PERSON_ON_EVENTS_OVERRIDE=poe_v1,
@@ -157,31 +135,51 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
                     ]
                 },
             )
-            session_recording_list_instance = SessionRecordingListFromFilters(filter=filter, team=self.team)
-            [generated_query, query_params] = session_recording_list_instance.get_query()
-            assert query_params == {
-                "clamped_to_storage_ttl": mock.ANY,
-                "end_time": mock.ANY,
-                "limit": 51,
-                "offset": 0,
-                "start_time": mock.ANY,
-                "team_id": self.team.id,
-                **expected_query_params,
-            }
-
-            json_extract_fragment = (
-                "has(%(vperson_filter_pre__0)s, replaceRegexpAll(JSONExtractRaw(properties, %(kperson_filter_pre__0)s)"
+            session_recording_list_instance = SessionRecordingListFromFilters(
+                filter=filter, team=self.team, hogql_query_modifiers=None
             )
-            materialized_column_fragment = 'AND (  has(%(vglobal_0)s, "mat_pp_rgInternal"))'
 
-            # it will always have one of these fragments
-            assert (json_extract_fragment in generated_query) or (materialized_column_fragment in generated_query)
+            hogql_parsed_select = session_recording_list_instance.get_query()
+            printed_query = self._print_query(hogql_parsed_select)
 
-            # the unmaterialized person column
-            assert (json_extract_fragment in generated_query) is unmaterialized_person_column_used
-            # materialized event column
-            assert (materialized_column_fragment in generated_query) is materialized_event_column_used
-            self.assertQueryMatchesSnapshot(generated_query)
+            person_filtering_expr = self._matching_person_filter_expr_from(hogql_parsed_select)
+
+            self._assert_is_events_person_filter(person_filtering_expr)
+
+            if poe_v1 or poe_v2:
+                # Property used directly from event (from materialized column)
+                assert "ifNull(equals(nullIf(nullIf(mat_pp_rgInternal, ''), 'null')" in printed_query
+            else:
+                # We get the person property value from the persons JOIN
+                assert (
+                    "argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_6)s), ''), 'null'), '^\"|\"$', ''), person.version) AS properties___rgInternal"
+                    in printed_query
+                )
+                # Then we actually filter on that property value
+                assert "ifNull(equals(events__person.properties___rgInternal, %(hogql_val_14)s), 0)" in printed_query
+            self.assertQueryMatchesSnapshot(printed_query)
+
+    def _assert_is_pdi_filter(self, person_filtering_expr: list[Expr]) -> None:
+        assert person_filtering_expr[0].right.select_from.table.chain == ["person_distinct_ids"]
+        assert person_filtering_expr[0].right.where.left.chain == ["person", "properties", "rgInternal"]
+
+    def _assert_is_events_person_filter(self, person_filtering_expr: list[Expr]) -> None:
+        assert person_filtering_expr[0].right.select_from.table.chain == ["events"]
+        event_person_condition = [
+            x
+            for x in person_filtering_expr[0].right.where.exprs
+            if isinstance(x, CompareOperation) and x.left.chain == ["person", "properties", "rgInternal"]
+        ]
+        assert len(event_person_condition) == 1
+
+    def _matching_person_filter_expr_from(self, hogql_parsed_select: SelectQuery) -> list[Expr]:
+        where_conditions: list[Expr] = hogql_parsed_select.where.exprs
+        ands = [x for x in where_conditions if isinstance(x, And)]
+        assert len(ands) == 1
+        and_comparisons = [x for x in ands[0].exprs if isinstance(x, CompareOperation)]
+        assert len(and_comparisons) == 1
+        assert isinstance(and_comparisons[0].right, SelectQuery)
+        return and_comparisons
 
     settings_combinations = [
         ["poe v2 and materialized columns allowed", False, True, True],
@@ -258,9 +256,9 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
             )
 
             session_recording_list_instance = SessionRecordingListFromFilters(
-                filter=match_everyone_filter, team=self.team
+                filter=match_everyone_filter, team=self.team, hogql_query_modifiers=None
             )
-            (session_recordings, _) = session_recording_list_instance.run()
+            (session_recordings, _, _) = session_recording_list_instance.run()
 
             assert sorted([x["session_id"] for x in session_recordings]) == sorted([session_id_one, session_id_two])
 
@@ -278,20 +276,22 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
                 },
             )
 
-            session_recording_list_instance = SessionRecordingListFromFilters(filter=match_bla_filter, team=self.team)
-            (session_recordings, _) = session_recording_list_instance.run()
+            session_recording_list_instance = SessionRecordingListFromFilters(
+                filter=match_bla_filter, team=self.team, hogql_query_modifiers=None
+            )
+            (session_recordings, _, _) = session_recording_list_instance.run()
 
             assert len(session_recordings) == 1
             assert session_recordings[0]["session_id"] == session_id_one
 
-    def _add_replay_with_pageview(self, session_id: str, user_one):
+    def _add_replay_with_pageview(self, session_id: str, user: str) -> None:
         self.create_event(
-            user_one,
+            user,
             self.base_time,
             properties={"$session_id": session_id, "$window_id": str(uuid4())},
         )
         produce_replay_summary(
-            distinct_id=user_one,
+            distinct_id=user,
             session_id=session_id,
             first_timestamp=self.base_time,
             team_id=self.team.id,
@@ -342,6 +342,8 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
             self._add_replay_with_pageview(session_id_three, three_user_ids[2])
 
             filter = SessionRecordingsFilter(team=self.team, data={"person_uuid": str(p.uuid)})
-            session_recording_list_instance = SessionRecordingListFromFilters(filter=filter, team=self.team)
-            (session_recordings, _) = session_recording_list_instance.run()
+            session_recording_list_instance = SessionRecordingListFromFilters(
+                filter=filter, team=self.team, hogql_query_modifiers=None
+            )
+            (session_recordings, _, _) = session_recording_list_instance.run()
             assert sorted([r["session_id"] for r in session_recordings]) == sorted([session_id_two, session_id_one])

@@ -6,7 +6,6 @@ import { reverseProxyCheckerLogic } from 'lib/components/ReverseProxyChecker/rev
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 import posthog from 'posthog-js'
 import { membersLogic } from 'scenes/organization/membersLogic'
-import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -25,7 +24,6 @@ export enum ActivationTasks {
     CreateFirstDashboard = 'create_first_dashboard',
     SetupSessionRecordings = 'setup_session_recordings',
     TrackCustomEvents = 'track_custom_events',
-    InstallFirstApp = 'install_first_app',
     SetUpReverseProxy = 'set_up_reverse_proxy',
 }
 
@@ -53,8 +51,6 @@ export const activationLogic = kea<activationLogicType>([
             ['memberCount'],
             inviteLogic,
             ['invites'],
-            pluginsLogic,
-            ['installedPlugins'],
             savedInsightsLogic,
             ['insights'],
             dashboardsModel,
@@ -65,8 +61,6 @@ export const activationLogic = kea<activationLogicType>([
         actions: [
             inviteLogic,
             ['showInviteModal', 'loadInvitesSuccess', 'loadInvitesFailure'],
-            pluginsLogic,
-            ['loadPluginsSuccess', 'loadPluginsFailure'],
             sidePanelStateLogic,
             ['openSidePanel'],
             savedInsightsLogic,
@@ -96,13 +90,6 @@ export const activationLogic = kea<activationLogicType>([
             {
                 loadInvitesSuccess: () => true,
                 loadInvitesFailure: () => false,
-            },
-        ],
-        arePluginsLoaded: [
-            false,
-            {
-                loadPluginsSuccess: () => true,
-                loadPluginsFailure: () => false,
             },
         ],
         areDashboardsLoaded: [
@@ -158,7 +145,6 @@ export const activationLogic = kea<activationLogicType>([
                 s.memberCount,
                 s.areInvitesLoaded,
                 s.areDashboardsLoaded,
-                s.arePluginsLoaded,
                 s.areCustomEventsLoaded,
                 s.areInsightsLoaded,
             ],
@@ -167,7 +153,6 @@ export const activationLogic = kea<activationLogicType>([
                 memberCount,
                 areInvitesLoaded,
                 areDashboardsLoaded,
-                arePluginsLoaded,
                 areCustomEventsLoaded,
                 areInsightsLoaded
             ): boolean => {
@@ -177,8 +162,7 @@ export const activationLogic = kea<activationLogicType>([
                     areInsightsLoaded &&
                     !!memberCount &&
                     areInvitesLoaded &&
-                    areDashboardsLoaded &&
-                    arePluginsLoaded
+                    areDashboardsLoaded
                 )
             },
         ],
@@ -194,7 +178,6 @@ export const activationLogic = kea<activationLogicType>([
                 s.insights,
                 s.rawDashboards,
                 s.customEventsCount,
-                s.installedPlugins,
                 s.currentTeamSkippedTasks,
                 s.hasReverseProxy,
             ],
@@ -205,7 +188,6 @@ export const activationLogic = kea<activationLogicType>([
                 insights,
                 dashboards,
                 customEventsCount,
-                installedPlugins,
                 skippedTasks,
                 hasReverseProxy
             ) => {
@@ -276,16 +258,6 @@ export const activationLogic = kea<activationLogicType>([
                                 url: 'https://posthog.com/tutorials/event-tracking-guide#setting-up-custom-events',
                             })
                             break
-                        case ActivationTasks.InstallFirstApp:
-                            tasks.push({
-                                id: ActivationTasks.InstallFirstApp,
-                                name: 'Install your first app',
-                                description: `Extend PostHog's core functionality with apps`,
-                                completed: installedPlugins.length > 0,
-                                canSkip: true,
-                                skipped: skippedTasks.includes(ActivationTasks.InstallFirstApp),
-                            })
-                            break
                         case ActivationTasks.SetUpReverseProxy:
                             tasks.push({
                                 id: ActivationTasks.SetUpReverseProxy,
@@ -348,9 +320,6 @@ export const activationLogic = kea<activationLogicType>([
                     break
                 case ActivationTasks.SetupSessionRecordings:
                     router.actions.push(urls.replay())
-                    break
-                case ActivationTasks.InstallFirstApp:
-                    router.actions.push(urls.projectApps())
                     break
                 default:
                     break

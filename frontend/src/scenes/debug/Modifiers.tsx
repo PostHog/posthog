@@ -99,6 +99,39 @@ export function Modifiers<Q extends { response?: Record<string, any>; modifiers?
                     value={query.modifiers?.materializationMode ?? response?.modifiers?.materializationMode}
                 />
             </LemonLabel>
+            <LemonLabel className={labelClassName}>
+                <div>Optimize joined filters:</div>
+                <LemonSelect
+                    options={[
+                        { value: true, label: 'true' },
+                        { value: false, label: 'false' },
+                    ]}
+                    onChange={(value) =>
+                        setQuery({
+                            ...query,
+                            modifiers: { ...query.modifiers, optimizeJoinedFilters: value },
+                        })
+                    }
+                    value={query.modifiers?.optimizeJoinedFilters ?? response?.modifiers?.optimizeJoinedFilters}
+                />
+            </LemonLabel>
+            <LemonLabel className={labelClassName}>
+                <div>Property Groups:</div>
+                <LemonSelect
+                    options={[
+                        { value: 'enabled', label: 'Enabled' },
+                        { value: 'disabled', label: 'Disabled' },
+                        { value: 'optimized', label: 'Enabled, with Optimizations' },
+                    ]}
+                    onChange={(value) =>
+                        setQuery({
+                            ...query,
+                            modifiers: { ...query.modifiers, propertyGroupsMode: value },
+                        })
+                    }
+                    value={query.modifiers?.propertyGroupsMode ?? response?.modifiers?.propertyGroupsMode}
+                />
+            </LemonLabel>
         </div>
     )
 }

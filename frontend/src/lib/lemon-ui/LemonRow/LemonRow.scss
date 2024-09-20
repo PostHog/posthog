@@ -16,8 +16,8 @@
 
     &.LemonRow--status-highlighted {
         font-weight: 600;
-        color: var(--default);
-        background: var(--primary-bg-hover);
+        color: var(--text-3000);
+        background: var(--primary-highlight);
 
         .LemonRow__icon {
             color: var(--primary-3000);
@@ -43,7 +43,7 @@
     }
 
     &.LemonRow--status-muted {
-        background: var(--side);
+        background: var(--bg-3000);
     }
 
     &.LemonRow--disabled {
@@ -63,7 +63,7 @@
     display: flex;
     flex-direction: column;
     padding-bottom: 0.125rem;
-    margin-left: 2rem;
+    margin-left: 1.875rem;
     font-size: 0.8125rem;
 }
 

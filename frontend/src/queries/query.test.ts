@@ -2,7 +2,7 @@ import { ApiError } from 'lib/api'
 import posthog from 'posthog-js'
 
 import { useMocks } from '~/mocks/jest'
-import { query, queryExportContext } from '~/queries/query'
+import { performQuery, queryExportContext } from '~/queries/query'
 import { EventsQuery, HogQLQuery, NodeKind } from '~/queries/schema'
 import { initKeaTests } from '~/test/init'
 import { PropertyFilterType, PropertyOperator } from '~/types'
@@ -79,7 +79,7 @@ describe('query', () => {
             select: ['timestamp'],
             limit: 100,
         }
-        await query(q)
+        await performQuery(q)
         expect(posthog.capture).toHaveBeenCalledWith('query completed', { query: q, duration: expect.any(Number) })
     })
 
@@ -89,7 +89,7 @@ describe('query', () => {
             kind: NodeKind.HogQLQuery,
             query: 'select * from events',
         }
-        await query(q)
+        await performQuery(q)
         expect(posthog.capture).toHaveBeenCalledWith('query completed', {
             query: q,
             duration: expect.any(Number),
@@ -105,7 +105,7 @@ describe('query', () => {
             limit: 100,
         }
         await expect(async () => {
-            await query(q)
+            await performQuery(q)
         }).rejects.toThrow(ApiError)
 
         expect(posthog.capture).toHaveBeenCalledWith('query failed', { query: q, duration: expect.any(Number) })

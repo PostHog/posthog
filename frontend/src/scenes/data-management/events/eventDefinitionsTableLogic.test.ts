@@ -156,15 +156,15 @@ describe('eventDefinitionsTableLogic', () => {
                     }),
                 })
 
-            expect(api.get).toBeCalledTimes(1)
-            expect(api.get).toBeCalledWith(startingUrl)
+            expect(api.get).toHaveBeenCalledTimes(1)
+            expect(api.get).toHaveBeenCalledWith(startingUrl)
 
             await expectLogic(logic, () => {
                 logic.actions.loadEventDefinitions(startingUrl)
             }).toDispatchActions(['loadEventDefinitions', 'loadEventDefinitionsSuccess'])
 
             // Doesn't call api.get again
-            expect(api.get).toBeCalledTimes(1)
+            expect(api.get).toHaveBeenCalledTimes(1)
         })
 
         it('pagination forwards and backwards', async () => {
@@ -182,7 +182,7 @@ describe('eventDefinitionsTableLogic', () => {
                         next: `api/projects/${MOCK_TEAM_ID}/event_definitions?limit=50&offset=50&event_type=event`,
                     }),
                 })
-            expect(api.get).toBeCalledTimes(1)
+            expect(api.get).toHaveBeenCalledTimes(1)
             // Forwards
             await expectLogic(logic, () => {
                 logic.actions.loadEventDefinitions(
@@ -198,7 +198,7 @@ describe('eventDefinitionsTableLogic', () => {
                         next: null,
                     }),
                 })
-            expect(api.get).toBeCalledTimes(2)
+            expect(api.get).toHaveBeenCalledTimes(2)
             // Backwards
             await expectLogic(logic, () => {
                 logic.actions.loadEventDefinitions(startingUrl)
@@ -210,7 +210,7 @@ describe('eventDefinitionsTableLogic', () => {
                         next: `api/projects/${MOCK_TEAM_ID}/event_definitions?limit=50&offset=50&event_type=event`,
                     }),
                 })
-            expect(api.get).toBeCalledTimes(2)
+            expect(api.get).toHaveBeenCalledTimes(2)
         })
     })
 
@@ -263,7 +263,7 @@ describe('eventDefinitionsTableLogic', () => {
                     }),
                 })
 
-            expect(api.get).toBeCalledTimes(3)
+            expect(api.get).toHaveBeenCalledTimes(3)
             expect(api.get).toHaveBeenNthCalledWith(1, propertiesStartingUrl)
             expect(api.get).toHaveBeenNthCalledWith(2, `api/projects/${MOCK_TEAM_ID}/events?event=event1&limit=1`)
             expect(api.get).toHaveBeenNthCalledWith(3, startingUrl)
@@ -273,7 +273,7 @@ describe('eventDefinitionsTableLogic', () => {
             }).toDispatchActions(['loadPropertiesForEvent', 'loadPropertiesForEventSuccess'])
 
             // Doesn't call api.get again
-            expect(api.get).toBeCalledTimes(3)
+            expect(api.get).toHaveBeenCalledTimes(3)
         })
 
         it('inject example', async () => {
@@ -317,7 +317,7 @@ describe('eventDefinitionsTableLogic', () => {
                         }),
                     }),
                 })
-            expect(api.get).toBeCalledTimes(2)
+            expect(api.get).toHaveBeenCalledTimes(2)
             // Forwards
             await expectLogic(logic, () => {
                 logic.actions.loadPropertiesForEvent(
@@ -335,7 +335,7 @@ describe('eventDefinitionsTableLogic', () => {
                         }),
                     }),
                 })
-            expect(api.get).toBeCalledTimes(3)
+            expect(api.get).toHaveBeenCalledTimes(3)
             // Backwards
             await expectLogic(logic, () => {
                 logic.actions.loadPropertiesForEvent(eventDefinition, propertiesStartingUrl)
@@ -349,7 +349,7 @@ describe('eventDefinitionsTableLogic', () => {
                         }),
                     }),
                 })
-            expect(api.get).toBeCalledTimes(3)
+            expect(api.get).toHaveBeenCalledTimes(3)
         })
     })
 })

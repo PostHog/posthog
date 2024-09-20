@@ -44,7 +44,7 @@ export function ExperimentPreview({
     const {
         experimentInsightType,
         editingExistingExperiment,
-        minimumDetectableChange,
+        minimumDetectableEffect,
         expectedRunningTime,
         aggregationLabel,
         experiment,
@@ -107,8 +107,8 @@ export function ExperimentPreview({
                 {(experimentId === 'new' || editingExistingExperiment) && (
                     <div className="mb-4 experiment-preview-row">
                         <div className="flex items-center">
-                            <b>Minimum acceptable improvement</b>
-                            <Tooltip title="Minimum acceptable improvement is a calculation that estimates the smallest significant improvement you are willing to accept.">
+                            <b>Minimum detectable effect</b>
+                            <Tooltip title="Minimum detectable effect is a calculation that estimates the smallest significant improvement you are willing to accept.">
                                 <IconInfo className="ml-1 text-muted text-xl" />
                             </Tooltip>
                         </div>
@@ -129,7 +129,7 @@ export function ExperimentPreview({
                                 className="w-1/3"
                             />
                             <LemonInput
-                                data-attr="min-acceptable-improvement"
+                                data-attr="min-detectable-effect"
                                 type="number"
                                 min={1}
                                 max={sliderMaxValue}
@@ -162,7 +162,7 @@ export function ExperimentPreview({
                                         <div className="l4">
                                             {humanFriendlyNumber(
                                                 trendCount +
-                                                    Math.ceil(trendCount * ((minimumDetectableChange || 5) / 100)) || 0
+                                                    Math.ceil(trendCount * ((minimumDetectableEffect || 5) / 100)) || 0
                                             )}
                                         </div>
                                     </div>
@@ -186,7 +186,7 @@ export function ExperimentPreview({
                                     <div className="w-1/2">
                                         <div className="card-secondary">Minimum Acceptable Conversion Rate</div>
                                         <div className="l4">
-                                            {(funnelConversionRate + (minimumDetectableChange || 5)).toFixed(1)}%
+                                            {(funnelConversionRate + (minimumDetectableEffect || 5)).toFixed(1)}%
                                         </div>
                                     </div>
                                 </>

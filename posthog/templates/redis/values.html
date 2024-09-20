@@ -1,0 +1,82 @@
+{% extends "admin/base_site.html" %}
+{% load i18n admin_urls static admin_list %}
+
+{% block extrastyle %}
+{{ block.super }}
+<link rel="stylesheet" href="{% static 'admin/css/changelists.css' %}" />
+<link rel="stylesheet" href="{% static 'admin/css/forms.css' %}" />
+{{ media.css }}
+{% endblock %}
+
+{% if not is_popup %}
+{% block breadcrumbs %}
+<div class="breadcrumbs">
+    <a href="{% url 'admin:index' %}">{% translate 'Home' %}</a>
+    &rsaquo; Redis values
+</div>
+{% endblock %}
+{% endif %}
+
+{% block content %}
+<div id="content-main">
+    <div id="changelist" class="module filtered">
+        <div class="changelist-form-container">
+            {% block search %} {% load i18n static %}
+            <div id="toolbar">
+                <form id="changelist-search" method="get" role="search">
+                    <div>
+                        <!-- DIV needed for valid HTML -->
+                        <label for="searchbar"><img src="{% static 'admin/img/search.svg' %}" alt="Search" /></label>
+                        <input type="text" size="40" name="q" value="{{ query }}" id="searchbar" />
+                        <input type="submit" value="{% translate 'Search' %}" />
+                    </div>
+                </form>
+            </div>
+            {% endblock %}
+            <div class="results">
+                {% if redis_keys %}
+
+                <table id="results_list">
+                    <thead>
+                        <tr>
+                            <th scope="col">
+                                <div class="text"><span>{% trans "Key" %}</span></div>
+                            </th>
+                            <th scope="col">
+                                <div class="text"><span>{% trans "Type" %}</span></div>
+                            </th>
+                            <th scope="col">
+                                <div class="text"><span>{% trans "TTL" %}</span></div>
+                            </th>
+                            <th scope="col">
+                                <div class="text"><span>{% trans "Value" %}</span></div>
+                            </th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for key, tuple in redis_keys.items %}
+                        <tr>
+                            <td class="field-key">{{ key }}</td>
+                            {% for item in tuple %}
+                            <td>{{ item }}</td>
+                            {% endfor %}
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+                {% endif %}
+                <p class="paginator">
+                    <a href="?c=0">Start</a>
+
+                    <span class="this-page">{{ cursor }}</span>
+
+                    {% if next_cursor != 0 %}
+                    <a href="?c={{ next_cursor }}">Next</a>
+                    {% endif %}
+                    {{ redis_keys|length }} {% if redis_keys|length == 1 %}Redis key{% else %}Redis keys{%endif %}
+                </p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,27 +1,18 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { toParams } from 'lib/utils'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { queryForActors } from 'scenes/retention/queries'
 import { RetentionTablePeoplePayload } from 'scenes/retention/types'
 
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import { NodeKind } from '~/queries/schema'
+import { NodeKind, RetentionQuery } from '~/queries/schema'
 import { InsightLogicProps } from '~/types'
 
 import type { retentionPeopleLogicType } from './retentionPeopleLogicType'
 
 const DEFAULT_RETENTION_LOGIC_KEY = 'default_retention_key'
-
-const hogQLInsightsRetentionFlagEnabled = (): boolean =>
-    Boolean(
-        featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.HOGQL_INSIGHTS] ||
-            featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.HOGQL_INSIGHTS_RETENTION]
-    )
 
 export const retentionPeopleLogic = kea<retentionPeopleLogicType>([
     props({} as InsightLogicProps),
@@ -40,12 +31,7 @@ export const retentionPeopleLogic = kea<retentionPeopleLogicType>([
         people: {
             __default: {} as RetentionTablePeoplePayload,
             loadPeople: async (selectedInterval: number) => {
-                if (hogQLInsightsRetentionFlagEnabled() && values.querySource?.kind === NodeKind.RetentionQuery) {
-                    return await queryForActors(values.querySource, selectedInterval)
-                }
-
-                const urlParams = toParams({ ...values.apiFilters, selected_interval: selectedInterval })
-                return api.get<RetentionTablePeoplePayload>(`api/person/retention/?${urlParams}`)
+                return await queryForActors(values.querySource as RetentionQuery, selectedInterval)
             },
         },
     })),

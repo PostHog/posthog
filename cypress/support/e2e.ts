@@ -1,6 +1,9 @@
 import 'givens/setup'
 import './commands'
 import 'cypress-axe'
+
+import { urls } from 'scenes/urls'
+
 import { decideResponse } from '../fixtures/api/decide'
 
 try {
@@ -20,6 +23,10 @@ Cypress.on('window:before:load', (win) => {
     win._cypress_posthog_captures = []
 })
 
+before(() => {
+    cy.task('resetInsightCache') // Reset insight cache before each suite
+})
+
 beforeEach(() => {
     Cypress.env('POSTHOG_PROPERTY_CURRENT_TEST_TITLE', Cypress.currentTest.title)
     Cypress.env('POSTHOG_PROPERTY_CURRENT_TEST_FULL_TITLE', Cypress.currentTest.titlePath.join(' > '))
@@ -31,7 +38,6 @@ beforeEach(() => {
             decideResponse({
                 // Feature flag to be treated as rolled out in E2E tests, e.g.:
                 // 'toolbar-launch-side-action': true,
-                'hogql-insights-preview': true,
             })
         )
     )
@@ -51,6 +57,8 @@ beforeEach(() => {
 
     if (Cypress.spec.name.includes('before-onboarding')) {
         cy.visit('/?no-preloaded-app-context=true')
+    } else if (Cypress.spec.name.includes('organizationSettings')) {
+        cy.visit(urls.settings('organization'))
     } else {
         cy.visit('/insights')
         cy.wait('@getInsights').then(() => {

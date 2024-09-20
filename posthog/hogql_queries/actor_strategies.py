@@ -1,14 +1,16 @@
 from typing import cast, Literal, Optional
 
-from django.db.models import Prefetch
+from django.db import connection
 
 from posthog.hogql import ast
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.parser import parse_expr
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
-from posthog.hogql_queries.utils.recordings import RecordingsHelper
-from posthog.models import Team, Person, Group
+from posthog.hogql_queries.utils.recordings_helper import RecordingsHelper
+from posthog.models import Team, Group
 from posthog.schema import ActorsQuery
+
+import orjson as json
 
 
 class ActorStrategy:
@@ -42,18 +44,49 @@ class PersonStrategy(ActorStrategy):
     origin = "persons"
     origin_id = "id"
 
-    def get_actors(self, actor_ids) -> dict[str, dict]:
-        return {
-            str(p.uuid): {
-                "id": p.uuid,
-                **{field: getattr(p, field) for field in ("distinct_ids", "properties", "created_at", "is_identified")},
-            }
-            for p in Person.objects.filter(
-                team_id=self.team.pk, persondistinctid__team_id=self.team.pk, uuid__in=actor_ids
+    # This is hand written instead of using the ORM because the ORM was blowing up the memory on exports and taking forever
+    def get_actors(self, actor_ids, order_by: str = "") -> dict[str, dict]:
+        # If actor queries start quietly dying again, this might need batching at some point
+        # but currently works with 800,000 persondistinctid entries (May 24, 2024)
+        persons_query = """SELECT posthog_person.id, posthog_person.uuid, posthog_person.properties, posthog_person.is_identified, posthog_person.created_at
+            FROM posthog_person
+            WHERE posthog_person.uuid = ANY(%(uuids)s)
+            AND posthog_person.team_id = %(team_id)s"""
+        if order_by:
+            persons_query += f" ORDER BY {order_by}"
+        with connection.cursor() as cursor:
+            cursor.execute(
+                persons_query,
+                {"uuids": list(actor_ids), "team_id": self.team.pk},
             )
-            .prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
-            .iterator(chunk_size=self.paginator.limit)
+            people = cursor.fetchall()
+            cursor.execute(
+                """SELECT posthog_persondistinctid.person_id, posthog_persondistinctid.distinct_id
+            FROM posthog_persondistinctid
+            WHERE posthog_persondistinctid.person_id = ANY(%(people_ids)s)
+            AND posthog_persondistinctid.team_id = %(team_id)s""",
+                {"people_ids": [x[0] for x in people], "team_id": self.team.pk},
+            )
+            distinct_ids = cursor.fetchall()
+
+        person_id_to_raw_person_and_set: dict[int, tuple] = {person[0]: (person, []) for person in people}
+
+        for pdid in distinct_ids:
+            person_id_to_raw_person_and_set[pdid[0]][1].append(pdid[1])
+        del distinct_ids
+
+        person_uuid_to_person = {
+            str(person[1]): {
+                "id": person[1],
+                "properties": json.loads(person[2]),
+                "is_identified": person[3],
+                "created_at": person[4],
+                "distinct_ids": distinct_ids,
+            }
+            for person, distinct_ids in person_id_to_raw_person_and_set.values()
         }
+
+        return person_uuid_to_person
 
     def get_recordings(self, matching_events) -> dict[str, list[dict]]:
         return RecordingsHelper(self.team).get_recordings(matching_events)

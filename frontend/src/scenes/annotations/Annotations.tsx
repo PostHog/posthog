@@ -27,15 +27,8 @@ import {
 export function Annotations(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { currentOrganization } = useValues(organizationLogic)
-    const {
-        annotations,
-        annotationsLoading,
-        next,
-        loadingNext,
-        timezone,
-        shouldShowEmptyState,
-        shouldShowProductIntroduction,
-    } = useValues(annotationModalLogic)
+    const { annotations, annotationsLoading, next, loadingNext, timezone, shouldShowEmptyState } =
+        useValues(annotationModalLogic)
     const { loadAnnotationsNext, openModalToCreateAnnotation } = useActions(annotationModalLogic)
 
     const columns: LemonTableColumns<AnnotationType> = [
@@ -70,6 +63,8 @@ export function Annotations(): JSX.Element {
                 const tooltip =
                     annotation.scope === AnnotationScope.Insight
                         ? `This annotation only applies to the "${annotation.insight_name}" insight`
+                        : annotation.scope === AnnotationScope.Dashboard
+                        ? `This annotation applies to all insights on the ${annotation.dashboard_name} dashboard`
                         : annotation.scope === AnnotationScope.Project
                         ? `This annotation applies to all insights in the ${currentTeam?.name} project`
                         : `This annotation applies to all insights in the ${currentOrganization?.name} organization`
@@ -132,20 +127,18 @@ export function Annotations(): JSX.Element {
                 metrics.
             </p>
             <div data-attr="annotations-content">
-                {(shouldShowEmptyState || shouldShowProductIntroduction) && (
-                    <div className="mt-4">
-                        <ProductIntroduction
-                            productName="Annotations"
-                            productKey={ProductKey.ANNOTATIONS}
-                            thingName="annotation"
-                            description="Annotations allow you to mark when certain changes happened so you can easily see how they impacted your metrics."
-                            docsURL="https://posthog.com/docs/data/annotations"
-                            action={() => openModalToCreateAnnotation()}
-                            isEmpty={annotations.length === 0}
-                            customHog={MicrophoneHog}
-                        />
-                    </div>
-                )}
+                <div className="mt-4">
+                    <ProductIntroduction
+                        productName="Annotations"
+                        productKey={ProductKey.ANNOTATIONS}
+                        thingName="annotation"
+                        description="Annotations allow you to mark when certain changes happened so you can easily see how they impacted your metrics."
+                        docsURL="https://posthog.com/docs/data/annotations"
+                        action={() => openModalToCreateAnnotation()}
+                        isEmpty={annotations.length === 0 && !annotationsLoading}
+                        customHog={MicrophoneHog}
+                    />
+                </div>
                 {!shouldShowEmptyState && (
                     <>
                         <LemonTable

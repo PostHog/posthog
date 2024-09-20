@@ -6,163 +6,15 @@ from random import randint
 import pytest
 from django.test import override_settings
 
+from posthog.batch_exports.service import BatchExportModel
 from posthog.temporal.batch_exports.batch_exports import (
     get_data_interval,
-    get_rows_count,
+    iter_model_records,
     iter_records,
 )
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
-
-
-async def test_get_rows_count(clickhouse_client):
-    """Test the count of rows returned by get_rows_count."""
-    team_id = randint(1, 1000000)
-    data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:31:00.000000+00:00")
-    data_interval_start = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
-
-    _ = await generate_test_events_in_clickhouse(
-        client=clickhouse_client,
-        team_id=team_id,
-        start_time=data_interval_start,
-        end_time=data_interval_end,
-        count=10000,
-        count_outside_range=0,
-        count_other_team=0,
-        duplicate=False,
-    )
-
-    row_count = await get_rows_count(
-        clickhouse_client, team_id, data_interval_start.isoformat(), data_interval_end.isoformat()
-    )
-    assert row_count == 10000
-
-
-async def test_get_rows_count_handles_duplicates(clickhouse_client):
-    """Test the count of rows returned by get_rows_count are de-duplicated."""
-    team_id = randint(1, 1000000)
-
-    data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:31:00.000000+00:00")
-    data_interval_start = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
-
-    _ = await generate_test_events_in_clickhouse(
-        client=clickhouse_client,
-        team_id=team_id,
-        start_time=data_interval_start,
-        end_time=data_interval_end,
-        count=10,
-        count_outside_range=0,
-        count_other_team=0,
-        duplicate=True,
-    )
-
-    row_count = await get_rows_count(
-        clickhouse_client, team_id, data_interval_start.isoformat(), data_interval_end.isoformat()
-    )
-    assert row_count == 10
-
-
-async def test_get_rows_count_can_exclude_events(clickhouse_client):
-    """Test the count of rows returned by get_rows_count can exclude events."""
-    team_id = randint(1, 1000000)
-
-    data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:31:00.000000+00:00")
-    data_interval_start = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
-
-    (events, _, _) = await generate_test_events_in_clickhouse(
-        client=clickhouse_client,
-        team_id=team_id,
-        start_time=data_interval_start,
-        end_time=data_interval_end,
-        count=10000,
-        count_outside_range=0,
-        count_other_team=0,
-        duplicate=False,
-    )
-
-    # Exclude the latter half of events.
-    exclude_events = (event["event"] for event in events[5000:])
-    row_count = await get_rows_count(
-        clickhouse_client,
-        team_id,
-        data_interval_start.isoformat(),
-        data_interval_end.isoformat(),
-        exclude_events=exclude_events,
-    )
-    assert row_count == 5000
-
-
-async def test_get_rows_count_can_include_events(clickhouse_client):
-    """Test the count of rows returned by get_rows_count can include events."""
-    team_id = randint(1, 1000000)
-
-    data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:31:00.000000+00:00")
-    data_interval_start = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
-
-    (events, _, _) = await generate_test_events_in_clickhouse(
-        client=clickhouse_client,
-        team_id=team_id,
-        start_time=data_interval_start,
-        end_time=data_interval_end,
-        count=5000,
-        count_outside_range=0,
-        count_other_team=0,
-        duplicate=False,
-    )
-
-    # Include the latter half of events.
-    include_events = (event["event"] for event in events[2500:])
-    row_count = await get_rows_count(
-        clickhouse_client,
-        team_id,
-        data_interval_start.isoformat(),
-        data_interval_end.isoformat(),
-        include_events=include_events,
-    )
-    assert row_count == 2500
-
-
-async def test_get_rows_count_ignores_timestamp_predicates(clickhouse_client):
-    """Test the count of rows returned by get_rows_count can ignore timestamp predicates."""
-    team_id = randint(1, 1000000)
-
-    inserted_at = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
-    data_interval_end = inserted_at + dt.timedelta(hours=1)
-
-    # Insert some data with timestamps a couple of years before inserted_at
-    timestamp_start = inserted_at - dt.timedelta(hours=24 * 365 * 2)
-    timestamp_end = inserted_at - dt.timedelta(hours=24 * 365)
-
-    await generate_test_events_in_clickhouse(
-        client=clickhouse_client,
-        team_id=team_id,
-        start_time=timestamp_start,
-        end_time=timestamp_end,
-        count=10,
-        count_outside_range=0,
-        count_other_team=0,
-        duplicate=False,
-        inserted_at=inserted_at,
-    )
-
-    row_count = await get_rows_count(
-        clickhouse_client,
-        team_id,
-        inserted_at.isoformat(),
-        data_interval_end.isoformat(),
-    )
-    # All events are outside timestamp bounds (a year difference with inserted_at)
-    assert row_count == 0
-
-    with override_settings(UNCONSTRAINED_TIMESTAMP_TEAM_IDS=[str(team_id)]):
-        row_count = await get_rows_count(
-            clickhouse_client,
-            team_id,
-            inserted_at.isoformat(),
-            data_interval_end.isoformat(),
-        )
-    assert row_count == 10
 
 
 def assert_records_match_events(records, events):
@@ -189,9 +41,7 @@ def assert_records_match_events(records, events):
                 key in ("timestamp", "_inserted_at", "created_at")
                 and expected.get(key.removeprefix("_"), None) is not None
             ):
-                assert value == dt.datetime.fromisoformat(expected[key.removeprefix("_")]).replace(
-                    tzinfo=dt.timezone.utc
-                ), msg
+                assert value == dt.datetime.fromisoformat(expected[key.removeprefix("_")]).replace(tzinfo=dt.UTC), msg
             elif isinstance(expected[key], dict):
                 assert value == json.dumps(expected[key]), msg
             else:
@@ -390,7 +240,6 @@ async def test_iter_records_ignores_timestamp_predicates(clickhouse_client):
         {"expression": "event", "alias": "event_name"},
         {"expression": "team_id", "alias": "team"},
         {"expression": "timestamp", "alias": "time_the_stamp"},
-        {"expression": "inserted_at", "alias": "ingestion_time"},
         {"expression": "created_at", "alias": "creation_time"},
     ],
 )
@@ -414,12 +263,13 @@ async def test_iter_records_with_single_field_and_alias(clickhouse_client, field
 
     records = [
         record
-        for record_batch in iter_records(
-            clickhouse_client,
-            team_id,
-            data_interval_start.isoformat(),
-            data_interval_end.isoformat(),
-            fields=[field],
+        async for record_batch in iter_model_records(
+            client=clickhouse_client,
+            model=BatchExportModel(name="events", schema={"fields": [field], "values": {}}),
+            team_id=team_id,
+            is_backfill=False,
+            interval_start=data_interval_start.isoformat(),
+            interval_end=data_interval_end.isoformat(),
         )
         for record in record_batch.to_pylist()
     ]
@@ -437,7 +287,7 @@ async def test_iter_records_with_single_field_and_alias(clickhouse_client, field
 
         if isinstance(result, dt.datetime):
             # Event generation function returns datetimes as strings.
-            expected_value = dt.datetime.fromisoformat(expected_value).replace(tzinfo=dt.timezone.utc)
+            expected_value = dt.datetime.fromisoformat(expected_value).replace(tzinfo=dt.UTC)
 
         assert result == expected_value
 
@@ -536,16 +386,16 @@ async def test_iter_records_uses_extra_query_parameters(clickhouse_client):
             "hour",
             "2023-08-01T00:00:00+00:00",
             (
-                dt.datetime(2023, 7, 31, 23, 0, 0, tzinfo=dt.timezone.utc),
-                dt.datetime(2023, 8, 1, 0, 0, 0, tzinfo=dt.timezone.utc),
+                dt.datetime(2023, 7, 31, 23, 0, 0, tzinfo=dt.UTC),
+                dt.datetime(2023, 8, 1, 0, 0, 0, tzinfo=dt.UTC),
             ),
         ),
         (
             "day",
             "2023-08-01T00:00:00+00:00",
             (
-                dt.datetime(2023, 7, 31, 0, 0, 0, tzinfo=dt.timezone.utc),
-                dt.datetime(2023, 8, 1, 0, 0, 0, tzinfo=dt.timezone.utc),
+                dt.datetime(2023, 7, 31, 0, 0, 0, tzinfo=dt.UTC),
+                dt.datetime(2023, 8, 1, 0, 0, 0, tzinfo=dt.UTC),
             ),
         ),
     ],

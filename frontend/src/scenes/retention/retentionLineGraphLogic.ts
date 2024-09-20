@@ -45,10 +45,10 @@ export const retentionLineGraphLogic = kea<retentionLineGraphLogicType>([
                 // further and translate these numbers into percentage of the
                 // previous value so we get some idea for the rate of
                 // convergence.
+
                 return results.map((cohortRetention, datasetIndex) => {
                     const retentionPercentages = cohortRetention.values
                         .map((value) => value.count / cohortRetention.values[0].count)
-                        // Make them display in the right scale
                         .map((value) => (isNaN(value) ? 0 : 100 * value))
 
                     // To calculate relative percentages, we take for instance Cohort 1 as percentages

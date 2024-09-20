@@ -1,22 +1,20 @@
 import './Experiment.scss'
 
-import { IconInfo } from '@posthog/icons'
-import { LemonTable, Tooltip } from '@posthog/lemon-ui'
-import { Empty } from 'antd'
+import { IconArchive } from '@posthog/icons'
+import { LemonTable } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { FunnelLayout } from 'lib/constants'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
-import { capitalizeFirstLetter } from 'lib/utils'
 
 import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
+import { queryFromFilters } from '~/queries/nodes/InsightViz/utils'
 import { Query } from '~/queries/Query/Query'
 import { NodeKind } from '~/queries/schema'
 import { ChartDisplayType, FilterType, FunnelVizType, InsightShortId, InsightType } from '~/types'
 
-import { LoadingState } from './Experiment'
 import { experimentLogic } from './experimentLogic'
-import { NoResultsEmptyState } from './ExperimentView/components'
+import { LoadingState, NoResultsEmptyState } from './ExperimentView/components'
 import { getExperimentInsightColour } from './utils'
 
 interface ExperimentResultProps {
@@ -33,7 +31,6 @@ export function ExperimentResult({ secondaryMetricId }: ExperimentResultProps): 
         secondaryMetricResultsLoading,
         conversionRateForVariant,
         getIndexForVariant,
-        areTrendResultsConfusing,
         sortedExperimentResultVariants,
         experimentMathAggregationForTrends,
     } = useValues(experimentLogic)
@@ -80,7 +77,7 @@ export function ExperimentResult({ secondaryMetricId }: ExperimentResultProps): 
                                                         ),
                                                     }}
                                                 >
-                                                    <b>{capitalizeFirstLetter(variant)}</b>
+                                                    <b>{variant}</b>
                                                 </div>,
                                             ])
                                         ),
@@ -130,7 +127,7 @@ export function ExperimentResult({ secondaryMetricId }: ExperimentResultProps): 
                             columns={[
                                 { title: 'Header', dataIndex: 'header' },
                                 ...sortedExperimentResultVariants.map((variant) => ({
-                                    title: capitalizeFirstLetter(variant),
+                                    title: variant,
                                     dataIndex: variant,
                                 })),
                             ]}
@@ -147,7 +144,7 @@ export function ExperimentResult({ secondaryMetricId }: ExperimentResultProps): 
                                 .map((variant, idx) => (
                                     <div key={idx} className="pr-4">
                                         <div>
-                                            <b>{capitalizeFirstLetter(variant)}</b>
+                                            <b>{variant}</b>
                                         </div>
                                         {targetResultsInsightType === InsightType.TRENDS ? (
                                             <>
@@ -168,15 +165,7 @@ export function ExperimentResult({ secondaryMetricId }: ExperimentResultProps): 
                                                             </span>
                                                         </div>
                                                     </b>{' '}
-                                                    {countDataForVariant(targetResults, variant)}{' '}
-                                                    {areTrendResultsConfusing && idx === 0 && (
-                                                        <Tooltip
-                                                            placement="right"
-                                                            title="It might seem confusing that the best variant has lower absolute count, but this can happen when fewer people are exposed to this variant, so its relative count is higher."
-                                                        >
-                                                            <IconInfo className="py-1 px-0.5" />
-                                                        </Tooltip>
-                                                    )}
+                                                    {countDataForVariant(targetResults, variant)}
                                                 </div>
                                                 <div className="flex">
                                                     <b className="pr-1">Exposure:</b>{' '}
@@ -229,10 +218,12 @@ export function ExperimentResult({ secondaryMetricId }: ExperimentResultProps): 
                                 dashboardItemId: targetResults.fakeInsightId as InsightShortId,
                                 cachedInsight: {
                                     short_id: targetResults.fakeInsightId as InsightShortId,
-                                    filters: transformResultFilters(targetResults.filters ?? {}),
+                                    query: targetResults?.filters
+                                        ? queryFromFilters(transformResultFilters(targetResults.filters))
+                                        : null,
                                     result: targetResults.insight,
                                     disable_baseline: true,
-                                    last_refresh: targetResults.last_refresh,
+                                    last_refresh: targetResults.last_refresh || null,
                                 },
                                 doNotLoad: true,
                             },
@@ -246,8 +237,8 @@ export function ExperimentResult({ secondaryMetricId }: ExperimentResultProps): 
                     <>
                         {isSecondaryMetric ? (
                             <div className="bg-bg-light pt-6 pb-8 text-muted">
-                                <div className="flex flex-col items-center mx-auto">
-                                    <Empty className="my-4" image={Empty.PRESENTED_IMAGE_SIMPLE} description="" />
+                                <div className="flex flex-col items-center mx-auto space-y-2">
+                                    <IconArchive className="text-secondary-3000 text-4xl" />
                                     <h2 className="text-xl font-semibold leading-tight">
                                         There are no results for this metric yet
                                     </h2>

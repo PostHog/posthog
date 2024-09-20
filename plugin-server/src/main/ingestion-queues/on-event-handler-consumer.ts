@@ -1,18 +1,17 @@
 import { Consumer, Kafka } from 'kafkajs'
-import * as schedule from 'node-schedule'
-import { AppMetrics } from 'worker/ingestion/app-metrics'
-import { RustyHook } from 'worker/rusty-hook'
 
 import { KAFKA_EVENTS_JSON, prefix as KAFKA_PREFIX } from '../../config/kafka-topics'
-import { Hub, PluginsServerConfig } from '../../types'
+import { Hub, PluginServerService, PluginsServerConfig } from '../../types'
 import { PostgresRouter } from '../../utils/db/postgres'
-import { PubSub } from '../../utils/pubsub'
 import { status } from '../../utils/status'
 import { ActionManager } from '../../worker/ingestion/action-manager'
 import { ActionMatcher } from '../../worker/ingestion/action-matcher'
+import { AppMetrics } from '../../worker/ingestion/app-metrics'
+import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
 import { HookCommander } from '../../worker/ingestion/hooks'
 import { OrganizationManager } from '../../worker/ingestion/organization-manager'
 import { TeamManager } from '../../worker/ingestion/team-manager'
+import { RustyHook } from '../../worker/rusty-hook'
 import { eachBatchAppsOnEventHandlers } from './batch-processing/each-batch-onevent'
 import { eachBatchWebhooksHandlers } from './batch-processing/each-batch-webhooks'
 import { KafkaJSIngestionConsumer, setupEventHandlers } from './kafka-queue'
@@ -21,7 +20,7 @@ export const startAsyncOnEventHandlerConsumer = async ({
     hub, // TODO: remove needing to pass in the whole hub and be more selective on dependency injection.
 }: {
     hub: Hub
-}) => {
+}): Promise<PluginServerService> => {
     /*
         Consumes analytics events from the Kafka topic `clickhouse_events_json`
         and processes any onEvent plugin handlers configured for the team.
@@ -33,11 +32,14 @@ export const startAsyncOnEventHandlerConsumer = async ({
 
     const queue = buildOnEventIngestionConsumer({ hub })
 
+    await hub.actionManager.start()
     await queue.start()
 
-    const isHealthy = makeHealthCheck(queue.consumer, queue.sessionTimeout)
-
-    return { queue, isHealthy: () => isHealthy() }
+    return {
+        id: 'on-event-ingestion',
+        healthcheck: makeHealthCheck(queue.consumer, queue.sessionTimeout),
+        onShutdown: async () => await queue.stop(),
+    }
 }
 
 export const startAsyncWebhooksHandlerConsumer = async ({
@@ -45,9 +47,12 @@ export const startAsyncWebhooksHandlerConsumer = async ({
     postgres,
     teamManager,
     organizationManager,
+    actionMatcher,
+    actionManager,
     serverConfig,
     rustyHook,
     appMetrics,
+    groupTypeManager,
 }: {
     kafka: Kafka
     postgres: PostgresRouter
@@ -56,7 +61,10 @@ export const startAsyncWebhooksHandlerConsumer = async ({
     serverConfig: PluginsServerConfig
     rustyHook: RustyHook
     appMetrics: AppMetrics
-}) => {
+    groupTypeManager: GroupTypeManager
+    actionMatcher: ActionMatcher
+    actionManager: ActionManager
+}): Promise<PluginServerService> => {
     /*
         Consumes analytics events from the Kafka topic `clickhouse_events_json`
         and processes any onEvent plugin handlers configured for the team.
@@ -75,9 +83,6 @@ export const startAsyncWebhooksHandlerConsumer = async ({
     })
     setupEventHandlers(consumer)
 
-    const actionManager = new ActionManager(postgres)
-    await actionManager.prepare()
-    const actionMatcher = new ActionMatcher(postgres, actionManager)
     const hookCannon = new HookCommander(
         postgres,
         teamManager,
@@ -88,45 +93,39 @@ export const startAsyncWebhooksHandlerConsumer = async ({
     )
     const concurrency = serverConfig.TASKS_PER_WORKER || 20
 
-    const pubSub = new PubSub(serverConfig, {
-        'reload-action': async (message) => {
-            const { actionId, teamId } = JSON.parse(message)
-            await actionManager.reloadAction(teamId, actionId)
-        },
-        'drop-action': (message) => {
-            const { actionId, teamId } = JSON.parse(message)
-            actionManager.dropAction(teamId, actionId)
-        },
-    })
-
-    await pubSub.start()
-
-    // every 5 minutes all ActionManager caches are reloaded for eventual consistency
-    schedule.scheduleJob('*/5 * * * *', async () => {
-        await actionManager.reloadAllActions()
-    })
-
+    await actionManager.start()
     await consumer.subscribe({ topic: KAFKA_EVENTS_JSON, fromBeginning: false })
     await consumer.run({
-        eachBatch: (payload) => eachBatchWebhooksHandlers(payload, actionMatcher, hookCannon, concurrency),
+        eachBatch: (payload) =>
+            eachBatchWebhooksHandlers(
+                payload,
+                actionMatcher,
+                hookCannon,
+                concurrency,
+                groupTypeManager,
+                organizationManager,
+                postgres
+            ),
     })
 
-    const isHealthy = makeHealthCheck(consumer, serverConfig.KAFKA_CONSUMPTION_SESSION_TIMEOUT_MS)
+    const onShutdown = async () => {
+        await actionManager.stop()
+        try {
+            await consumer.stop()
+        } catch (e) {
+            status.error('🚨', 'Error stopping consumer', e)
+        }
+        try {
+            await consumer.disconnect()
+        } catch (e) {
+            status.error('🚨', 'Error disconnecting consumer', e)
+        }
+    }
 
     return {
-        stop: async () => {
-            try {
-                await consumer.stop()
-            } catch (e) {
-                status.error('🚨', 'Error stopping consumer', e)
-            }
-            try {
-                await consumer.disconnect()
-            } catch (e) {
-                status.error('🚨', 'Error disconnecting consumer', e)
-            }
-        },
-        isHealthy,
+        id: 'webhooks-ingestion',
+        healthcheck: makeHealthCheck(consumer, serverConfig.KAFKA_CONSUMPTION_SESSION_TIMEOUT_MS),
+        onShutdown,
     }
 }
 

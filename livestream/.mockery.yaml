@@ -1,0 +1,12 @@
+quiet: False
+with-expecter: True
+dir: mocks/{{ replaceAll .InterfaceDirRelative "internal" "internal_" }}
+mockname: '{{.InterfaceName}}'
+outpkg: '{{.PackageName}}'
+filename: '{{.InterfaceName}}.go'
+all: True
+packages:
+    github.com/posthog/posthog/livestream:
+        config:
+            recursive: True
+            outpkg: mocks

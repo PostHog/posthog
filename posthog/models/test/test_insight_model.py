@@ -1,7 +1,7 @@
 from django.db.utils import IntegrityError
 
 from posthog.models import Dashboard, Insight, Team
-from posthog.models.insight import generate_insight_cache_key
+from posthog.models.insight import generate_insight_filters_hash
 from posthog.test.base import BaseTest
 
 
@@ -64,6 +64,15 @@ class TestInsightModel(BaseTest):
 
         assert filters_with_dashboard_with_same_date_from["date_from"] == "-30d"
 
+    def test_dashboard_filters_works_with_null_properties(self) -> None:
+        insight = Insight.objects.create(
+            team=self.team, filters={"date_from": "-30d", "compare": True, "properties": None}
+        )
+        dashboard = Dashboard.objects.create(team=self.team, filters={"date_from": "all", "properties": {"a": 1}})
+
+        # Check that this doesn't throw an error
+        insight.dashboard_filters(dashboard=dashboard)
+
     def test_dashboard_with_date_from_all_overrides_compare(self) -> None:
         insight = Insight.objects.create(team=self.team, filters={"date_from": "-30d", "compare": True})
         dashboard = Dashboard.objects.create(team=self.team, filters={"date_from": "all"})
@@ -76,8 +85,8 @@ class TestInsightModel(BaseTest):
         insight = Insight.objects.create(team=self.team, filters={"date_from": "-30d"})
         dashboard = Dashboard.objects.create(team=self.team, filters={})
 
-        filters_hash_no_dashboard = generate_insight_cache_key(insight, None)
-        filters_hash_with_absent_date_from = generate_insight_cache_key(insight, dashboard)
+        filters_hash_no_dashboard = generate_insight_filters_hash(insight, None)
+        filters_hash_with_absent_date_from = generate_insight_filters_hash(insight, dashboard)
 
         assert filters_hash_no_dashboard == filters_hash_with_absent_date_from
 
@@ -85,8 +94,8 @@ class TestInsightModel(BaseTest):
         insight = Insight.objects.create(team=self.team, filters={"date_from": "-30d"})
         dashboard = Dashboard.objects.create(team=self.team, filters={"date_from": None})
 
-        filters_hash_no_dashboard = generate_insight_cache_key(insight, None)
-        filters_hash_with_null_date_from = generate_insight_cache_key(insight, dashboard)
+        filters_hash_no_dashboard = generate_insight_filters_hash(insight, None)
+        filters_hash_with_null_date_from = generate_insight_filters_hash(insight, dashboard)
 
         assert filters_hash_no_dashboard == filters_hash_with_null_date_from
 
@@ -94,8 +103,8 @@ class TestInsightModel(BaseTest):
         insight = Insight.objects.create(team=self.team, filters={"date_from": "-30d"})
         dashboard = Dashboard.objects.create(team=self.team, filters={"date_from": "-90d"})
 
-        filters_hash_one = generate_insight_cache_key(insight, None)
-        filters_hash_two = generate_insight_cache_key(insight, dashboard)
+        filters_hash_one = generate_insight_filters_hash(insight, None)
+        filters_hash_two = generate_insight_filters_hash(insight, dashboard)
 
         assert filters_hash_one != filters_hash_two
 
@@ -125,10 +134,7 @@ class TestInsightModel(BaseTest):
                     "dateRange": {
                         "date_from": "-14d",
                         "date_to": "-7d",
-                        "explicitDate": None,
-                    },
-                    "filterTestAccounts": None,
-                    "properties": None,
+                    }
                 },
             ),
             (
@@ -136,7 +142,7 @@ class TestInsightModel(BaseTest):
                 {},
                 {"date_from": "-14d", "date_to": "-7d"},
                 {
-                    "dateRange": {"date_from": "-14d", "date_to": "-7d", "explicitDate": None},
+                    "dateRange": {"date_from": "-14d", "date_to": "-7d", "explicitDate": False},
                     "filterTestAccounts": None,
                     "properties": None,
                 },
@@ -146,7 +152,7 @@ class TestInsightModel(BaseTest):
                 {"dateRange": {"date_from": "-2d", "date_to": "-1d"}},
                 {"date_from": "-4d", "date_to": "-3d"},
                 {
-                    "dateRange": {"date_from": "-4d", "date_to": "-3d", "explicitDate": None},
+                    "dateRange": {"date_from": "-4d", "date_to": "-3d", "explicitDate": False},
                     "filterTestAccounts": None,
                     "properties": None,
                 },
@@ -156,7 +162,7 @@ class TestInsightModel(BaseTest):
                 {"dateRange": {"date_from": "-14d", "date_to": "-7d"}},
                 {"date_from": "all"},
                 {
-                    "dateRange": {"date_from": "all", "date_to": None, "explicitDate": None},
+                    "dateRange": {"date_from": "all", "date_to": None, "explicitDate": False},
                     "filterTestAccounts": None,
                     "properties": None,
                 },
@@ -165,23 +171,13 @@ class TestInsightModel(BaseTest):
                 # test that if no filters are set then none are outputted
                 {},
                 {},
-                {
-                    "dateRange": {
-                        "date_from": None,
-                        "date_to": None,
-                        "explicitDate": None,
-                    },
-                    "filterTestAccounts": None,
-                    "properties": None,
-                },
+                {},
             ),
             (
                 # test that properties from the query are used when there are no dashboard properties
                 {"properties": [browser_equals_firefox]},
                 {},
                 {
-                    "dateRange": {"date_from": None, "date_to": None, "explicitDate": None},
-                    "filterTestAccounts": None,
                     "properties": [browser_equals_firefox],
                 },
             ),
@@ -190,7 +186,7 @@ class TestInsightModel(BaseTest):
                 {},
                 {"properties": [browser_equals_chrome]},
                 {
-                    "dateRange": {"date_from": None, "date_to": None, "explicitDate": None},
+                    "dateRange": None,
                     "filterTestAccounts": None,
                     "properties": [browser_equals_chrome],
                 },
@@ -200,7 +196,7 @@ class TestInsightModel(BaseTest):
                 {"properties": [browser_equals_firefox]},
                 {"properties": [browser_equals_chrome]},
                 {
-                    "dateRange": {"date_from": None, "date_to": None, "explicitDate": None},
+                    "dateRange": None,
                     "filterTestAccounts": None,
                     "properties": [browser_equals_firefox, browser_equals_chrome],
                 },

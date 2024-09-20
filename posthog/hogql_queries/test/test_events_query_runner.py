@@ -97,8 +97,8 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             EventPropertyFilter(
                 type="event",
                 key="boolean_field",
-                operator=PropertyOperator.is_not_set,
-                value=PropertyOperator.is_not_set,
+                operator=PropertyOperator.IS_NOT_SET,
+                value=PropertyOperator.IS_NOT_SET,
             )
         )
 
@@ -111,8 +111,8 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             EventPropertyFilter(
                 type="event",
                 key="boolean_field",
-                operator=PropertyOperator.is_set,
-                value=PropertyOperator.is_set,
+                operator=PropertyOperator.IS_SET,
+                value=PropertyOperator.IS_SET,
             )
         )
 
@@ -156,3 +156,31 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         right_expr = cast(ast.Constant, where_expr.right)
         self.assertEqual(right_expr.value, "%posthog.com%")
         self.assertEqual(where_expr.op, CompareOperationOp.NotILike)
+
+    def test_big_int(self):
+        BIG_INT = 2**159 - 24
+        self._create_events(
+            data=[
+                (
+                    "p_null",
+                    "2020-01-11T12:00:04Z",
+                    {"boolean_field": None, "bigInt": BIG_INT},
+                ),
+            ]
+        )
+
+        flush_persons_and_events()
+
+        with freeze_time("2020-01-11T12:01:00"):
+            query = EventsQuery(
+                after="-24h",
+                event="$pageview",
+                kind="EventsQuery",
+                orderBy=["timestamp ASC"],
+                select=["*"],
+            )
+
+            runner = EventsQueryRunner(query=query, team=self.team)
+            response = runner.run()
+            assert isinstance(response, CachedEventsQueryResponse)
+            assert response.results[0][0]["properties"]["bigInt"] == float(BIG_INT)

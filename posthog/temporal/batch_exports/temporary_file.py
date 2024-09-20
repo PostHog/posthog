@@ -1,6 +1,7 @@
 """This module contains a temporary file to stage data in batch exports."""
 
 import abc
+import asyncio
 import collections.abc
 import contextlib
 import csv
@@ -85,7 +86,8 @@ class BatchExportTemporaryFile:
 
     def __exit__(self, exc, value, tb):
         """Context-manager protocol exit method."""
-        return self._file.__exit__(exc, value, tb)
+        self._file.__exit__(exc, value, tb)
+        return False
 
     def __iter__(self):
         yield from self._file
@@ -241,8 +243,17 @@ LastInsertedAt = dt.datetime
 IsLast = bool
 RecordsSinceLastFlush = int
 BytesSinceLastFlush = int
+FlushCounter = int
 FlushCallable = collections.abc.Callable[
-    [BatchExportTemporaryFile, RecordsSinceLastFlush, BytesSinceLastFlush, LastInsertedAt, IsLast],
+    [
+        BatchExportTemporaryFile,
+        RecordsSinceLastFlush,
+        BytesSinceLastFlush,
+        FlushCounter,
+        LastInsertedAt,
+        IsLast,
+        Exception | None,
+    ],
     collections.abc.Awaitable[None],
 ]
 
@@ -304,9 +315,11 @@ class BatchExportWriter(abc.ABC):
         self.records_since_last_flush = 0
         self.bytes_total = 0
         self.bytes_since_last_flush = 0
+        self.flush_counter = 0
+        self.error = None
 
     @contextlib.asynccontextmanager
-    async def open_temporary_file(self):
+    async def open_temporary_file(self, current_flush_counter: int = 0):
         """Explicitly open the temporary file this writer is writing to.
 
         The underlying `BatchExportTemporaryFile` is only accessible within this context manager. This helps
@@ -316,12 +329,18 @@ class BatchExportWriter(abc.ABC):
         to the writer.
         """
         self.reset_writer_tracking()
+        self.flush_counter = current_flush_counter
 
         with BatchExportTemporaryFile(**self.file_kwargs) as temp_file:
             self._batch_export_file = temp_file
 
             try:
                 yield
+
+            except Exception as temp_err:
+                self.error = temp_err
+                raise
+
             finally:
                 self.track_bytes_written(temp_file)
 
@@ -332,7 +351,7 @@ class BatchExportWriter(abc.ABC):
                     #    `write_record_batch`. For example, footer bytes.
                     await self.flush(self.last_inserted_at, is_last=True)
 
-        self._batch_export_file = None
+                self._batch_export_file = None
 
     @property
     def batch_export_file(self):
@@ -372,7 +391,7 @@ class BatchExportWriter(abc.ABC):
         column_names = record_batch.column_names
         column_names.pop(column_names.index("_inserted_at"))
 
-        self._write_record_batch(record_batch.select(column_names))
+        await asyncio.to_thread(self._write_record_batch, record_batch.select(column_names))
 
         self.last_inserted_at = last_inserted_at
         self.track_records_written(record_batch)
@@ -395,13 +414,16 @@ class BatchExportWriter(abc.ABC):
             self.batch_export_file,
             self.records_since_last_flush,
             self.bytes_since_last_flush,
+            self.flush_counter,
             last_inserted_at,
             is_last,
+            self.error,
         )
         self.batch_export_file.reset()
 
         self.records_since_last_flush = 0
         self.bytes_since_last_flush = 0
+        self.flush_counter += 1
 
 
 class JSONLBatchExportWriter(BatchExportWriter):
@@ -427,21 +449,24 @@ class JSONLBatchExportWriter(BatchExportWriter):
 
         self.default = default
 
-    def write(self, content: bytes) -> int:
+    def write_dict(self, d: dict[str, typing.Any]) -> int:
         """Write a single row of JSONL."""
         try:
-            n = self.batch_export_file.write(orjson.dumps(content, default=str) + b"\n")
+            n = self.batch_export_file.write(orjson.dumps(d, default=str) + b"\n")
         except orjson.JSONEncodeError:
             # orjson is very strict about invalid unicode. This slow path protects us against
             # things we've observed in practice, like single surrogate codes, e.g. "\ud83d"
-            cleaned_content = replace_broken_unicode(content)
+            cleaned_content = replace_broken_unicode(d)
             n = self.batch_export_file.write(orjson.dumps(cleaned_content, default=str) + b"\n")
         return n
 
     def _write_record_batch(self, record_batch: pa.RecordBatch) -> None:
         """Write records to a temporary file as JSONL."""
-        for record in record_batch.to_pylist():
-            self.write(record)
+        for record_dict in record_batch.to_pylist():
+            if not record_dict:
+                continue
+
+            self.write_dict(record_dict)
 
 
 class CSVBatchExportWriter(BatchExportWriter):
@@ -542,9 +567,9 @@ class ParquetBatchExportWriter(BatchExportWriter):
         return self._parquet_writer
 
     @contextlib.asynccontextmanager
-    async def open_temporary_file(self):
+    async def open_temporary_file(self, current_flush_counter: int = 0):
         """Ensure underlying Parquet writer is closed before flushing and closing temporary file."""
-        async with super().open_temporary_file():
+        async with super().open_temporary_file(current_flush_counter):
             try:
                 yield
             finally:

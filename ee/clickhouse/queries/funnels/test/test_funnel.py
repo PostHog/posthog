@@ -5,7 +5,6 @@ from ee.clickhouse.queries.funnels.test.breakdown_cases import (
 )
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.models.action import Action
-from posthog.models.action_step import ActionStep
 from posthog.models.cohort import Cohort
 from posthog.models.filters import Filter
 from posthog.models.group.util import create_group
@@ -114,8 +113,7 @@ class TestClickhouseFunnel(ClickhouseTestMixin, APIBaseTest):
             properties={"email": "fake_2@test.com"},
         )
 
-        action1 = Action.objects.create(team=self.team, name="action1")
-        ActionStep.objects.create(event="$pageview", action=action1)
+        Action.objects.create(team=self.team, name="action1", steps_json=[{"event": "$pageview"}])
 
         cohort = Cohort.objects.create(
             team=self.team,

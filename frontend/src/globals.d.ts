@@ -22,5 +22,30 @@ declare global {
         }
         IMPERSONATED_SESSION?: boolean
         POSTHOG_JS_UUID_VERSION?: string
+
+        EventSourcePolyfill: typeof EventSource
     }
+}
+
+/** Copied from https://github.com/DefinitelyTyped/DefinitelyTyped/blob/aaf94a0a/types/event-source-polyfill/index.d.ts#L43 */
+export declare class EventSource {
+    static readonly CLOSED: number
+    static readonly CONNECTING: number
+    static readonly OPEN: number
+
+    constructor(url: string, eventSourceInitDict?: EventSource.EventSourceInitDict)
+
+    readonly CLOSED: number
+    readonly CONNECTING: number
+    readonly OPEN: number
+    readonly url: string
+    readonly readyState: number
+    readonly withCredentials: boolean
+    onopen: (evt: MessageEvent) => any
+    onmessage: (evt: MessageEvent) => any
+    onerror: (evt: MessageEvent) => any
+    addEventListener(type: string, listener: (evt: MessageEvent) => void): void
+    dispatchEvent(evt: Event): boolean
+    removeEventListener(type: string, listener: (evt: MessageEvent) => void): void
+    close(): void
 }

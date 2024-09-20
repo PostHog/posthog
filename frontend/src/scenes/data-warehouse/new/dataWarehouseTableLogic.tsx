@@ -10,7 +10,6 @@ import { urls } from 'scenes/urls'
 import { DataTableNode } from '~/queries/schema'
 import { AnyPropertyFilter, DataWarehouseTable } from '~/types'
 
-import { dataWarehouseSceneLogic } from '../external/dataWarehouseSceneLogic'
 import type { dataWarehouseTableLogicType } from './dataWarehouseTableLogicType'
 
 export interface TableLogicProps {
@@ -27,14 +26,13 @@ const NEW_WAREHOUSE_TABLE: DataWarehouseTable = {
         access_key: '',
         access_secret: '',
     },
-    columns: [],
 }
 
 export const dataWarehouseTableLogic = kea<dataWarehouseTableLogicType>([
     path(['scenes', 'data-warehouse', 'tableLogic']),
     props({} as TableLogicProps),
     connect(() => ({
-        actions: [databaseTableListLogic, ['loadDatabase'], dataWarehouseSceneLogic, ['loadDataWarehouse']],
+        actions: [databaseTableListLogic, ['loadDatabase']],
     })),
     actions({
         editingTable: (editing: boolean) => ({ editing }),
@@ -68,7 +66,6 @@ export const dataWarehouseTableLogic = kea<dataWarehouseTableLogicType>([
         createTableSuccess: async ({ table }) => {
             lemonToast.success(<>Table {table.name} created</>)
             actions.loadDatabase()
-            actions.loadDataWarehouse()
             router.actions.replace(urls.dataWarehouse())
         },
         updateTableSuccess: async ({ table }) => {
@@ -95,6 +92,13 @@ export const dataWarehouseTableLogic = kea<dataWarehouseTableLogicType>([
         table: {
             defaults: { ...NEW_WAREHOUSE_TABLE } as DataWarehouseTable,
             errors: ({ name, url_pattern, credential, format }) => {
+                if (url_pattern?.startsWith('s3://')) {
+                    return {
+                        url_pattern:
+                            'Please use the https version of your bucket url e.g. https://your-org.s3.amazonaws.com/airbyte/stripe/invoices/*.pqt',
+                    }
+                }
+
                 return {
                     name: !name && 'Please enter a name.',
                     url_pattern: !url_pattern && 'Please enter a url pattern.',

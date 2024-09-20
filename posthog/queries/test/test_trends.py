@@ -1,3 +1,4 @@
+import dataclasses
 import json
 import uuid
 from datetime import datetime
@@ -23,7 +24,6 @@ from posthog.constants import (
 )
 from posthog.models import (
     Action,
-    ActionStep,
     Cohort,
     Entity,
     Filter,
@@ -38,6 +38,7 @@ from posthog.models.instance_setting import (
     set_instance_setting,
 )
 from posthog.models.person.util import create_person_distinct_id
+from posthog.models.utils import uuid7
 from posthog.queries.trends.breakdown import BREAKDOWN_OTHER_STRING_LABEL
 from posthog.queries.trends.trends import Trends
 from posthog.test.base import (
@@ -81,8 +82,7 @@ def _create_action(**kwargs):
     team = kwargs.pop("team")
     name = kwargs.pop("name")
     properties = kwargs.pop("properties", {})
-    action = Action.objects.create(team=team, name=name)
-    ActionStep.objects.create(action=action, event=name, properties=properties)
+    action = Action.objects.create(team=team, name=name, steps_json=[{"event": name, "properties": properties}])
     return action
 
 
@@ -2652,6 +2652,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
     @snapshot_clickhouse_queries
     def test_trends_with_hogql_math(self):
+        s1 = str(uuid7("2020-01-01", 1))
+        s5 = str(uuid7("2020-01-01", 5))
         _create_person(
             team_id=self.team.pk,
             distinct_ids=["blabla", "anonymous_id"],
@@ -2661,14 +2663,14 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             event="sign up",
             distinct_id="blabla",
-            properties={"$session_id": 1},
+            properties={"$session_id": s1, "x": 1},
             timestamp="2020-01-01 00:06:30",
         )
         _create_event(
             team=self.team,
             event="sign up",
             distinct_id="blabla",
-            properties={"$session_id": 5},
+            properties={"$session_id": s5, "x": 5},
             timestamp="2020-01-02 00:06:45",
         )
 
@@ -2682,7 +2684,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                             {
                                 "id": "sign up",
                                 "math": "hogql",
-                                "math_hogql": "avg(toInt(properties.$session_id)) + 1000",
+                                "math_hogql": "avg(toInt(properties.x)) + 1000",
                             }
                         ],
                     },
@@ -3471,11 +3473,15 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             _create_event(team=self.team, event="$pageview", distinct_id="d3")
             _create_event(team=self.team, event="$pageview", distinct_id="d4")
 
-        event_filtering_action = Action.objects.create(team=self.team, name="$pageview from non-internal")
-        ActionStep.objects.create(
-            action=event_filtering_action,
-            event="$pageview",
-            properties=[{"key": "bar", "type": "person", "value": "a", "operator": "icontains"}],
+        event_filtering_action = Action.objects.create(
+            team=self.team,
+            name="$pageview from non-internal",
+            steps_json=[
+                {
+                    "event": "$pageview",
+                    "properties": [{"key": "bar", "type": "person", "value": "a", "operator": "icontains"}],
+                }
+            ],
         )
 
         with freeze_time("2020-01-04T13:01:01Z"):
@@ -5429,16 +5435,20 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             distinct_ids=["blabla", "anonymous_id"],
             properties={"$some_prop": "some_val"},
         )
-        sign_up_action = Action.objects.create(team=self.team, name="sign up")
-        ActionStep.objects.create(
-            action=sign_up_action,
-            event="sign up",
-            properties=[
+        sign_up_action = Action.objects.create(
+            team=self.team,
+            name="sign up",
+            steps_json=[
                 {
-                    "key": "$current_url",
-                    "type": "event",
-                    "value": ["https://posthog.com/feedback/1234"],
-                    "operator": "exact",
+                    "event": "sign up",
+                    "properties": [
+                        {
+                            "key": "$current_url",
+                            "type": "event",
+                            "value": ["https://posthog.com/feedback/1234"],
+                            "operator": "exact",
+                        }
+                    ],
                 }
             ],
         )
@@ -5500,10 +5510,12 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             name="a",
             groups=[{"properties": [{"key": "$some_prop", "value": "some_val", "type": "person"}]}],
         )
-        step = sign_up_action.steps.first()
-        if step:
-            step.properties = [{"key": "id", "value": cohort.pk, "type": "cohort"}]
-            step.save()
+        step = sign_up_action.steps[0]
+        step.properties = [{"key": "id", "value": cohort.pk, "type": "cohort"}]
+
+        sign_up_action.steps = [dataclasses.asdict(step)]  # type: ignore
+        sign_up_action.save()
+
         with freeze_time("2020-01-04T14:01:01Z"):
             action_response = Trends().run(
                 Filter(
@@ -6680,12 +6692,16 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             properties={"key": "val", "$current_url": "/another/page"},
         )
 
-        action = Action.objects.create(name="sign up", team=self.team)
-        ActionStep.objects.create(
-            action=action,
-            event="sign up",
-            url="/some/page",
-            properties=[{"key": "key", "type": "event", "value": ["val"], "operator": "exact"}],
+        action = Action.objects.create(
+            name="sign up",
+            team=self.team,
+            steps_json=[
+                {
+                    "event": "sign up",
+                    "url": "/some/page",
+                    "properties": [{"key": "key", "type": "event", "value": ["val"], "operator": "exact"}],
+                }
+            ],
         )
 
         response = Trends().run(
@@ -6809,7 +6825,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 "entity_type": "events",
                 "events": '[{"id": "sign up", "type": "events", "order": null, "name": "sign '
                 'up", "custom_name": null, "math": "dau", "math_property": null, "math_hogql": null, '
-                '"math_group_type_index": null, "properties": {}}]',
+                '"math_group_type_index": null, "properties": {}, "id_field": null, "timestamp_field": null, '
+                '"distinct_id_field": null, "table_name": null}]',
                 "insight": "TRENDS",
                 "interval": "hour",
                 "smoothing_intervals": "1",
@@ -7947,11 +7964,6 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response[1]["breakdown_value"], "uh")
         self.assertEqual(response[1]["count"], 1)
 
-    @also_test_with_materialized_columns(
-        event_properties=["key"],
-        group_properties=[(0, "industry")],
-        materialize_only_with_person_on_events=True,
-    )
     @snapshot_clickhouse_queries
     def test_breakdown_with_filter_groups_person_on_events(self):
         self._create_groups()
@@ -8149,9 +8161,6 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(res[0]["distinct_ids"], ["person1"])
 
-    @also_test_with_materialized_columns(
-        group_properties=[(0, "industry")], materialize_only_with_person_on_events=True
-    )
     @snapshot_clickhouse_queries
     def test_breakdown_by_group_props_person_on_events(self):
         self._create_groups()
@@ -8368,11 +8377,6 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         # set to a value other than textiles AND events with no group at all
         self.assertEqual(response[0]["count"], 4)
 
-    @also_test_with_materialized_columns(
-        person_properties=["key"],
-        group_properties=[(0, "industry")],
-        materialize_only_with_person_on_events=True,
-    )
     @snapshot_clickhouse_queries
     def test_breakdown_by_group_props_with_person_filter_person_on_events(self):
         self._create_groups()
@@ -8418,11 +8422,6 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(response[0]["breakdown_value"], "finance")
             self.assertEqual(response[0]["count"], 1)
 
-    @also_test_with_materialized_columns(
-        person_properties=["key"],
-        group_properties=[(0, "industry")],
-        materialize_only_with_person_on_events=True,
-    )
     @snapshot_clickhouse_queries
     def test_filtering_with_group_props_person_on_events(self):
         self._create_groups()
@@ -8478,10 +8477,6 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             response = Trends().run(filter, self.team)
             self.assertEqual(response[0]["count"], 1)
 
-    @also_test_with_materialized_columns(
-        group_properties=[(0, "industry"), (2, "name")],
-        materialize_only_with_person_on_events=True,
-    )
     @snapshot_clickhouse_queries
     def test_filtering_by_multiple_groups_person_on_events(self):
         GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)

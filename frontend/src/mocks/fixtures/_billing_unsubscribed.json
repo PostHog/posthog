@@ -1,43 +1,4 @@
 {
-    "available_features": [
-        "surveys_unlimited_surveys",
-        "surveys_all_question_types",
-        "surveys_user_targeting",
-        "surveys_user_sampling",
-        "surveys_api_mode",
-        "surveys_results_analysis",
-        "surveys_templates",
-        "surveys_data_retention",
-        "zapier",
-        "slack_integration",
-        "microsoft_teams_integration",
-        "discord_integration",
-        "apps",
-        "boolean_flags",
-        "persist_flags_cross_authentication",
-        "feature_flag_payloads",
-        "multiple_release_conditions",
-        "release_condition_overrides",
-        "targeting_by_group",
-        "local_evaluation_and_bootstrapping",
-        "flag_usage_stats",
-        "feature_flags_data_retention",
-        "console_logs",
-        "recordings_playlists",
-        "session_replay_data_retention",
-        "dashboards",
-        "funnels",
-        "graphs_trends",
-        "paths",
-        "product_analytics_data_retention",
-        "tracked_users",
-        "team_members",
-        "organizations_projects",
-        "api_access",
-        "social_sso",
-        "community_support",
-        "terms_and_conditions"
-    ],
     "license": {
         "plan": "dev"
     },
@@ -479,14 +440,6 @@
                             "key": "advanced_permissions",
                             "name": "Dashboard permissions",
                             "description": "Restrict access to dashboards within the organization to only those who need it.",
-                            "unit": null,
-                            "limit": null,
-                            "note": null
-                        },
-                        {
-                            "key": "team_collaboration",
-                            "name": "Tags & text cards",
-                            "description": "Keep organized by adding tags to your dashboards, cohorts and more. Add text cards and descriptions to your dashboards to provide context to your team.",
                             "unit": null,
                             "limit": null,
                             "note": null
@@ -1919,5 +1872,5 @@
     "discount_amount_usd": null,
     "amount_off_expires_at": null,
     "never_drop_data": null,
-    "stripe_portal_url": "https://billing.stripe.com/p/session/test_YWNjdF8xSElNRERFdUlhdFJYU2R6LF9QN0ltZVQ3RmpLbTZacXgzYWo3Q0FFbFpITHZydlpK0100iKmkfAZi"
+    "stripe_portal_url": "http://localhost:8000/api/billing/portal"
 }

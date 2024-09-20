@@ -2,13 +2,18 @@ from typing import cast
 import uuid
 
 from rest_framework import response, serializers, viewsets
+from rest_framework.permissions import IsAuthenticated
 
 from posthog.models import PersonalAPIKey, User
-from posthog.models.personal_api_key import hash_key_value
+from posthog.models.personal_api_key import hash_key_value, mask_key_value
 from posthog.models.scopes import API_SCOPE_ACTIONS, API_SCOPE_OBJECTS
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal
+from posthog.permissions import TimeSensitiveActionPermission
 from posthog.user_permissions import UserPermissions
+
+
+MAX_API_KEYS_PER_USER = 10  # Same as in personalAPIKeysLogic.tsx
 
 
 class PersonalAPIKeySerializer(serializers.ModelSerializer):
@@ -24,6 +29,7 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
             "id",
             "label",
             "value",
+            "mask_value",
             "created_at",
             "last_used_at",
             "user_id",
@@ -31,7 +37,7 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
             "scoped_teams",
             "scoped_organizations",
         ]
-        read_only_fields = ["id", "value", "created_at", "last_used_at", "user_id"]
+        read_only_fields = ["id", "value", "mask_value", "created_at", "last_used_at", "user_id"]
 
     def get_key_value(self, obj: PersonalAPIKey) -> str:
         return getattr(obj, "_value", None)  # type: ignore
@@ -91,9 +97,17 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
 
     def create(self, validated_data: dict, **kwargs) -> PersonalAPIKey:
         user = self.context["request"].user
+        count = PersonalAPIKey.objects.filter(user=user).count()
+        if count >= MAX_API_KEYS_PER_USER:
+            raise serializers.ValidationError(
+                f"You can only have {MAX_API_KEYS_PER_USER} personal API keys. Remove an existing key before creating a new one."
+            )
         value = generate_random_token_personal()
+        mask_value = mask_key_value(value)
         secure_value = hash_key_value(value)
-        personal_api_key = PersonalAPIKey.objects.create(user=user, secure_value=secure_value, **validated_data)
+        personal_api_key = PersonalAPIKey.objects.create(
+            user=user, secure_value=secure_value, mask_value=mask_value, **validated_data
+        )
         personal_api_key._value = value  # type: ignore
         return personal_api_key
 
@@ -101,6 +115,7 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
 class PersonalAPIKeyViewSet(viewsets.ModelViewSet):
     lookup_field = "id"
     serializer_class = PersonalAPIKeySerializer
+    permission_classes = [IsAuthenticated, TimeSensitiveActionPermission]
 
     def get_queryset(self):
         return PersonalAPIKey.objects.filter(user_id=cast(User, self.request.user).id).order_by("-created_at")

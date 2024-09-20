@@ -8,7 +8,7 @@ export function OrganizationEmailPreferences(): JSX.Element {
     const { currentOrganization } = useValues(organizationLogic)
     const { updateOrganization } = useActions(organizationLogic)
 
-    const isRestricted = !!useRestrictedArea({ minimumAccessLevel: OrganizationMembershipLevel.Admin })
+    const restrictionReason = useRestrictedArea({ minimumAccessLevel: OrganizationMembershipLevel.Admin })
 
     return (
         <LemonSwitch
@@ -17,8 +17,8 @@ export function OrganizationEmailPreferences(): JSX.Element {
                 updateOrganization({ is_member_join_email_enabled: checked })
             }}
             checked={!!currentOrganization?.is_member_join_email_enabled}
-            disabled={isRestricted || !currentOrganization}
             label="Email all current members when a new member joins"
+            disabledReason={!currentOrganization ? 'Organization not loaded' : restrictionReason}
             bordered
         />
     )

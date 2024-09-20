@@ -7,13 +7,12 @@
         flex: 1;
         flex-wrap: wrap;
         gap: 0.5rem;
-        overflow: hidden;
     }
 
     .PropertyFilters__prefix {
         padding: 0 5px;
         font-size: 18px;
-        color: #c4c4c4;
+        color: var(--border-bold-3000);
         user-select: none;
     }
 

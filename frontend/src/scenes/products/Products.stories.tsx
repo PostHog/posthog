@@ -5,7 +5,7 @@ import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
-import { billingJson } from '~/mocks/fixtures/_billing_v2'
+import { billingJson } from '~/mocks/fixtures/_billing'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
 
 const meta: Meta = {
@@ -31,7 +31,7 @@ export default meta
 export const _Products = (): JSX.Element => {
     useStorybookMocks({
         get: {
-            '/api/billing-v2/': {
+            '/api/billing/': {
                 ...billingJson,
             },
         },

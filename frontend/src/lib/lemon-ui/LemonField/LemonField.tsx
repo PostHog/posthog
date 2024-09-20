@@ -16,6 +16,7 @@ export type LemonPureFieldProps = {
     help?: React.ReactNode
     /** Error message to be displayed */
     error?: React.ReactNode
+    renderError?: (error: string) => React.ReactNode
     className?: string
     children?: React.ReactNode
     onClick?: () => void
@@ -37,11 +38,18 @@ const LemonPureField = ({
     children,
     inline,
     onClick,
+    renderError,
 }: LemonPureFieldProps): JSX.Element => {
     return (
         <div
             onClick={onClick}
-            className={clsx('Field flex gap-2', className, error && 'Field--error', inline ? 'flex-row' : 'flex-col')}
+            className={clsx(
+                'Field flex',
+                { 'gap-2': className ? className.indexOf('gap-') === -1 : true },
+                className,
+                error && 'Field--error',
+                inline ? 'flex-row' : 'flex-col'
+            )}
         >
             {label ? (
                 <LemonLabel
@@ -58,10 +66,14 @@ const LemonPureField = ({
             ) : null}
             {children}
             {help ? <div className="text-muted text-xs">{help}</div> : null}
-            {error ? (
-                <div className="text-danger flex items-center gap-1 text-sm">
-                    <IconErrorOutline className="text-xl" /> {error}
-                </div>
+            {typeof error === 'string' ? (
+                renderError ? (
+                    renderError(error)
+                ) : (
+                    <div className="text-danger flex items-center gap-1 text-sm">
+                        <IconErrorOutline className="text-xl shrink-0" /> {error}
+                    </div>
+                )
             ) : null}
         </div>
     )
@@ -77,6 +89,7 @@ export const LemonField = ({
     showOptional,
     inline,
     info,
+    renderError,
     ...keaFieldProps
 }: LemonFieldProps): JSX.Element => {
     const template: KeaFieldProps['template'] = ({ label, kids, error }) => {
@@ -89,6 +102,7 @@ export const LemonField = ({
                 showOptional={showOptional}
                 inline={inline}
                 info={info}
+                renderError={renderError}
             >
                 {kids}
             </LemonPureField>

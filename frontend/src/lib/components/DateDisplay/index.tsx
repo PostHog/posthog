@@ -12,6 +12,7 @@ interface DateDisplayProps {
 }
 
 const DISPLAY_DATE_FORMAT: Record<IntervalType, string> = {
+    minute: 'HH:mm:00',
     hour: 'HH:00',
     day: 'MMM D',
     week: 'MMM D',
@@ -20,6 +21,8 @@ const DISPLAY_DATE_FORMAT: Record<IntervalType, string> = {
 
 const dateHighlight = (parsedDate: dayjs.Dayjs, interval: IntervalType): string => {
     switch (interval) {
+        case 'minute':
+            return parsedDate.format('MMM D')
         case 'hour':
             return parsedDate.format('MMM D')
         case 'day':
@@ -37,7 +40,7 @@ const dateHighlight = (parsedDate: dayjs.Dayjs, interval: IntervalType): string 
     For example, a single date in a graph will be shown as: `Th` Apr 22.
 */
 export function DateDisplay({ date, secondaryDate, interval, hideWeekRange }: DateDisplayProps): JSX.Element {
-    const parsedDate = dayjs(date)
+    const parsedDate = dayjs.utc(date)
 
     return (
         <>

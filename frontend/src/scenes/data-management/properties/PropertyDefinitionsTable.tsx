@@ -18,7 +18,7 @@ export function PropertyDefinitionsTable(): JSX.Element {
     const { propertyDefinitions, propertyDefinitionsLoading, filters, propertyTypeOptions } =
         useValues(propertyDefinitionsTableLogic)
     const { loadPropertyDefinitions, setFilters, setPropertyType } = useActions(propertyDefinitionsTableLogic)
-    const { hasDashboardCollaboration } = useValues(organizationLogic)
+    const { hasTagging } = useValues(organizationLogic)
 
     const columns: LemonTableColumns<PropertyDefinition> = [
         {
@@ -55,7 +55,7 @@ export function PropertyDefinitionsTable(): JSX.Element {
                 )
             },
         },
-        ...(hasDashboardCollaboration
+        ...(hasTagging
             ? [
                   {
                       title: 'Tags',
@@ -85,7 +85,7 @@ export function PropertyDefinitionsTable(): JSX.Element {
                     Query with SQL
                 </Link>
             </LemonBanner>
-            <div className="flex justify-between mb-4 gap-2 flex-wrap">
+            <div className="flex mb-4 gap-2 flex-wrap">
                 <LemonInput
                     type="search"
                     placeholder="Search for properties"

@@ -12,72 +12,215 @@ import { DatabaseSchemaQueryResponse } from '~/queries/schema'
 import { ingestionWarningsResponse } from './ingestion-warnings/__mocks__/ingestion-warnings-response'
 
 const MOCK_DATABASE: DatabaseSchemaQueryResponse = {
-    events: [
-        { key: 'uuid', type: 'string' },
-        { key: 'event', type: 'string' },
-        { key: 'properties', type: 'json' },
-        { key: 'timestamp', type: 'datetime' },
-        { key: 'distinct_id', type: 'string' },
-        { key: 'elements_chain', type: 'string' },
-        { key: 'created_at', type: 'datetime' },
-        { key: 'pdi', type: 'lazy_table', table: 'person_distinct_ids' },
-        { key: 'poe', type: 'virtual_table', table: 'events', fields: ['id', 'created_at', 'properties'] },
-        { key: 'person', type: 'field_traverser', chain: ['pdi', 'person'] },
-        { key: 'person_id', type: 'field_traverser', chain: ['pdi', 'person_id'] },
-    ],
-    persons: [
-        { key: 'id', type: 'string' },
-        { key: 'created_at', type: 'datetime' },
-        { key: 'properties', type: 'json' },
-        { key: 'is_identified', type: 'boolean' },
-        { key: 'is_deleted', type: 'boolean' },
-        { key: 'version', type: 'integer' },
-    ],
-    person_distinct_ids: [
-        { key: 'distinct_id', type: 'string' },
-        { key: 'person_id', type: 'string' },
-        { key: 'is_deleted', type: 'boolean' },
-        { key: 'version', type: 'integer' },
-        { key: 'person', type: 'lazy_table', table: 'persons' },
-    ],
-    session_recording_events: [
-        { key: 'uuid', type: 'string' },
-        { key: 'timestamp', type: 'datetime' },
-        { key: 'distinct_id', type: 'string' },
-        { key: 'session_id', type: 'string' },
-        { key: 'window_id', type: 'string' },
-        { key: 'snapshot_data', type: 'json' },
-        { key: 'created_at', type: 'datetime' },
-        { key: 'has_full_snapshot', type: 'boolean' },
-        { key: 'events_summary', type: 'json' },
-        { key: 'click_count', type: 'integer' },
-        { key: 'keypress_count', type: 'integer' },
-        { key: 'timestamps_summary', type: 'datetime' },
-        { key: 'first_event_timestamp', type: 'datetime' },
-        { key: 'last_event_timestamp', type: 'datetime' },
-        { key: 'urls', type: 'string' },
-        { key: 'pdi', type: 'lazy_table', table: 'person_distinct_ids' },
-        { key: 'person', type: 'field_traverser', chain: ['pdi', 'person'] },
-        { key: 'person_id', type: 'field_traverser', chain: ['pdi', 'person_id'] },
-    ],
-    cohort_people: [
-        { key: 'person_id', type: 'string' },
-        { key: 'cohort_id', type: 'integer' },
-        { key: 'sign', type: 'integer' },
-        { key: 'version', type: 'integer' },
-        { key: 'person', type: 'lazy_table', table: 'persons' },
-    ],
-    static_cohort_people: [
-        { key: 'person_id', type: 'string' },
-        { key: 'cohort_id', type: 'integer' },
-        { key: 'person', type: 'lazy_table', table: 'persons' },
-    ],
-    groups: [
-        { key: 'index', type: 'integer' },
-        { key: 'key', type: 'string' },
-        { key: 'created_at', type: 'datetime' },
-        { key: 'properties', type: 'json' },
-    ],
+    tables: {
+        events: {
+            type: 'posthog',
+            id: 'events',
+            name: 'events',
+            fields: {
+                uuid: { hogql_value: 'uuid', name: 'uuid', type: 'string', schema_valid: true },
+                event: { hogql_value: 'event', name: 'event', type: 'string', schema_valid: true },
+                properties: { hogql_value: 'properties', name: 'properties', type: 'json', schema_valid: true },
+                timestamp: { hogql_value: 'timestamp', name: 'timestamp', type: 'datetime', schema_valid: true },
+                distinct_id: { hogql_value: 'distinct_id', name: 'distinct_id', type: 'string', schema_valid: true },
+                elements_chain: {
+                    hogql_value: 'elements_chain',
+                    name: 'elements_chain',
+                    type: 'string',
+                    schema_valid: true,
+                },
+                created_at: { hogql_value: 'created_at', name: 'created_at', type: 'datetime', schema_valid: true },
+                pdi: {
+                    hogql_value: 'pdi',
+                    name: 'pdi',
+                    type: 'lazy_table',
+                    table: 'person_distinct_ids',
+                    schema_valid: true,
+                },
+                poe: {
+                    name: 'poe',
+                    hogql_value: 'poe',
+                    type: 'virtual_table',
+                    table: 'events',
+                    fields: ['id', 'created_at', 'properties'],
+                    schema_valid: true,
+                },
+                person: {
+                    hogql_value: 'person',
+                    name: 'person',
+                    type: 'field_traverser',
+                    chain: ['pdi', 'person'],
+                    schema_valid: true,
+                },
+                person_id: {
+                    name: 'person_id',
+                    hogql_value: 'person_id',
+                    type: 'field_traverser',
+                    chain: ['pdi', 'person_id'],
+                    schema_valid: true,
+                },
+            },
+        },
+        persons: {
+            type: 'posthog',
+            id: 'persons',
+            name: 'persons',
+            fields: {
+                id: { hogql_value: 'id', name: 'id', type: 'string', schema_valid: true },
+                created_at: { hogql_value: 'created_at', name: 'created_at', type: 'datetime', schema_valid: true },
+                properties: { hogql_value: 'properties', name: 'properties', type: 'json', schema_valid: true },
+                is_identified: {
+                    hogql_value: 'is_identified',
+                    name: 'is_identified',
+                    type: 'boolean',
+                    schema_valid: true,
+                },
+                is_deleted: { hogql_value: 'is_deleted', name: 'is_deleted', type: 'boolean', schema_valid: true },
+                version: { hogql_value: 'version', name: 'version', type: 'integer', schema_valid: true },
+            },
+        },
+        person_distinct_ids: {
+            type: 'posthog',
+            id: 'person_distinct_ids',
+            name: 'person_distinct_ids',
+            fields: {
+                distinct_id: { hogql_value: 'distinct_id', name: 'distinct_id', type: 'string', schema_valid: true },
+                person_id: { hogql_value: 'person_id', name: 'person_id', type: 'string', schema_valid: true },
+                is_deleted: { hogql_value: 'is_deleted', name: 'is_deleted', type: 'boolean', schema_valid: true },
+                version: { hogql_value: 'version', name: 'version', type: 'integer', schema_valid: true },
+                person: {
+                    hogql_value: 'person',
+                    name: 'person',
+                    type: 'lazy_table',
+                    table: 'persons',
+                    schema_valid: true,
+                },
+            },
+        },
+        session_recording_events: {
+            type: 'posthog',
+            id: 'session_recording_events',
+            name: 'session_recording_events',
+            fields: {
+                uuid: { hogql_value: 'uuid', name: 'uuid', type: 'string', schema_valid: true },
+                timestamp: { hogql_value: 'timestamp', name: 'timestamp', type: 'datetime', schema_valid: true },
+                distinct_id: { hogql_value: 'distinct_id', name: 'distinct_id', type: 'string', schema_valid: true },
+                session_id: { hogql_value: 'session_id', name: 'session_id', type: 'string', schema_valid: true },
+                window_id: { hogql_value: 'window_id', name: 'window_id', type: 'string', schema_valid: true },
+                snapshot_data: {
+                    hogql_value: 'snapshot_data',
+                    name: 'snapshot_data',
+                    type: 'json',
+                    schema_valid: true,
+                },
+                created_at: { hogql_value: 'created_at', name: 'created_at', type: 'datetime', schema_valid: true },
+                has_full_snapshot: {
+                    hogql_value: 'has_full_snapshot',
+                    name: 'has_full_snapshot',
+                    type: 'boolean',
+                    schema_valid: true,
+                },
+                events_summary: {
+                    hogql_value: 'events_summary',
+                    name: 'events_summary',
+                    type: 'json',
+                    schema_valid: true,
+                },
+                click_count: { hogql_value: 'click_count', name: 'click_count', type: 'integer', schema_valid: true },
+                keypress_count: {
+                    hogql_value: 'keypress_count',
+                    name: 'keypress_count',
+                    type: 'integer',
+                    schema_valid: true,
+                },
+                timestamps_summary: {
+                    hogql_value: 'timestamps_summary',
+                    name: 'timestamps_summary',
+                    type: 'datetime',
+                    schema_valid: true,
+                },
+                first_event_timestamp: {
+                    hogql_value: 'first_event_timestamp',
+                    name: 'first_event_timestamp',
+                    type: 'datetime',
+                    schema_valid: true,
+                },
+                last_event_timestamp: {
+                    hogql_value: 'last_event_timestamp',
+                    name: 'last_event_timestamp',
+                    type: 'datetime',
+                    schema_valid: true,
+                },
+                urls: { hogql_value: 'urls', name: 'urls', type: 'string', schema_valid: true },
+                pdi: {
+                    hogql_value: 'pdi',
+                    name: 'pdi',
+                    type: 'lazy_table',
+                    table: 'person_distinct_ids',
+                    schema_valid: true,
+                },
+                person: {
+                    hogql_value: 'person',
+                    name: 'person',
+                    type: 'field_traverser',
+                    chain: ['pdi', 'person'],
+                    schema_valid: true,
+                },
+                person_id: {
+                    name: 'person_id',
+                    hogql_value: 'person_id',
+                    type: 'field_traverser',
+                    chain: ['pdi', 'person_id'],
+                    schema_valid: true,
+                },
+            },
+        },
+        cohort_people: {
+            type: 'posthog',
+            id: 'cohort_people',
+            name: 'cohort_people',
+            fields: {
+                person_id: { hogql_value: 'person_id', name: 'person_id', type: 'string', schema_valid: true },
+                cohort_id: { hogql_value: 'cohort_id', name: 'cohort_id', type: 'integer', schema_valid: true },
+                sign: { hogql_value: 'sign', name: 'sign', type: 'integer', schema_valid: true },
+                version: { hogql_value: 'version', name: 'version', type: 'integer', schema_valid: true },
+                person: {
+                    hogql_value: 'person',
+                    name: 'person',
+                    type: 'lazy_table',
+                    table: 'persons',
+                    schema_valid: true,
+                },
+            },
+        },
+        static_cohort_people: {
+            type: 'posthog',
+            id: 'static_cohort_people',
+            name: 'static_cohort_people',
+            fields: {
+                person_id: { hogql_value: 'person_id', name: 'person_id', type: 'string', schema_valid: true },
+                cohort_id: { hogql_value: 'cohort_id', name: 'cohort_id', type: 'integer', schema_valid: true },
+                person: {
+                    hogql_value: 'person',
+                    name: 'person',
+                    type: 'lazy_table',
+                    table: 'persons',
+                    schema_valid: true,
+                },
+            },
+        },
+        groups: {
+            type: 'posthog',
+            id: 'groups',
+            name: 'groups',
+            fields: {
+                index: { hogql_value: 'index', name: 'index', type: 'integer', schema_valid: true },
+                key: { hogql_value: 'key', name: 'key', type: 'string', schema_valid: true },
+                created_at: { hogql_value: 'created_at', name: 'created_at', type: 'datetime', schema_valid: true },
+                properties: { hogql_value: 'properties', name: 'properties', type: 'json', schema_valid: true },
+            },
+        },
+    },
 }
 
 const meta: Meta = {
@@ -105,13 +248,6 @@ const meta: Meta = {
     ],
 }
 export default meta
-export function Database(): JSX.Element {
-    setFeatureFlags([FEATURE_FLAGS.DATA_WAREHOUSE])
-    useEffect(() => {
-        router.actions.push(urls.database())
-    }, [])
-    return <App />
-}
 
 export function IngestionWarnings(): JSX.Element {
     setFeatureFlags([FEATURE_FLAGS.INGESTION_WARNINGS_ENABLED])

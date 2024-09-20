@@ -53,10 +53,23 @@ export const settingsLogic = kea<settingsLogicType>([
     })),
 
     selectors({
+        settingId: [
+            () => [(_, props) => props],
+            (props): SettingId | null => {
+                return props.settingId || null
+            },
+        ],
         sections: [
             (s) => [s.featureFlags],
             (featureFlags): SettingSection[] => {
-                return SettingsMap.filter((x) => (x.flag ? featureFlags[FEATURE_FLAGS[x.flag]] : true))
+                return SettingsMap.filter((x) => {
+                    const isFlagConditionMet = !x.flag
+                        ? true // No flag condition
+                        : x.flag.startsWith('!')
+                        ? !featureFlags[FEATURE_FLAGS[x.flag.slice(1)]] // Negated flag condition (!-prefixed)
+                        : featureFlags[FEATURE_FLAGS[x.flag]] // Regular flag condition
+                    return isFlagConditionMet
+                })
             },
         ],
         selectedSection: [
@@ -66,27 +79,41 @@ export const settingsLogic = kea<settingsLogicType>([
             },
         ],
         settings: [
-            (s) => [s.selectedLevel, s.selectedSectionId, s.sections, s.featureFlags, s.hasAvailableFeature],
-            (selectedLevel, selectedSectionId, sections, featureFlags, hasAvailableFeature): Setting[] => {
+            (s) => [
+                s.selectedLevel,
+                s.selectedSectionId,
+                s.sections,
+                s.settingId,
+                s.featureFlags,
+                s.hasAvailableFeature,
+            ],
+            (selectedLevel, selectedSectionId, sections, settingId, featureFlags, hasAvailableFeature): Setting[] => {
                 let settings: Setting[] = []
 
-                if (!selectedSectionId) {
+                if (selectedSectionId) {
+                    settings = sections.find((x) => x.id === selectedSectionId)?.settings || []
+                } else {
                     settings = sections
                         .filter((section) => section.level === selectedLevel)
                         .reduce((acc, section) => [...acc, ...section.settings], [] as Setting[])
-                } else {
-                    settings = sections.find((x) => x.id === selectedSectionId)?.settings || []
+                }
+
+                if (settingId) {
+                    return settings.filter((x) => x.id === settingId)
                 }
 
                 return settings.filter((x) => {
+                    const isFlagConditionMet = !x.flag
+                        ? true // No flag condition
+                        : x.flag.startsWith('!')
+                        ? !featureFlags[FEATURE_FLAGS[x.flag.slice(1)]] // Negated flag condition (!-prefixed)
+                        : featureFlags[FEATURE_FLAGS[x.flag]] // Regular flag condition
                     if (x.flag && x.features) {
-                        return (
-                            x.features.some((feat) => hasAvailableFeature(feat)) || featureFlags[FEATURE_FLAGS[x.flag]]
-                        )
+                        return x.features.some((feat) => hasAvailableFeature(feat)) || isFlagConditionMet
                     } else if (x.features) {
                         return x.features.some((feat) => hasAvailableFeature(feat))
                     } else if (x.flag) {
-                        return featureFlags[FEATURE_FLAGS[x.flag]]
+                        return isFlagConditionMet
                     }
 
                     return true

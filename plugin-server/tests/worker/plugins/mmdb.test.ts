@@ -5,7 +5,7 @@ import fetch from 'node-fetch'
 import { join } from 'path'
 
 import { Hub, LogLevel } from '../../../src/types'
-import { createHub } from '../../../src/utils/db/hub'
+import { closeHub, createHub } from '../../../src/utils/db/hub'
 import { setupMmdb } from '../../../src/worker/plugins/mmdb'
 import { resetTestDatabase } from '../../helpers/sql'
 
@@ -38,17 +38,16 @@ async function getCityName(hub: Hub, ipAddress: string) {
 
 describe('mmdb', () => {
     let hub: Hub
-    let closeHub: () => Promise<void>
 
     jest.setTimeout(100_000)
 
     beforeAll(async () => {
-        ;[hub, closeHub] = await createHub({ LOG_LEVEL: LogLevel.Warn })
+        hub = await createHub({ LOG_LEVEL: LogLevel.Warn })
         hub.capabilities.mmdb = true
     })
 
     afterAll(async () => {
-        await closeHub()
+        await closeHub(hub)
         jest.clearAllMocks()
     })
 

@@ -1,8 +1,8 @@
+from asgiref.sync import sync_to_async
 from rest_framework import status
 
 from posthog.models import Organization, OrganizationMembership, Team
 from posthog.test.base import APIBaseTest
-from asgiref.sync import sync_to_async
 
 
 class TestOrganizationAPI(APIBaseTest):
@@ -14,7 +14,7 @@ class TestOrganizationAPI(APIBaseTest):
         response_data = response.json()
         self.assertEqual(response_data["id"], str(self.organization.id))
         # By default, setup state is marked as completed
-        self.assertEqual(response_data["available_features"], [])
+        self.assertEqual(response_data["available_product_features"], [])
 
         # DEPRECATED attributes
         self.assertNotIn("personalization", response_data)

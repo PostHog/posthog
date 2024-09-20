@@ -15,7 +15,6 @@ from posthog.demo.matrix.matrix import Cluster, Matrix
 from posthog.demo.matrix.randomization import Industry
 from posthog.models import (
     Action,
-    ActionStep,
     Cohort,
     Dashboard,
     DashboardTile,
@@ -106,14 +105,34 @@ class HedgeboxMatrix(Matrix):
             team=team,
             description="Logged-in interaction with a file.",
             created_by=user,
+            steps_json=[
+                {
+                    "event": EVENT_UPLOADED_FILE,
+                },
+                {
+                    "event": EVENT_DOWNLOADED_FILE,
+                },
+                {
+                    "event": EVENT_DELETED_FILE,
+                },
+                {
+                    "event": EVENT_SHARED_FILE_LINK,
+                },
+            ],
         )
-        ActionStep.objects.bulk_create(
-            (
-                ActionStep(action=interacted_with_file_action, event=EVENT_DELETED_FILE),
-                ActionStep(action=interacted_with_file_action, event=EVENT_UPLOADED_FILE),
-                ActionStep(action=interacted_with_file_action, event=EVENT_DOWNLOADED_FILE),
-                ActionStep(action=interacted_with_file_action, event=EVENT_SHARED_FILE_LINK),
-            )
+        Action.objects.create(
+            name="Visited Marius Tech Tips",
+            team=team,
+            description="Visited the best page for tech tips on the internet",
+            created_by=user,
+            steps_json=[
+                {
+                    "event": "$pageview",
+                    "url": "mariustechtips",
+                    "url_matching": "regex",
+                }
+            ],
+            pinned_at=self.now - dt.timedelta(days=3),
         )
 
         # Cohorts

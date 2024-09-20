@@ -3,7 +3,7 @@
 
     &.LemonCard--hoverEffect {
         &:hover {
-            box-shadow: var(--shadow-elevation);
+            box-shadow: var(--shadow-elevation-3000);
             transform: scale(1.01);
         }
     }

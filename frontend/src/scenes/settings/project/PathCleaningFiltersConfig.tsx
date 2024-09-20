@@ -10,8 +10,8 @@ import { AvailableFeature, InsightType } from '~/types'
 export function PathCleaningFiltersConfig(): JSX.Element | null {
     const { updateCurrentTeam } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
-    const { user } = useValues(userLogic)
-    const hasAdvancedPaths = user?.organization?.available_features?.includes(AvailableFeature.PATHS_ADVANCED)
+    const { hasAvailableFeature } = useValues(userLogic)
+    const hasAdvancedPaths = hasAvailableFeature(AvailableFeature.PATHS_ADVANCED)
 
     if (!currentTeam) {
         return null
@@ -24,8 +24,8 @@ export function PathCleaningFiltersConfig(): JSX.Element | null {
     return (
         <>
             <p>
-                Make your <Link to={urls.insightNew({ insight: InsightType.PATHS })}>Paths</Link> clearer by aliasing
-                one or multiple URLs.{' '}
+                Make your <Link to={urls.insightNew(InsightType.PATHS)}>Paths</Link> clearer by aliasing one or multiple
+                URLs.{' '}
                 <i>
                     Example: <code>http://tenant-one.mydomain.com/accounts</code> and{' '}
                     <code>http://tenant-two.mydomain.com/accounts</code> can become a single <code>/accounts</code>{' '}

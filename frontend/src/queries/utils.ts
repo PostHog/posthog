@@ -1,10 +1,13 @@
 import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
+import { PERCENT_STACK_VIEW_DISPLAY_TYPE } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
 
 import {
     ActionsNode,
     ActorsQuery,
+    BreakdownFilter,
+    CompareFilter,
     DatabaseSchemaQuery,
     DataTableNode,
     DataVisualizationNode,
@@ -15,6 +18,7 @@ import {
     FunnelsQuery,
     HogQLMetadata,
     HogQLQuery,
+    HogQuery,
     InsightActorsQuery,
     InsightFilter,
     InsightFilterProperty,
@@ -26,28 +30,25 @@ import {
     NodeKind,
     PathsQuery,
     PersonsNode,
+    QuerySchema,
+    QueryStatusResponse,
     RetentionQuery,
     SavedInsightNode,
+    SessionAttributionExplorerQuery,
     StickinessQuery,
-    TimeToSeeDataJSONNode,
-    TimeToSeeDataNode,
-    TimeToSeeDataQuery,
-    TimeToSeeDataSessionsQuery,
-    TimeToSeeDataWaterfallNode,
     TrendsQuery,
+    WebGoalsQuery,
     WebOverviewQuery,
     WebStatsTableQuery,
     WebTopClicksQuery,
 } from '~/queries/schema'
+import { ChartDisplayType, IntervalType } from '~/types'
 
-export function isDataNode(
-    node?: Record<string, any> | null
-): node is EventsQuery | PersonsNode | TimeToSeeDataSessionsQuery {
+export function isDataNode(node?: Record<string, any> | null): node is EventsQuery | PersonsNode {
     return (
         isEventsNode(node) ||
         isActionsNode(node) ||
         isPersonsNode(node) ||
-        isTimeToSeeDataSessionsQuery(node) ||
         isEventsQuery(node) ||
         isActorsQuery(node) ||
         isHogQLQuery(node) ||
@@ -55,28 +56,12 @@ export function isDataNode(
     )
 }
 
-function isTimeToSeeDataJSONNode(node?: Record<string, any> | null): node is TimeToSeeDataJSONNode {
-    return node?.kind === NodeKind.TimeToSeeDataSessionsJSONNode
-}
-
-function isTimeToSeeDataWaterfallNode(node?: Record<string, any> | null): node is TimeToSeeDataWaterfallNode {
-    return node?.kind === NodeKind.TimeToSeeDataSessionsWaterfallNode
-}
-
-export function isNodeWithSource(
-    node?: Record<string, any> | null
-): node is DataTableNode | InsightVizNode | TimeToSeeDataWaterfallNode | TimeToSeeDataJSONNode {
+export function isNodeWithSource(node?: Record<string, any> | null): node is DataTableNode | InsightVizNode {
     if (!node) {
         return false
     }
 
-    return (
-        isDataTableNode(node) ||
-        isDataVisualizationNode(node) ||
-        isInsightVizNode(node) ||
-        isTimeToSeeDataWaterfallNode(node) ||
-        isTimeToSeeDataJSONNode(node)
-    )
+    return isDataTableNode(node) || isDataVisualizationNode(node) || isInsightVizNode(node)
 }
 
 export function isEventsNode(node?: Record<string, any> | null): node is EventsNode {
@@ -95,6 +80,7 @@ export function isDataWarehouseNode(node?: Record<string, any> | null): node is 
     return node?.kind === NodeKind.DataWarehouseNode
 }
 
+/** @deprecated `ActorsQuery` is now used instead of `PersonsNode`. */
 export function isPersonsNode(node?: Record<string, any> | null): node is PersonsNode {
     return node?.kind === NodeKind.PersonsNode
 }
@@ -123,6 +109,10 @@ export function isInsightVizNode(node?: Record<string, any> | null): node is Ins
     return node?.kind === NodeKind.InsightVizNode
 }
 
+export function isHogQuery(node?: Record<string, any> | null): node is HogQuery {
+    return node?.kind === NodeKind.HogQuery
+}
+
 export function isHogQLQuery(node?: Record<string, any> | null): node is HogQLQuery {
     return node?.kind === NodeKind.HogQLQuery
 }
@@ -139,8 +129,22 @@ export function isWebStatsTableQuery(node?: Record<string, any> | null): node is
     return node?.kind === NodeKind.WebStatsTableQuery
 }
 
+export function isWebExternalClicksQuery(node?: Record<string, any> | null): boolean {
+    return node?.kind === NodeKind.WebExternalClicksTableQuery
+}
+
 export function isWebTopClicksQuery(node?: Record<string, any> | null): node is WebTopClicksQuery {
     return node?.kind === NodeKind.WebTopClicksQuery
+}
+
+export function isWebGoalsQuery(node?: Record<string, any> | null): node is WebGoalsQuery {
+    return node?.kind === NodeKind.WebGoalsQuery
+}
+
+export function isSessionAttributionExplorerQuery(
+    node?: Record<string, any> | null
+): node is SessionAttributionExplorerQuery {
+    return node?.kind === NodeKind.SessionAttributionExplorerQuery
 }
 
 export function containsHogQLQuery(node?: Record<string, any> | null): boolean {
@@ -186,6 +190,10 @@ export function isInsightQueryWithBreakdown(node?: Record<string, any> | null): 
     return isTrendsQuery(node) || isFunnelsQuery(node)
 }
 
+export function isInsightQueryWithCompare(node?: Record<string, any> | null): node is TrendsQuery | StickinessQuery {
+    return isTrendsQuery(node) || isStickinessQuery(node)
+}
+
 export function isDatabaseSchemaQuery(node?: Node): node is DatabaseSchemaQuery {
     return node?.kind === NodeKind.DatabaseSchemaQuery
 }
@@ -197,6 +205,10 @@ export function isQueryForGroup(query: PersonsNode | ActorsQuery): boolean {
         isRetentionQuery(query.source.source) &&
         query.source.source.aggregation_group_type_index !== undefined
     )
+}
+
+export function isAsyncResponse(response: NonNullable<QuerySchema['response']>): response is QueryStatusResponse {
+    return 'query_status' in response && response.query_status
 }
 
 export function isInsightQueryWithSeries(
@@ -216,30 +228,10 @@ export function isInsightQueryNode(node?: Record<string, any> | null): node is I
     )
 }
 
-export function isTimeToSeeDataSessionsQuery(node?: Record<string, any> | null): node is TimeToSeeDataSessionsQuery {
-    return node?.kind === NodeKind.TimeToSeeDataSessionsQuery
-}
-
-export function isTimeToSeeDataQuery(node?: Record<string, any> | null): node is TimeToSeeDataQuery {
-    return node?.kind === NodeKind.TimeToSeeDataQuery
-}
-
-export function isTimeToSeeDataSessionsNode(node?: Record<string, any> | null): node is TimeToSeeDataNode {
-    return (
-        !!node?.kind &&
-        [NodeKind.TimeToSeeDataSessionsWaterfallNode, NodeKind.TimeToSeeDataSessionsJSONNode].includes(node?.kind)
-    )
-}
-
 export function dateRangeFor(node?: Node): DateRange | undefined {
-    if (isInsightQueryNode(node)) {
-        return node.dateRange
-    } else if (isTimeToSeeDataQuery(node)) {
-        return {
-            date_from: node.sessionStart,
-            date_to: node.sessionEnd,
-        }
-    } else if (isTimeToSeeDataSessionsQuery(node)) {
+    if (isInsightVizNode(node)) {
+        return node.source.dateRange
+    } else if (isInsightQueryNode(node)) {
         return node.dateRange
     } else if (isActionsNode(node)) {
         return undefined
@@ -249,12 +241,96 @@ export function dateRangeFor(node?: Node): DateRange | undefined {
         return undefined
     } else if (isDataTableNode(node)) {
         return undefined
-    } else if (isInsightVizNode(node)) {
-        return node.source.dateRange
     }
 
     return undefined
 }
+
+export const getInterval = (query: InsightQueryNode): IntervalType | undefined => {
+    if (isInsightQueryWithSeries(query)) {
+        return query.interval
+    }
+    return undefined
+}
+
+export const getDisplay = (query: InsightQueryNode): ChartDisplayType | undefined => {
+    if (isStickinessQuery(query)) {
+        return query.stickinessFilter?.display
+    } else if (isTrendsQuery(query)) {
+        return query.trendsFilter?.display
+    }
+    return undefined
+}
+
+export const getFormula = (query: InsightQueryNode): string | undefined => {
+    if (isTrendsQuery(query)) {
+        return query.trendsFilter?.formula
+    }
+    return undefined
+}
+
+export const getSeries = (query: InsightQueryNode): (EventsNode | ActionsNode | DataWarehouseNode)[] | undefined => {
+    if (isInsightQueryWithSeries(query)) {
+        return query.series
+    }
+    return undefined
+}
+
+export const getBreakdown = (query: InsightQueryNode): BreakdownFilter | undefined => {
+    if (isInsightQueryWithBreakdown(query)) {
+        return query.breakdownFilter
+    }
+    return undefined
+}
+
+export const getCompareFilter = (query: InsightQueryNode): CompareFilter | undefined => {
+    if (isInsightQueryWithCompare(query)) {
+        return query.compareFilter
+    }
+    return undefined
+}
+
+export const getShowLegend = (query: InsightQueryNode): boolean | undefined => {
+    if (isStickinessQuery(query)) {
+        return query.stickinessFilter?.showLegend
+    } else if (isTrendsQuery(query)) {
+        return query.trendsFilter?.showLegend
+    } else if (isLifecycleQuery(query)) {
+        return query.lifecycleFilter?.showLegend
+    }
+    return undefined
+}
+
+export const getShowLabelsOnSeries = (query: InsightQueryNode): boolean | undefined => {
+    if (isTrendsQuery(query)) {
+        return query.trendsFilter?.showLabelsOnSeries
+    }
+    return undefined
+}
+
+export const getShowValuesOnSeries = (query: InsightQueryNode): boolean | undefined => {
+    if (isLifecycleQuery(query)) {
+        return query.lifecycleFilter?.showValuesOnSeries
+    } else if (isStickinessQuery(query)) {
+        return query.stickinessFilter?.showValuesOnSeries
+    } else if (isTrendsQuery(query)) {
+        return query.trendsFilter?.showValuesOnSeries
+    }
+    return undefined
+}
+
+export const getYAxisScaleType = (query: InsightQueryNode): string | undefined => {
+    if (isTrendsQuery(query)) {
+        return query.trendsFilter?.yAxisScaleType
+    }
+    return undefined
+}
+
+export const supportsPercentStackView = (q: InsightQueryNode | null | undefined): boolean =>
+    isTrendsQuery(q) && PERCENT_STACK_VIEW_DISPLAY_TYPE.includes(getDisplay(q) || ChartDisplayType.ActionsLineGraph)
+
+export const getShowPercentStackView = (query: InsightQueryNode): boolean | undefined =>
+    supportsPercentStackView(query) && (query as TrendsQuery)?.trendsFilter?.showPercentStackView
 
 export const nodeKindToFilterProperty: Record<InsightNodeKind, InsightFilterProperty> = {
     [NodeKind.TrendsQuery]: 'trendsFilter',
@@ -387,3 +463,14 @@ export function hogql(strings: TemplateStringsArray, ...values: any[]): string {
     return strings.reduce((acc, str, i) => acc + str + (i < strings.length - 1 ? formatHogQlValue(values[i]) : ''), '')
 }
 hogql.identifier = hogQlIdentifier
+
+/**
+ * Wether we have a valid `breakdownFilter` or not.
+ */
+export function isValidBreakdown(breakdownFilter?: BreakdownFilter | null): breakdownFilter is BreakdownFilter {
+    return !!(
+        breakdownFilter &&
+        ((breakdownFilter.breakdown && breakdownFilter.breakdown_type) ||
+            (breakdownFilter.breakdowns && breakdownFilter.breakdowns.length > 0))
+    )
+}

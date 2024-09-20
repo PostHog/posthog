@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 
 from posthog.datetime import (
     start_of_hour,
@@ -23,7 +23,7 @@ def test_start_of_day():
 
 def test_end_of_day():
     assert end_of_day(datetime.fromisoformat("2023-02-08T12:05:23+00:00")) == datetime(
-        2023, 2, 8, 23, 59, 59, 999999, tzinfo=timezone.utc
+        2023, 2, 8, 23, 59, 59, 999999, tzinfo=UTC
     )
 
 

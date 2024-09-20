@@ -20,10 +20,10 @@ export default meta
 const BasicTemplate: StoryFn<typeof LemonCalendarSelect> = (props: LemonCalendarSelectProps) => {
     const [value, setValue] = useState(dayjs().subtract(10, 'day'))
     const [visible, setVisible] = useState(true)
+    const [granularity, setGranularity] = useState<LemonCalendarSelectProps['granularity']>(props.granularity)
 
     return (
-        // eslint-disable-next-line react/forbid-dom-props
-        <div style={{ paddingBottom: 500 }}>
+        <div className="pb-[30rem]">
             <Popover
                 actionable
                 overlay={
@@ -34,7 +34,9 @@ const BasicTemplate: StoryFn<typeof LemonCalendarSelect> = (props: LemonCalendar
                             setValue(value)
                             setVisible(false)
                         }}
-                        showTime
+                        showTimeToggle={props.showTimeToggle}
+                        onToggleTime={() => setGranularity(granularity === 'minute' ? 'day' : 'minute')}
+                        granularity={granularity}
                         onClose={() => setVisible(false)}
                     />
                 }
@@ -49,5 +51,20 @@ const BasicTemplate: StoryFn<typeof LemonCalendarSelect> = (props: LemonCalendar
     )
 }
 
-export const LemonCalendarSelect_: Story = BasicTemplate.bind({})
-LemonCalendarSelect_.args = {}
+export const Default: Story = BasicTemplate.bind({})
+Default.args = { granularity: 'day' }
+
+export const Upcoming: Story = BasicTemplate.bind({})
+Upcoming.args = { selectionPeriod: 'upcoming' }
+
+export const Past: Story = BasicTemplate.bind({})
+Past.args = { selectionPeriod: 'past' }
+
+export const Hour: Story = BasicTemplate.bind({})
+Hour.args = { granularity: 'hour' }
+
+export const Minute: Story = BasicTemplate.bind({})
+Minute.args = { granularity: 'minute' }
+
+export const WithTimeToggle: Story = BasicTemplate.bind({})
+WithTimeToggle.args = { showTimeToggle: true }

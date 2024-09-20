@@ -10,10 +10,9 @@ import { urls } from 'scenes/urls'
 
 import { ProgressStatus } from '~/types'
 
-import { StatusTag } from '../Experiment'
 import { experimentLogic } from '../experimentLogic'
 import { getExperimentStatus } from '../experimentsLogic'
-import { ActionBanner, ResultsTag } from './components'
+import { ActionBanner, ResultsTag, StatusTag } from './components'
 import { ExperimentDates } from './ExperimentDates'
 
 export function Info(): JSX.Element {

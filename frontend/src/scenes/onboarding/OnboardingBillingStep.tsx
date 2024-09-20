@@ -1,15 +1,15 @@
 import { IconCheckCircle } from '@posthog/icons'
-import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { BillingUpgradeCTA } from 'lib/components/BillingUpgradeCTA'
 import { StarHog } from 'lib/components/hedgehogs'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { useState } from 'react'
+import { AllProductsPlanComparison } from 'scenes/billing/AllProductsPlanComparison'
 import { getUpgradeProductLink } from 'scenes/billing/billing-utils'
 import { BillingHero } from 'scenes/billing/BillingHero'
 import { billingLogic } from 'scenes/billing/billingLogic'
-import { billingProductLogic } from 'scenes/billing/billingProductLogic'
 import { PlanComparison } from 'scenes/billing/PlanComparison'
 
 import { BillingProductV2Type } from '~/types'
@@ -24,40 +24,43 @@ export const OnboardingBillingStep = ({
     product: BillingProductV2Type
     stepKey?: OnboardingStepKey
 }): JSX.Element => {
-    const { billing, redirectPath } = useValues(billingLogic)
+    const { billing, redirectPath, billingLoading } = useValues(billingLogic)
     const { productKey } = useValues(onboardingLogic)
-    const { currentAndUpgradePlans } = useValues(billingProductLogic({ product }))
     const { reportBillingUpgradeClicked } = useActions(eventUsageLogic)
-    const plan = currentAndUpgradePlans?.upgradePlan
-    const currentPlan = currentAndUpgradePlans?.currentPlan
 
     const [showPlanComp, setShowPlanComp] = useState(false)
 
+    const action = billing?.subscription_level === 'custom' ? 'Subscribe' : 'Upgrade'
     return (
         <OnboardingStep
             title="Plans"
             showSkip={!product.subscribed}
             stepKey={stepKey}
             continueOverride={
-                product?.subscribed ? undefined : (
+                product?.subscribed && !billingLoading ? undefined : (
                     <BillingUpgradeCTA
                         // TODO: redirect path won't work properly until navigation is properly set up
-                        to={getUpgradeProductLink(product, plan.plan_key || '', redirectPath, true)}
+                        to={getUpgradeProductLink({
+                            product,
+                            redirectPath,
+                            includeAddons: true,
+                        })}
                         type="primary"
                         status="alt"
                         center
+                        disabledReason={billingLoading && 'Please wait...'}
                         disableClientSideRouting
                         onClick={() => {
                             reportBillingUpgradeClicked(product.type)
                         }}
                         data-attr="onboarding-subscribe-button"
                     >
-                        Subscribe to paid plan
+                        {action}
                     </BillingUpgradeCTA>
                 )
             }
         >
-            {billing?.products && productKey && product ? (
+            {billing?.products && productKey && product && !billingLoading ? (
                 <div className="mt-6">
                     {product.subscribed && (
                         <div className="mb-8">
@@ -65,7 +68,7 @@ export const OnboardingBillingStep = ({
                                 <div className="flex gap-x-4">
                                     <IconCheckCircle className="text-success text-3xl mb-6" />
                                     <div>
-                                        <h3 className="text-lg font-bold mb-1 text-left">Subscribe successful</h3>
+                                        <h3 className="text-lg font-bold mb-1 text-left">{action} successful</h3>
                                         <p className="mx-0 mb-0">You're all ready to use {product.name}.</p>
                                     </div>
                                 </div>
@@ -80,27 +83,24 @@ export const OnboardingBillingStep = ({
                             >
                                 {showPlanComp ? 'Hide' : 'Show'} plans
                             </LemonButton>
-                            {currentPlan?.initial_billing_limit && (
-                                <div className="mt-2">
-                                    <LemonBanner type="info">
-                                        To protect your costs and ours, this product has an initial billing limit of $
-                                        {currentPlan.initial_billing_limit}. You can change or remove this limit on the
-                                        Billing page.
-                                    </LemonBanner>
-                                </div>
-                            )}
                         </div>
                     )}
 
                     {(!product.subscribed || showPlanComp) && (
                         <>
                             <BillingHero />
-                            <PlanComparison product={product} includeAddons />
+                            {billing?.subscription_level === 'custom' ? (
+                                <PlanComparison product={product} />
+                            ) : (
+                                <AllProductsPlanComparison product={product} />
+                            )}
                         </>
                     )}
                 </div>
             ) : (
-                <Spinner className="text-lg" />
+                <div className="flex items-center justify-center my-20">
+                    <Spinner className="text-2xl text-muted w-10 h-10" />
+                </div>
             )}
         </OnboardingStep>
     )

@@ -2,12 +2,13 @@ import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
 
 import { Hub, LogLevel } from '../../src/types'
 import { processError } from '../../src/utils/db/error'
-import { createHub } from '../../src/utils/db/hub'
+import { closeHub, createHub } from '../../src/utils/db/hub'
 import { delay, IllegalOperationError } from '../../src/utils/utils'
 import { loadPlugin } from '../../src/worker/plugins/loadPlugin'
 import { loadSchedule } from '../../src/worker/plugins/loadSchedule'
 import { runProcessEvent } from '../../src/worker/plugins/run'
 import { setupPlugins } from '../../src/worker/plugins/setup'
+import { LazyPluginVM } from '../../src/worker/vm/lazy'
 import {
     commonOrganizationId,
     mockPluginSourceCode,
@@ -31,16 +32,15 @@ jest.setTimeout(20_000)
 
 describe('plugins', () => {
     let hub: Hub
-    let closeHub: () => Promise<void>
 
     beforeEach(async () => {
-        ;[hub, closeHub] = await createHub({ LOG_LEVEL: LogLevel.Log })
+        hub = await createHub({ LOG_LEVEL: LogLevel.Log })
         console.warn = jest.fn() as any
         await resetTestDatabase()
     })
 
     afterEach(async () => {
-        await closeHub()
+        await closeHub(hub)
     })
 
     test('setupPlugins and runProcessEvent', async () => {
@@ -64,7 +64,6 @@ describe('plugins', () => {
         expect(pluginConfig.enabled).toEqual(pluginConfig39.enabled)
         expect(pluginConfig.order).toEqual(pluginConfig39.order)
         expect(pluginConfig.config).toEqual(pluginConfig39.config)
-        expect(pluginConfig.error).toEqual(pluginConfig39.error)
 
         expect(pluginConfig.plugin).toEqual({
             ...plugin60,
@@ -78,16 +77,15 @@ describe('plugins', () => {
                 contents: pluginAttachment1.contents,
             },
         })
-        expect(pluginConfig.vm).toBeDefined()
-        const vm = await pluginConfig.vm!.resolveInternalVm
-        expect(Object.keys(vm!.methods).sort()).toEqual([
-            'composeWebhook',
-            'getSettings',
-            'onEvent',
-            'processEvent',
-            'setupPlugin',
-            'teardownPlugin',
-        ])
+        expect(pluginConfig.instance).toBeDefined()
+        const instance = pluginConfig.instance!
+
+        expect(instance.getPluginMethod('composeWebhook')).toBeDefined()
+        expect(instance.getPluginMethod('getSettings')).toBeDefined()
+        expect(instance.getPluginMethod('onEvent')).toBeDefined()
+        expect(instance.getPluginMethod('processEvent')).toBeDefined()
+        expect(instance.getPluginMethod('setupPlugin')).toBeDefined()
+        expect(instance.getPluginMethod('teardownPlugin')).toBeDefined()
 
         // async loading of capabilities
         expect(setPluginCapabilities).toHaveBeenCalled()
@@ -101,7 +99,7 @@ describe('plugins', () => {
             ],
         ])
 
-        const processEvent = vm!.methods['processEvent']!
+        const processEvent = await instance.getPluginMethod('processEvent')
         const event = { event: '$test', properties: {}, team_id: 2 } as PluginEvent
         await processEvent(event)
 
@@ -135,10 +133,10 @@ describe('plugins', () => {
         expect(pluginConfigTeam1.plugin).toEqual(plugin)
         expect(pluginConfigTeam2.plugin).toEqual(plugin)
 
-        expect(pluginConfigTeam1.vm).toBeDefined()
-        expect(pluginConfigTeam2.vm).toBeDefined()
+        expect(pluginConfigTeam1.instance).toBeDefined()
+        expect(pluginConfigTeam2.instance).toBeDefined()
 
-        expect(pluginConfigTeam1.vm).toEqual(pluginConfigTeam2.vm)
+        expect(pluginConfigTeam1.instance).toEqual(pluginConfigTeam2.instance)
     })
 
     test('plugin returns null', async () => {
@@ -172,7 +170,6 @@ describe('plugins', () => {
         const returnedEvent = await runProcessEvent(hub, event)
 
         expect(Object.keys(returnedEvent!.properties!).sort()).toEqual([
-            '$plugins_deferred',
             '$plugins_failed',
             '$plugins_succeeded',
             'attachments',
@@ -212,9 +209,11 @@ describe('plugins', () => {
         const { pluginConfigs } = hub
 
         const pluginConfig = pluginConfigs.get(39)!
-        pluginConfig.vm!.totalInitAttemptsCounter = 20 // prevent more retries
+        expect(pluginConfig.instance).toBeInstanceOf(LazyPluginVM)
+        const vm = pluginConfig.instance as LazyPluginVM
+        vm.totalInitAttemptsCounter = 20 // prevent more retries
         await delay(4000) // processError is called at end of retries
-        expect(await pluginConfig.vm!.getScheduledTasks()).toEqual({})
+        expect(await pluginConfig.instance!.getScheduledTasks()).toEqual({})
 
         const event = { event: '$test', properties: {}, team_id: 2 } as PluginEvent
         const returnedEvent = await runProcessEvent(hub, { ...event })
@@ -239,9 +238,11 @@ describe('plugins', () => {
         const { pluginConfigs } = hub
 
         const pluginConfig = pluginConfigs.get(39)!
-        pluginConfig.vm!.totalInitAttemptsCounter = 20 // prevent more retries
+        expect(pluginConfig.instance).toBeInstanceOf(LazyPluginVM)
+        const vm = pluginConfig.instance as LazyPluginVM
+        vm!.totalInitAttemptsCounter = 20 // prevent more retries
         await delay(4000) // processError is called at end of retries
-        expect(await pluginConfig.vm!.getScheduledTasks()).toEqual({})
+        expect(await pluginConfig.instance!.getScheduledTasks()).toEqual({})
 
         const event = { event: '$test', properties: {}, team_id: 2 } as PluginEvent
         const returnedEvent = await runProcessEvent(hub, { ...event })
@@ -278,7 +279,6 @@ describe('plugins', () => {
             properties: {
                 $plugins_failed: ['test-maxmind-plugin (39)'],
                 $plugins_succeeded: [],
-                $plugins_deferred: [],
             },
             team_id: 2,
         }
@@ -310,7 +310,7 @@ describe('plugins', () => {
         await setupPlugins(hub)
         const { pluginConfigs } = hub
 
-        expect(await pluginConfigs.get(39)!.vm!.getScheduledTasks()).toEqual({})
+        expect(await pluginConfigs.get(39)!.instance!.getScheduledTasks()).toEqual({})
 
         const event = { event: '$test', properties: {}, team_id: 2 } as PluginEvent
         const returnedEvent = await runProcessEvent(hub, { ...event })
@@ -320,7 +320,6 @@ describe('plugins', () => {
             properties: {
                 $plugins_failed: ['test-maxmind-plugin (39)'],
                 $plugins_succeeded: [],
-                $plugins_deferred: [],
             },
         }
         expect(returnedEvent).toEqual(expectedReturnEvent)
@@ -344,7 +343,7 @@ describe('plugins', () => {
         await setupPlugins(hub)
         const { pluginConfigs } = hub
 
-        expect(await pluginConfigs.get(39)!.vm!.getScheduledTasks()).toEqual({})
+        expect(await pluginConfigs.get(39)!.instance!.getScheduledTasks()).toEqual({})
 
         const event = { event: '$test', properties: {}, team_id: 2 } as PluginEvent
         const returnedEvent = await runProcessEvent(hub, { ...event })
@@ -354,41 +353,6 @@ describe('plugins', () => {
             properties: {
                 $plugins_failed: [],
                 $plugins_succeeded: ['test-maxmind-plugin (39)'],
-                $plugins_deferred: [],
-            },
-        }
-        expect(returnedEvent).toEqual(expectedReturnEvent)
-    })
-
-    test('events have property $plugins_deferred set to the plugins that run after processEvent', async () => {
-        // silence some spam
-        console.log = jest.fn()
-        console.error = jest.fn()
-
-        getPluginRows.mockReturnValueOnce([
-            mockPluginWithSourceFiles(`
-            function onEvent (event) {
-                return event
-            }
-        `),
-        ])
-        getPluginConfigRows.mockReturnValueOnce([pluginConfig39])
-        getPluginAttachmentRows.mockReturnValueOnce([pluginAttachment1])
-
-        await setupPlugins(hub)
-        const { pluginConfigs } = hub
-
-        expect(await pluginConfigs.get(39)!.vm!.getScheduledTasks()).toEqual({})
-
-        const event = { event: '$test', properties: {}, team_id: 2 } as PluginEvent
-        const returnedEvent = await runProcessEvent(hub, { ...event })
-
-        const expectedReturnEvent = {
-            ...event,
-            properties: {
-                $plugins_failed: [],
-                $plugins_succeeded: [],
-                $plugins_deferred: ['test-maxmind-plugin (39)'],
             },
         }
         expect(returnedEvent).toEqual(expectedReturnEvent)
@@ -417,7 +381,7 @@ describe('plugins', () => {
             `Could not load "plugin.json" for plugin test-maxmind-plugin ID ${plugin60.id} (organization ID ${commonOrganizationId})`
         )
 
-        expect(await pluginConfigs.get(39)!.vm!.getScheduledTasks()).toEqual({})
+        expect(await pluginConfigs.get(39)!.instance!.getScheduledTasks()).toEqual({})
     })
 
     test('local plugin with broken plugin.json does not do much', async () => {
@@ -441,7 +405,7 @@ describe('plugins', () => {
             pluginConfigs.get(39)!,
             expect.stringContaining('Could not load "plugin.json" for plugin ')
         )
-        expect(await pluginConfigs.get(39)!.vm!.getScheduledTasks()).toEqual({})
+        expect(await pluginConfigs.get(39)!.instance!.getScheduledTasks()).toEqual({})
 
         unlink()
     })
@@ -464,7 +428,7 @@ describe('plugins', () => {
             pluginConfigs.get(39)!,
             `Could not load source code for plugin test-maxmind-plugin ID 60 (organization ID ${commonOrganizationId}). Tried: index.js`
         )
-        expect(await pluginConfigs.get(39)!.vm!.getScheduledTasks()).toEqual({})
+        expect(await pluginConfigs.get(39)!.instance!.getScheduledTasks()).toEqual({})
     })
 
     test('plugin config order', async () => {
@@ -537,7 +501,7 @@ describe('plugins', () => {
 
         const pluginConfig = pluginConfigs.get(39)!
 
-        await pluginConfig.vm?.resolveInternalVm
+        await (pluginConfig.instance as LazyPluginVM)?.resolveInternalVm
         // async loading of capabilities
 
         expect(pluginConfig.plugin!.capabilities!.methods!.sort()).toEqual(['processEvent', 'setupPlugin'])
@@ -567,7 +531,7 @@ describe('plugins', () => {
 
         const pluginConfig = pluginConfigs.get(39)!
 
-        await pluginConfig.vm?.resolveInternalVm
+        await (pluginConfig.instance as LazyPluginVM)?.resolveInternalVm
         // async loading of capabilities
 
         expect(pluginConfig.plugin!.capabilities!.methods!.sort()).toEqual(['onEvent', 'processEvent'])
@@ -591,7 +555,7 @@ describe('plugins', () => {
 
         const pluginConfig = pluginConfigs.get(39)!
 
-        await pluginConfig.vm?.resolveInternalVm
+        await (pluginConfig.instance as LazyPluginVM)?.resolveInternalVm
         // async loading of capabilities
 
         expect(pluginConfig.plugin!.capabilities!.methods!.sort()).toEqual(['onEvent', 'processEvent'])
@@ -619,7 +583,7 @@ describe('plugins', () => {
 
         const pluginConfig = pluginConfigs.get(39)!
 
-        await pluginConfig.vm?.resolveInternalVm
+        await (pluginConfig.instance as LazyPluginVM)?.resolveInternalVm
         // async loading of capabilities
 
         expect(pluginConfig.plugin!.capabilities!.methods!.sort()).toEqual(['onEvent', 'processEvent'])
@@ -713,7 +677,7 @@ describe('plugins', () => {
         await setupPlugins(hub)
         const pluginConfig = hub.pluginConfigs.get(39)!
 
-        await pluginConfig.vm?.resolveInternalVm
+        await (pluginConfig.instance as LazyPluginVM)?.resolveInternalVm
         // async loading of capabilities
         expect(setPluginCapabilities.mock.calls.length).toBe(1)
 
@@ -723,7 +687,7 @@ describe('plugins', () => {
         await setupPlugins(hub)
         const newPluginConfig = hub.pluginConfigs.get(39)!
 
-        await newPluginConfig.vm?.resolveInternalVm
+        await (newPluginConfig.instance as LazyPluginVM)?.resolveInternalVm
         // async loading of capabilities
 
         expect(newPluginConfig.plugin).not.toBe(pluginConfig.plugin)
@@ -732,7 +696,7 @@ describe('plugins', () => {
     })
 
     describe('loadSchedule()', () => {
-        const mockConfig = (tasks: any) => ({ vm: { getScheduledTasks: () => Promise.resolve(tasks) } })
+        const mockConfig = (tasks: any) => ({ instance: { getScheduledTasks: () => Promise.resolve(tasks) } })
 
         const hub = {
             pluginConfigs: new Map(

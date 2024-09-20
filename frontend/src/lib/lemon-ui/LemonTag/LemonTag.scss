@@ -6,7 +6,7 @@
     font-size: 0.75rem;
     font-weight: var(--font-medium);
     line-height: 1rem;
-    color: var(--default);
+    color: var(--text-3000);
     white-space: nowrap;
     background: var(--border);
     border-radius: var(--radius-sm);
@@ -87,7 +87,7 @@
         line-height: 16px;
         color: var(--primary-alt);
         vertical-align: bottom;
-        background-color: var(--primary-bg-hover);
+        background-color: var(--primary-highlight);
         border-radius: 40px;
     }
 

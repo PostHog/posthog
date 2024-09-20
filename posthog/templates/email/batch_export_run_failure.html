@@ -3,7 +3,7 @@
 {% block heading %}PostHog batch export {{ name }} has failed{% endblock %}
 {% block section %}
 <p>
-  There's been a fatal error with your batch export {{ name }} at {{ time }}. Due to the nature of the error, it cannot be retried automatically and requires manual intervention.
+  There's been a fatal error with your batch export {{ name }} at {{ time }}. Due to the nature of the error, we could not automatically recover from the failure and it requires manual intervention.
 
   We recommend reviewing the batch export logs for error details:
 </p>
@@ -14,7 +14,9 @@
 </div>
 
 <p>
-  After reviewing the logs, and addressing any errors in them, you can retry the batch export run manually. If the batch export continues to fail we will disable it.
+  In the logs you may find configuration errors that can be addressed by yourself, like an incorrect credential, or an unreachable warehouse. If you’re feeling extra-adventurous, sometimes a manual retry can fix things!
+
+  If you can't diagnose the issue, please contact us for help. Keep in mind that if the batch export continues to fail we will have to disable it.
 </p>
 {% endblock %}
 

@@ -48,7 +48,7 @@
         padding: 2rem;
         background-color: white;
         border-radius: var(--radius);
-        box-shadow: var(--shadow-elevation);
+        box-shadow: var(--shadow-elevation-3000);
 
         h2 {
             font-weight: bold;
@@ -88,7 +88,7 @@
             font-size: 0.8em;
             font-weight: 600;
             color: #fff;
-            background-color: var(--default);
+            background-color: var(--text-3000);
             border-radius: 0.75rem;
             opacity: 0;
             transition-timing-function: cubic-bezier(0.455, 0.03, 0.31, 1.585);
@@ -100,7 +100,7 @@
                 margin-top: -10px;
                 content: ' ';
                 border: 10px solid transparent;
-                border-left-color: var(--default);
+                border-left-color: var(--text-3000);
             }
 
             &.BridgePage__left__message--enter {
@@ -136,15 +136,6 @@
 
             @include screen($md) {
                 display: none;
-            }
-        }
-
-        .header-logo {
-            padding-bottom: 3rem;
-            text-align: center;
-
-            img {
-                height: 24px;
             }
         }
     }

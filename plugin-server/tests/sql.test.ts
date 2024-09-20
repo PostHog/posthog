@@ -1,7 +1,7 @@
 import { Hub } from '../src/types'
-import { createHub } from '../src/utils/db/hub'
+import { closeHub, createHub } from '../src/utils/db/hub'
 import { PostgresUse } from '../src/utils/db/postgres'
-import { disablePlugin, getPluginAttachmentRows, getPluginConfigRows, getPluginRows } from '../src/utils/db/sql'
+import { disablePlugin, getActivePluginRows, getPluginAttachmentRows, getPluginConfigRows } from '../src/utils/db/sql'
 import { commonOrganizationId } from './helpers/plugins'
 import { resetTestDatabase } from './helpers/sql'
 
@@ -10,15 +10,14 @@ jest.mock('../src/utils/status')
 
 describe('sql', () => {
     let hub: Hub
-    let closeHub: () => Promise<void>
 
     beforeEach(async () => {
-        ;[hub, closeHub] = await createHub()
+        hub = await createHub()
         await resetTestDatabase(`const processEvent = event => event`)
     })
 
     afterEach(async () => {
-        await closeHub()
+        await closeHub(hub)
     })
 
     test('getPluginAttachmentRows', async () => {
@@ -59,13 +58,14 @@ describe('sql', () => {
             team_id: 2,
             created_at: expect.anything(),
             updated_at: expect.anything(),
+            filters: null,
         }
 
         const rows1 = await getPluginConfigRows(hub)
         expect(rows1).toEqual([expectedRow])
     })
 
-    test('getPluginRows', async () => {
+    test('getActivePluginRows', async () => {
         const rowsExpected = [
             {
                 error: null,
@@ -91,7 +91,7 @@ describe('sql', () => {
             },
         ]
 
-        const rows1 = await getPluginRows(hub)
+        const rows1 = await getActivePluginRows(hub)
         expect(rows1).toEqual(rowsExpected)
         await hub.db.postgres.query(
             PostgresUse.COMMON_WRITE,
@@ -99,7 +99,7 @@ describe('sql', () => {
             undefined,
             'testTag'
         )
-        const rows2 = await getPluginRows(hub)
+        const rows2 = await getActivePluginRows(hub)
         expect(rows2).toEqual(rowsExpected)
     })
 

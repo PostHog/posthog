@@ -56,7 +56,7 @@ export function ExposureMetric({ experimentId }: { experimentId: Experiment['id'
 
     return (
         <>
-            <div className="card-secondary mb-2 mt-4">
+            <div className="card-secondary mb-2 mt-2">
                 Exposure metric
                 <Tooltip
                     title={`This metric determines how we calculate exposure for the experiment. Only users who have this event alongside the property '$feature/${experiment.feature_flag_key}' are included in the exposure calculations.`}
@@ -71,17 +71,17 @@ export function ExposureMetric({ experimentId }: { experimentId: Experiment['id'
             )}
             <div className="mb-2 mt-2">
                 <span className="flex">
-                    <LemonButton type="secondary" size="small" onClick={openExperimentExposureModal} className="mr-2">
+                    <LemonButton type="secondary" size="xsmall" onClick={openExperimentExposureModal} className="mr-2">
                         Change exposure metric
                     </LemonButton>
                     {experiment.parameters?.custom_exposure_filter && (
                         <LemonButton
                             type="secondary"
                             status="danger"
-                            size="small"
+                            size="xsmall"
                             onClick={() => updateExperimentExposure(null)}
                         >
-                            Reset exposure
+                            Reset
                         </LemonButton>
                     )}
                 </span>
@@ -234,8 +234,8 @@ export function Goal(): JSX.Element {
                         {experimentInsightType === InsightType.FUNNELS ? 'Conversion goal steps' : 'Trend goal'}
                     </div>
                     <MetricDisplay filters={experiment.filters} />
-                    <LemonButton size="small" type="secondary" onClick={openExperimentGoalModal}>
-                        Change experiment goal
+                    <LemonButton size="xsmall" type="secondary" onClick={openExperimentGoalModal}>
+                        Change goal
                     </LemonButton>
                 </div>
                 {experimentInsightType === InsightType.TRENDS &&

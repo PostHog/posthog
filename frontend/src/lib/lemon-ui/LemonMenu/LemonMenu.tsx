@@ -20,26 +20,32 @@ export interface LemonMenuItemBase
     custom?: boolean
 }
 export interface LemonMenuItemNode extends LemonMenuItemBase {
-    items: (LemonMenuItemLeaf | false | null)[]
+    items: (LemonMenuItem | false | null)[]
+    placement?: LemonDropdownProps['placement']
     keyboardShortcut?: never
 }
 export type LemonMenuItemLeaf =
     | (LemonMenuItemBase & {
           onClick: () => void
           items?: never
+          placement?: never
           keyboardShortcut?: KeyboardShortcut
       })
     | (LemonMenuItemBase & {
           to: string
+          disableClientSideRouting?: boolean
           targetBlank?: boolean
           items?: never
+          placement?: never
           keyboardShortcut?: KeyboardShortcut
       })
     | (LemonMenuItemBase & {
           onClick: () => void
           to: string
+          disableClientSideRouting?: boolean
           targetBlank?: boolean
           items?: never
+          placement?: never
           keyboardShortcut?: KeyboardShortcut
       })
 export interface LemonMenuItemCustom {
@@ -50,6 +56,7 @@ export interface LemonMenuItemCustom {
     keyboardShortcut?: never
     /** True if the item is a custom element. */
     custom?: boolean
+    placement?: never
 }
 export type LemonMenuItem = LemonMenuItemLeaf | LemonMenuItemCustom | LemonMenuItemNode
 
@@ -241,7 +248,7 @@ interface LemonMenuItemButtonProps {
 const LemonMenuItemButton: FunctionComponent<LemonMenuItemButtonProps & React.RefAttributes<HTMLButtonElement>> =
     React.forwardRef(
         (
-            { item: { label, items, keyboardShortcut, custom, ...buttonProps }, size, tooltipPlacement },
+            { item: { label, items, placement, keyboardShortcut, custom, ...buttonProps }, size, tooltipPlacement },
             ref
         ): JSX.Element => {
             const Label = typeof label === 'function' ? label : null
@@ -270,7 +277,7 @@ const LemonMenuItemButton: FunctionComponent<LemonMenuItemButtonProps & React.Re
                 <LemonMenu
                     items={items}
                     tooltipPlacement={tooltipPlacement}
-                    placement="right-start"
+                    placement={placement || 'right-start'}
                     closeOnClickInside={custom ? false : true}
                     closeParentPopoverOnClickInside={custom ? false : true}
                 >

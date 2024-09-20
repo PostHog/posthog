@@ -1,4 +1,5 @@
 import { lemonToast } from '@posthog/lemon-ui'
+import { customEvent, EventType, eventWithTime, IncrementalSource } from '@rrweb/types'
 import { captureException } from '@sentry/react'
 import {
     actions,
@@ -19,7 +20,7 @@ import { subscriptions } from 'kea-subscriptions'
 import { delay } from 'kea-test-utils'
 import { now } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { clamp, downloadFile, fromParamsGivenUrl } from 'lib/utils'
+import { clamp, downloadFile } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { wrapConsole } from 'lib/utils/wrapConsole'
 import posthog from 'posthog-js'
@@ -55,6 +56,7 @@ export interface RecordingViewedSummaryAnalytics {
     // how long was the video playing for
     // (this could be longer than the duration, since someone could seek around multiple times)
     play_time_ms?: number
+    buffer_time_ms?: number
     recording_duration_ms?: number
     recording_age_ms?: number
     meta_data_load_time_ms?: number
@@ -103,13 +105,16 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             [
                 'snapshotsLoaded',
                 'snapshotsLoading',
+                'isRealtimePolling',
                 'sessionPlayerData',
                 'sessionPlayerMetaData',
                 'sessionPlayerMetaDataLoading',
                 'createExportJSON',
+                'customRRWebEvents',
+                'fullyLoaded',
             ],
             playerSettingsLogic,
-            ['speed', 'skipInactivitySetting'],
+            ['speed', 'skipInactivitySetting', 'showMouseTail'],
             userLogic,
             ['user', 'hasAvailableFeature'],
             preflightLogic,
@@ -178,9 +183,12 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         setIsFullScreen: (isFullScreen: boolean) => ({ isFullScreen }),
         skipPlayerForward: (rrWebPlayerTime: number, skip: number) => ({ rrWebPlayerTime, skip }),
         incrementClickCount: true,
-        // the error is emitted from code we don't control in rrweb so we can't guarantee it's really an Error
+        // the error is emitted from code we don't control in rrweb, so we can't guarantee it's really an Error
         playerErrorSeen: (error: any) => ({ error }),
         fingerprintReported: (fingerprint: string) => ({ fingerprint }),
+        reportMessageTooLargeWarningSeen: (sessionRecordingId: string) => ({ sessionRecordingId }),
+        setDebugSnapshotTypes: (types: EventType[]) => ({ types }),
+        setDebugSnapshotIncrementalSources: (incrementalSources: IncrementalSource[]) => ({ incrementalSources }),
     }),
     reducers(() => ({
         reportedReplayerErrors: [
@@ -263,23 +271,56 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             },
         ],
         playingTimeTracking: [
-            { isPlaying: false as boolean, lastTimestamp: null as number | null, watchTime: 0 },
             {
+                isPlaying: false as boolean,
+                isBuffering: false as boolean,
+                lastTimestamp: null as number | null,
+                watchTime: 0,
+                bufferTime: 0,
+            },
+            {
+                startBuffer: (state) => {
+                    return {
+                        isPlaying: false,
+                        isBuffering: true,
+                        lastTimestamp:
+                            (state.isBuffering ? state.lastTimestamp : performance.now()) || performance.now(),
+                        watchTime: state.watchTime,
+                        bufferTime: state.bufferTime,
+                    }
+                },
+                stopBuffer: (state) => {
+                    return {
+                        isPlaying: state.isPlaying,
+                        isBuffering: false,
+                        lastTimestamp: null,
+                        watchTime: state.watchTime,
+                        bufferTime:
+                            state.lastTimestamp !== null
+                                ? state.bufferTime + (performance.now() - state.lastTimestamp)
+                                : state.bufferTime,
+                    }
+                },
                 setPlay: (state) => {
                     return {
                         isPlaying: true,
-                        lastTimestamp: state.lastTimestamp || performance.now(),
+                        isBuffering: false,
+                        // if we are already playing then we carry the last timestamp over, otherwise we start from now
+                        lastTimestamp: (state.isPlaying ? state.lastTimestamp : performance.now()) || performance.now(),
                         watchTime: state.watchTime,
+                        bufferTime: state.bufferTime,
                     }
                 },
                 setPause: (state) => {
                     return {
                         isPlaying: false,
+                        isBuffering: state.isBuffering,
                         lastTimestamp: null,
                         watchTime:
                             state.lastTimestamp !== null
                                 ? state.watchTime + (performance.now() - state.lastTimestamp)
                                 : state.watchTime,
+                        bufferTime: state.bufferTime,
                     }
                 },
                 setEndReached: (state, { reached }) => {
@@ -289,11 +330,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
                     return {
                         isPlaying: false,
+                        isBuffering: state.isBuffering,
                         lastTimestamp: null,
                         watchTime:
                             state.lastTimestamp !== null
                                 ? state.watchTime + (performance.now() - state.lastTimestamp)
                                 : state.watchTime,
+                        bufferTime: state.bufferTime,
                     }
                 },
                 setErrorPlayerState: (state, { show }) => {
@@ -302,11 +345,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     }
                     return {
                         isPlaying: state.isPlaying,
+                        isBuffering: state.isBuffering,
                         lastTimestamp: null,
                         watchTime:
                             state.lastTimestamp !== null
                                 ? state.watchTime + (performance.now() - state.lastTimestamp)
                                 : state.watchTime,
+                        bufferTime: state.bufferTime,
                     }
                 },
                 seekToTime: (state) => {
@@ -345,6 +390,25 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 setIsFullScreen: (_, { isFullScreen }) => isFullScreen,
             },
         ],
+        messageTooLargeWarningSeen: [
+            null as string | null,
+            {
+                reportMessageTooLargeWarningSeen: (_, { sessionRecordingId }) => sessionRecordingId,
+            },
+        ],
+        debugSettings: [
+            {
+                types: [EventType.FullSnapshot, EventType.IncrementalSnapshot],
+                incrementalSources: [IncrementalSource.Mutation],
+            } as {
+                types: EventType[]
+                incrementalSources: IncrementalSource[]
+            },
+            {
+                setDebugSnapshotTypes: (s, { types }) => ({ ...s, types }),
+                setDebugSnapshotIncrementalSources: (s, { incrementalSources }) => ({ ...s, incrementalSources }),
+            },
+        ],
     })),
     selectors({
         // Prop references for use by other logics
@@ -372,25 +436,21 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 snapshotsLoaded,
                 snapshotsLoading
             ) => {
-                if (isScrubbing) {
-                    // If scrubbing, playingState takes precedence
-                    return playingState
+                switch (true) {
+                    case isScrubbing:
+                        // If scrubbing, playingState takes precedence
+                        return playingState
+                    case !snapshotsLoaded && !snapshotsLoading:
+                        return SessionPlayerState.READY
+                    case isErrored:
+                        return SessionPlayerState.ERROR
+                    case isSkippingInactivity && playingState !== SessionPlayerState.PAUSE:
+                        return SessionPlayerState.SKIP
+                    case isBuffering:
+                        return SessionPlayerState.BUFFER
+                    default:
+                        return playingState
                 }
-
-                if (!snapshotsLoaded && !snapshotsLoading) {
-                    return SessionPlayerState.READY
-                }
-                if (isErrored) {
-                    return SessionPlayerState.ERROR
-                }
-                if (isBuffering) {
-                    return SessionPlayerState.BUFFER
-                }
-                if (isSkippingInactivity && playingState !== SessionPlayerState.PAUSE) {
-                    return SessionPlayerState.SKIP
-                }
-
-                return playingState
             },
         ],
 
@@ -465,6 +525,27 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 }
             },
         ],
+
+        messageTooLargeWarnings: [
+            (s) => [s.customRRWebEvents],
+            (customRRWebEvents: customEvent[]) => {
+                return customRRWebEvents.filter((event) => event.data.tag === 'Message too large')
+            },
+        ],
+
+        debugSnapshots: [
+            (s) => [s.sessionPlayerData, s.debugSettings],
+            (sessionPlayerData: SessionPlayerData, debugSettings): eventWithTime[] => {
+                const allSnapshots = Object.values(sessionPlayerData.snapshotsByWindowId).flat()
+                const visualSnapshots = allSnapshots.filter(
+                    (s) =>
+                        debugSettings.types.includes(s.type) &&
+                        (s.type != EventType.IncrementalSnapshot ||
+                            debugSettings.incrementalSources.includes(s.data.source))
+                )
+                return visualSnapshots.sort((a, b) => a.timestamp - b.timestamp)
+            },
+        ],
     }),
     listeners(({ props, values, actions, cache }) => ({
         playerErrorSeen: ({ error }) => {
@@ -535,7 +616,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 ...COMMON_REPLAYER_CONFIG,
                 // these two settings are attempts to improve performance of running two Replayers at once
                 // the main player and a preview player
-                mouseTail: props.mode !== SessionRecordingPlayerMode.Preview,
+                mouseTail: values.showMouseTail && props.mode !== SessionRecordingPlayerMode.Preview,
                 useVirtualDom: false,
                 plugins,
                 onError: (error) => {
@@ -604,7 +685,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 // Check for the "t" search param in the url on first load
                 if (!cache.hasInitialized) {
                     cache.hasInitialized = true
-                    const searchParams = fromParamsGivenUrl(window.location.search)
+                    const searchParams = router.values.searchParams
                     if (searchParams.timestamp) {
                         const desiredStartTime = Number(searchParams.timestamp)
                         actions.seekToTimestamp(desiredStartTime, true)
@@ -656,6 +737,29 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             if (props.autoPlay) {
                 // Autoplay assumes we are playing immediately so lets go ahead and load more data
                 actions.setPlay()
+
+                if (router.values.searchParams.pause) {
+                    setTimeout(() => {
+                        /** KLUDGE: when loaded for visual regression tests we want to pause the player
+                         ** but only after it has had time to buffer and show the frame
+                         *
+                         * Frustratingly if we start paused we never process the data,
+                         * so the player frame is just a black square.
+                         *
+                         * If we play (the default behaviour) and then stop after its processed the data
+                         * then we see the player screen
+                         * and can assert that _at least_ the full snapshot has been processed
+                         * (i.e. we didn't completely break rrweb playback)
+                         *
+                         * We have to be paused so that the visual regression snapshot doesn't flap
+                         * (because of the seekbar timestamp changing)
+                         *
+                         * And don't want to be at 0, so we can see that the seekbar
+                         * at least paints the "played" portion of the recording correctly
+                         **/
+                        actions.setPause()
+                    }, 400)
+                }
             }
         },
 
@@ -739,9 +843,10 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             }
 
             if (!values.snapshotsLoaded) {
-                // We haven't started properly loading yet so nothing to do
-            } else if (!values.snapshotsLoading && segment?.kind === 'buffer') {
-                // If not currently loading anything and part of the recording hasn't loaded, set error state
+                // We haven't started properly loading, or we're still polling so nothing to do
+            } else if (!values.isRealtimePolling && !values.snapshotsLoading && segment?.kind === 'buffer') {
+                // If not currently loading anything,
+                // and part of the recording hasn't loaded, set error state
                 values.player?.replayer?.pause()
                 actions.endBuffer()
                 console.error("Error: Player tried to seek to a position that hasn't loaded yet")
@@ -974,9 +1079,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 await document.exitFullscreen()
             }
         },
+
+        reportMessageTooLargeWarningSeen: async ({ sessionRecordingId }) => {
+            posthog.capture('message too large warning seen', { sessionRecordingId })
+        },
     })),
 
-    subscriptions(({ actions, values }) => ({
+    subscriptions(({ actions, values, props }) => ({
         sessionPlayerData: (next, prev) => {
             const hasSnapshotChanges = next?.snapshotsByWindowId !== prev?.snapshotsByWindowId
 
@@ -997,6 +1106,15 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 actions.skipPlayerForward(rrwebPlayerTime, values.roughAnimationFPS)
             }
         },
+        messageTooLargeWarnings: (next) => {
+            if (
+                values.messageTooLargeWarningSeen !== values.sessionRecordingId &&
+                next.length > 0 &&
+                props.mode !== SessionRecordingPlayerMode.Preview
+            ) {
+                actions.reportMessageTooLargeWarningSeen(values.sessionRecordingId)
+            }
+        },
     })),
 
     beforeUnmount(({ values, actions, cache, props }) => {
@@ -1012,7 +1130,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         cache.hasInitialized = false
         document.removeEventListener('fullscreenchange', cache.fullScreenListener)
         cache.pausedMediaElements = []
-        values.player?.replayer?.pause()
+        values.player?.replayer?.destroy()
         actions.setPlayer(null)
         cache.unmountConsoleWarns?.()
 
@@ -1020,6 +1138,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         const summaryAnalytics: RecordingViewedSummaryAnalytics = {
             viewed_time_ms: cache.openTime !== undefined ? performance.now() - cache.openTime : undefined,
             play_time_ms: playTimeMs,
+            buffer_time_ms: values.playingTimeTracking.bufferTime || 0,
             recording_duration_ms: values.sessionPlayerData ? values.sessionPlayerData.durationMs : undefined,
             recording_age_ms:
                 values.sessionPlayerData && values.sessionPlayerData.segments.length > 0

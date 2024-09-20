@@ -23,8 +23,11 @@ class AnnotationSerializer(serializers.ModelSerializer):
             "date_marker",
             "creation_type",
             "dashboard_item",
+            "dashboard_id",
+            "dashboard_name",
             "insight_short_id",
             "insight_name",
+            "insight_derived_name",
             "created_by",
             "created_at",
             "updated_at",
@@ -35,6 +38,8 @@ class AnnotationSerializer(serializers.ModelSerializer):
             "id",
             "insight_short_id",
             "insight_name",
+            "insight_derived_name",
+            "dashboard_name",
             "created_by",
             "created_at",
             "updated_at",
@@ -51,6 +56,7 @@ class AnnotationSerializer(serializers.ModelSerializer):
             organization_id=team.organization_id,
             team_id=team.id,
             created_by=request.user,
+            dashboard_id=request.data.get("dashboard_id", None),
             **validated_data,
         )
         return annotation

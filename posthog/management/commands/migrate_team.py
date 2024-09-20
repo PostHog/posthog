@@ -254,7 +254,7 @@ def create_migration(
         raise CommandError("Didn't receive 'y', exiting")
     print()  # noqa: T201
 
-    now = dt.datetime.now(dt.timezone.utc)
+    now = dt.datetime.now(dt.UTC)
     # This is a precaution so we don't accidentally leave the export running indefinitely.
     end_at = now + dt.timedelta(days=end_days_from_now)
 
@@ -299,5 +299,5 @@ def parse_to_utc(date_str: str) -> dt.datetime:
         except ValueError:
             raise ValueError("Invalid date format. Expected 'YYYY-MM-DD' or 'YYYY-MM-DD HH:MM:SS'.")
 
-    utc_datetime = parsed_datetime.replace(tzinfo=dt.timezone.utc)
+    utc_datetime = parsed_datetime.replace(tzinfo=dt.UTC)
     return utc_datetime

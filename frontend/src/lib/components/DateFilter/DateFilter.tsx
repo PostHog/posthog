@@ -1,6 +1,6 @@
 import { Placement } from '@floating-ui/react'
 import { IconCalendar } from '@posthog/icons'
-import { LemonButton, LemonButtonProps, LemonButtonWithDropdown, LemonDivider } from '@posthog/lemon-ui'
+import { LemonButton, LemonButtonProps, LemonDivider, Popover } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import {
@@ -31,6 +31,7 @@ export interface DateFilterProps {
     className?: string
     onChange?: (fromDate: string | null, toDate: string | null) => void
     disabled?: boolean
+    disabledReason?: string
     dateOptions?: DateMappingOption[]
     isDateFormatted?: boolean
     size?: LemonButtonProps['size']
@@ -49,7 +50,7 @@ export function DateFilter({
     showCustom,
     showRollingRangePicker = true,
     className,
-    disabled,
+    disabledReason,
     makeLabel,
     onChange,
     dateFrom,
@@ -179,7 +180,7 @@ export function DateFilter({
                         dateRangeFilterLabel={isFixedDateMode ? 'Last' : undefined}
                         selected={isRollingDateRange}
                         onChange={(fromDate) => {
-                            setDate(fromDate, '')
+                            setDate(fromDate, '', true)
                         }}
                         makeLabel={makeLabel}
                         popover={{
@@ -213,26 +214,26 @@ export function DateFilter({
         )
 
     return (
-        <LemonButtonWithDropdown
-            data-attr="date-filter"
-            id="daterange_selector"
-            onClick={isVisible ? close : open}
-            disabled={disabled}
-            className={clsx('text-nowrap', className)}
-            size={size ?? 'small'}
-            type="secondary"
-            dropdown={{
-                onClickOutside: close,
-                visible: isVisible,
-                overlay: popoverOverlay,
-                placement: dropdownPlacement,
-                actionable: true,
-                closeOnClickInside: false,
-                additionalRefs: [rollingDateRangeRef, '.datefilter-datepicker'],
-            }}
-            icon={<IconCalendar />}
+        <Popover
+            visible={isVisible}
+            overlay={popoverOverlay}
+            placement={dropdownPlacement}
+            actionable
+            additionalRefs={[rollingDateRangeRef]}
+            onClickOutside={close}
+            closeParentPopoverOnClickInside={false}
         >
-            {label}
-        </LemonButtonWithDropdown>
+            <LemonButton
+                id="daterange_selector"
+                size={size ?? 'small'}
+                type="secondary"
+                disabledReason={disabledReason}
+                data-attr="date-filter"
+                icon={<IconCalendar />}
+                onClick={isVisible ? close : open}
+            >
+                <span className={clsx('text-nowrap', className)}>{label}</span>
+            </LemonButton>
+        </Popover>
     )
 }

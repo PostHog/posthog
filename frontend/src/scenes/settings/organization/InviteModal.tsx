@@ -1,18 +1,17 @@
 import './InviteModal.scss'
 
 import { IconPlus, IconTrash } from '@posthog/icons'
-import { LemonInput, LemonTextArea, Link } from '@posthog/lemon-ui'
+import { LemonInput, LemonSelect, LemonTextArea, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { isEmail, pluralize } from 'lib/utils'
+import { organizationMembershipLevelIntegers } from 'lib/utils/permissioning'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
-
-import { OrganizationInviteType } from '~/types'
 
 import { inviteLogic } from './inviteLogic'
 
@@ -43,10 +42,22 @@ export function InviteRow({ index, isDeletable }: { index: number; isDeletable: 
     const { invitesToSend } = useValues(inviteLogic)
     const { updateInviteAtIndex, inviteTeamMembers, deleteInviteAtIndex } = useActions(inviteLogic)
     const { preflight } = useValues(preflightLogic)
+    const { currentOrganization } = useValues(organizationLogic)
+
+    const myMembershipLevel = currentOrganization ? currentOrganization.membership_level : null
+
+    const allowedLevels = myMembershipLevel
+        ? organizationMembershipLevelIntegers.filter((listLevel) => listLevel <= myMembershipLevel)
+        : [OrganizationMembershipLevel.Member]
+
+    const allowedLevelsOptions = allowedLevels.map((level) => ({
+        value: level,
+        label: OrganizationMembershipLevel[level],
+    }))
 
     return (
         <div className="flex gap-2">
-            <div className="flex-1">
+            <div className="flex-2">
                 <LemonInput
                     placeholder={`${name.toLowerCase()}@posthog.com`}
                     type="email"
@@ -68,22 +79,8 @@ export function InviteRow({ index, isDeletable }: { index: number; isDeletable: 
                     data-attr="invite-email-input"
                 />
             </div>
-            <div className="flex-1 flex gap-1 items-center justify-between">
-                {!preflight?.email_service_available ? (
-                    <LemonButton
-                        type="secondary"
-                        className="flex-1"
-                        disabled={!isEmail(invitesToSend[index].target_email)}
-                        onClick={() => {
-                            inviteTeamMembers()
-                        }}
-                        fullWidth
-                        center
-                        data-attr="invite-generate-invite-link"
-                    >
-                        Submit
-                    </LemonButton>
-                ) : (
+            {preflight?.email_service_available && (
+                <div className="flex-1 flex gap-1 items-center justify-between">
                     <LemonInput
                         placeholder={name}
                         className="flex-1"
@@ -96,23 +93,66 @@ export function InviteRow({ index, isDeletable }: { index: number; isDeletable: 
                             }
                         }}
                     />
-                )}
-                {isDeletable && (
-                    <LemonButton icon={<IconTrash />} status="danger" onClick={() => deleteInviteAtIndex(index)} />
-                )}
-            </div>
+                </div>
+            )}
+            {allowedLevelsOptions.length > 1 && (
+                <div className="flex-1 flex gap-1 items-center justify-between">
+                    <LemonSelect
+                        fullWidth
+                        data-attr="invite-row-org-member-level"
+                        options={allowedLevelsOptions}
+                        value={invitesToSend[index].level || allowedLevels[0]}
+                        onChange={(v) => {
+                            updateInviteAtIndex({ level: v }, index)
+                        }}
+                    />
+                </div>
+            )}
+            {!preflight?.email_service_available && (
+                <div className="flex-1 flex gap-1 items-center justify-between">
+                    <LemonButton
+                        type="primary"
+                        className="flex-1"
+                        disabled={!isEmail(invitesToSend[index].target_email)}
+                        onClick={() => {
+                            inviteTeamMembers()
+                        }}
+                        fullWidth
+                        center
+                        data-attr="invite-generate-invite-link"
+                    >
+                        Submit
+                    </LemonButton>
+                </div>
+            )}
+
+            {isDeletable && (
+                <LemonButton icon={<IconTrash />} status="danger" onClick={() => deleteInviteAtIndex(index)} />
+            )}
         </div>
     )
 }
 
 export function InviteTeamMatesComponent(): JSX.Element {
     const { preflight } = useValues(preflightLogic)
-    const { invitesToSend, invites } = useValues(inviteLogic)
-    const { appendInviteRow, deleteInvite, updateMessage } = useActions(inviteLogic)
+    const { invitesToSend, inviteContainsOwnerLevel } = useValues(inviteLogic)
+    const { appendInviteRow, updateMessage, setIsInviteConfirmed } = useActions(inviteLogic)
 
-    const invitesReversed = invites.slice().reverse()
     const areInvitesCreatable = invitesToSend.length + 1 < MAX_INVITES_AT_ONCE
     const areInvitesDeletable = invitesToSend.length > 1
+
+    const { currentOrganization } = useValues(organizationLogic)
+
+    const myMembershipLevel = currentOrganization ? currentOrganization.membership_level : null
+
+    const allowedLevels = myMembershipLevel
+        ? organizationMembershipLevelIntegers.filter((listLevel) => listLevel <= myMembershipLevel)
+        : [OrganizationMembershipLevel.Member]
+
+    const allowedLevelsOptions = allowedLevels.map((level) => ({
+        value: level,
+        label: OrganizationMembershipLevel[level],
+    }))
 
     return (
         <>
@@ -124,68 +164,12 @@ export function InviteTeamMatesComponent(): JSX.Element {
             )}
             <div className="space-y-2">
                 <div className="flex gap-2">
-                    <b className="flex-1">Email address</b>
-                    <b className="flex-1">{preflight?.email_service_available ? 'Name (optional)' : 'Invite link'}</b>
+                    <b className="flex-2">Email address</b>
+                    {preflight?.email_service_available && <b className="flex-1">Name (optional)</b>}
+                    {allowedLevelsOptions.length > 1 && <b className="flex-1">Level</b>}
+                    {!preflight?.email_service_available && <b className="flex-1" />}
+                    {areInvitesDeletable && <b className="w-12" />}
                 </div>
-
-                {invitesReversed.map((invite: OrganizationInviteType) => {
-                    return (
-                        <div className="flex gap-2 items-start" key={invite.id}>
-                            <div className="flex-1">
-                                <div className="flex-1 rounded border p-2">{invite.target_email} </div>
-                            </div>
-
-                            <div className="flex-1 flex gap-2 overflow-hidden">
-                                {invite.is_expired ? (
-                                    <b>Expired – please recreate</b>
-                                ) : (
-                                    <>
-                                        {preflight?.email_service_available ? (
-                                            <div className="flex-1 border rounded p-2"> {invite.first_name} </div>
-                                        ) : (
-                                            <CopyToClipboardInline
-                                                data-attr="invite-link"
-                                                explicitValue={new URL(`/signup/${invite.id}`, document.baseURI).href}
-                                                description="invite link"
-                                                style={{
-                                                    color: 'var(--primary)',
-                                                    background: 'var(--side)',
-                                                    borderRadius: 4,
-                                                    padding: '0.5rem',
-                                                }}
-                                            >
-                                                <div className="InviteModal__share_link">
-                                                    {new URL(`/signup/${invite.id}`, document.baseURI).href}
-                                                </div>
-                                            </CopyToClipboardInline>
-                                        )}
-                                    </>
-                                )}
-                                <LemonButton
-                                    title="Cancel the invite"
-                                    data-attr="invite-delete"
-                                    icon={<IconTrash />}
-                                    status="danger"
-                                    onClick={() => {
-                                        invite.is_expired
-                                            ? deleteInvite(invite)
-                                            : LemonDialog.open({
-                                                  title: `Do you want to cancel the invite for ${invite.target_email}?`,
-                                                  primaryButton: {
-                                                      children: 'Yes, cancel invite',
-                                                      status: 'danger',
-                                                      onClick: () => deleteInvite(invite),
-                                                  },
-                                                  secondaryButton: {
-                                                      children: 'No, keep invite',
-                                                  },
-                                              })
-                                    }}
-                                />
-                            </div>
-                        </div>
-                    )
-                })}
 
                 {invitesToSend.map((_, index) => (
                     <InviteRow index={index} key={index.toString()} isDeletable={areInvitesDeletable} />
@@ -208,6 +192,24 @@ export function InviteTeamMatesComponent(): JSX.Element {
                         data-attr="invite-optional-message"
                         placeholder="Tell your teammates why you're inviting them to PostHog"
                         onChange={(e) => updateMessage(e)}
+                    />
+                </div>
+            )}
+
+            {inviteContainsOwnerLevel && (
+                <div className="mt-4">
+                    <b>Confirm owner-level invites</b>
+
+                    <div className="mb-2">
+                        At least one invite is for an owner level member. Please type <strong>send invites</strong> to
+                        confirm that you wish to send these invites.
+                    </div>
+                    <LemonInput
+                        type="text"
+                        placeholder="send invites"
+                        onChange={(value) => {
+                            setIsInviteConfirmed(value.toLowerCase() === 'send invites')
+                        }}
                     />
                 </div>
             )}

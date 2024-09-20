@@ -1,8 +1,8 @@
-import { CodeEditor } from 'lib/components/CodeEditors'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { LemonTabs, LemonTabsProps } from 'lib/lemon-ui/LemonTabs'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
+import { CodeEditor } from 'lib/monaco/CodeEditor'
 import { useState } from 'react'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
@@ -71,7 +71,6 @@ export function QueryTabs<Q extends Node>({ query, queryKey, setQuery, response 
                               insightProps: {
                                   dashboardItemId: queryKey,
                                   query,
-                                  // @ts-expect-error - TS is wary of `setQuery` being different later, but we're OK
                                   setQuery: (query) => setQuery(query),
                                   dataNodeCollectionId: queryKey,
                               },

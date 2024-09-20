@@ -7,8 +7,7 @@ from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.property.util import parse_prop_grouped_clauses
-from posthog.models.team.team import groups_on_events_querying_enabled
-from posthog.queries.util import PersonPropertiesMode
+from posthog.queries.util import PersonPropertiesMode, alias_poe_mode_for_legacy
 from posthog.schema import PersonsOnEventsMode
 
 
@@ -27,19 +26,16 @@ class GroupsJoinQuery:
         team_id: int,
         column_optimizer: Optional[EnterpriseColumnOptimizer] = None,
         join_key: Optional[str] = None,
-        person_on_events_mode: PersonsOnEventsMode = PersonsOnEventsMode.disabled,
+        person_on_events_mode: PersonsOnEventsMode = PersonsOnEventsMode.DISABLED,
     ) -> None:
         self._filter = filter
         self._team_id = team_id
         self._column_optimizer = column_optimizer or EnterpriseColumnOptimizer(self._filter, self._team_id)
         self._join_key = join_key
-        self._person_on_events_mode = person_on_events_mode
+        self._person_on_events_mode = alias_poe_mode_for_legacy(person_on_events_mode)
 
     def get_join_query(self) -> tuple[str, dict]:
         join_queries, params = [], {}
-
-        if self._person_on_events_mode != PersonsOnEventsMode.disabled and groups_on_events_querying_enabled():
-            return "", {}
 
         for group_type_index in self._column_optimizer.group_types_to_query:
             var = f"group_index_{group_type_index}"

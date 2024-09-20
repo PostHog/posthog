@@ -9,18 +9,6 @@ export function UpdateEmailPreferences(): JSX.Element {
     return (
         <div>
             <LemonSwitch
-                data-attr="email-preferences"
-                onChange={() => {
-                    updateUser({ email_opt_in: !user?.email_opt_in })
-                }}
-                checked={user?.email_opt_in || false}
-                disabled={userLoading}
-                label="Receive security and feature updates via email. You can easily unsubscribe at any time."
-                bordered
-            />
-            <br />
-
-            <LemonSwitch
                 id="plugin-disabled"
                 data-attr="plugin_disabled"
                 onChange={() => {

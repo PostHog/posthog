@@ -30,6 +30,7 @@ export type SettingSectionId =
     | 'organization-members'
     | 'organization-authentication'
     | 'organization-rbac'
+    | 'organization-proxy'
     | 'organization-danger-zone'
     | 'user-profile'
     | 'user-api-keys'
@@ -52,16 +53,19 @@ export type SettingId =
     | 'group-analytics'
     | 'persons-on-events'
     | 'replay'
+    | 'replay-network'
     | 'replay-authorized-domains'
     | 'replay-ingestion'
     | 'surveys-interface'
     | 'authorized-toolbar-urls'
     | 'integration-webhooks'
     | 'integration-slack'
+    | 'integration-other'
     | 'integration-ip-allowlist'
     | 'project-access-control'
     | 'project-role-based-access-control'
     | 'project-delete'
+    | 'organization-logo'
     | 'organization-display-name'
     | 'invites'
     | 'members'
@@ -69,6 +73,7 @@ export type SettingId =
     | 'authentication-domains'
     | 'organization-rbac'
     | 'organization-delete'
+    | 'organization-proxy'
     | 'details'
     | 'change-password'
     | '2fa'
@@ -78,13 +83,24 @@ export type SettingId =
     | 'theme'
     | 'replay-ai-config'
     | 'heatmaps'
+    | 'hedgehog-mode'
+    | 'persons-join-mode'
+    | 'bounce-rate-page-view-mode'
+    | 'session-table-version'
+    | 'web-vitals-autocapture'
+
+type FeatureFlagKey = keyof typeof FEATURE_FLAGS
 
 export type Setting = {
     id: SettingId
     title: string
     description?: JSX.Element | string
     component: JSX.Element
-    flag?: keyof typeof FEATURE_FLAGS
+    /**
+     * Feature flag to gate the setting being shown.
+     * If prefixed with !, the condition is inverted - the setting will only be shown if the is flag false.
+     */
+    flag?: FeatureFlagKey | `!${FeatureFlagKey}`
     features?: AvailableFeature[]
 }
 
@@ -93,6 +109,10 @@ export type SettingSection = {
     title: string
     level: SettingLevelId
     settings: Setting[]
-    flag?: keyof typeof FEATURE_FLAGS
+    /**
+     * Feature flag to gate the section being shown.
+     * If prefixed with !, the condition is inverted - the section will only be shown if the is flag false.
+     */
+    flag?: FeatureFlagKey | `!${FeatureFlagKey}`
     minimumAccessLevel?: EitherMembershipLevel
 }

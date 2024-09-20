@@ -1,4 +1,4 @@
-import { LemonMenuItem, LemonSkeleton, LemonTableColumn } from '@posthog/lemon-ui'
+import { LemonMenuItem, LemonSkeleton, LemonTableColumn, lemonToast } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import api from 'lib/api'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
@@ -6,27 +6,27 @@ import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import posthog from 'posthog-js'
-import HTTPIcon from 'public/hedgehog/running-hog.png'
-import BigQueryIcon from 'public/pipeline/BigQuery.png'
-import PostgresIcon from 'public/pipeline/Postgres.png'
-import RedshiftIcon from 'public/pipeline/Redshift.svg'
-import S3Icon from 'public/pipeline/S3.png'
-import SnowflakeIcon from 'public/pipeline/Snowflake.png'
-import { PluginImage, PluginImageSize } from 'scenes/plugins/plugin/PluginImage'
+import IconHTTP from 'public/hedgehog/running-hog.png'
+import IconS3 from 'public/services/aws-s3.png'
+import IconBigQuery from 'public/services/bigquery.png'
+import IconPostgres from 'public/services/postgres.png'
+import IconRedshift from 'public/services/redshift.png'
+import IconSnowflake from 'public/services/snowflake.png'
 import { urls } from 'scenes/urls'
 
 import {
     BatchExportConfiguration,
+    BatchExportRun,
     BatchExportService,
+    LogEntryLevel,
     PipelineNodeTab,
     PipelineStage,
     PluginConfigTypeNew,
-    PluginLogEntryType,
     PluginType,
 } from '~/types'
 
-import { PipelineLogLevel } from './pipelineNodeLogsLogic'
-import { pipelineTransformationsLogic } from './transformationsLogic'
+import { pipelineAccessLogic } from './pipelineAccessLogic'
+import { PluginImage, PluginImageSize } from './PipelinePluginImage'
 import {
     Destination,
     ImportApp,
@@ -46,7 +46,6 @@ const PLUGINS_ALLOWED_WITHOUT_DATA_PIPELINES_ARR = [
     // filtering apps
     'https://github.com/PostHog/downsampling-plugin',
     'https://github.com/PostHog/posthog-filter-out-plugin',
-    'https://github.com/PostHog/schema-enforcer-plugin',
     // transformation apps
     'https://github.com/PostHog/language-url-splitter-app',
     'https://github.com/PostHog/posthog-app-url-parameters-to-event-properties',
@@ -118,7 +117,11 @@ type RenderAppProps = {
     imageSize?: PluginImageSize
 }
 
-export function RenderApp({ plugin, imageSize }: RenderAppProps): JSX.Element {
+export function getBatchExportUrl(service: BatchExportService['type']): string {
+    return `https://posthog.com/docs/cdp/batch-exports/${service.toLowerCase()}`
+}
+
+export function RenderApp({ plugin, imageSize = 'small' }: RenderAppProps): JSX.Element {
     if (!plugin) {
         return <LemonSkeleton className="w-15 h-15" />
     }
@@ -136,7 +139,7 @@ export function RenderApp({ plugin, imageSize }: RenderAppProps): JSX.Element {
                     </>
                 }
             >
-                {plugin.url ? (
+                {plugin.url && plugin.plugin_type !== 'inline' ? (
                     <Link to={plugin.url} target="_blank">
                         <PluginImage plugin={plugin} size={imageSize} />
                     </Link>
@@ -150,101 +153,66 @@ export function RenderApp({ plugin, imageSize }: RenderAppProps): JSX.Element {
     )
 }
 
-export function RenderBatchExportIcon({ type }: { type: BatchExportService['type'] }): JSX.Element {
+export function RenderBatchExportIcon({
+    type,
+    size = 'small',
+}: {
+    type: BatchExportService['type']
+    size?: 'small' | 'medium'
+}): JSX.Element {
     const icon = {
-        BigQuery: BigQueryIcon,
-        Postgres: PostgresIcon,
-        Redshift: RedshiftIcon,
-        S3: S3Icon,
-        Snowflake: SnowflakeIcon,
-        HTTP: HTTPIcon,
+        BigQuery: IconBigQuery,
+        Postgres: IconPostgres,
+        Redshift: IconRedshift,
+        S3: IconS3,
+        Snowflake: IconSnowflake,
+        HTTP: IconHTTP,
     }[type]
+
+    const sizePx = size === 'small' ? 30 : 60
 
     return (
         <div className="flex items-center gap-4">
-            <Link to={`https://posthog.com/docs/cdp/batch-exports/${type.toLowerCase()}`} target="_blank">
-                <img src={icon} alt={type} height={60} width={60} />
-            </Link>
+            <Tooltip
+                title={
+                    <>
+                        {type}
+                        <br />
+                        Click to view docs
+                    </>
+                }
+            >
+                <Link to={getBatchExportUrl(type)}>
+                    <img src={icon} alt={type} height={sizePx} width={sizePx} />
+                </Link>
+            </Tooltip>
         </div>
     )
 }
 
-export const logLevelToTypeFilter = (level: PipelineLogLevel): PluginLogEntryType => {
-    switch (level) {
-        case PipelineLogLevel.Debug:
-            return PluginLogEntryType.Debug
-        case PipelineLogLevel.Error:
-            return PluginLogEntryType.Error
-        case PipelineLogLevel.Info:
-            return PluginLogEntryType.Info
-        case PipelineLogLevel.Log:
-            return PluginLogEntryType.Log
-        case PipelineLogLevel.Warning:
-            return PluginLogEntryType.Warn
-        default:
-            throw new Error('unknown log level')
-    }
-}
-
-export const logLevelsToTypeFilters = (levels: PipelineLogLevel[]): PluginLogEntryType[] =>
-    levels.map((l) => logLevelToTypeFilter(l))
-
-export const typeToLogLevel = (type: PluginLogEntryType): PipelineLogLevel => {
-    switch (type) {
-        case PluginLogEntryType.Debug:
-            return PipelineLogLevel.Debug
-        case PluginLogEntryType.Error:
-            return PipelineLogLevel.Error
-        case PluginLogEntryType.Info:
-            return PipelineLogLevel.Info
-        case PluginLogEntryType.Log:
-            return PipelineLogLevel.Log
-        case PluginLogEntryType.Warn:
-            return PipelineLogLevel.Warning
-        default:
-            throw new Error('unknown log type')
-    }
-}
-
-export function LogLevelDisplay(level: PipelineLogLevel): JSX.Element {
+export function LogLevelDisplay(level: LogEntryLevel): JSX.Element {
     let color: string | undefined
     switch (level) {
-        case PipelineLogLevel.Debug:
+        case 'DEBUG':
             color = 'text-muted'
             break
-        case PipelineLogLevel.Log:
-            color = 'text-default'
+        case 'LOG':
+            color = 'text-text-3000'
             break
-        case PipelineLogLevel.Info:
+        case 'INFO':
             color = 'text-primary'
             break
-        case PipelineLogLevel.Warning:
+        case 'WARNING':
+        case 'WARN':
             color = 'text-warning'
             break
-        case PipelineLogLevel.Error:
+        case 'ERROR':
             color = 'text-danger'
             break
         default:
             break
     }
     return <span className={color}>{level}</span>
-}
-
-export function LogTypeDisplay(type: PluginLogEntryType): JSX.Element {
-    return LogLevelDisplay(typeToLogLevel(type))
-}
-
-export const humanFriendlyFrequencyName = (frequency: Destination['interval']): string => {
-    switch (frequency) {
-        case 'realtime':
-            return 'Realtime'
-        case 'day':
-            return 'Daily'
-        case 'hour':
-            return 'Hourly'
-        case 'every 5 minutes':
-            return '5 min'
-    }
 }
 
 export function nameColumn<
@@ -255,13 +223,17 @@ export function nameColumn<
         sticky: true,
         render: function RenderName(_, pipelineNode) {
             return (
-                <Tooltip title="Click to update configuration, view metrics, and more">
-                    <LemonTableLink
-                        to={urls.pipelineNode(pipelineNode.stage, pipelineNode.id, PipelineNodeTab.Configuration)}
-                        title={pipelineNode.name}
-                        description={pipelineNode.description}
-                    />
-                </Tooltip>
+                <LemonTableLink
+                    to={urls.pipelineNode(pipelineNode.stage, pipelineNode.id, PipelineNodeTab.Configuration)}
+                    title={
+                        <>
+                            <Tooltip title="Click to update configuration, view metrics, and more">
+                                <span>{pipelineNode.name}</span>
+                            </Tooltip>
+                        </>
+                    }
+                    description={pipelineNode.description}
+                />
             )
         },
     }
@@ -269,6 +241,7 @@ export function nameColumn<
 export function appColumn<T extends { plugin: Transformation['plugin'] }>(): LemonTableColumn<T, 'plugin'> {
     return {
         title: 'App',
+        width: 0,
         render: function RenderAppInfo(_, pipelineNode) {
             return <RenderApp plugin={pipelineNode.plugin} />
         },
@@ -289,7 +262,7 @@ function pluginMenuItems(node: PluginBasedNode): LemonMenuItem[] {
 }
 
 export function pipelineNodeMenuCommonItems(node: Transformation | SiteApp | ImportApp | Destination): LemonMenuItem[] {
-    const { canConfigurePlugins } = useValues(pipelineTransformationsLogic)
+    const { canConfigurePlugins } = useValues(pipelineAccessLogic)
 
     const items: LemonMenuItem[] = [
         {
@@ -298,7 +271,6 @@ export function pipelineNodeMenuCommonItems(node: Transformation | SiteApp | Imp
         },
         {
             label: 'View metrics',
-            status: 'danger',
             to: urls.pipelineNode(node.stage, node.id, PipelineNodeTab.Metrics),
         },
         {
@@ -312,13 +284,18 @@ export function pipelineNodeMenuCommonItems(node: Transformation | SiteApp | Imp
     return items
 }
 
+export async function loadPluginsFromUrl(url: string): Promise<Record<number, PluginType>> {
+    const results: PluginType[] = await api.loadPaginatedResults<PluginType>(url)
+    return Object.fromEntries(results.map((plugin) => [plugin.id, plugin]))
+}
+
 export function pipelinePluginBackedNodeMenuCommonItems(
     node: Transformation | SiteApp | ImportApp | WebhookDestination,
     toggleEnabled: any,
     loadPluginConfigs: any,
     inOverview?: boolean
 ): LemonMenuItem[] {
-    const { canConfigurePlugins } = useValues(pipelineTransformationsLogic)
+    const { canConfigurePlugins } = useValues(pipelineAccessLogic)
 
     return [
         {
@@ -351,4 +328,16 @@ export function pipelinePluginBackedNodeMenuCommonItems(
               ]
             : []),
     ]
+}
+
+export function checkPermissions(stage: PipelineStage, togglingToEnabledOrNew: boolean): boolean {
+    if (stage === PipelineStage.ImportApp && togglingToEnabledOrNew) {
+        lemonToast.error('Import apps are deprecated and cannot be enabled.')
+        return false
+    }
+    return true
+}
+
+export function isRunInProgress(run: BatchExportRun): boolean {
+    return ['Running', 'Starting'].includes(run.status)
 }

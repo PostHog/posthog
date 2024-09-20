@@ -1,16 +1,18 @@
-import { LemonButton, LemonCheckbox, LemonInput, LemonTable } from '@posthog/lemon-ui'
+import { IconSearch } from '@posthog/icons'
+import { LemonButton, LemonCheckbox, LemonInput, LemonSnack, LemonTable } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { LOGS_PORTION_LIMIT } from 'lib/constants'
 import { pluralize } from 'lib/utils'
 
 import { PipelineNodeLogicProps } from './pipelineNodeLogic'
-import { PipelineLogLevel, pipelineNodeLogsLogic } from './pipelineNodeLogsLogic'
+import { ALL_LOG_LEVELS, pipelineNodeLogsLogic } from './pipelineNodeLogsLogic'
 
 export function PipelineNodeLogs({ id, stage }: PipelineNodeLogicProps): JSX.Element {
     const logic = pipelineNodeLogsLogic({ id, stage })
 
-    const { logs, logsLoading, backgroundLogs, columns, isThereMoreToLoad, selectedLogLevels } = useValues(logic)
-    const { revealBackground, loadMoreLogs, setSelectedLogLevels, setSearchTerm } = useActions(logic)
+    const { logs, logsLoading, backgroundLogs, columns, isThereMoreToLoad, selectedLogLevels, instanceId } =
+        useValues(logic)
+    const { revealBackground, loadMoreLogs, setSelectedLogLevels, setSearchTerm, setInstanceId } = useActions(logic)
 
     return (
         <div className="ph-no-capture space-y-2 flex-1">
@@ -20,10 +22,17 @@ export function PipelineNodeLogs({ id, stage }: PipelineNodeLogicProps): JSX.Ele
                 fullWidth
                 onChange={setSearchTerm}
                 allowClear
+                prefix={
+                    <>
+                        <IconSearch />
+
+                        {instanceId && <LemonSnack onClose={() => setInstanceId(null)}>{instanceId}</LemonSnack>}
+                    </>
+                }
             />
             <div className="flex items-center gap-4">
                 <span className="mr-1">Show logs of level:</span>
-                {Object.values(PipelineLogLevel).map((level) => {
+                {ALL_LOG_LEVELS.map((level) => {
                     return (
                         <LemonCheckbox
                             key={level}
@@ -57,7 +66,7 @@ export function PipelineNodeLogs({ id, stage }: PipelineNodeLogicProps): JSX.Ele
                 columns={columns}
                 loading={logsLoading}
                 className="ph-no-capture"
-                rowKey="timestamp"
+                rowKey={(record) => `${record.log_source_id}:${record.instance_id}:${record.timestamp}`}
                 pagination={{ pageSize: 200, hideOnSinglePage: true }}
             />
             {!!logs.length && (

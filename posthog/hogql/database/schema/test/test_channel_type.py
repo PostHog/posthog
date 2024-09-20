@@ -4,6 +4,7 @@ from urllib.parse import urlparse, parse_qs
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
+from posthog.models.utils import uuid7
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -62,6 +63,7 @@ class TestReferringDomainType(ClickhouseTestMixin, APIBaseTest):
             "Shopping",
             self._get_initial_referring_domain_type("stripe.com"),
         )
+        self.assertEqual("Shopping", self._get_initial_referring_domain_type("shopping.yahoo.co.jp"))
 
     def test_social(self):
         self.assertEqual(
@@ -71,6 +73,14 @@ class TestReferringDomainType(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             "Social",
             self._get_initial_referring_domain_type("old.reddit.com"),
+        )
+        self.assertEqual(
+            "Social",
+            self._get_initial_referring_domain_type("plus.google.com"),
+        )
+        self.assertEqual(
+            "Social",
+            self._get_initial_referring_domain_type("news.ycombinator.com"),
         )
 
 
@@ -99,7 +109,7 @@ class TestChannelType(ClickhouseTestMixin, APIBaseTest):
     def _get_session_channel_type(self, properties=None):
         person_id = str(uuid.uuid4())
         properties = {
-            "$session_id": str(uuid.uuid4()),
+            "$session_id": str(uuid7()),
             **(properties or {}),
         }
         _create_event(
@@ -255,15 +265,28 @@ class TestChannelType(ClickhouseTestMixin, APIBaseTest):
             ),
         )
 
+    def test_direct_with_red_herring_utm_tags_is_direct(self):
+        self.assertEqual(
+            "Direct",
+            self._get_person_initial_channel_type(
+                {
+                    "$initial_referring_domain": "$direct",
+                    "$initial_utm_source": "what",
+                    "$initial_utm_medium": "who",
+                    "$initial_utm_campaign": "slim shady",
+                }
+            ),
+        )
+
     def test_no_info_is_unknown(self):
         self.assertEqual(
             "Unknown",
             self._get_person_initial_channel_type({}),
         )
 
-    def test_unknown_domain_is_unknown(self):
+    def test_unknown_domain_is_referral(self):
         self.assertEqual(
-            "Unknown",
+            "Referral",
             self._get_person_initial_channel_type(
                 {
                     "$initial_referring_domain": "some-unknown-domain.example.com",
@@ -273,7 +296,7 @@ class TestChannelType(ClickhouseTestMixin, APIBaseTest):
 
     def test_doesnt_fail_on_numbers(self):
         self.assertEqual(
-            "Unknown",
+            "Referral",
             self._get_person_initial_channel_type(
                 {
                     "$initial_referring_domain": "example.com",
@@ -306,7 +329,7 @@ class TestChannelType(ClickhouseTestMixin, APIBaseTest):
         )
 
     def _get_initial_channel_type_from_wild_clicks(self, url: str, referrer: str):
-        session_id = str(uuid.uuid4())
+        session_id = str(uuid7())
         parsed_url = urlparse(url)
         query = parse_qs(parsed_url.query)
         person_properties = {}
@@ -549,3 +572,119 @@ class TestChannelType(ClickhouseTestMixin, APIBaseTest):
     #             "https://l.facebook.com/",
     #         ),
     #     )
+
+    def test_zendesk_ticket_14945(self):
+        # see https://posthoghelp.zendesk.com/agent/tickets/14945
+
+        # In this ticket, a customer's paid social traffic was incorrect tagged as organic social, because we
+        # didn't recognise the word "Paid" with an uppercase 'P' as a paid source. Really, this should have
+        # been case-insensitive, and that is what the fix was.
+        self.assertEqual(
+            "Paid Social",
+            self._get_session_channel_type(
+                {
+                    "utm_source": "Facebook",
+                    "utm_medium": "Paid",
+                    "utm_campaign": "Foo",
+                    "referring_domain": "l.facebook.com",
+                    "gclid": "",
+                    "gad_source": "",
+                }
+            ),
+        )
+
+        # the customer also provided us with a list of urls that weren't attributing correctly, and we changed the
+        # algorithm to give utm_medium priority over referring domain. This tests a few specific examples:
+        assert (
+            self._get_session_channel_type(
+                {
+                    "utm_source": "substack",
+                    "utm_medium": "email",
+                    "$referring_domain": "bing.com",
+                }
+            )
+            == "Email"
+        )
+        assert (
+            self._get_session_channel_type(
+                {
+                    "utm_source": "Foo",
+                    "utm_medium": "affiliate",
+                    "$referring_domain": "bing.com",
+                }
+            )
+            == "Affiliate"
+        )
+        assert (
+            self._get_session_channel_type(
+                {
+                    "utm_source": "Foo",
+                    "utm_medium": "partnership",
+                    "$referring_domain": "foo.com",
+                }
+            )
+            == "Affiliate"
+        )
+
+    def test_hacker_news(self):
+        # news.ycombinator.com is interesting because we don't have an entry for ycombinator.com, only the subdomain
+
+        self.assertEqual(
+            "Organic Social",
+            self._get_session_channel_type(
+                {
+                    "utm_source": "",
+                    "utm_medium": "in-product",
+                    "utm_campaign": "empty-state-docs-link",
+                    "$referring_domain": "news.ycombinator.com",
+                    "gclid": "",
+                    "gad_source": "",
+                }
+            ),
+        )
+
+        self.assertEqual(
+            "Organic Social",
+            self._get_session_channel_type(
+                {
+                    "utm_source": "news.ycombinator.com",
+                    "utm_medium": "in-product",
+                    "utm_campaign": "empty-state-docs-link",
+                    "$referring_domain": "$direct",
+                    "gclid": "",
+                    "gad_source": "",
+                }
+            ),
+        )
+
+    def test_google_plus(self):
+        # plus.google.com is interesting because it should be social, but just google.com is search
+        assert (
+            self._get_session_channel_type(
+                {
+                    "utm_source": "plus.google.com",
+                    "$referring_domain": "$direct",
+                }
+            )
+            == "Organic Social"
+        )
+
+        assert (
+            self._get_session_channel_type(
+                {
+                    "$referring_domain": "plus.google.com",
+                }
+            )
+            == "Organic Social"
+        )
+
+    def test_gmail_app(self):
+        # plus.google.com is interesting because it should be social, but just google.com is search
+        assert (
+            self._get_session_channel_type(
+                {
+                    "$referring_domain": "com.google.android.gm",
+                }
+            )
+            == "Email"
+        )

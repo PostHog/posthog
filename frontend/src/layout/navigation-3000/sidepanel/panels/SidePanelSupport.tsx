@@ -1,10 +1,14 @@
 import {
+    IconAI,
     IconChevronDown,
+    IconDatabase,
+    IconDecisionTree,
     IconFeatures,
     IconFlask,
     IconHelmet,
     IconMap,
     IconMessage,
+    IconPieChart,
     IconRewindPlay,
     IconStack,
     IconToggle,
@@ -16,9 +20,10 @@ import { SupportForm } from 'lib/components/Support/SupportForm'
 import { getPublicSupportSnippet, supportLogic } from 'lib/components/Support/supportLogic'
 import React from 'react'
 import { billingLogic } from 'scenes/billing/billingLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
-import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature, ProductKey, SidePanelTab } from '~/types'
 
@@ -40,6 +45,11 @@ const PRODUCTS = [
         icon: <IconTrends className="text-brand-blue h-5 w-5" />,
     },
     {
+        name: 'Web analytics',
+        slug: 'web-analytics',
+        icon: <IconPieChart className="text-[#36C46F] h-5 w-5" />,
+    },
+    {
         name: 'Session replay',
         slug: 'session-replay',
         icon: <IconRewindPlay className="text-warning h-5 w-5" />,
@@ -50,7 +60,7 @@ const PRODUCTS = [
         icon: <IconToggle className="text-success h-5 w-5" />,
     },
     {
-        name: 'A/B testing',
+        name: 'Experiments',
         slug: 'experiments',
         icon: <IconFlask className="text-purple h-5 w-5" />,
     },
@@ -58,6 +68,21 @@ const PRODUCTS = [
         name: 'Surveys',
         slug: 'surveys',
         icon: <IconMessage className="text-danger h-5 w-5" />,
+    },
+    {
+        name: 'Data pipelines',
+        slug: 'cdp',
+        icon: <IconDecisionTree className="text-[#2EA2D3] h-5 w-5" />,
+    },
+    {
+        name: 'Data warehouse',
+        slug: 'data-warehouse',
+        icon: <IconDatabase className="text-[#8567FF] h-5 w-5" />,
+    },
+    {
+        name: 'AI engineering',
+        slug: 'ai-engineering',
+        icon: <IconAI className="text-[#681291] dark:text-[#C170E8] h-5 w-5" />,
     },
 ]
 
@@ -75,7 +100,30 @@ const SupportFormBlock = ({ onCancel }: { onCancel: () => void }): JSX.Element =
 
     return (
         <Section title="Email an engineer">
-            <div className="grid grid-cols-2 border rounded [&_>*]:px-2 [&_>*]:py-0.5 mb-4 bg-bg-light">
+            <SupportForm />
+            <LemonButton
+                form="support-modal-form"
+                htmlType="submit"
+                type="primary"
+                data-attr="submit"
+                fullWidth
+                center
+                className="mt-4"
+            >
+                Submit
+            </LemonButton>
+            <LemonButton
+                form="support-modal-form"
+                type="secondary"
+                onClick={onCancel}
+                fullWidth
+                center
+                className="mt-2 mb-4"
+            >
+                Cancel
+            </LemonButton>
+            <br />
+            <div className="grid grid-cols-2 border rounded [&_>*]:px-2 [&_>*]:py-0.5 mb-4 bg-bg-light pt-4">
                 <div className="col-span-full flex justify-between border-b bg-bg-white py-1">
                     <div>
                         <strong>Avg support response times</strong>
@@ -106,43 +154,22 @@ const SupportFormBlock = ({ onCancel }: { onCancel: () => void }): JSX.Element =
                     )
                 })}
             </div>
-            <SupportForm />
-            <LemonButton
-                form="support-modal-form"
-                htmlType="submit"
-                type="primary"
-                data-attr="submit"
-                fullWidth
-                center
-                className="mt-4"
-            >
-                Submit
-            </LemonButton>
-            <LemonButton
-                form="support-modal-form"
-                type="secondary"
-                onClick={onCancel}
-                fullWidth
-                center
-                className="mt-2"
-            >
-                Cancel
-            </LemonButton>
         </Section>
     )
 }
 
 export const SidePanelSupport = (): JSX.Element => {
     const { openSidePanel, closeSidePanel } = useActions(sidePanelStateLogic)
-    const { openEmailForm, closeEmailForm } = useActions(supportLogic)
-    const { isEmailFormOpen } = useValues(supportLogic)
-    const { preflight } = useValues(preflightLogic)
-    const { user } = useValues(userLogic)
-    const region = preflight?.region
+    const { preflight, isCloud } = useValues(preflightLogic)
+    const { currentOrganization } = useValues(organizationLogic)
+    const { currentTeam } = useValues(teamLogic)
     const { status } = useValues(sidePanelStatusLogic)
 
     const theLogic = supportLogic({ onClose: () => closeSidePanel(SidePanelTab.Support) })
-    const { title } = useValues(theLogic)
+    const { openEmailForm, closeEmailForm } = useActions(theLogic)
+    const { title, isEmailFormOpen } = useValues(theLogic)
+
+    const region = preflight?.region
 
     return (
         <>
@@ -168,12 +195,12 @@ export const SidePanelSupport = (): JSX.Element => {
                                             >
                                                 <div className="flex items-center gap-1.5">
                                                     {product.icon}
-                                                    <span className="text-default opacity-75 group-hover:opacity-100">
+                                                    <span className="text-text-3000 opacity-75 group-hover:opacity-100">
                                                         {product.name}
                                                     </span>
                                                 </div>
                                                 <div>
-                                                    <IconChevronDown className="text-default h-6 w-6 opacity-60 -rotate-90 group-hover:opacity-90" />
+                                                    <IconChevronDown className="text-text-3000 h-6 w-6 opacity-60 -rotate-90 group-hover:opacity-90" />
                                                 </div>
                                             </Link>
                                         </li>
@@ -203,19 +230,22 @@ export const SidePanelSupport = (): JSX.Element => {
                                 </Section>
                             ) : null}
 
-                            <Section title="Contact us">
-                                <p>Can't find what you need in the docs?</p>
-                                <LemonButton
-                                    type="primary"
-                                    fullWidth
-                                    center
-                                    onClick={() => openEmailForm()}
-                                    targetBlank
-                                    className="mt-2"
-                                >
-                                    Email an engineer
-                                </LemonButton>
-                            </Section>
+                            {/* only allow opening tickets on our Cloud instances */}
+                            {isCloud ? (
+                                <Section title="Contact us">
+                                    <p>Can't find what you need in the docs?</p>
+                                    <LemonButton
+                                        type="primary"
+                                        fullWidth
+                                        center
+                                        onClick={() => openEmailForm()}
+                                        targetBlank
+                                        className="mt-2"
+                                    >
+                                        Email an engineer
+                                    </LemonButton>
+                                </Section>
+                            ) : null}
                             <Section title="Ask the community">
                                 <p>
                                     Questions about features, how-tos, or use cases? There are thousands of discussions
@@ -253,7 +283,7 @@ export const SidePanelSupport = (): JSX.Element => {
                                             type="secondary"
                                             status="alt"
                                             to={`https://github.com/PostHog/posthog/issues/new?&labels=enhancement&template=feature_request.yml&debug-info=${encodeURIComponent(
-                                                getPublicSupportSnippet(region, user)
+                                                getPublicSupportSnippet(region, currentOrganization, currentTeam)
                                             )}`}
                                             icon={<IconFeatures />}
                                             targetBlank

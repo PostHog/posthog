@@ -1,6 +1,7 @@
-import { randomString } from '../support/random'
 import { urls } from 'scenes/urls'
+
 import { dashboard, dashboards, duplicateDashboardFromMenu, savedInsights } from '../productAnalytics'
+import { randomString } from '../support/random'
 
 describe('duplicating dashboards', () => {
     let dashboardName, insightName, expectedCopiedDashboardName, expectedCopiedInsightName

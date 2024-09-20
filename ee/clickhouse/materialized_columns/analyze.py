@@ -50,13 +50,6 @@ class TeamManager:
     def person_on_events_properties(self, team_id: str) -> set[str]:
         return self._get_properties(GET_EVENT_PROPERTIES_COUNT.format(column_name="person_properties"), team_id)
 
-    @instance_memoize
-    def group_on_events_properties(self, group_type_index: int, team_id: str) -> set[str]:
-        return self._get_properties(
-            GET_EVENT_PROPERTIES_COUNT.format(column_name=f"group{group_type_index}_properties"),
-            team_id,
-        )
-
     def _get_properties(self, query, team_id) -> set[str]:
         rows = sync_execute(query, {"team_id": team_id})
         return {name for name, _ in rows}
@@ -99,11 +92,6 @@ class Query:
         person_props = team_manager.person_properties(self.team_id)
         event_props = team_manager.event_properties(self.team_id)
         person_on_events_props = team_manager.person_on_events_properties(self.team_id)
-        group0_props = team_manager.group_on_events_properties(0, self.team_id)
-        group1_props = team_manager.group_on_events_properties(1, self.team_id)
-        group2_props = team_manager.group_on_events_properties(2, self.team_id)
-        group3_props = team_manager.group_on_events_properties(3, self.team_id)
-        group4_props = team_manager.group_on_events_properties(4, self.team_id)
 
         for table_column, property in self._all_properties:
             if property in event_props:
@@ -113,19 +101,9 @@ class Query:
 
             if property in person_on_events_props and "person_properties" in table_column:
                 yield "events", "person_properties", property
-            if property in group0_props and "group0_properties" in table_column:
-                yield "events", "group0_properties", property
-            if property in group1_props and "group1_properties" in table_column:
-                yield "events", "group1_properties", property
-            if property in group2_props and "group2_properties" in table_column:
-                yield "events", "group2_properties", property
-            if property in group3_props and "group3_properties" in table_column:
-                yield "events", "group3_properties", property
-            if property in group4_props and "group4_properties" in table_column:
-                yield "events", "group4_properties", property
 
 
-def _analyze(since_hours_ago: int, min_query_time: int) -> list[Suggestion]:
+def _analyze(since_hours_ago: int, min_query_time: int, team_id: Optional[int] = None) -> list[Suggestion]:
     "Finds columns that should be materialized"
 
     raw_queries = sync_execute(
@@ -142,7 +120,7 @@ SELECT
     arrayJoin(
         extractAll(query, 'JSONExtract[a-zA-Z0-9]*?\\((?:[a-zA-Z0-9\\`_-]+\\.)?(.*?), .*?\\)')
     ) as column,
-    arrayJoin(extractAll(query, 'JSONExtract[a-zA-Z0-9]*?\\(.*?, \\'(.*?)\\'\\)')) as prop_to_materialize
+    arrayJoin(extractAll(query, 'JSONExtract[a-zA-Z0-9]*?\\(.*?, \\'([a-zA-Z0-9_\\-\\.\\$\\/\\ ]*?)\\'\\)')) as prop_to_materialize
     --,groupUniqArrayIf(JSONExtractInt(log_comment, 'team_id'), type > 2),
     --count(),
     --countIf(type > 2) as failures,
@@ -165,6 +143,7 @@ WHERE
     and read_bytes > min_bytes_read
     and (exception_code IN exception_codes OR query_duration_ms > slow_query_minimum)
     and read_rows > min_read_rows
+    {team_id_filter}
 GROUP BY
     1, 2
 HAVING
@@ -173,7 +152,11 @@ ORDER BY
     countIf(exception_code IN exception_codes) DESC,
     countIf(query_duration_ms > slow_query_minimum) DESC
 LIMIT 100 -- Make sure we don't add 100s of columns in one run
-        """.format(since=since_hours_ago, min_query_time=min_query_time),
+        """.format(
+            since=since_hours_ago,
+            min_query_time=min_query_time,
+            team_id_filter=f"and JSONExtractInt(log_comment, 'team_id') = {team_id}" if team_id else "",
+        ),
     )
 
     return [("events", table_column, property_name) for (table_column, property_name) in raw_queries]
@@ -186,13 +169,14 @@ def materialize_properties_task(
     min_query_time: int = MATERIALIZE_COLUMNS_MINIMUM_QUERY_TIME,
     backfill_period_days: int = MATERIALIZE_COLUMNS_BACKFILL_PERIOD_DAYS,
     dry_run: bool = False,
+    team_id_to_analyze: Optional[int] = None,
 ) -> None:
     """
     Creates materialized columns for event and person properties based off of slow queries
     """
 
     if columns_to_materialize is None:
-        columns_to_materialize = _analyze(time_to_analyze_hours, min_query_time)
+        columns_to_materialize = _analyze(time_to_analyze_hours, min_query_time, team_id_to_analyze)
     result = []
     for suggestion in columns_to_materialize:
         table, table_column, property_name = suggestion

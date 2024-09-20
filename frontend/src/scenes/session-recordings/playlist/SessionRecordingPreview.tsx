@@ -1,20 +1,25 @@
-import { IconBug, IconCursorClick, IconKeyboard, IconPinFilled } from '@posthog/icons'
+import { IconBug, IconCursorClick, IconKeyboard, IconMagicWand, IconPinFilled } from '@posthog/icons'
 import clsx from 'clsx'
 import { useValues } from 'kea'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { PropertyIcon } from 'lib/components/PropertyIcon'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { Popover } from 'lib/lemon-ui/Popover'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { colonDelimitedDuration } from 'lib/utils'
+import { useState } from 'react'
 import { countryCodeToName } from 'scenes/insights/views/WorldMap'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { asDisplay } from 'scenes/persons/person-utils'
-import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { urls } from 'scenes/urls'
 
-import { DurationType, SessionRecordingType } from '~/types'
+import { RecordingsQuery } from '~/queries/schema'
+import { SessionRecordingType } from '~/types'
 
 import { sessionRecordingsListPropertiesLogic } from './sessionRecordingsListPropertiesLogic'
 import { sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
@@ -156,12 +161,12 @@ function ViewedIndicator(): JSX.Element {
     )
 }
 
-function durationToShow(recording: SessionRecordingType, durationType: DurationType | undefined): number | undefined {
-    return {
-        duration: recording.recording_duration,
-        active_seconds: recording.active_seconds,
-        inactive_seconds: recording.inactive_seconds,
-    }[durationType || 'duration']
+function durationToShow(recording: SessionRecordingType, order: RecordingsQuery['order']): number | undefined {
+    return order === 'active_seconds'
+        ? recording.active_seconds
+        : order === 'inactive_seconds'
+        ? recording.inactive_seconds
+        : recording.recording_duration
 }
 
 export function SessionRecordingPreview({
@@ -169,9 +174,10 @@ export function SessionRecordingPreview({
     isActive,
     onClick,
     pinned,
+    summariseFn,
+    sessionSummaryLoading,
 }: SessionRecordingPreviewProps): JSX.Element {
     const { orderBy } = useValues(sessionRecordingsPlaylistLogic)
-    const { durationTypeToShow } = useValues(playerSettingsLogic)
 
     const { recordingPropertiesById, recordingPropertiesLoading } = useValues(sessionRecordingsListPropertiesLogic)
     const recordingProperties = recordingPropertiesById[recording.id]
@@ -179,6 +185,10 @@ export function SessionRecordingPreview({
     const iconProperties = gatherIconProperties(recordingProperties, recording)
 
     const iconClassNames = 'text-muted-alt shrink-0'
+
+    const [summaryPopoverIsVisible, setSummaryPopoverIsVisible] = useState<boolean>(false)
+
+    const [summaryButtonIsVisible, setSummaryButtonIsVisible] = useState<boolean>(false)
 
     return (
         <DraggableToNotebook href={urls.replaySingle(recording.id)}>
@@ -189,7 +199,44 @@ export function SessionRecordingPreview({
                     isActive && 'SessionRecordingPreview--active'
                 )}
                 onClick={() => onClick?.()}
+                onMouseEnter={() => setSummaryButtonIsVisible(true)}
+                onMouseLeave={() => setSummaryButtonIsVisible(false)}
             >
+                <FlaggedFeature flag={FEATURE_FLAGS.AI_SESSION_SUMMARY} match={true}>
+                    {summariseFn && (
+                        <Popover
+                            showArrow={true}
+                            visible={summaryPopoverIsVisible && summaryButtonIsVisible}
+                            placement="right"
+                            onClickOutside={() => setSummaryPopoverIsVisible(false)}
+                            overlay={
+                                sessionSummaryLoading ? (
+                                    <Spinner />
+                                ) : (
+                                    <div className="text-xl max-w-auto lg:max-w-3/5">{recording.summary}</div>
+                                )
+                            }
+                        >
+                            <LemonButton
+                                size="small"
+                                type="primary"
+                                className={clsx(
+                                    summaryButtonIsVisible ? 'block' : 'hidden',
+                                    'absolute right-px top-px'
+                                )}
+                                icon={<IconMagicWand />}
+                                onClick={(e) => {
+                                    e.preventDefault()
+                                    e.stopPropagation()
+                                    setSummaryPopoverIsVisible(!summaryPopoverIsVisible)
+                                    if (!recording.summary) {
+                                        summariseFn(recording)
+                                    }
+                                }}
+                            />
+                        </Popover>
+                    )}
+                </FlaggedFeature>
                 <div className="grow overflow-hidden space-y-1">
                     <div className="flex items-center justify-between gap-2">
                         <div className="flex overflow-hidden font-medium text-link ph-no-capture">
@@ -200,7 +247,6 @@ export function SessionRecordingPreview({
                             className="overflow-hidden text-ellipsis text-xs text-muted shrink-0"
                             time={recording.start_time}
                             placement="right"
-                            showPopover={false}
                         />
                     </div>
 
@@ -231,12 +277,7 @@ export function SessionRecordingPreview({
                         {orderBy === 'console_error_count' ? (
                             <ErrorCount iconClassNames={iconClassNames} errorCount={recording.console_error_count} />
                         ) : (
-                            <RecordingDuration
-                                recordingDuration={durationToShow(
-                                    recording,
-                                    orderBy === 'start_time' ? durationTypeToShow : orderBy
-                                )}
-                            />
+                            <RecordingDuration recordingDuration={durationToShow(recording, orderBy)} />
                         )}
                     </div>
 

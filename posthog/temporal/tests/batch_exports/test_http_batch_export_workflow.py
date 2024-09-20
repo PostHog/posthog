@@ -99,7 +99,7 @@ async def assert_clickhouse_records_in_mock_server(
                 if k == "properties":
                     expected_record[k] = json.loads(v) if v else {}
                 elif isinstance(v, dt.datetime):
-                    expected_record[k] = v.replace(tzinfo=dt.timezone.utc).isoformat()
+                    expected_record[k] = v.replace(tzinfo=dt.UTC).isoformat()
                 else:
                     expected_record[k] = v
 
@@ -134,8 +134,8 @@ async def test_insert_into_http_activity_inserts_data_into_http_endpoint(
     * Are not duplicates of other events that are in the same batch.
     * Do not have an event name contained in the batch export's exclude_events.
     """
-    data_interval_start = dt.datetime(2023, 4, 20, 14, 0, 0, tzinfo=dt.timezone.utc)
-    data_interval_end = dt.datetime(2023, 4, 25, 15, 0, 0, tzinfo=dt.timezone.utc)
+    data_interval_start = dt.datetime(2023, 4, 20, 14, 0, 0, tzinfo=dt.UTC)
+    data_interval_end = dt.datetime(2023, 4, 25, 15, 0, 0, tzinfo=dt.UTC)
 
     # Generate a random team id integer. There's still a chance of a collision,
     # but it's very small.
@@ -211,8 +211,8 @@ async def test_insert_into_http_activity_throws_on_bad_http_status(
     clickhouse_client, activity_environment, http_config, exclude_events
 ):
     """Test that the insert_into_http_activity function throws on status >= 400"""
-    data_interval_start = dt.datetime(2023, 4, 20, 14, 0, 0, tzinfo=dt.timezone.utc)
-    data_interval_end = dt.datetime(2023, 4, 25, 15, 0, 0, tzinfo=dt.timezone.utc)
+    data_interval_start = dt.datetime(2023, 4, 20, 14, 0, 0, tzinfo=dt.UTC)
+    data_interval_end = dt.datetime(2023, 4, 25, 15, 0, 0, tzinfo=dt.UTC)
 
     # Generate a random team id integer. There's still a chance of a collision,
     # but it's very small.
@@ -433,7 +433,6 @@ async def test_http_export_workflow_handles_insert_activity_errors(ateam, http_b
     assert run.status == "FailedRetryable"
     assert run.latest_error == "ValueError: A useful error message"
     assert run.records_completed is None
-    assert run.records_total_count == 1
 
 
 async def test_http_export_workflow_handles_insert_activity_non_retryable_errors(ateam, http_batch_export, interval):
@@ -484,7 +483,6 @@ async def test_http_export_workflow_handles_insert_activity_non_retryable_errors
     assert run.status == "Failed"
     assert run.latest_error == "NonRetryableResponseError: A useful error message"
     assert run.records_completed is None
-    assert run.records_total_count == 1
 
 
 async def test_http_export_workflow_handles_cancellation(ateam, http_batch_export, interval):

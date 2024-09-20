@@ -286,6 +286,10 @@ WHERE version > 0 -- only store updated rows, not newly inserted ones
     database=CLICKHOUSE_DATABASE,
 )
 
+TRUNCATE_PERSON_DISTINCT_ID_OVERRIDES_TABLE_SQL = (
+    f"TRUNCATE TABLE IF EXISTS {PERSON_DISTINCT_ID_OVERRIDES_TABLE} ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
+)
+
 #
 # Static Cohort
 #

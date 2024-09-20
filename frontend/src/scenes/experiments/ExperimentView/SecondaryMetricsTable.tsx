@@ -2,7 +2,6 @@ import '../Experiment.scss'
 
 import { IconInfo, IconPencil, IconPlus } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonModal, LemonTable, LemonTableColumns, Tooltip } from '@posthog/lemon-ui'
-import { Empty } from 'antd'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
@@ -87,20 +86,7 @@ export function SecondaryMetricsModal({
             }
         >
             {showResults ? (
-                <div>
-                    {targetResults && targetResults.insight ? (
-                        <ResultsQuery targetResults={targetResults} showTable={false} />
-                    ) : (
-                        <div className="bg-bg-light pt-6 pb-8 text-muted">
-                            <div className="flex flex-col items-center mx-auto">
-                                <Empty className="my-4" image={Empty.PRESENTED_IMAGE_SIMPLE} description="" />
-                                <h2 className="text-xl font-semibold leading-tight">
-                                    There are no results for this metric yet
-                                </h2>
-                            </div>
-                        </div>
-                    )}
-                </div>
+                <ResultsQuery targetResults={targetResults} showTable={false} />
             ) : (
                 <Form
                     logic={secondaryMetricsLogic}
@@ -156,11 +142,11 @@ export function SecondaryMetricsTable({
                     title: <div className="py-2">Variant</div>,
                     render: function Key(_, item: TabularSecondaryMetricResults): JSX.Element {
                         if (!experimentResults || !experimentResults.insight) {
-                            return <span className="font-semibold">{capitalizeFirstLetter(item.variant)}</span>
+                            return <span className="font-semibold">{item.variant}</span>
                         }
                         return (
                             <div className="flex items-center py-2">
-                                <VariantTag variantKey={item.variant} />
+                                <VariantTag experimentId={experimentId} variantKey={item.variant} />
                             </div>
                         )
                     },
@@ -170,6 +156,10 @@ export function SecondaryMetricsTable({
     ]
 
     experiment.secondary_metrics?.forEach((metric, idx) => {
+        const targetResults = secondaryMetricResults?.[idx]
+        const targetResultFilters = targetResults?.filters
+        const winningVariant = getHighestProbabilityVariant(targetResults || null)
+
         const Header = (): JSX.Element => (
             <div className="">
                 <div className="flex">
@@ -182,6 +172,11 @@ export function SecondaryMetricsTable({
                                 size="xsmall"
                                 icon={<IconAreaChart />}
                                 onClick={() => openModalToEditSecondaryMetric(metric, idx, true)}
+                                disabledReason={
+                                    targetResults && targetResults.insight
+                                        ? undefined
+                                        : 'There are no results for this metric yet'
+                                }
                             />
                             <LemonButton
                                 className="max-w-72"
@@ -195,10 +190,6 @@ export function SecondaryMetricsTable({
                 </div>
             </div>
         )
-
-        const targetResults = secondaryMetricResults?.[idx]
-        const targetResultFilters = targetResults?.filters
-        const winningVariant = getHighestProbabilityVariant(targetResults || null)
 
         if (metric.filters.insight === InsightType.TRENDS) {
             columns.push({
@@ -221,7 +212,7 @@ export function SecondaryMetricsTable({
                         ),
                         render: function Key(_, item: TabularSecondaryMetricResults): JSX.Element {
                             const { variant } = item
-                            return <div>{targetResults ? countDataForVariant(targetResults, variant) : '--'}</div>
+                            return <div>{targetResults ? countDataForVariant(targetResults, variant) : '—'}</div>
                         },
                     },
                     {
@@ -229,7 +220,7 @@ export function SecondaryMetricsTable({
                         render: function Key(_, item: TabularSecondaryMetricResults): JSX.Element {
                             const { variant } = item
                             return (
-                                <div>{targetResults ? exposureCountDataForVariant(targetResults, variant) : '--'}</div>
+                                <div>{targetResults ? exposureCountDataForVariant(targetResults, variant) : '—'}</div>
                             )
                         },
                     },
@@ -242,7 +233,7 @@ export function SecondaryMetricsTable({
                                     <b>
                                         {targetResults?.probability?.[variant] != undefined
                                             ? `${(targetResults.probability?.[variant] * 100).toFixed(1)}%`
-                                            : '--'}
+                                            : '—'}
                                     </b>
                                 </div>
                             )
@@ -259,7 +250,10 @@ export function SecondaryMetricsTable({
                         render: function Key(_, item: TabularSecondaryMetricResults): JSX.Element {
                             const { variant } = item
                             const conversionRate = conversionRateForVariant(targetResults || null, variant)
-                            return <div>{conversionRate === '--' ? conversionRate : `${conversionRate}%`}</div>
+                            if (!conversionRate) {
+                                return <>—</>
+                            }
+                            return <div>{`${conversionRate.toFixed(2)}%`}</div>
                         },
                     },
                     {
@@ -271,7 +265,7 @@ export function SecondaryMetricsTable({
                                     <b>
                                         {targetResults?.probability?.[variant] != undefined
                                             ? `${(targetResults.probability?.[variant] * 100).toFixed(1)}%`
-                                            : '--'}
+                                            : '—'}
                                     </b>
                                 </div>
                             )

@@ -21,6 +21,7 @@ interface LemonCollapsePropsBase<K extends React.Key> {
     panels: (LemonCollapsePanel<K> | null | false)[]
     className?: string
     size?: LemonButtonProps['size']
+    embedded?: boolean
 }
 
 interface LemonCollapsePropsSingle<K extends React.Key> extends LemonCollapsePropsBase<K> {
@@ -43,6 +44,7 @@ export function LemonCollapse<K extends React.Key>({
     panels,
     className,
     size,
+    embedded,
     ...props
 }: LemonCollapseProps<K>): JSX.Element {
     let isPanelExpanded: (key: K) => boolean
@@ -72,7 +74,7 @@ export function LemonCollapse<K extends React.Key>({
     }
 
     return (
-        <div className={clsx('LemonCollapse', className)}>
+        <div className={clsx('LemonCollapse', embedded && 'LemonCollapse--embedded', className)}>
             {(panels.filter(Boolean) as LemonCollapsePanel<K>[]).map(({ key, ...panel }) => (
                 <LemonCollapsePanel
                     key={key}
@@ -93,6 +95,8 @@ interface LemonCollapsePanelProps {
     size: LemonButtonProps['size']
     onChange: (isExpanded: boolean) => void
     className?: string
+    dataAttr?: string
+    onHeaderClick?: () => void
 }
 
 function LemonCollapsePanel({
@@ -101,16 +105,22 @@ function LemonCollapsePanel({
     isExpanded,
     size,
     className,
+    dataAttr,
     onChange,
+    onHeaderClick,
 }: LemonCollapsePanelProps): JSX.Element {
     const { height: contentHeight, ref: contentRef } = useResizeObserver({ box: 'border-box' })
 
     return (
         <div className="LemonCollapsePanel" aria-expanded={isExpanded}>
             <LemonButton
-                onClick={() => onChange(!isExpanded)}
+                onClick={() => {
+                    onHeaderClick && onHeaderClick()
+                    onChange(!isExpanded)
+                }}
                 icon={isExpanded ? <IconCollapse /> : <IconExpand />}
                 className="LemonCollapsePanel__header"
+                {...(dataAttr ? { 'data-attr': dataAttr } : {})}
                 size={size}
             >
                 {header}

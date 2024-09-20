@@ -8,11 +8,13 @@ from django.conf import settings
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
+from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.client import sync_execute
 from posthog.constants import PropertyOperatorType
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.hogql import HogQLContext
+from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.printer import print_ast
 from posthog.models import Action, Filter, Team
 from posthog.models.action.util import format_action_filter
@@ -77,7 +79,10 @@ def print_cohort_hogql_query(cohort: Cohort, hogql_context: HogQLContext) -> str
     query = get_query_runner(
         persons_query, team=cast(Team, cohort.team), limit_context=LimitContext.COHORT_CALCULATION
     ).to_query()
+
     hogql_context.enable_select_queries = True
+    hogql_context.limit_top_select = False
+    create_default_modifiers_for_team(cohort.team, hogql_context.modifiers)
     return print_ast(query, context=hogql_context, dialect="clickhouse")
 
 
@@ -306,7 +311,7 @@ def recalculate_cohortpeople(
 
     recalcluate_cohortpeople_sql = RECALCULATE_COHORT_BY_ID.format(cohort_filter=cohort_query)
 
-    tag_queries(kind="cohort_calculation", team_id=cohort.team_id)
+    tag_queries(kind="cohort_calculation", team_id=cohort.team_id, query_type="CohortsQuery")
     if initiating_user_id:
         tag_queries(user_id=initiating_user_id)
 
@@ -319,7 +324,11 @@ def recalculate_cohortpeople(
             "team_id": cohort.team_id,
             "new_version": pending_version,
         },
-        settings={"optimize_on_insert": 0},
+        settings={
+            "max_execution_time": 240,
+            "optimize_on_insert": 0,
+        },
+        workload=Workload.OFFLINE,
     )
 
     count = get_cohort_size(cohort, override_version=pending_version)
@@ -366,6 +375,7 @@ def get_cohort_size(cohort: Cohort, override_version: Optional[int] = None) -> O
             "version": override_version if override_version is not None else cohort.version,
             "team_id": cohort.team_id,
         },
+        workload=Workload.OFFLINE,
     )
 
     if count_result and len(count_result) and len(count_result[0]):
@@ -486,7 +496,7 @@ def get_dependent_cohorts(
                 if not current_cohort:
                     continue
             else:
-                current_cohort = Cohort.objects.using(using_database).get(
+                current_cohort = Cohort.objects.db_manager(using_database).get(
                     pk=cohort_id, team_id=cohort.team_id, deleted=False
                 )
                 seen_cohorts_cache[cohort_id] = current_cohort

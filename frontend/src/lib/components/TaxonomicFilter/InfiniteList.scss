@@ -18,7 +18,7 @@
         align-items: center;
         justify-content: space-between;
         padding: 4px 12px;
-        color: var(--default);
+        color: var(--text-3000);
         cursor: pointer;
         border: none;
 
@@ -72,13 +72,6 @@
 
         &.selected {
             font-weight: bold;
-        }
-
-        &.skeleton-row {
-            // center-align this antd skeleton
-            .ant-skeleton-paragraph {
-                margin-bottom: 0;
-            }
         }
 
         &.expand-row {

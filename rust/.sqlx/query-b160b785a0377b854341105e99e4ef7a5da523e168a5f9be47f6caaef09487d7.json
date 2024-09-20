@@ -1,0 +1,12 @@
+{
+    "db_name": "PostgreSQL",
+    "query": "UPDATE cyclotron_jobs SET parameters = $1 WHERE id = $2 AND lock_id = $3",
+    "describe": {
+        "columns": [],
+        "parameters": {
+            "Left": ["Bytea", "Uuid", "Uuid"]
+        },
+        "nullable": []
+    },
+    "hash": "b160b785a0377b854341105e99e4ef7a5da523e168a5f9be47f6caaef09487d7"
+}

@@ -1,29 +1,36 @@
+import { ReferenceType } from '@floating-ui/react'
 import { useEffect } from 'react'
 
 export const CLICK_OUTSIDE_BLOCK_CLASS = 'click-outside-block'
 
-const exceptions = ['.ant-select-dropdown *', `.${CLICK_OUTSIDE_BLOCK_CLASS}`, `.${CLICK_OUTSIDE_BLOCK_CLASS} *`]
+const exceptions = [`.${CLICK_OUTSIDE_BLOCK_CLASS}`, `.${CLICK_OUTSIDE_BLOCK_CLASS} *`]
 
 export function useOutsideClickHandler(
-    refOrRefs: string | React.MutableRefObject<any> | (React.MutableRefObject<any> | string)[],
+    refs: React.MutableRefObject<HTMLElement | ReferenceType | null>[],
     handleClickOutside: (event: Event) => void,
     extraDeps: any[] = [],
     exceptTagNames?: string[] // list of tag names that don't trigger the callback even if outside
 ): void {
-    const allRefs = Array.isArray(refOrRefs) ? refOrRefs : [refOrRefs]
-
     useEffect(() => {
         function handleClick(event: Event): void {
             if (exceptions.some((exception) => (event.target as Element)?.matches(exception))) {
                 return
             }
             if (
-                allRefs.some((maybeRef) => {
+                refs.some((maybeRef) => {
                     if (typeof maybeRef === 'string') {
                         return event.composedPath?.()?.find((e) => (e as HTMLElement)?.matches?.(maybeRef))
                     }
                     const ref = maybeRef.current
-                    return event.target && ref && `contains` in ref && ref.contains(event.target as Element)
+
+                    if (!event.target || !ref) {
+                        return false
+                    }
+
+                    const hasShadowRoot = !!(event.target as HTMLElement).shadowRoot
+                    return hasShadowRoot
+                        ? event.composedPath?.()?.find((el) => el === ref)
+                        : `contains` in ref && ref.contains(event.target as Element)
                 })
             ) {
                 return
@@ -35,8 +42,8 @@ export function useOutsideClickHandler(
             handleClickOutside?.(event)
         }
 
-        if (allRefs.length > 0) {
-            // Only attach event listeners if there's something to track
+        // Only attach event listeners if there's something to track
+        if (refs.length > 0) {
             document.addEventListener('mouseup', handleClick)
             document.addEventListener('touchend', handleClick)
             return () => {
@@ -44,5 +51,5 @@ export function useOutsideClickHandler(
                 document.removeEventListener('touchend', handleClick)
             }
         }
-    }, [...allRefs, ...extraDeps])
+    }, [...refs, ...extraDeps])
 }

@@ -1,14 +1,77 @@
 import { CanvasArg, canvasMutationData, canvasMutationParam, eventWithTime } from '@rrweb/types'
+import { captureException } from '@sentry/react'
+import { debounce } from 'lib/utils'
 import { canvasMutation, EventType, IncrementalSource, Replayer } from 'rrweb'
 import { ReplayPlugin } from 'rrweb/typings/types'
 
 import { deserializeCanvasArg } from './deserialize-canvas-args'
+
+type CanvasEventWithTime = eventWithTime & {
+    type: EventType.IncrementalSnapshot
+    data: canvasMutationData
+}
+
+function isCanvasMutation(e: eventWithTime): e is CanvasEventWithTime {
+    return e.type === EventType.IncrementalSnapshot && e.data.source === IncrementalSource.CanvasMutation
+}
+
+function quickFindClosestCanvasEventIndex(
+    events: CanvasEventWithTime[],
+    target: CanvasEventWithTime,
+    start: number,
+    end: number
+): number {
+    if (!target) {
+        return -1
+    }
+
+    if (start > end) {
+        return end
+    }
+
+    const mid = Math.floor((start + end) / 2)
+
+    return target.timestamp <= events[mid].timestamp
+        ? quickFindClosestCanvasEventIndex(events, target, start, mid - 1)
+        : quickFindClosestCanvasEventIndex(events, target, mid + 1, end)
+}
+
+const PRELOAD_BUFFER_SIZE = 20
+const BUFFER_TIME = 30000 // 30 seconds
+const DEBOUNCE_MILLIS = 250 // currently using 4fps for all recordings
 
 export const CanvasReplayerPlugin = (events: eventWithTime[]): ReplayPlugin => {
     const canvases = new Map<number, HTMLCanvasElement>([])
     const containers = new Map<number, HTMLImageElement>([])
     const imageMap = new Map<eventWithTime | string, HTMLImageElement>()
     const canvasEventMap = new Map<eventWithTime | string, canvasMutationParam>()
+    const pruneQueue: eventWithTime[] = []
+    let nextPreloadIndex: number | null = null
+
+    const canvasMutationEvents = events.filter(isCanvasMutation)
+
+    // Buffers mutations from user interactions before Replayer was ready
+    const handleQueue = new Map<number, [CanvasEventWithTime, Replayer]>()
+
+    // only processes a single mutation event in cases when the user is scrubbing
+    // avoids looking like the canvas is playing
+    const processMutationSync = (e: CanvasEventWithTime, { replayer }: { replayer: Replayer }): void => {
+        // We want to only process the most recent sync event
+        handleQueue.set(e.data.id, [e, replayer])
+        debouncedProcessQueuedEvents()
+    }
+    const debouncedProcessQueuedEvents = debounce(() => {
+        Array.from(handleQueue.entries()).forEach(([id, [e, replayer]]) => {
+            void (async () => {
+                try {
+                    await processMutation(e, replayer)
+                    handleQueue.delete(id)
+                } catch (e) {
+                    handleMutationError(e)
+                }
+            })()
+        })
+    }, DEBOUNCE_MILLIS)
 
     const deserializeAndPreloadCanvasEvents = async (data: canvasMutationData, event: eventWithTime): Promise<void> => {
         if (!canvasEventMap.has(event)) {
@@ -44,12 +107,88 @@ export const CanvasReplayerPlugin = (events: eventWithTime[]): ReplayPlugin => {
         return cloneNode
     }
 
-    const promises: Promise<any>[] = []
-    for (const event of events) {
-        if (event.type === EventType.IncrementalSnapshot && event.data.source === IncrementalSource.CanvasMutation) {
-            promises.push(deserializeAndPreloadCanvasEvents(event.data, event))
+    const pruneBuffer = (event: eventWithTime): void => {
+        while (pruneQueue.length) {
+            const difference = Math.abs(event.timestamp - pruneQueue[0].timestamp)
+            const eventToPrune = pruneQueue.shift()
+            if (eventToPrune) {
+                canvasEventMap.delete(eventToPrune)
+            }
+            if (difference <= BUFFER_TIME && pruneQueue.length <= PRELOAD_BUFFER_SIZE) {
+                break
+            }
         }
     }
+
+    const processMutation = async (e: CanvasEventWithTime, replayer: Replayer): Promise<void> => {
+        pruneBuffer(e)
+        pruneQueue.push(e)
+        void preload(e)
+
+        const data = e.data as canvasMutationData
+        const source = replayer.getMirror().getNode(data.id) as HTMLCanvasElement
+        const target = canvases.get(data.id) || (source && cloneCanvas(data.id, source))
+
+        if (!target) {
+            return
+        }
+
+        if (source) {
+            target.width = source.clientWidth || source.width
+            target.height = source.clientHeight || source.height
+        }
+
+        await canvasMutation({
+            event: e,
+            mutation: data,
+            target: target,
+            imageMap,
+            canvasEventMap,
+            errorHandler: (error: unknown) => {
+                handleMutationError(error)
+            },
+        })
+
+        const img = containers.get(data.id)
+        if (img) {
+            target.toBlob(
+                (blob) => {
+                    if (blob) {
+                        img.style.width = 'initial'
+                        img.style.height = 'initial'
+
+                        const url = URL.createObjectURL(blob)
+                        // no longer need to read the blob so it's revoked
+                        img.onload = () => URL.revokeObjectURL(url)
+                        img.src = url
+                    }
+                },
+                // ensures transparency is possible
+                'image/webp',
+                0.4
+            )
+        }
+    }
+
+    const preload = async (currentEvent?: CanvasEventWithTime): Promise<void> => {
+        const currentIndex = nextPreloadIndex
+            ? nextPreloadIndex
+            : currentEvent
+            ? quickFindClosestCanvasEventIndex(canvasMutationEvents, currentEvent, 0, canvasMutationEvents.length)
+            : 0
+
+        const eventsToPreload = canvasMutationEvents
+            .slice(currentIndex, currentIndex + PRELOAD_BUFFER_SIZE)
+            .filter(({ timestamp }) => !currentEvent || timestamp - currentEvent.timestamp <= BUFFER_TIME)
+
+        nextPreloadIndex = currentIndex + 1
+
+        for (const event of eventsToPreload) {
+            await deserializeAndPreloadCanvasEvents(event.data as canvasMutationData, event)
+        }
+    }
+
+    void preload()
 
     return {
         onBuild: (node, { id }) => {
@@ -65,32 +204,28 @@ export const CanvasReplayerPlugin = (events: eventWithTime[]): ReplayPlugin => {
         },
 
         // eslint-disable-next-line @typescript-eslint/no-misused-promises
-        handler: async (e: eventWithTime, _isSync: boolean, { replayer }: { replayer: Replayer }) => {
-            if (e.type === EventType.IncrementalSnapshot && e.data.source === IncrementalSource.CanvasMutation) {
-                const source = replayer.getMirror().getNode(e.data.id) as HTMLCanvasElement
-                const target = canvases.get(e.data.id) || (source && cloneCanvas(e.data.id, source))
+        handler: async (e: eventWithTime, isSync: boolean, { replayer }: { replayer: Replayer }) => {
+            const isCanvas = isCanvasMutation(e)
 
-                if (!target) {
-                    return
+            // scrubbing / fast forwarding
+            if (isSync) {
+                // reset preload index
+                nextPreloadIndex = null
+                canvasEventMap.clear()
+
+                if (isCanvas) {
+                    processMutationSync(e, { replayer })
+                } else {
+                    pruneBuffer(e)
                 }
-
-                target.width = source.clientWidth
-                target.height = source.clientHeight
-
-                await canvasMutation({
-                    event: e,
-                    mutation: e.data,
-                    target: target,
-                    imageMap,
-                    canvasEventMap,
-                    errorHandler: () => {},
-                })
-
-                const img = containers.get(e.data.id)
-                if (img) {
-                    img.src = target.toDataURL('image/jpeg', 0.6)
-                }
+                pruneBuffer(e)
+            } else if (isCanvas) {
+                void processMutation(e, replayer).catch(handleMutationError)
             }
         },
     } as ReplayPlugin
+}
+
+const handleMutationError = (error: unknown): void => {
+    captureException(error)
 }

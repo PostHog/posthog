@@ -1,0 +1,93 @@
+[workspace]
+resolver = "2"
+
+members = [
+  "property-defs-rs",
+  "capture",
+  "common/health",
+  "common/metrics",
+  "common/dns",
+  "common/alloc",
+  "feature-flags",
+  "hook-api",
+  "hook-common",
+  "hook-janitor",
+  "hook-worker",
+  "cyclotron-core",
+  "cyclotron-node",
+  "cyclotron-janitor",
+  "cyclotron-fetch",
+]
+
+[workspace.lints.rust]
+# See https://doc.rust-lang.org/stable/rustc/lints/listing/allowed-by-default.html
+unsafe_code = "forbid"            # forbid cannot be ignored with an annotation
+unstable_features = "forbid"
+macro_use_extern_crate = "forbid"
+let_underscore_drop = "deny"
+non_ascii_idents = "deny"
+trivial_casts = "deny"
+trivial_numeric_casts = "deny"
+unit_bindings = "deny"
+
+[workspace.lints.clippy]
+# See https://rust-lang.github.io/rust-clippy/, we might want to add more
+enum_glob_use = "deny"
+
+[workspace.dependencies]
+anyhow = "1.0"
+assert-json-diff = "2.0.2"
+async-trait = "0.1.74"
+axum = { version = "0.7.5", features = ["http2", "macros", "matched-path"] }
+axum-client-ip = "0.6.0"
+base64 = "0.22.0"
+bytes = "1"
+chrono = { version = "0.4.38", features = ["default", "serde"] }
+envconfig = "0.10.0"
+eyre = "0.6.9"
+flate2 = "1.0"
+futures = { version = "0.3.29" }
+governor = { version = "0.5.1", features = ["dashmap"] }
+http = { version = "1.1.0" }
+http-body-util = "0.1.0"
+httpmock = "0.7.0"
+metrics = "0.22.0"
+metrics-exporter-prometheus = "0.14.0"
+once_cell = "1.18.0"
+opentelemetry = { version = "0.22.0", features = ["trace"] }
+opentelemetry-otlp = "0.15.0"
+opentelemetry_sdk = { version = "0.22.1", features = ["trace", "rt-tokio"] }
+rand = "0.8.5"
+rdkafka = { version = "0.36.0", features = ["cmake-build", "ssl", "tracing"] }
+reqwest = { version = "0.12.3", features = ["json", "stream"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_derive = { version = "1.0" }
+serde_json = { version = "1.0" }
+serde_urlencoded = "0.7.1"
+sqlx = { version = "0.7", features = [
+  "chrono",
+  "json",
+  "migrate",
+  "postgres",
+  "runtime-tokio",
+  "tls-native-tls",
+  "uuid",
+] }
+time = { version = "0.3.36", features = [
+  "formatting",
+  "macros",
+  "parsing",
+  "serde",
+] }
+thiserror = { version = "1.0" }
+tokio = { version = "1.34.0", features = ["full"] }
+tower = { version = "0.4.13", features = ["default", "limit"] }
+tower-http = { version = "0.5.2", features = ["cors", "limit", "trace"] }
+tracing = "0.1.40"
+tracing-opentelemetry = "0.23.0"
+tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
+url = { version = "2.5.0 " }
+uuid = { version = "1.6.1", features = ["v7", "serde"] }
+neon = "1"
+quick_cache = "0.6.5"
+ahash = "0.8.11"

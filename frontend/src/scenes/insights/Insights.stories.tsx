@@ -12,6 +12,11 @@ const meta: Meta = {
         layout: 'fullscreen',
         testOptions: {
             snapshotBrowsers: ['chromium', 'webkit'],
+            viewport: {
+                // needs a slightly larger width to push the rendered scene away from breakpoint boundary
+                width: 1300,
+                height: 720,
+            },
         },
         viewMode: 'story',
         mockDate: '2022-03-11',
@@ -25,13 +30,6 @@ const meta: Meta = {
             },
             post: {
                 '/api/projects/:team_id/cohorts/': { id: 1 },
-                '/api/projects/:team_id/query/': async (req, res, ctx) => {
-                    const data = await req.json()
-                    if (data.query.kind === 'DatabaseSchemaQuery') {
-                        return res(ctx.json({}))
-                    }
-                    return res(ctx.status(500))
-                },
             },
         }),
     ],
@@ -45,6 +43,7 @@ export const TrendsLine: Story = createInsightStory(
 TrendsLine.parameters = {
     testOptions: { waitForSelector: '[data-attr=trend-line-graph] > canvas' },
 }
+
 export const TrendsLineEdit: Story = createInsightStory(
     require('../../mocks/fixtures/api/projects/team_id/insights/trendsLine.json'),
     'edit'

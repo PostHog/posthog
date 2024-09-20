@@ -11,7 +11,6 @@ import { SceneConfig } from 'scenes/sceneTypes'
 
 import { navigationLogic } from '../navigation/navigationLogic'
 import { ProjectNotice } from '../navigation/ProjectNotice'
-import { Announcement } from '../navigation/TopBar/Announcement'
 import { MinimalNavigation } from './components/MinimalNavigation'
 import { Navbar } from './components/Navbar'
 import { Sidebar } from './components/Sidebar'
@@ -49,14 +48,13 @@ export function Navigation({
                 {activeNavbarItem && <Sidebar key={activeNavbarItem.identifier} navbarItem={activeNavbarItem} />}
             </FlaggedFeature>
             <main>
-                <Announcement />
                 <TopBar />
-
                 <div
                     className={clsx(
                         'Navigation3000__scene',
                         // Hack - once we only have 3000 the "minimal" scenes should become "app-raw"
-                        sceneConfig?.layout === 'app-raw' && 'Navigation3000__scene--raw'
+                        sceneConfig?.layout === 'app-raw' && 'Navigation3000__scene--raw',
+                        sceneConfig?.layout === 'app-canvas' && 'Navigation3000__scene--canvas'
                     )}
                 >
                     {!sceneConfig?.hideBillingNotice && <BillingAlertsV2 />}

@@ -34,9 +34,11 @@ class TestDashboardCollaboratorsAPI(APILicensedTest):
         response = self.client.get(
             f"/api/projects/{self.test_dashboard.team_id}/dashboards/{self.test_dashboard.id}/collaborators/"
         )
-        response_data = response.json()
-
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response_data = response.json()
+        response_data = sorted(response_data, key=lambda entry: entry["user"]["email"])
+
         self.assertEqual(len(response_data), 2)
         self.assertEqual(response_data[0]["user"]["email"], other_user_a.email)
         self.assertEqual(response_data[0]["level"], Dashboard.PrivilegeLevel.CAN_VIEW)

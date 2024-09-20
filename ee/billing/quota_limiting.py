@@ -1,8 +1,8 @@
 import copy
+from collections.abc import Mapping, Sequence
 from datetime import datetime, timedelta
 from enum import Enum
 from typing import Optional, TypedDict, cast
-from collections.abc import Mapping, Sequence
 
 import dateutil.parser
 import posthoganalytics
@@ -56,27 +56,27 @@ def replace_limited_team_tokens(
     resource: QuotaResource, tokens: Mapping[str, int], cache_key: QuotaLimitingCaches
 ) -> None:
     pipe = get_client().pipeline()
-    pipe.delete(f"{cache_key}{resource.value}")
+    pipe.delete(f"{cache_key.value}{resource.value}")
     if tokens:
-        pipe.zadd(f"{cache_key}{resource.value}", tokens)  # type: ignore # (zadd takes a Mapping[str, int] but the derived Union type is wrong)
+        pipe.zadd(f"{cache_key.value}{resource.value}", tokens)  # type: ignore # (zadd takes a Mapping[str, int] but the derived Union type is wrong)
     pipe.execute()
 
 
 def add_limited_team_tokens(resource: QuotaResource, tokens: Mapping[str, int], cache_key: QuotaLimitingCaches) -> None:
     redis_client = get_client()
-    redis_client.zadd(f"{cache_key}{resource.value}", tokens)  # type: ignore # (zadd takes a Mapping[str, int] but the derived Union type is wrong)
+    redis_client.zadd(f"{cache_key.value}{resource.value}", tokens)  # type: ignore # (zadd takes a Mapping[str, int] but the derived Union type is wrong)
 
 
 def remove_limited_team_tokens(resource: QuotaResource, tokens: list[str], cache_key: QuotaLimitingCaches) -> None:
     redis_client = get_client()
-    redis_client.zrem(f"{cache_key}{resource.value}", *tokens)
+    redis_client.zrem(f"{cache_key.value}{resource.value}", *tokens)
 
 
 @cache_for(timedelta(seconds=30), background_refresh=True)
 def list_limited_team_attributes(resource: QuotaResource, cache_key: QuotaLimitingCaches) -> list[str]:
     now = timezone.now()
     redis_client = get_client()
-    results = redis_client.zrangebyscore(f"{cache_key}{resource.value}", min=now.timestamp(), max="+inf")
+    results = redis_client.zrangebyscore(f"{cache_key.value}{resource.value}", min=now.timestamp(), max="+inf")
     return [x.decode("utf-8") for x in results]
 
 
@@ -122,7 +122,7 @@ def org_quota_limited_until(
     if organization.never_drop_data or trust_score == 15:
         return None
 
-    team_tokens = get_team_attribute_by_quota_resource(organization, resource)
+    team_tokens = get_team_attribute_by_quota_resource(organization)
     team_being_limited = any(x in previously_quota_limited_team_tokens for x in team_tokens)
 
     if team_being_limited:
@@ -134,7 +134,7 @@ def org_quota_limited_until(
 
     if posthoganalytics.feature_enabled(
         QUOTA_LIMIT_DATA_RETENTION_FLAG,
-        organization.id,
+        str(organization.id),
         groups={"organization": str(organization.id)},
         group_properties={"organization": {"id": str(organization.id)}},
     ):
@@ -151,8 +151,8 @@ def org_quota_limited_until(
     if not trust_score:
         # Set them to the default trust score and immediately limit
         if trust_score is None:
-            organization.customer_trust_scores[resource] = 0
-            organization.save(update_fields=["usage"])
+            organization.customer_trust_scores[resource.value] = 0
+            organization.save(update_fields=["customer_trust_scores", "usage"])
         return {
             "quota_limited_until": billing_period_end,
             "quota_limiting_suspended_until": None,
@@ -237,7 +237,7 @@ def sync_org_quota_limits(organization: Organization):
         previously_quota_limited_team_tokens = list_limited_team_attributes(
             resource, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
         )
-        team_attributes = get_team_attribute_by_quota_resource(organization, resource)
+        team_attributes = get_team_attribute_by_quota_resource(organization)
         result = org_quota_limited_until(organization, resource, previously_quota_limited_team_tokens)
 
         if result:
@@ -264,24 +264,14 @@ def sync_org_quota_limits(organization: Organization):
             remove_limited_team_tokens(resource, team_attributes, QuotaLimitingCaches.QUOTA_LIMITING_SUSPENDED_KEY)
 
 
-def get_team_attribute_by_quota_resource(organization: Organization, resource: QuotaResource):
-    if resource in [QuotaResource.EVENTS, QuotaResource.RECORDINGS]:
-        team_tokens: list[str] = [x for x in list(organization.teams.values_list("api_token", flat=True)) if x]
+def get_team_attribute_by_quota_resource(organization: Organization):
+    team_tokens: list[str] = [x for x in list(organization.teams.values_list("api_token", flat=True)) if x]
 
-        if not team_tokens:
-            capture_exception(Exception(f"quota_limiting: No team tokens found for organization: {organization.id}"))
-            return
+    if not team_tokens:
+        capture_exception(Exception(f"quota_limiting: No team tokens found for organization: {organization.id}"))
+        return
 
-        return team_tokens
-
-    if resource == QuotaResource.ROWS_SYNCED:
-        team_ids: list[str] = [x for x in list(organization.teams.values_list("id", flat=True)) if x]
-
-        if not team_ids:
-            capture_exception(Exception(f"quota_limiting: No team ids found for organization: {organization.id}"))
-            return
-
-        return team_ids
+    return team_tokens
 
 
 def set_org_usage_summary(
@@ -309,8 +299,11 @@ def set_org_usage_summary(
         if todays_usage:
             resource_usage["todays_usage"] = todays_usage.get(field, 0)
         else:
+            org_usage_data = organization.usage or {}
+            org_field_usage = org_usage_data.get(field, {}) or {}
+            org_usage = org_field_usage.get("usage")
             # TRICKY: If we are not explictly setting todays_usage, we want to reset it to 0 IF the incoming new_usage is different
-            if (organization.usage or {}).get(field, {}).get("usage") != resource_usage.get("usage"):
+            if org_usage != resource_usage.get("usage"):
                 resource_usage["todays_usage"] = 0
             else:
                 resource_usage["todays_usage"] = organization.usage.get(field, {}).get("todays_usage") or 0

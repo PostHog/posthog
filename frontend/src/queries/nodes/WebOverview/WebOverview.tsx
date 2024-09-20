@@ -40,6 +40,8 @@ export function WebOverview(props: {
 
     const samplingRate = webOverviewQueryResponse?.samplingRate
 
+    const numSkeletons = props.query.conversionGoal ? 4 : 5
+
     return (
         <>
             <EvenlyDistributedRows
@@ -47,7 +49,7 @@ export function WebOverview(props: {
                 minWidthRems={OVERVIEW_ITEM_CELL_MIN_WIDTH_REMS + 2}
             >
                 {responseLoading
-                    ? range(5).map((i) => <WebOverviewItemCellSkeleton key={i} />)
+                    ? range(numSkeletons).map((i) => <WebOverviewItemCellSkeleton key={i} />)
                     : webOverviewQueryResponse?.results?.map((item) => (
                           <WebOverviewItemCell key={item.key} item={item} />
                       )) || []}
@@ -130,9 +132,8 @@ const formatPercentage = (x: number, options?: { precise?: boolean }): string =>
         return (x / 100).toLocaleString(undefined, { style: 'percent', maximumFractionDigits: 1 })
     } else if (x >= 1000) {
         return humanFriendlyLargeNumber(x) + '%'
-    } else {
-        return (x / 100).toLocaleString(undefined, { style: 'percent', maximumFractionDigits: 0 })
     }
+    return (x / 100).toLocaleString(undefined, { style: 'percent', maximumFractionDigits: 0 })
 }
 
 const formatSeconds = (x: number): string => humanFriendlyDuration(Math.round(x))
@@ -140,9 +141,8 @@ const formatSeconds = (x: number): string => humanFriendlyDuration(Math.round(x)
 const formatUnit = (x: number, options?: { precise?: boolean }): string => {
     if (options?.precise) {
         return x.toLocaleString()
-    } else {
-        return humanFriendlyLargeNumber(x)
     }
+    return humanFriendlyLargeNumber(x)
 }
 
 const formatItem = (
@@ -156,9 +156,8 @@ const formatItem = (
         return formatPercentage(value, options)
     } else if (kind === 'duration_s') {
         return formatSeconds(value)
-    } else {
-        return formatUnit(value, options)
     }
+    return formatUnit(value, options)
 }
 
 const labelFromKey = (key: string): string => {
@@ -173,6 +172,12 @@ const labelFromKey = (key: string): string => {
             return 'Session duration'
         case 'bounce rate':
             return 'Bounce rate'
+        case 'conversion rate':
+            return 'Conversion rate'
+        case 'total conversions':
+            return 'Total conversions'
+        case 'unique conversions':
+            return 'Unique conversions'
         default:
             return key
                 .split(' ')

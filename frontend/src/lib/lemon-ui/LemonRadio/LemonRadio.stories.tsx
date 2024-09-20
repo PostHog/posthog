@@ -21,7 +21,7 @@ const meta: Meta<typeof LemonRadio> = {
         options: [
             { value: 'calendar', label: 'Calendar' },
             { value: 'calculator', label: 'Calculator' },
-            { value: 'banana', label: 'Banana' },
+            { value: 'banana', label: 'Banana', disabledReason: 'Bananas are not allowed on pizza' },
             { value: 'settings', label: 'Settings' },
         ] as LemonRadioOption<string>[],
     },
@@ -38,11 +38,17 @@ const Template: StoryFn<typeof LemonRadio> = (props: Omit<LemonRadioProps<any>, 
 export const Default: Story = Template.bind({})
 Default.args = {}
 
-export const Disabled: Story = Template.bind({})
-Disabled.args = {
+export const WithDescriptions: Story = Template.bind({})
+WithDescriptions.args = {
     options: [
         { value: 'calendar', label: 'Calendar' },
-        { value: 'calculator', label: 'Calculator' },
-        { value: 'banana', label: 'Banana', disabledReason: 'Bananas are not allowed' },
+        { value: 'calculator', label: 'Calculator', description: '2.1 + 2.01 = 4.109999999999999' },
+        {
+            value: 'banana',
+            label: 'Banana',
+            disabledReason: 'Bananas are not allowed on pizza',
+            description:
+                'Note: The banana addon ships from Costa Rica, which will add 2 working days of a delay to your order.',
+        },
     ],
 }

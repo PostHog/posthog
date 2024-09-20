@@ -1,11 +1,11 @@
 .Lettermark {
     display: inline-block;
     flex-shrink: 0;
-    width: 1.5rem;
-    height: 1.5rem;
+    width: 2em;
+    height: 2em;
     font-size: 0.75rem;
     font-weight: 600;
-    line-height: 1.5rem;
+    line-height: 2em;
     color: var(--lettermark-1-text);
     text-align: center;
     user-select: none;
@@ -17,8 +17,17 @@
     }
 
     &.Lettermark--variant-gray {
-        color: var(--default);
+        color: var(--text-3000);
         background: var(--border);
+    }
+
+    &.Lettermark--xsmall {
+        font-size: 0.5rem;
+    }
+
+    &.Lettermark--xlarge {
+        font-size: 2rem;
+        border-radius: var(--radius);
     }
 
     @each $variant in (1, 2, 3, 4, 5, 6, 7, 8) {

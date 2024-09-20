@@ -28,10 +28,11 @@
     position: relative; // For arrow
     flex-grow: 1;
     max-width: 100%;
+    overflow: hidden;
     background: var(--bg-light);
     border: 1px solid var(--secondary-3000-button-border);
     border-radius: var(--radius);
-    box-shadow: var(--shadow-elevation);
+    box-shadow: var(--shadow-elevation-3000);
     opacity: 0;
     transition: opacity 50ms ease, transform 50ms ease;
     transform-origin: top;

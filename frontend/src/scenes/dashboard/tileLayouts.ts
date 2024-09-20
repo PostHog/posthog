@@ -1,11 +1,15 @@
 import { Layout } from 'react-grid-layout'
 import { BREAKPOINT_COLUMN_COUNTS } from 'scenes/dashboard/dashboardLogic'
-import { isFunnelsFilter, isPathsFilter, isRetentionFilter, isTrendsFilter } from 'scenes/insights/sharedUtils'
 
-import { ChartDisplayType, DashboardLayoutSize, DashboardTile, FilterType } from '~/types'
+import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
+import { isFunnelsQuery, isPathsQuery, isRetentionQuery, isTrendsQuery } from '~/queries/utils'
+import { ChartDisplayType, DashboardLayoutSize, DashboardTile, QueryBasedInsightModel } from '~/types'
 
-export const sortTilesByLayout = (tiles: Array<DashboardTile>, col: DashboardLayoutSize): Array<DashboardTile> => {
-    return [...tiles].sort((a: DashboardTile, b: DashboardTile) => {
+export const sortTilesByLayout = (
+    tiles: Array<DashboardTile<QueryBasedInsightModel>>,
+    col: DashboardLayoutSize
+): Array<DashboardTile<QueryBasedInsightModel>> => {
+    return [...tiles].sort((a: DashboardTile<QueryBasedInsightModel>, b: DashboardTile<QueryBasedInsightModel>) => {
         const ax = a.layouts[col]?.x ?? 0
         const ay = a.layouts[col]?.y ?? 0
         const bx = b.layouts[col]?.x ?? 0
@@ -19,7 +23,9 @@ export const sortTilesByLayout = (tiles: Array<DashboardTile>, col: DashboardLay
         return 0
     })
 }
-export const calculateLayouts = (tiles: DashboardTile[]): Partial<Record<DashboardLayoutSize, Layout[]>> => {
+export const calculateLayouts = (
+    tiles: DashboardTile<QueryBasedInsightModel>[]
+): Partial<Record<DashboardLayoutSize, Layout[]>> => {
     const allLayouts: Partial<Record<keyof typeof BREAKPOINT_COLUMN_COUNTS, Layout[]>> = {}
 
     let referenceOrder: number[] | undefined = undefined
@@ -27,7 +33,7 @@ export const calculateLayouts = (tiles: DashboardTile[]): Partial<Record<Dashboa
     for (const breakpoint of Object.keys(BREAKPOINT_COLUMN_COUNTS) as (keyof typeof BREAKPOINT_COLUMN_COUNTS)[]) {
         const columnCount = BREAKPOINT_COLUMN_COUNTS[breakpoint]
 
-        let sortedDashboardTiles: DashboardTile[] | undefined
+        let sortedDashboardTiles: DashboardTile<QueryBasedInsightModel>[] | undefined
         if (referenceOrder === undefined) {
             sortedDashboardTiles = sortTilesByLayout(tiles, breakpoint)
             referenceOrder = sortedDashboardTiles.map((tile) => tile.id)
@@ -38,7 +44,7 @@ export const calculateLayouts = (tiles: DashboardTile[]): Partial<Record<Dashboa
         }
 
         const layouts = (sortedDashboardTiles || []).map((tile) => {
-            const filters: Partial<FilterType> | undefined = tile.insight?.filters
+            const query = tile.insight ? getQueryBasedInsightModel(tile.insight) : null
             // Base constraints
             let minW = 3
             let minH = 3
@@ -49,20 +55,20 @@ export const calculateLayouts = (tiles: DashboardTile[]): Partial<Record<Dashboa
                 minW = 1
                 minH = 1
                 defaultH = 2
-            } else if (isFunnelsFilter(filters)) {
+            } else if (isFunnelsQuery(query)) {
                 minW = 4
                 minH = 4
-            } else if (isRetentionFilter(filters)) {
+            } else if (isRetentionQuery(query)) {
                 minW = 6
                 minH = 7
                 defaultW = 6
                 defaultH = 7
-            } else if (isPathsFilter(filters)) {
+            } else if (isPathsQuery(query)) {
                 minW = columnCount // Paths take up so much space that they need to be full width to be readable
                 minH = 7
                 defaultW = columnCount
                 defaultH = 7
-            } else if (isTrendsFilter(filters) && filters.display === ChartDisplayType.BoldNumber) {
+            } else if (isTrendsQuery(query) && query.trendsFilter?.display === ChartDisplayType.BoldNumber) {
                 minW = 2
                 minH = 2
             }

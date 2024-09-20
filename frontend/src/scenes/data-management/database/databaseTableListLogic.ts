@@ -1,11 +1,15 @@
 import { actions, afterMount, kea, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import api, { PaginatedResponse } from 'lib/api'
-import { DatabaseTableListRow } from 'scenes/data-warehouse/types'
 
-import { query } from '~/queries/query'
-import { DatabaseSchemaQuery, NodeKind } from '~/queries/schema'
-import { DataWarehouseTable } from '~/types'
+import { performQuery } from '~/queries/query'
+import {
+    DatabaseSchemaDataWarehouseTable,
+    DatabaseSchemaQuery,
+    DatabaseSchemaQueryResponse,
+    DatabaseSchemaTable,
+    DatabaseSchemaViewTable,
+    NodeKind,
+} from '~/queries/schema'
 
 import type { databaseTableListLogicType } from './databaseTableListLogicType'
 
@@ -14,61 +18,148 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
     actions({
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
     }),
-    loaders(({ values }) => ({
+    loaders({
         database: [
-            null as Required<DatabaseSchemaQuery['response']> | null,
+            null as Required<DatabaseSchemaQueryResponse> | null,
             {
-                loadDatabase: async (): Promise<Required<DatabaseSchemaQuery['response']> | null> =>
-                    await query({ kind: NodeKind.DatabaseSchemaQuery } as DatabaseSchemaQuery),
+                loadDatabase: async (): Promise<Required<DatabaseSchemaQueryResponse> | null> =>
+                    await performQuery({ kind: NodeKind.DatabaseSchemaQuery } as DatabaseSchemaQuery),
             },
         ],
-        dataWarehouse: [
-            null as PaginatedResponse<DataWarehouseTable> | null,
-            {
-                loadDataWarehouse: async (): Promise<PaginatedResponse<DataWarehouseTable>> =>
-                    await api.dataWarehouseTables.list(),
-                deleteDataWarehouseTable: async (table: DataWarehouseTable) => {
-                    await api.dataWarehouseTables.delete(table.id)
-                    return {
-                        results: [...(values.dataWarehouse?.results || []).filter((t) => t.id != table.id)],
-                    }
-                },
-            },
-        ],
-    })),
+    }),
     reducers({ searchTerm: ['', { setSearchTerm: (_, { searchTerm }) => searchTerm }] }),
     selectors({
         filteredTables: [
             (s) => [s.database, s.searchTerm],
-            (database, searchTerm): DatabaseTableListRow[] => {
-                if (!database) {
+            (database, searchTerm): DatabaseSchemaTable[] => {
+                if (!database || !database.tables) {
                     return []
                 }
 
-                return Object.entries(database)
-                    .map(
-                        ([key, value]) =>
-                            ({
-                                name: key,
-                                columns: value,
-                            } as DatabaseTableListRow)
-                    )
+                return Object.values(database.tables)
                     .filter(({ name }) => name.toLowerCase().includes(searchTerm.toLowerCase()))
                     .sort((a, b) => a.name.localeCompare(b.name))
             },
         ],
-        tableOptions: [
-            (s) => [s.filteredTables],
-            (filteredTables: DatabaseTableListRow[]) =>
-                filteredTables.map((row) => ({
-                    value: row.name,
-                    label: row.name,
-                    columns: row.columns,
-                })),
+        allTables: [
+            (s) => [s.database],
+            (database): DatabaseSchemaTable[] => {
+                if (!database || !database.tables) {
+                    return []
+                }
+
+                return Object.values(database.tables)
+            },
+        ],
+        allTablesMap: [
+            (s) => [s.database],
+            (database): Record<string, DatabaseSchemaTable> => {
+                if (!database || !database.tables) {
+                    return {}
+                }
+
+                return Object.values(database.tables).reduce((acc, cur) => {
+                    acc[cur.name] = database.tables[cur.name]
+                    return acc
+                }, {} as Record<string, DatabaseSchemaTable>)
+            },
+        ],
+        posthogTables: [
+            (s) => [s.database],
+            (database): DatabaseSchemaTable[] => {
+                if (!database || !database.tables) {
+                    return []
+                }
+
+                return Object.values(database.tables).filter((n) => n.type === 'posthog')
+            },
+        ],
+        posthogTablesMap: [
+            (s) => [s.database],
+            (database): Record<string, DatabaseSchemaTable> => {
+                if (!database || !database.tables) {
+                    return {}
+                }
+
+                return Object.values(database.tables)
+                    .filter((n) => n.type === 'posthog')
+                    .reduce((acc, cur) => {
+                        acc[cur.name] = database.tables[cur.name]
+                        return acc
+                    }, {} as Record<string, DatabaseSchemaTable>)
+            },
+        ],
+        dataWarehouseTables: [
+            (s) => [s.database],
+            (database): DatabaseSchemaDataWarehouseTable[] => {
+                if (!database || !database.tables) {
+                    return []
+                }
+
+                return Object.values(database.tables).filter(
+                    (n): n is DatabaseSchemaDataWarehouseTable => n.type === 'data_warehouse'
+                )
+            },
+        ],
+        dataWarehouseTablesMap: [
+            (s) => [s.database],
+            (database): Record<string, DatabaseSchemaDataWarehouseTable> => {
+                if (!database || !database.tables) {
+                    return {}
+                }
+
+                return Object.values(database.tables)
+                    .filter(
+                        (n): n is DatabaseSchemaDataWarehouseTable => n.type === 'data_warehouse' || n.type == 'view'
+                    )
+                    .reduce((acc, cur) => {
+                        acc[cur.name] = database.tables[cur.name] as DatabaseSchemaDataWarehouseTable
+                        return acc
+                    }, {} as Record<string, DatabaseSchemaDataWarehouseTable>)
+            },
+        ],
+        views: [
+            (s) => [s.database],
+            (database): DatabaseSchemaViewTable[] => {
+                if (!database || !database.tables) {
+                    return []
+                }
+
+                return Object.values(database.tables).filter((n): n is DatabaseSchemaViewTable => n.type === 'view')
+            },
+        ],
+        viewsMap: [
+            (s) => [s.database],
+            (database): Record<string, DatabaseSchemaViewTable> => {
+                if (!database || !database.tables) {
+                    return {}
+                }
+
+                return Object.values(database.tables)
+                    .filter((n): n is DatabaseSchemaViewTable => n.type === 'view')
+                    .reduce((acc, cur) => {
+                        acc[cur.name] = database.tables[cur.name] as DatabaseSchemaViewTable
+                        return acc
+                    }, {} as Record<string, DatabaseSchemaViewTable>)
+            },
+        ],
+        viewsMapById: [
+            (s) => [s.database],
+            (database): Record<string, DatabaseSchemaViewTable> => {
+                if (!database || !database.tables) {
+                    return {}
+                }
+
+                return Object.values(database.tables)
+                    .filter((n): n is DatabaseSchemaViewTable => n.type === 'view')
+                    .reduce((acc, cur) => {
+                        acc[cur.id] = database.tables[cur.name] as DatabaseSchemaViewTable
+                        return acc
+                    }, {} as Record<string, DatabaseSchemaViewTable>)
+            },
         ],
     }),
     afterMount(({ actions }) => {
         actions.loadDatabase()
-        actions.loadDataWarehouse()
     }),
 ])

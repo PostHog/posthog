@@ -202,41 +202,43 @@ const StepGoal = (): JSX.Element => {
                         You can change this at any time during the experiment.
                     </div>
                     <LemonDivider />
-                    <LemonRadio
-                        className="space-y-2 -mt-2"
-                        value={experimentInsightType}
-                        onChange={(val) => {
-                            val &&
-                                setNewExperimentInsight({
-                                    insight: val,
-                                    properties: experiment?.filters?.properties,
-                                })
-                        }}
-                        options={[
-                            {
-                                value: InsightType.FUNNELS,
-                                label: (
-                                    <div className="translate-y-2">
-                                        <div>Conversion funnel</div>
-                                        <div className="text-xs text-muted">
-                                            Track how many people complete a sequence of actions and/or events
+                    <div data-attr="experiment-goal-type-select">
+                        <LemonRadio
+                            className="space-y-2 -mt-2"
+                            value={experimentInsightType}
+                            onChange={(val) => {
+                                val &&
+                                    setNewExperimentInsight({
+                                        insight: val,
+                                        properties: experiment?.filters?.properties,
+                                    })
+                            }}
+                            options={[
+                                {
+                                    value: InsightType.FUNNELS,
+                                    label: (
+                                        <div className="translate-y-2">
+                                            <div>Conversion funnel</div>
+                                            <div className="text-xs text-muted">
+                                                Track how many people complete a sequence of actions and/or events
+                                            </div>
                                         </div>
-                                    </div>
-                                ),
-                            },
-                            {
-                                value: InsightType.TRENDS,
-                                label: (
-                                    <div className="translate-y-2">
-                                        <div>Trend</div>
-                                        <div className="text-xs text-muted">
-                                            Track the total count of a specific event or action.
+                                    ),
+                                },
+                                {
+                                    value: InsightType.TRENDS,
+                                    label: (
+                                        <div className="translate-y-2">
+                                            <div>Trend</div>
+                                            <div className="text-xs text-muted">
+                                                Track the total count of a specific event or action.
+                                            </div>
                                         </div>
-                                    </div>
-                                ),
-                            },
-                        ]}
-                    />
+                                    ),
+                                },
+                            ]}
+                        />
+                    </div>
                 </div>
                 <div>
                     <h3 className="mb-1">Goal criteria</h3>
@@ -246,7 +248,10 @@ const StepGoal = (): JSX.Element => {
                             : 'Select a single metric to track.'}
                     </div>
                     <LemonDivider />
-                    <div className="p-4 border rounded mt-4 w-full lg:w-3/4 bg-bg-light">
+                    <div
+                        data-attr="experiment-goal-input"
+                        className="p-4 border rounded mt-4 w-full lg:w-3/4 bg-bg-light"
+                    >
                         <ExperimentInsightCreator insightProps={insightProps} />
                     </div>
                 </div>

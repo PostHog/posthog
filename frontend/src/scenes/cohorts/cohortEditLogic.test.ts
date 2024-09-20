@@ -58,21 +58,21 @@ describe('cohortEditLogic', () => {
             await initCohortLogic({ id: 1 })
             await expectLogic(logic).toDispatchActions(['fetchCohort'])
 
-            expect(api.get).toBeCalledTimes(1)
+            expect(api.get).toHaveBeenCalledTimes(1)
         })
 
         it('loads new cohort on mount', async () => {
             await initCohortLogic({ id: 'new' })
             await expectLogic(logic).toDispatchActions(['setCohort'])
 
-            expect(api.get).toBeCalledTimes(0)
+            expect(api.get).toHaveBeenCalledTimes(0)
         })
 
         it('loads new cohort on mount with undefined id', async () => {
             await initCohortLogic({ id: undefined })
             await expectLogic(logic).toDispatchActions(['setCohort'])
 
-            expect(api.get).toBeCalledTimes(0)
+            expect(api.get).toHaveBeenCalledTimes(0)
         })
     })
 
@@ -84,7 +84,7 @@ describe('cohortEditLogic', () => {
         })
             .toFinishAllListeners()
             .toDispatchActions(['setCohort', 'deleteCohort', router.actionCreators.push(urls.cohorts())])
-        expect(api.update).toBeCalledTimes(1)
+        expect(api.update).toHaveBeenCalledTimes(1)
     })
 
     describe('form validation', () => {
@@ -117,7 +117,7 @@ describe('cohortEditLogic', () => {
                 })
                 logic.actions.submitCohort()
             }).toDispatchActions(['setCohort', 'submitCohort', 'submitCohortSuccess'])
-            expect(api.update).toBeCalledTimes(1)
+            expect(api.update).toHaveBeenCalledTimes(1)
         })
 
         it('do not save with invalid name', async () => {
@@ -129,7 +129,7 @@ describe('cohortEditLogic', () => {
                 })
                 logic.actions.submitCohort()
             }).toDispatchActions(['setCohort', 'submitCohort', 'submitCohortFailure'])
-            expect(api.update).toBeCalledTimes(0)
+            expect(api.update).toHaveBeenCalledTimes(0)
         })
 
         describe('negation errors', () => {
@@ -192,7 +192,7 @@ describe('cohortEditLogic', () => {
                             },
                         }),
                     })
-                expect(api.update).toBeCalledTimes(0)
+                expect(api.update).toHaveBeenCalledTimes(0)
             })
 
             it('do not save on less than one positive matching criteria', async () => {
@@ -245,7 +245,7 @@ describe('cohortEditLogic', () => {
                             },
                         }),
                     })
-                expect(api.update).toBeCalledTimes(0)
+                expect(api.update).toHaveBeenCalledTimes(0)
             })
 
             it('do not save on criteria cancelling each other out', async () => {
@@ -309,7 +309,7 @@ describe('cohortEditLogic', () => {
                             },
                         }),
                     })
-                expect(api.update).toBeCalledTimes(0)
+                expect(api.update).toHaveBeenCalledTimes(0)
             })
         })
 
@@ -369,7 +369,7 @@ describe('cohortEditLogic', () => {
                         },
                     }),
                 })
-            expect(api.update).toBeCalledTimes(0)
+            expect(api.update).toHaveBeenCalledTimes(0)
         })
 
         it('do not save on invalid lower and upper bound period values - perform events in sequence', async () => {
@@ -426,7 +426,7 @@ describe('cohortEditLogic', () => {
                         },
                     }),
                 })
-            expect(api.update).toBeCalledTimes(0)
+            expect(api.update).toHaveBeenCalledTimes(0)
         })
 
         it('do not save on partial event filters', async () => {
@@ -506,7 +506,7 @@ describe('cohortEditLogic', () => {
                         },
                     }),
                 })
-            expect(api.update).toBeCalledTimes(0)
+            expect(api.update).toHaveBeenCalledTimes(0)
         })
 
         describe('empty input errors', () => {
@@ -570,7 +570,7 @@ describe('cohortEditLogic', () => {
                                 },
                             }),
                         })
-                    expect(api.update).toBeCalledTimes(0)
+                    expect(api.update).toHaveBeenCalledTimes(0)
                 })
             })
         })
@@ -586,7 +586,7 @@ describe('cohortEditLogic', () => {
                 })
                 logic.actions.submitCohort()
             }).toDispatchActions(['setCohort', 'submitCohort', 'submitCohortSuccess'])
-            expect(api.update).toBeCalledTimes(1)
+            expect(api.update).toHaveBeenCalledTimes(1)
         })
 
         it('do not save static cohort with empty csv', async () => {
@@ -601,7 +601,7 @@ describe('cohortEditLogic', () => {
                 })
                 logic.actions.submitCohort()
             }).toDispatchActions(['setCohort', 'submitCohort', 'submitCohortFailure'])
-            expect(api.update).toBeCalledTimes(0)
+            expect(api.update).toHaveBeenCalledTimes(0)
         })
     })
 

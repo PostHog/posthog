@@ -1,7 +1,7 @@
 import json
 from typing import Optional, cast
 from unittest import mock
-from unittest.mock import patch, Mock
+from unittest.mock import patch
 
 from django.utils import timezone
 from freezegun.api import freeze_time
@@ -377,6 +377,87 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(async_deletion.deletion_type, DeletionType.Person)
         self.assertEqual(async_deletion.key, str(person.uuid))
         self.assertIsNone(async_deletion.delete_verified_at)
+
+    @freeze_time("2021-08-25T22:09:14.252Z")
+    def test_bulk_delete_ids(self):
+        person = _create_person(
+            team=self.team,
+            distinct_ids=["person_1", "anonymous_id"],
+            properties={"$os": "Chrome"},
+            immediate=True,
+        )
+        person2 = _create_person(
+            team=self.team,
+            distinct_ids=["person_2", "anonymous_id_2"],
+            properties={"$os": "Chrome"},
+            immediate=True,
+        )
+        _create_event(event="test", team=self.team, distinct_id="person_1")
+        _create_event(event="test", team=self.team, distinct_id="anonymous_id")
+        _create_event(event="test", team=self.team, distinct_id="someone_else")
+
+        response = self.client.post(
+            f"/api/person/bulk_delete/", {"ids": [person.uuid, person2.uuid], "delete_events": True}
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED, response.content)
+        self.assertEqual(response.content, b"")  # Empty response
+        self.assertEqual(Person.objects.filter(team=self.team).count(), 0)
+
+        response = self.client.delete(f"/api/person/{person.uuid}/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+        ch_persons = sync_execute(
+            "SELECT version, is_deleted, properties FROM person FINAL WHERE team_id = %(team_id)s and id = %(uuid)s",
+            {"team_id": self.team.pk, "uuid": person.uuid},
+        )
+        self.assertEqual([(100, 1, "{}")], ch_persons)
+
+        # async deletion scheduled and executed
+        async_deletion = cast(AsyncDeletion, AsyncDeletion.objects.filter(team_id=self.team.id).first())
+        self.assertEqual(async_deletion.deletion_type, DeletionType.Person)
+        self.assertEqual(async_deletion.key, str(person.uuid))
+        self.assertIsNone(async_deletion.delete_verified_at)
+
+    @freeze_time("2021-08-25T22:09:14.252Z")
+    def test_bulk_delete_distinct_id(self):
+        person = _create_person(
+            team=self.team,
+            distinct_ids=["person_1", "anonymous_id"],
+            properties={"$os": "Chrome"},
+            immediate=True,
+        )
+        _create_person(
+            team=self.team,
+            distinct_ids=["person_2", "anonymous_id_2"],
+            properties={"$os": "Chrome"},
+            immediate=True,
+        )
+        _create_event(event="test", team=self.team, distinct_id="person_1")
+        _create_event(event="test", team=self.team, distinct_id="anonymous_id")
+        _create_event(event="test", team=self.team, distinct_id="someone_else")
+
+        response = self.client.post(f"/api/person/bulk_delete/", {"distinct_ids": ["anonymous_id", "person_2"]})
+
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED, response.content)
+        self.assertEqual(response.content, b"")  # Empty response
+        self.assertEqual(Person.objects.filter(team=self.team).count(), 0)
+
+        response = self.client.delete(f"/api/person/{person.uuid}/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+        ch_persons = sync_execute(
+            "SELECT version, is_deleted, properties FROM person FINAL WHERE team_id = %(team_id)s and id = %(uuid)s",
+            {"team_id": self.team.pk, "uuid": person.uuid},
+        )
+        self.assertEqual([(100, 1, "{}")], ch_persons)
+        # No async deletion is scheduled
+        self.assertEqual(AsyncDeletion.objects.filter(team_id=self.team.id).count(), 0)
+        ch_events = sync_execute(
+            "SELECT count() FROM events WHERE team_id = %(team_id)s",
+            {"team_id": self.team.pk},
+        )[0][0]
+        self.assertEqual(ch_events, 3)
 
     @freeze_time("2021-08-25T22:09:14.252Z")
     def test_split_people_keep_props(self) -> None:
@@ -792,7 +873,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         create_person(team_id=self.team.pk, version=0)
 
         returned_ids = []
-        with self.assertNumQueries(12):
+        with self.assertNumQueries(7):
             response = self.client.get("/api/person/?limit=10").json()
         self.assertEqual(len(response["results"]), 9)
         returned_ids += [x["distinct_ids"][0] for x in response["results"]]
@@ -803,7 +884,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         created_ids.reverse()  # ids are returned in desc order
         self.assertEqual(returned_ids, created_ids, returned_ids)
 
-        with self.assertNumQueries(11):
+        with self.assertNumQueries(6):
             response_include_total = self.client.get("/api/person/?limit=10&include_total").json()
         self.assertEqual(response_include_total["count"], 20)  #  With `include_total`, the total count is returned too
 
@@ -869,6 +950,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
                 "scope": "burst",
                 "rate": "5/minute",
                 "path": f"/api/projects/TEAM_ID/feature_flags",
+                "hashed_personal_api_key": hash_key_value(personal_api_key),
             },
         )
 
@@ -911,6 +993,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
                 "scope": "persons",
                 "rate": "6/minute",
                 "path": f"/api/projects/TEAM_ID/persons/",
+                "hashed_personal_api_key": hash_key_value(personal_api_key),
             },
         )
 
@@ -994,8 +1077,6 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         self.assertCountEqual(activity, expected)
 
 
-# TODO: Remove this when load-person-field-from-clickhouse feature flag is removed
-@patch("posthog.api.person.posthoganalytics.feature_enabled", Mock())
 class TestPersonFromClickhouse(TestPerson):
     @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_pagination_limit(self):

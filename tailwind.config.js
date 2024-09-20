@@ -83,6 +83,9 @@ const config = {
                 248: '62rem',
                 300: '75rem',
             },
+            rotate: {
+                270: '270deg',
+            },
             minWidth: {
                 '1/3': '33.333333%',
             },
@@ -90,7 +93,7 @@ const config = {
                 '1/2': '50%',
             },
             boxShadow: {
-                DEFAULT: 'var(--shadow-elevation)',
+                DEFAULT: 'var(--shadow-elevation-3000)',
             },
             flex: {
                 2: '2 2 0%',

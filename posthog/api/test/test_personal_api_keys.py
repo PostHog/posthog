@@ -34,8 +34,27 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
             "scoped_organizations": [],
             "scoped_teams": [],
             "value": data["value"],
+            "mask_value": data["mask_value"],
         }
         assert data["value"].startswith("phx_")  # Personal API key prefix
+
+    def test_create_too_many_api_keys(self):
+        for i in range(0, 10):
+            self.client.post(
+                "/api/personal_api_keys",
+                {"label": i, "scopes": ["insight:read"], "scoped_organizations": [], "scoped_teams": []},
+            )
+        response = self.client.post(
+            "/api/personal_api_keys",
+            {"label": i, "scopes": ["insight:read"], "scoped_organizations": [], "scoped_teams": []},
+        )
+        assert response.status_code == 400
+        assert response.json() == {
+            "type": "validation_error",
+            "code": "invalid_input",
+            "detail": "You can only have 10 personal API keys. Remove an existing key before creating a new one.",
+            "attr": None,
+        }
 
     def test_create_personal_api_key_label_required(self):
         response = self.client.post("/api/personal_api_keys/", {"label": ""})
@@ -135,6 +154,7 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
             "scoped_organizations": None,
             "scoped_teams": None,
             "value": None,
+            "mask_value": my_key.mask_value,
         }
 
     def test_get_own_personal_api_key(self):
@@ -474,6 +494,12 @@ class TestPersonalAPIKeysWithOrganizationScopeAPIAuthentication(PersonalAPIKeysB
         response = self._do_request(f"/api/projects")
         assert response.status_code == status.HTTP_200_OK, response.json()
 
+    def test_allows_user_me_read_access(self):
+        # The /users/@me/ endpoint is not team-based, but it's useful as a way of checking whether the key works
+        # (e.g. in our Zapier integration), hence it's exempt from org/team scoping
+        response = self._do_request(f"/api/users/@me/")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
 
 class TestPersonalAPIKeysWithTeamScopeAPIAuthentication(PersonalAPIKeysBaseTest):
     def setUp(self):
@@ -508,3 +534,9 @@ class TestPersonalAPIKeysWithTeamScopeAPIAuthentication(PersonalAPIKeysBaseTest)
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
         response = self._do_request(f"/api/projects/{self.other_team.id}")
+
+    def test_allows_user_me_read_access(self):
+        # The /users/@me/ endpoint is not team-based, but it's useful as a way of checking whether the key works
+        # (e.g. in our Zapier integration), hence it's exempt from org/team scoping
+        response = self._do_request(f"/api/users/@me/")
+        assert response.status_code == status.HTTP_200_OK, response.json()

@@ -1,10 +1,5 @@
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    Optional,
-    Union,
-)
 from collections.abc import Callable
+from typing import TYPE_CHECKING, Any, Optional, Union
 
 from posthog.constants import AnalyticsDBMS
 from posthog.models.utils import sane_repr

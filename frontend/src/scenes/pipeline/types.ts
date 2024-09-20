@@ -1,6 +1,7 @@
 import {
     BatchExportConfiguration,
     BatchExportService,
+    HogFunctionType,
     PipelineStage,
     PluginConfigWithPluginInfoNew,
     PluginType,
@@ -9,6 +10,8 @@ import {
 export enum PipelineBackend {
     BatchExport = 'batch_export',
     Plugin = 'plugin',
+    HogFunction = 'hog_function',
+    ManagedSource = 'managed_source',
 }
 
 // Base - we're taking a discriminated union approach here, so that TypeScript can discern types for free
@@ -39,6 +42,12 @@ export interface BatchExportBasedNode extends PipelineNodeBase {
     interval: BatchExportConfiguration['interval']
 }
 
+export interface HogFunctionBasedNode extends PipelineNodeBase {
+    backend: PipelineBackend.HogFunction
+    id: string
+    hog_function: HogFunctionType
+}
+
 // Stage: Transformations
 
 export interface Transformation extends PluginBasedNode {
@@ -55,7 +64,25 @@ export interface WebhookDestination extends PluginBasedNode {
 export interface BatchExportDestination extends BatchExportBasedNode {
     stage: PipelineStage.Destination
 }
-export type Destination = BatchExportDestination | WebhookDestination
+export interface FunctionDestination extends HogFunctionBasedNode {
+    stage: PipelineStage.Destination
+    interval: 'realtime'
+}
+export type Destination = BatchExportDestination | WebhookDestination | FunctionDestination
+
+export type NewDestinationItemType = {
+    icon: JSX.Element
+    url: string
+    name: string
+    description: string
+    backend: PipelineBackend
+    status?: 'stable' | 'beta' | 'alpha' | 'free' | 'deprecated'
+}
+
+export type NewDestinationFilters = {
+    search?: string
+    kind?: PipelineBackend
+}
 
 // Legacy: Site apps
 export interface SiteApp extends PluginBasedNode {
@@ -67,9 +94,13 @@ export interface ImportApp extends PluginBasedNode {
     stage: PipelineStage.ImportApp
 }
 
+export interface Source extends PluginBasedNode {
+    stage: PipelineStage.Source
+}
+
 // Final
 
-export type PipelineNode = Transformation | Destination | SiteApp | ImportApp
+export type PipelineNode = Transformation | Destination | SiteApp | ImportApp | Source
 
 // Utils
 
@@ -80,7 +111,7 @@ function isPluginConfig(
 }
 
 export function convertToPipelineNode<S extends PipelineStage>(
-    candidate: PluginConfigWithPluginInfoNew | BatchExportConfiguration,
+    candidate: PluginConfigWithPluginInfoNew | BatchExportConfiguration | HogFunctionType,
     stage: S
 ): S extends PipelineStage.Transformation
     ? Transformation
@@ -90,10 +121,29 @@ export function convertToPipelineNode<S extends PipelineStage>(
     ? SiteApp
     : S extends PipelineStage.ImportApp
     ? ImportApp
+    : S extends PipelineStage.Source
+    ? Source
     : never {
     let node: PipelineNode
-    if (isPluginConfig(candidate)) {
-        const almostNode: Omit<Transformation | WebhookDestination | SiteApp | ImportApp, 'frequency' | 'order'> = {
+    // check if type is a hog function
+    if ('hog' in candidate) {
+        node = {
+            stage: stage as PipelineStage.Destination,
+            backend: PipelineBackend.HogFunction,
+            interval: 'realtime',
+            id: `hog-${candidate.id}`,
+            name: candidate.name,
+            description: candidate.description,
+            enabled: candidate.enabled,
+            created_at: candidate.created_at,
+            updated_at: candidate.created_at,
+            hog_function: candidate,
+        }
+    } else if (isPluginConfig(candidate)) {
+        const almostNode: Omit<
+            Transformation | WebhookDestination | SiteApp | ImportApp | Source,
+            'frequency' | 'order'
+        > = {
             stage: stage,
             backend: PipelineBackend.Plugin,
             id: candidate.id,

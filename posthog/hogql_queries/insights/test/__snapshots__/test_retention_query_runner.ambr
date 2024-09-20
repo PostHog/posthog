@@ -1,41 +1,19 @@
 # serializer version: 1
 # name: TestClickhouseRetentionGroupAggregation.test_groups_aggregating
   '''
-  SELECT actor_activity.breakdown_values AS breakdown_values,
+  SELECT [actor_activity.breakdown_values] AS breakdown_values,
          actor_activity.intervals_from_base AS intervals_from_base,
          count(DISTINCT actor_activity.actor_id) AS count
   FROM
-    (SELECT DISTINCT breakdown_values AS breakdown_values,
-                     intervals_from_base AS intervals_from_base,
-                     actor_id AS actor_id
-     FROM
-       (SELECT target_event.breakdown_values AS breakdown_values,
-               dateDiff('week', target_event.event_date, returning_event.event_date) AS intervals_from_base,
-               returning_event.target AS actor_id
-        FROM
-          (SELECT DISTINCT toStartOfWeek(toTimeZone(events.timestamp, 'UTC'), 0) AS event_date,
-                           events.`$group_0` AS target,
-                           [dateDiff('week', toStartOfWeek(toDateTime64('2020-06-07 00:00:00.000000', 6, 'UTC'), 0), toStartOfWeek(toTimeZone(events.timestamp, 'UTC'), 0))] AS breakdown_values
-           FROM events
-           WHERE and(equals(events.team_id, 2), equals(events.event, '$pageview'), not(has([''], events.`$group_0`)), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfWeek(toDateTime64('2020-06-07 00:00:00.000000', 6, 'UTC'), 0)), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-07-27 00:00:00.000000', 6, 'UTC'))))) AS target_event
-        JOIN
-          (SELECT toStartOfWeek(toTimeZone(events.timestamp, 'UTC'), 0) AS event_date,
-                  events.`$group_0` AS target
-           FROM events
-           WHERE and(equals(events.team_id, 2), equals(events.event, '$pageview'), not(has([''], events.`$group_0`)), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfWeek(toDateTime64('2020-06-07 00:00:00.000000', 6, 'UTC'), 0)), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-07-27 00:00:00.000000', 6, 'UTC'))))
-           GROUP BY target,
-                    event_date) AS returning_event ON equals(returning_event.target, target_event.target)
-        WHERE ifNull(greater(returning_event.event_date, target_event.event_date), 0)
-        UNION ALL SELECT target_event.breakdown_values AS breakdown_values,
-                         0 AS intervals_from_base,
-                         target_event.target AS actor_id
-        FROM
-          (SELECT DISTINCT toStartOfWeek(toTimeZone(events.timestamp, 'UTC'), 0) AS event_date,
-                           events.`$group_0` AS target,
-                           [dateDiff('week', toStartOfWeek(toDateTime64('2020-06-07 00:00:00.000000', 6, 'UTC'), 0), toStartOfWeek(toTimeZone(events.timestamp, 'UTC'), 0))] AS breakdown_values
-           FROM events
-           WHERE and(equals(events.team_id, 2), equals(events.event, '$pageview'), not(has([''], events.`$group_0`)), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfWeek(toDateTime64('2020-06-07 00:00:00.000000', 6, 'UTC'), 0)), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-07-27 00:00:00.000000', 6, 'UTC'))))) AS target_event)
-     WHERE and(or(1, isNull(breakdown_values)), or(1, isNull(intervals_from_base)))) AS actor_activity
+    (SELECT events.`$group_0` AS actor_id,
+            arraySort(groupUniqArrayIf(toStartOfWeek(toTimeZone(events.timestamp, 'UTC'), 0), and(equals(events.event, '$pageview'), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfWeek(toDateTime64('2020-06-07 00:00:00.000000', 6, 'UTC'), 0)), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-07-27 00:00:00.000000', 6, 'UTC')))))) AS target_timestamps,
+            arraySort(groupUniqArrayIf(toStartOfWeek(toTimeZone(events.timestamp, 'UTC'), 0), equals(events.event, '$pageview'))) AS returning_timestamps,
+            arrayMap(x -> plus(toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-06-07 00:00:00', 6, 'UTC')), 0), toIntervalWeek(x)), range(0, 7)) AS date_range,
+            arrayJoin(arrayFilter(x -> ifNull(greater(x, -1), 0), arrayMap((_breakdown_value, breakdown_value_timestamp) -> if(has(target_timestamps, breakdown_value_timestamp), minus(_breakdown_value, 1), -1), arrayEnumerate(date_range), date_range))) AS breakdown_values,
+            arrayJoin(arrayConcat(if(has(target_timestamps, date_range[plus(breakdown_values, 1)]), [0], []), arrayFilter(x -> ifNull(greater(x, 0), 0), arrayMap(_timestamp -> minus(indexOf(arraySlice(date_range, plus(breakdown_values, 1)), _timestamp), 1), returning_timestamps)))) AS intervals_from_base
+     FROM events
+     WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfWeek(toDateTime64('2020-06-07 00:00:00.000000', 6, 'UTC'), 0)), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-07-27 00:00:00.000000', 6, 'UTC'))), in(events.event, tuple('$pageview', '$pageview')), not(has([''], events.`$group_0`)))
+     GROUP BY actor_id) AS actor_activity
   GROUP BY breakdown_values,
            intervals_from_base
   ORDER BY breakdown_values ASC,
@@ -44,9 +22,9 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=1000000,
-                       max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=23622320128
   '''
 # ---
 # name: TestClickhouseRetentionGroupAggregation.test_groups_aggregating.1
@@ -65,37 +43,16 @@
             arrayExists(x -> ifNull(equals(x, 5), 0), appearance_intervals) AS week_5,
             arrayExists(x -> ifNull(equals(x, 6), 0), appearance_intervals) AS week_6
      FROM
-       (SELECT DISTINCT breakdown_values AS breakdown_values,
-                        intervals_from_base AS intervals_from_base,
-                        actor_id AS actor_id
-        FROM
-          (SELECT target_event.breakdown_values AS breakdown_values,
-                  dateDiff('week', target_event.event_date, returning_event.event_date) AS intervals_from_base,
-                  returning_event.target AS actor_id
-           FROM
-             (SELECT DISTINCT toStartOfWeek(toTimeZone(events.timestamp, 'UTC'), 0) AS event_date,
-                              events.`$group_0` AS target,
-                              [dateDiff('week', toStartOfWeek(toDateTime64('2020-06-07 00:00:00.000000', 6, 'UTC'), 0), toStartOfWeek(toTimeZone(events.timestamp, 'UTC'), 0))] AS breakdown_values
-              FROM events
-              WHERE and(equals(events.team_id, 2), equals(events.event, '$pageview'), not(has([''], events.`$group_0`)), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfWeek(toDateTime64('2020-06-07 00:00:00.000000', 6, 'UTC'), 0)), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-07-27 00:00:00.000000', 6, 'UTC'))))) AS target_event
-           JOIN
-             (SELECT toStartOfWeek(toTimeZone(events.timestamp, 'UTC'), 0) AS event_date,
-                     events.`$group_0` AS target
-              FROM events
-              WHERE and(equals(events.team_id, 2), equals(events.event, '$pageview'), not(has([''], events.`$group_0`)), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfWeek(toDateTime64('2020-06-07 00:00:00.000000', 6, 'UTC'), 0)), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-07-27 00:00:00.000000', 6, 'UTC'))))
-              GROUP BY target,
-                       event_date) AS returning_event ON equals(returning_event.target, target_event.target)
-           WHERE ifNull(greater(returning_event.event_date, target_event.event_date), 0)
-           UNION ALL SELECT target_event.breakdown_values AS breakdown_values,
-                            0 AS intervals_from_base,
-                            target_event.target AS actor_id
-           FROM
-             (SELECT DISTINCT toStartOfWeek(toTimeZone(events.timestamp, 'UTC'), 0) AS event_date,
-                              events.`$group_0` AS target,
-                              [dateDiff('week', toStartOfWeek(toDateTime64('2020-06-07 00:00:00.000000', 6, 'UTC'), 0), toStartOfWeek(toTimeZone(events.timestamp, 'UTC'), 0))] AS breakdown_values
-              FROM events
-              WHERE and(equals(events.team_id, 2), equals(events.event, '$pageview'), not(has([''], events.`$group_0`)), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfWeek(toDateTime64('2020-06-07 00:00:00.000000', 6, 'UTC'), 0)), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-07-27 00:00:00.000000', 6, 'UTC'))))) AS target_event)
-        WHERE and(or(0, ifNull(equals(breakdown_values, [0]), 0)), or(1, isNull(intervals_from_base)))) AS actor_activity
+       (SELECT events.`$group_0` AS actor_id,
+               arraySort(groupUniqArrayIf(toStartOfWeek(toTimeZone(events.timestamp, 'UTC'), 0), and(equals(events.event, '$pageview'), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfWeek(toDateTime64('2020-06-07 00:00:00.000000', 6, 'UTC'), 0)), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-07-27 00:00:00.000000', 6, 'UTC')))))) AS target_timestamps,
+               arraySort(groupUniqArrayIf(toStartOfWeek(toTimeZone(events.timestamp, 'UTC'), 0), equals(events.event, '$pageview'))) AS returning_timestamps,
+               arrayMap(x -> plus(toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-06-07 00:00:00', 6, 'UTC')), 0), toIntervalWeek(x)), range(0, 7)) AS date_range,
+               arrayJoin(arrayFilter(x -> ifNull(greater(x, -1), 0), arrayMap((_breakdown_value, breakdown_value_timestamp) -> if(has(target_timestamps, breakdown_value_timestamp), minus(_breakdown_value, 1), -1), arrayEnumerate(date_range), date_range))) AS breakdown_values,
+               arrayJoin(arrayConcat(if(has(target_timestamps, date_range[plus(breakdown_values, 1)]), [0], []), arrayFilter(x -> ifNull(greater(x, 0), 0), arrayMap(_timestamp -> minus(indexOf(arraySlice(date_range, plus(breakdown_values, 1)), _timestamp), 1), returning_timestamps)))) AS intervals_from_base
+        FROM events
+        WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfWeek(toDateTime64('2020-06-07 00:00:00.000000', 6, 'UTC'), 0)), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-07-27 00:00:00.000000', 6, 'UTC'))), in(events.event, tuple('$pageview', '$pageview')), not(has([''], events.`$group_0`)))
+        GROUP BY actor_id
+        HAVING ifNull(equals(breakdown_values, 0), 0)) AS actor_activity
      GROUP BY actor_activity.actor_id) AS source
   INNER JOIN
     (SELECT groups.group_type_index AS index,
@@ -110,48 +67,26 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseRetentionGroupAggregation.test_groups_aggregating.2
   '''
-  SELECT actor_activity.breakdown_values AS breakdown_values,
+  SELECT [actor_activity.breakdown_values] AS breakdown_values,
          actor_activity.intervals_from_base AS intervals_from_base,
          count(DISTINCT actor_activity.actor_id) AS count
   FROM
-    (SELECT DISTINCT breakdown_values AS breakdown_values,
-                     intervals_from_base AS intervals_from_base,
-                     actor_id AS actor_id
-     FROM
-       (SELECT target_event.breakdown_values AS breakdown_values,
-               dateDiff('week', target_event.event_date, returning_event.event_date) AS intervals_from_base,
-               returning_event.target AS actor_id
-        FROM
-          (SELECT DISTINCT toStartOfWeek(toTimeZone(events.timestamp, 'UTC'), 0) AS event_date,
-                           events.`$group_1` AS target,
-                           [dateDiff('week', toStartOfWeek(toDateTime64('2020-06-07 00:00:00.000000', 6, 'UTC'), 0), toStartOfWeek(toTimeZone(events.timestamp, 'UTC'), 0))] AS breakdown_values
-           FROM events
-           WHERE and(equals(events.team_id, 2), equals(events.event, '$pageview'), not(has([''], events.`$group_1`)), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfWeek(toDateTime64('2020-06-07 00:00:00.000000', 6, 'UTC'), 0)), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-07-27 00:00:00.000000', 6, 'UTC'))))) AS target_event
-        JOIN
-          (SELECT toStartOfWeek(toTimeZone(events.timestamp, 'UTC'), 0) AS event_date,
-                  events.`$group_1` AS target
-           FROM events
-           WHERE and(equals(events.team_id, 2), equals(events.event, '$pageview'), not(has([''], events.`$group_1`)), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfWeek(toDateTime64('2020-06-07 00:00:00.000000', 6, 'UTC'), 0)), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-07-27 00:00:00.000000', 6, 'UTC'))))
-           GROUP BY target,
-                    event_date) AS returning_event ON equals(returning_event.target, target_event.target)
-        WHERE ifNull(greater(returning_event.event_date, target_event.event_date), 0)
-        UNION ALL SELECT target_event.breakdown_values AS breakdown_values,
-                         0 AS intervals_from_base,
-                         target_event.target AS actor_id
-        FROM
-          (SELECT DISTINCT toStartOfWeek(toTimeZone(events.timestamp, 'UTC'), 0) AS event_date,
-                           events.`$group_1` AS target,
-                           [dateDiff('week', toStartOfWeek(toDateTime64('2020-06-07 00:00:00.000000', 6, 'UTC'), 0), toStartOfWeek(toTimeZone(events.timestamp, 'UTC'), 0))] AS breakdown_values
-           FROM events
-           WHERE and(equals(events.team_id, 2), equals(events.event, '$pageview'), not(has([''], events.`$group_1`)), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfWeek(toDateTime64('2020-06-07 00:00:00.000000', 6, 'UTC'), 0)), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-07-27 00:00:00.000000', 6, 'UTC'))))) AS target_event)
-     WHERE and(or(1, isNull(breakdown_values)), or(1, isNull(intervals_from_base)))) AS actor_activity
+    (SELECT events.`$group_1` AS actor_id,
+            arraySort(groupUniqArrayIf(toStartOfWeek(toTimeZone(events.timestamp, 'UTC'), 0), and(equals(events.event, '$pageview'), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfWeek(toDateTime64('2020-06-07 00:00:00.000000', 6, 'UTC'), 0)), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-07-27 00:00:00.000000', 6, 'UTC')))))) AS target_timestamps,
+            arraySort(groupUniqArrayIf(toStartOfWeek(toTimeZone(events.timestamp, 'UTC'), 0), equals(events.event, '$pageview'))) AS returning_timestamps,
+            arrayMap(x -> plus(toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-06-07 00:00:00', 6, 'UTC')), 0), toIntervalWeek(x)), range(0, 7)) AS date_range,
+            arrayJoin(arrayFilter(x -> ifNull(greater(x, -1), 0), arrayMap((_breakdown_value, breakdown_value_timestamp) -> if(has(target_timestamps, breakdown_value_timestamp), minus(_breakdown_value, 1), -1), arrayEnumerate(date_range), date_range))) AS breakdown_values,
+            arrayJoin(arrayConcat(if(has(target_timestamps, date_range[plus(breakdown_values, 1)]), [0], []), arrayFilter(x -> ifNull(greater(x, 0), 0), arrayMap(_timestamp -> minus(indexOf(arraySlice(date_range, plus(breakdown_values, 1)), _timestamp), 1), returning_timestamps)))) AS intervals_from_base
+     FROM events
+     WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfWeek(toDateTime64('2020-06-07 00:00:00.000000', 6, 'UTC'), 0)), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-07-27 00:00:00.000000', 6, 'UTC'))), in(events.event, tuple('$pageview', '$pageview')), not(has([''], events.`$group_1`)))
+     GROUP BY actor_id) AS actor_activity
   GROUP BY breakdown_values,
            intervals_from_base
   ORDER BY breakdown_values ASC,
@@ -160,48 +95,26 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=1000000,
-                       max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=23622320128
   '''
 # ---
 # name: TestClickhouseRetentionGroupAggregation.test_groups_aggregating_person_on_events
   '''
-  SELECT actor_activity.breakdown_values AS breakdown_values,
+  SELECT [actor_activity.breakdown_values] AS breakdown_values,
          actor_activity.intervals_from_base AS intervals_from_base,
          count(DISTINCT actor_activity.actor_id) AS count
   FROM
-    (SELECT DISTINCT breakdown_values AS breakdown_values,
-                     intervals_from_base AS intervals_from_base,
-                     actor_id AS actor_id
-     FROM
-       (SELECT target_event.breakdown_values AS breakdown_values,
-               dateDiff('week', target_event.event_date, returning_event.event_date) AS intervals_from_base,
-               returning_event.target AS actor_id
-        FROM
-          (SELECT DISTINCT toStartOfWeek(toTimeZone(events.timestamp, 'UTC'), 0) AS event_date,
-                           events.`$group_0` AS target,
-                           [dateDiff('week', toStartOfWeek(toDateTime64('2020-06-07 00:00:00.000000', 6, 'UTC'), 0), toStartOfWeek(toTimeZone(events.timestamp, 'UTC'), 0))] AS breakdown_values
-           FROM events
-           WHERE and(equals(events.team_id, 2), equals(events.event, '$pageview'), not(has([''], events.`$group_0`)), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfWeek(toDateTime64('2020-06-07 00:00:00.000000', 6, 'UTC'), 0)), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-07-27 00:00:00.000000', 6, 'UTC'))))) AS target_event
-        JOIN
-          (SELECT toStartOfWeek(toTimeZone(events.timestamp, 'UTC'), 0) AS event_date,
-                  events.`$group_0` AS target
-           FROM events
-           WHERE and(equals(events.team_id, 2), equals(events.event, '$pageview'), not(has([''], events.`$group_0`)), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfWeek(toDateTime64('2020-06-07 00:00:00.000000', 6, 'UTC'), 0)), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-07-27 00:00:00.000000', 6, 'UTC'))))
-           GROUP BY target,
-                    event_date) AS returning_event ON equals(returning_event.target, target_event.target)
-        WHERE ifNull(greater(returning_event.event_date, target_event.event_date), 0)
-        UNION ALL SELECT target_event.breakdown_values AS breakdown_values,
-                         0 AS intervals_from_base,
-                         target_event.target AS actor_id
-        FROM
-          (SELECT DISTINCT toStartOfWeek(toTimeZone(events.timestamp, 'UTC'), 0) AS event_date,
-                           events.`$group_0` AS target,
-                           [dateDiff('week', toStartOfWeek(toDateTime64('2020-06-07 00:00:00.000000', 6, 'UTC'), 0), toStartOfWeek(toTimeZone(events.timestamp, 'UTC'), 0))] AS breakdown_values
-           FROM events
-           WHERE and(equals(events.team_id, 2), equals(events.event, '$pageview'), not(has([''], events.`$group_0`)), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfWeek(toDateTime64('2020-06-07 00:00:00.000000', 6, 'UTC'), 0)), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-07-27 00:00:00.000000', 6, 'UTC'))))) AS target_event)
-     WHERE and(or(1, isNull(breakdown_values)), or(1, isNull(intervals_from_base)))) AS actor_activity
+    (SELECT events.`$group_0` AS actor_id,
+            arraySort(groupUniqArrayIf(toStartOfWeek(toTimeZone(events.timestamp, 'UTC'), 0), and(equals(events.event, '$pageview'), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfWeek(toDateTime64('2020-06-07 00:00:00.000000', 6, 'UTC'), 0)), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-07-27 00:00:00.000000', 6, 'UTC')))))) AS target_timestamps,
+            arraySort(groupUniqArrayIf(toStartOfWeek(toTimeZone(events.timestamp, 'UTC'), 0), equals(events.event, '$pageview'))) AS returning_timestamps,
+            arrayMap(x -> plus(toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-06-07 00:00:00', 6, 'UTC')), 0), toIntervalWeek(x)), range(0, 7)) AS date_range,
+            arrayJoin(arrayFilter(x -> ifNull(greater(x, -1), 0), arrayMap((_breakdown_value, breakdown_value_timestamp) -> if(has(target_timestamps, breakdown_value_timestamp), minus(_breakdown_value, 1), -1), arrayEnumerate(date_range), date_range))) AS breakdown_values,
+            arrayJoin(arrayConcat(if(has(target_timestamps, date_range[plus(breakdown_values, 1)]), [0], []), arrayFilter(x -> ifNull(greater(x, 0), 0), arrayMap(_timestamp -> minus(indexOf(arraySlice(date_range, plus(breakdown_values, 1)), _timestamp), 1), returning_timestamps)))) AS intervals_from_base
+     FROM events
+     WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfWeek(toDateTime64('2020-06-07 00:00:00.000000', 6, 'UTC'), 0)), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-07-27 00:00:00.000000', 6, 'UTC'))), in(events.event, tuple('$pageview', '$pageview')), not(has([''], events.`$group_0`)))
+     GROUP BY actor_id) AS actor_activity
   GROUP BY breakdown_values,
            intervals_from_base
   ORDER BY breakdown_values ASC,
@@ -210,9 +123,9 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=1000000,
-                       max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=23622320128
   '''
 # ---
 # name: TestClickhouseRetentionGroupAggregation.test_groups_aggregating_person_on_events.1
@@ -231,37 +144,16 @@
             arrayExists(x -> ifNull(equals(x, 5), 0), appearance_intervals) AS week_5,
             arrayExists(x -> ifNull(equals(x, 6), 0), appearance_intervals) AS week_6
      FROM
-       (SELECT DISTINCT breakdown_values AS breakdown_values,
-                        intervals_from_base AS intervals_from_base,
-                        actor_id AS actor_id
-        FROM
-          (SELECT target_event.breakdown_values AS breakdown_values,
-                  dateDiff('week', target_event.event_date, returning_event.event_date) AS intervals_from_base,
-                  returning_event.target AS actor_id
-           FROM
-             (SELECT DISTINCT toStartOfWeek(toTimeZone(events.timestamp, 'UTC'), 0) AS event_date,
-                              events.`$group_0` AS target,
-                              [dateDiff('week', toStartOfWeek(toDateTime64('2020-06-07 00:00:00.000000', 6, 'UTC'), 0), toStartOfWeek(toTimeZone(events.timestamp, 'UTC'), 0))] AS breakdown_values
-              FROM events
-              WHERE and(equals(events.team_id, 2), equals(events.event, '$pageview'), not(has([''], events.`$group_0`)), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfWeek(toDateTime64('2020-06-07 00:00:00.000000', 6, 'UTC'), 0)), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-07-27 00:00:00.000000', 6, 'UTC'))))) AS target_event
-           JOIN
-             (SELECT toStartOfWeek(toTimeZone(events.timestamp, 'UTC'), 0) AS event_date,
-                     events.`$group_0` AS target
-              FROM events
-              WHERE and(equals(events.team_id, 2), equals(events.event, '$pageview'), not(has([''], events.`$group_0`)), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfWeek(toDateTime64('2020-06-07 00:00:00.000000', 6, 'UTC'), 0)), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-07-27 00:00:00.000000', 6, 'UTC'))))
-              GROUP BY target,
-                       event_date) AS returning_event ON equals(returning_event.target, target_event.target)
-           WHERE ifNull(greater(returning_event.event_date, target_event.event_date), 0)
-           UNION ALL SELECT target_event.breakdown_values AS breakdown_values,
-                            0 AS intervals_from_base,
-                            target_event.target AS actor_id
-           FROM
-             (SELECT DISTINCT toStartOfWeek(toTimeZone(events.timestamp, 'UTC'), 0) AS event_date,
-                              events.`$group_0` AS target,
-                              [dateDiff('week', toStartOfWeek(toDateTime64('2020-06-07 00:00:00.000000', 6, 'UTC'), 0), toStartOfWeek(toTimeZone(events.timestamp, 'UTC'), 0))] AS breakdown_values
-              FROM events
-              WHERE and(equals(events.team_id, 2), equals(events.event, '$pageview'), not(has([''], events.`$group_0`)), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfWeek(toDateTime64('2020-06-07 00:00:00.000000', 6, 'UTC'), 0)), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-07-27 00:00:00.000000', 6, 'UTC'))))) AS target_event)
-        WHERE and(or(0, ifNull(equals(breakdown_values, [0]), 0)), or(1, isNull(intervals_from_base)))) AS actor_activity
+       (SELECT events.`$group_0` AS actor_id,
+               arraySort(groupUniqArrayIf(toStartOfWeek(toTimeZone(events.timestamp, 'UTC'), 0), and(equals(events.event, '$pageview'), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfWeek(toDateTime64('2020-06-07 00:00:00.000000', 6, 'UTC'), 0)), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-07-27 00:00:00.000000', 6, 'UTC')))))) AS target_timestamps,
+               arraySort(groupUniqArrayIf(toStartOfWeek(toTimeZone(events.timestamp, 'UTC'), 0), equals(events.event, '$pageview'))) AS returning_timestamps,
+               arrayMap(x -> plus(toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-06-07 00:00:00', 6, 'UTC')), 0), toIntervalWeek(x)), range(0, 7)) AS date_range,
+               arrayJoin(arrayFilter(x -> ifNull(greater(x, -1), 0), arrayMap((_breakdown_value, breakdown_value_timestamp) -> if(has(target_timestamps, breakdown_value_timestamp), minus(_breakdown_value, 1), -1), arrayEnumerate(date_range), date_range))) AS breakdown_values,
+               arrayJoin(arrayConcat(if(has(target_timestamps, date_range[plus(breakdown_values, 1)]), [0], []), arrayFilter(x -> ifNull(greater(x, 0), 0), arrayMap(_timestamp -> minus(indexOf(arraySlice(date_range, plus(breakdown_values, 1)), _timestamp), 1), returning_timestamps)))) AS intervals_from_base
+        FROM events
+        WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfWeek(toDateTime64('2020-06-07 00:00:00.000000', 6, 'UTC'), 0)), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-07-27 00:00:00.000000', 6, 'UTC'))), in(events.event, tuple('$pageview', '$pageview')), not(has([''], events.`$group_0`)))
+        GROUP BY actor_id
+        HAVING ifNull(equals(breakdown_values, 0), 0)) AS actor_activity
      GROUP BY actor_activity.actor_id) AS source
   INNER JOIN
     (SELECT groups.group_type_index AS index,
@@ -276,48 +168,26 @@
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
-                    max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseRetentionGroupAggregation.test_groups_aggregating_person_on_events.2
   '''
-  SELECT actor_activity.breakdown_values AS breakdown_values,
+  SELECT [actor_activity.breakdown_values] AS breakdown_values,
          actor_activity.intervals_from_base AS intervals_from_base,
          count(DISTINCT actor_activity.actor_id) AS count
   FROM
-    (SELECT DISTINCT breakdown_values AS breakdown_values,
-                     intervals_from_base AS intervals_from_base,
-                     actor_id AS actor_id
-     FROM
-       (SELECT target_event.breakdown_values AS breakdown_values,
-               dateDiff('week', target_event.event_date, returning_event.event_date) AS intervals_from_base,
-               returning_event.target AS actor_id
-        FROM
-          (SELECT DISTINCT toStartOfWeek(toTimeZone(events.timestamp, 'UTC'), 0) AS event_date,
-                           events.`$group_1` AS target,
-                           [dateDiff('week', toStartOfWeek(toDateTime64('2020-06-07 00:00:00.000000', 6, 'UTC'), 0), toStartOfWeek(toTimeZone(events.timestamp, 'UTC'), 0))] AS breakdown_values
-           FROM events
-           WHERE and(equals(events.team_id, 2), equals(events.event, '$pageview'), not(has([''], events.`$group_1`)), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfWeek(toDateTime64('2020-06-07 00:00:00.000000', 6, 'UTC'), 0)), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-07-27 00:00:00.000000', 6, 'UTC'))))) AS target_event
-        JOIN
-          (SELECT toStartOfWeek(toTimeZone(events.timestamp, 'UTC'), 0) AS event_date,
-                  events.`$group_1` AS target
-           FROM events
-           WHERE and(equals(events.team_id, 2), equals(events.event, '$pageview'), not(has([''], events.`$group_1`)), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfWeek(toDateTime64('2020-06-07 00:00:00.000000', 6, 'UTC'), 0)), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-07-27 00:00:00.000000', 6, 'UTC'))))
-           GROUP BY target,
-                    event_date) AS returning_event ON equals(returning_event.target, target_event.target)
-        WHERE ifNull(greater(returning_event.event_date, target_event.event_date), 0)
-        UNION ALL SELECT target_event.breakdown_values AS breakdown_values,
-                         0 AS intervals_from_base,
-                         target_event.target AS actor_id
-        FROM
-          (SELECT DISTINCT toStartOfWeek(toTimeZone(events.timestamp, 'UTC'), 0) AS event_date,
-                           events.`$group_1` AS target,
-                           [dateDiff('week', toStartOfWeek(toDateTime64('2020-06-07 00:00:00.000000', 6, 'UTC'), 0), toStartOfWeek(toTimeZone(events.timestamp, 'UTC'), 0))] AS breakdown_values
-           FROM events
-           WHERE and(equals(events.team_id, 2), equals(events.event, '$pageview'), not(has([''], events.`$group_1`)), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfWeek(toDateTime64('2020-06-07 00:00:00.000000', 6, 'UTC'), 0)), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-07-27 00:00:00.000000', 6, 'UTC'))))) AS target_event)
-     WHERE and(or(1, isNull(breakdown_values)), or(1, isNull(intervals_from_base)))) AS actor_activity
+    (SELECT events.`$group_1` AS actor_id,
+            arraySort(groupUniqArrayIf(toStartOfWeek(toTimeZone(events.timestamp, 'UTC'), 0), and(equals(events.event, '$pageview'), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfWeek(toDateTime64('2020-06-07 00:00:00.000000', 6, 'UTC'), 0)), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-07-27 00:00:00.000000', 6, 'UTC')))))) AS target_timestamps,
+            arraySort(groupUniqArrayIf(toStartOfWeek(toTimeZone(events.timestamp, 'UTC'), 0), equals(events.event, '$pageview'))) AS returning_timestamps,
+            arrayMap(x -> plus(toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-06-07 00:00:00', 6, 'UTC')), 0), toIntervalWeek(x)), range(0, 7)) AS date_range,
+            arrayJoin(arrayFilter(x -> ifNull(greater(x, -1), 0), arrayMap((_breakdown_value, breakdown_value_timestamp) -> if(has(target_timestamps, breakdown_value_timestamp), minus(_breakdown_value, 1), -1), arrayEnumerate(date_range), date_range))) AS breakdown_values,
+            arrayJoin(arrayConcat(if(has(target_timestamps, date_range[plus(breakdown_values, 1)]), [0], []), arrayFilter(x -> ifNull(greater(x, 0), 0), arrayMap(_timestamp -> minus(indexOf(arraySlice(date_range, plus(breakdown_values, 1)), _timestamp), 1), returning_timestamps)))) AS intervals_from_base
+     FROM events
+     WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfWeek(toDateTime64('2020-06-07 00:00:00.000000', 6, 'UTC'), 0)), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-07-27 00:00:00.000000', 6, 'UTC'))), in(events.event, tuple('$pageview', '$pageview')), not(has([''], events.`$group_1`)))
+     GROUP BY actor_id) AS actor_activity
   GROUP BY breakdown_values,
            intervals_from_base
   ORDER BY breakdown_values ASC,
@@ -326,69 +196,33 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=1000000,
-                       max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=23622320128
   '''
 # ---
 # name: TestRetention.test_day_interval_sampled
   '''
-  SELECT actor_activity.breakdown_values AS breakdown_values,
+  SELECT [actor_activity.breakdown_values] AS breakdown_values,
          actor_activity.intervals_from_base AS intervals_from_base,
          count(DISTINCT actor_activity.actor_id) AS count
   FROM
-    (SELECT DISTINCT breakdown_values AS breakdown_values,
-                     intervals_from_base AS intervals_from_base,
-                     actor_id AS actor_id
-     FROM
-       (SELECT target_event.breakdown_values AS breakdown_values,
-               dateDiff('day', target_event.event_date, returning_event.event_date) AS intervals_from_base,
-               returning_event.target AS actor_id
-        FROM
-          (SELECT DISTINCT toStartOfDay(toTimeZone(events.timestamp, 'UTC')) AS event_date,
-                           events__pdi.person_id AS target,
-                           [dateDiff('day', toStartOfDay(toDateTime64('2020-06-10 00:00:00.000000', 6, 'UTC')), toStartOfDay(toTimeZone(events.timestamp, 'UTC')))] AS breakdown_values
-           FROM events SAMPLE 1.0
-           INNER JOIN
-             (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
-                     person_distinct_id2.distinct_id AS distinct_id
-              FROM person_distinct_id2
-              WHERE equals(person_distinct_id2.team_id, 2)
-              GROUP BY person_distinct_id2.distinct_id
-              HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-           WHERE and(equals(events.team_id, 2), equals(events.event, '$pageview'), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(toDateTime64('2020-06-10 00:00:00.000000', 6, 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-06-21 00:00:00.000000', 6, 'UTC'))))) AS target_event
-        JOIN
-          (SELECT toStartOfDay(toTimeZone(events.timestamp, 'UTC')) AS event_date,
-                  events__pdi.person_id AS target
-           FROM events SAMPLE 1.0
-           INNER JOIN
-             (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
-                     person_distinct_id2.distinct_id AS distinct_id
-              FROM person_distinct_id2
-              WHERE equals(person_distinct_id2.team_id, 2)
-              GROUP BY person_distinct_id2.distinct_id
-              HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-           WHERE and(equals(events.team_id, 2), equals(events.event, '$pageview'), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(toDateTime64('2020-06-10 00:00:00.000000', 6, 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-06-21 00:00:00.000000', 6, 'UTC'))))
-           GROUP BY target,
-                    event_date) AS returning_event ON equals(returning_event.target, target_event.target)
-        WHERE ifNull(greater(returning_event.event_date, target_event.event_date), 0)
-        UNION ALL SELECT target_event.breakdown_values AS breakdown_values,
-                         0 AS intervals_from_base,
-                         target_event.target AS actor_id
-        FROM
-          (SELECT DISTINCT toStartOfDay(toTimeZone(events.timestamp, 'UTC')) AS event_date,
-                           events__pdi.person_id AS target,
-                           [dateDiff('day', toStartOfDay(toDateTime64('2020-06-10 00:00:00.000000', 6, 'UTC')), toStartOfDay(toTimeZone(events.timestamp, 'UTC')))] AS breakdown_values
-           FROM events SAMPLE 1.0
-           INNER JOIN
-             (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
-                     person_distinct_id2.distinct_id AS distinct_id
-              FROM person_distinct_id2
-              WHERE equals(person_distinct_id2.team_id, 2)
-              GROUP BY person_distinct_id2.distinct_id
-              HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-           WHERE and(equals(events.team_id, 2), equals(events.event, '$pageview'), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(toDateTime64('2020-06-10 00:00:00.000000', 6, 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-06-21 00:00:00.000000', 6, 'UTC'))))) AS target_event)
-     WHERE and(or(1, isNull(breakdown_values)), or(1, isNull(intervals_from_base)))) AS actor_activity
+    (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS actor_id,
+            arraySort(groupUniqArrayIf(toStartOfDay(toTimeZone(events.timestamp, 'UTC')), and(equals(events.event, '$pageview'), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(toDateTime64('2020-06-10 00:00:00.000000', 6, 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-06-21 00:00:00.000000', 6, 'UTC')))))) AS target_timestamps,
+            arraySort(groupUniqArrayIf(toStartOfDay(toTimeZone(events.timestamp, 'UTC')), equals(events.event, '$pageview'))) AS returning_timestamps,
+            arrayMap(x -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-06-10 00:00:00', 6, 'UTC'))), toIntervalDay(x)), range(0, 11)) AS date_range,
+            arrayJoin(arrayFilter(x -> ifNull(greater(x, -1), 0), arrayMap((_breakdown_value, breakdown_value_timestamp) -> if(has(target_timestamps, breakdown_value_timestamp), minus(_breakdown_value, 1), -1), arrayEnumerate(date_range), date_range))) AS breakdown_values,
+            arrayJoin(arrayConcat(if(has(target_timestamps, date_range[plus(breakdown_values, 1)]), [0], []), arrayFilter(x -> ifNull(greater(x, 0), 0), arrayMap(_timestamp -> minus(indexOf(arraySlice(date_range, plus(breakdown_values, 1)), _timestamp), 1), returning_timestamps)))) AS intervals_from_base
+     FROM events SAMPLE 1.0
+     LEFT OUTER JOIN
+       (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+               person_distinct_id_overrides.distinct_id AS distinct_id
+        FROM person_distinct_id_overrides
+        WHERE equals(person_distinct_id_overrides.team_id, 2)
+        GROUP BY person_distinct_id_overrides.distinct_id
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(toDateTime64('2020-06-10 00:00:00.000000', 6, 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-06-21 00:00:00.000000', 6, 'UTC'))), in(events.event, tuple('$pageview', '$pageview')))
+     GROUP BY actor_id) AS actor_activity
   GROUP BY breakdown_values,
            intervals_from_base
   ORDER BY breakdown_values ASC,
@@ -397,80 +231,42 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=1000000,
-                       max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=23622320128
   '''
 # ---
 # name: TestRetention.test_month_interval_with_person_on_events_v2
   '''
   
-  SELECT distinct_id,
-         person_id
+  SELECT DISTINCT person_id
   FROM events
   WHERE team_id = 2
-    AND distinct_id IN ('person1',
-                        'person2')
-  GROUP BY distinct_id,
-           person_id
-  ORDER BY if(distinct_id = 'person1', -1, 0)
+    AND distinct_id = 'person2'
   '''
 # ---
 # name: TestRetention.test_month_interval_with_person_on_events_v2.1
   '''
-  SELECT actor_activity.breakdown_values AS breakdown_values,
+  SELECT [actor_activity.breakdown_values] AS breakdown_values,
          actor_activity.intervals_from_base AS intervals_from_base,
          count(DISTINCT actor_activity.actor_id) AS count
   FROM
-    (SELECT DISTINCT breakdown_values AS breakdown_values,
-                     intervals_from_base AS intervals_from_base,
-                     actor_id AS actor_id
-     FROM
-       (SELECT target_event.breakdown_values AS breakdown_values,
-               dateDiff('month', target_event.event_date, returning_event.event_date) AS intervals_from_base,
-               returning_event.target AS actor_id
-        FROM
-          (SELECT DISTINCT toStartOfMonth(toTimeZone(events.timestamp, 'UTC')) AS event_date,
-                           ifNull(nullIf(events__override.override_person_id, '00000000-0000-0000-0000-000000000000'), events.person_id) AS target,
-                           [dateDiff('month', toStartOfMonth(toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), toStartOfMonth(toTimeZone(events.timestamp, 'UTC')))] AS breakdown_values
-           FROM events
-           LEFT OUTER JOIN
-             (SELECT argMax(person_overrides.override_person_id, person_overrides.version) AS override_person_id,
-                     person_overrides.old_person_id AS old_person_id
-              FROM person_overrides
-              WHERE equals(person_overrides.team_id, 2)
-              GROUP BY person_overrides.old_person_id) AS events__override ON equals(events.person_id, events__override.old_person_id)
-           WHERE and(equals(events.team_id, 2), equals(events.event, '$pageview'), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfMonth(toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-10 00:00:00.000000', 6, 'UTC'))))) AS target_event
-        JOIN
-          (SELECT toStartOfMonth(toTimeZone(events.timestamp, 'UTC')) AS event_date,
-                  ifNull(nullIf(events__override.override_person_id, '00000000-0000-0000-0000-000000000000'), events.person_id) AS target
-           FROM events
-           LEFT OUTER JOIN
-             (SELECT argMax(person_overrides.override_person_id, person_overrides.version) AS override_person_id,
-                     person_overrides.old_person_id AS old_person_id
-              FROM person_overrides
-              WHERE equals(person_overrides.team_id, 2)
-              GROUP BY person_overrides.old_person_id) AS events__override ON equals(events.person_id, events__override.old_person_id)
-           WHERE and(equals(events.team_id, 2), equals(events.event, '$pageview'), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfMonth(toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-10 00:00:00.000000', 6, 'UTC'))))
-           GROUP BY target,
-                    event_date) AS returning_event ON equals(returning_event.target, target_event.target)
-        WHERE ifNull(greater(returning_event.event_date, target_event.event_date), 0)
-        UNION ALL SELECT target_event.breakdown_values AS breakdown_values,
-                         0 AS intervals_from_base,
-                         target_event.target AS actor_id
-        FROM
-          (SELECT DISTINCT toStartOfMonth(toTimeZone(events.timestamp, 'UTC')) AS event_date,
-                           ifNull(nullIf(events__override.override_person_id, '00000000-0000-0000-0000-000000000000'), events.person_id) AS target,
-                           [dateDiff('month', toStartOfMonth(toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), toStartOfMonth(toTimeZone(events.timestamp, 'UTC')))] AS breakdown_values
-           FROM events
-           LEFT OUTER JOIN
-             (SELECT argMax(person_overrides.override_person_id, person_overrides.version) AS override_person_id,
-                     person_overrides.old_person_id AS old_person_id
-              FROM person_overrides
-              WHERE equals(person_overrides.team_id, 2)
-              GROUP BY person_overrides.old_person_id) AS events__override ON equals(events.person_id, events__override.old_person_id)
-           WHERE and(equals(events.team_id, 2), equals(events.event, '$pageview'), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfMonth(toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-10 00:00:00.000000', 6, 'UTC'))))) AS target_event)
-     WHERE and(or(1, isNull(breakdown_values)), or(1, isNull(intervals_from_base)))) AS actor_activity
+    (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS actor_id,
+            arraySort(groupUniqArrayIf(toStartOfMonth(toTimeZone(events.timestamp, 'UTC')), and(equals(events.event, '$pageview'), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfMonth(toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-10 00:00:00.000000', 6, 'UTC')))))) AS target_timestamps,
+            arraySort(groupUniqArrayIf(toStartOfMonth(toTimeZone(events.timestamp, 'UTC')), equals(events.event, '$pageview'))) AS returning_timestamps,
+            arrayMap(x -> plus(toStartOfMonth(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), toIntervalMonth(x)), range(0, 11)) AS date_range,
+            arrayJoin(arrayFilter(x -> ifNull(greater(x, -1), 0), arrayMap((_breakdown_value, breakdown_value_timestamp) -> if(has(target_timestamps, breakdown_value_timestamp), minus(_breakdown_value, 1), -1), arrayEnumerate(date_range), date_range))) AS breakdown_values,
+            arrayJoin(arrayConcat(if(has(target_timestamps, date_range[plus(breakdown_values, 1)]), [0], []), arrayFilter(x -> ifNull(greater(x, 0), 0), arrayMap(_timestamp -> minus(indexOf(arraySlice(date_range, plus(breakdown_values, 1)), _timestamp), 1), returning_timestamps)))) AS intervals_from_base
+     FROM events
+     LEFT OUTER JOIN
+       (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+               person_distinct_id_overrides.distinct_id AS distinct_id
+        FROM person_distinct_id_overrides
+        WHERE equals(person_distinct_id_overrides.team_id, 2)
+        GROUP BY person_distinct_id_overrides.distinct_id
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfMonth(toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-10 00:00:00.000000', 6, 'UTC'))), in(events.event, tuple('$pageview', '$pageview')))
+     GROUP BY actor_id) AS actor_activity
   GROUP BY breakdown_values,
            intervals_from_base
   ORDER BY breakdown_values ASC,
@@ -479,69 +275,33 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=1000000,
-                       max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=23622320128
   '''
 # ---
 # name: TestRetention.test_retention_event_action
   '''
-  SELECT actor_activity.breakdown_values AS breakdown_values,
+  SELECT [actor_activity.breakdown_values] AS breakdown_values,
          actor_activity.intervals_from_base AS intervals_from_base,
          count(DISTINCT actor_activity.actor_id) AS count
   FROM
-    (SELECT DISTINCT breakdown_values AS breakdown_values,
-                     intervals_from_base AS intervals_from_base,
-                     actor_id AS actor_id
-     FROM
-       (SELECT target_event.breakdown_values AS breakdown_values,
-               dateDiff('day', target_event.event_date, returning_event.event_date) AS intervals_from_base,
-               returning_event.target AS actor_id
-        FROM
-          (SELECT DISTINCT toStartOfDay(toTimeZone(events.timestamp, 'UTC')) AS event_date,
-                           events__pdi.person_id AS target,
-                           [dateDiff('day', toStartOfDay(toDateTime64('2020-06-10 00:00:00.000000', 6, 'UTC')), toStartOfDay(toTimeZone(events.timestamp, 'UTC')))] AS breakdown_values
-           FROM events
-           INNER JOIN
-             (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
-                     person_distinct_id2.distinct_id AS distinct_id
-              FROM person_distinct_id2
-              WHERE equals(person_distinct_id2.team_id, 2)
-              GROUP BY person_distinct_id2.distinct_id
-              HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-           WHERE and(equals(events.team_id, 2), equals(events.event, 'sign up'), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(toDateTime64('2020-06-10 00:00:00.000000', 6, 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-06-17 00:00:00.000000', 6, 'UTC'))))) AS target_event
-        JOIN
-          (SELECT toStartOfDay(toTimeZone(events.timestamp, 'UTC')) AS event_date,
-                  events__pdi.person_id AS target
-           FROM events
-           INNER JOIN
-             (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
-                     person_distinct_id2.distinct_id AS distinct_id
-              FROM person_distinct_id2
-              WHERE equals(person_distinct_id2.team_id, 2)
-              GROUP BY person_distinct_id2.distinct_id
-              HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-           WHERE and(equals(events.team_id, 2), equals(events.event, '$some_event'), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(toDateTime64('2020-06-10 00:00:00.000000', 6, 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-06-17 00:00:00.000000', 6, 'UTC'))))
-           GROUP BY target,
-                    event_date) AS returning_event ON equals(returning_event.target, target_event.target)
-        WHERE ifNull(greater(returning_event.event_date, target_event.event_date), 0)
-        UNION ALL SELECT target_event.breakdown_values AS breakdown_values,
-                         0 AS intervals_from_base,
-                         target_event.target AS actor_id
-        FROM
-          (SELECT DISTINCT toStartOfDay(toTimeZone(events.timestamp, 'UTC')) AS event_date,
-                           events__pdi.person_id AS target,
-                           [dateDiff('day', toStartOfDay(toDateTime64('2020-06-10 00:00:00.000000', 6, 'UTC')), toStartOfDay(toTimeZone(events.timestamp, 'UTC')))] AS breakdown_values
-           FROM events
-           INNER JOIN
-             (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
-                     person_distinct_id2.distinct_id AS distinct_id
-              FROM person_distinct_id2
-              WHERE equals(person_distinct_id2.team_id, 2)
-              GROUP BY person_distinct_id2.distinct_id
-              HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-           WHERE and(equals(events.team_id, 2), equals(events.event, 'sign up'), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(toDateTime64('2020-06-10 00:00:00.000000', 6, 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-06-17 00:00:00.000000', 6, 'UTC'))))) AS target_event)
-     WHERE and(or(1, isNull(breakdown_values)), or(1, isNull(intervals_from_base)))) AS actor_activity
+    (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS actor_id,
+            arraySort(groupUniqArrayIf(toStartOfDay(toTimeZone(events.timestamp, 'UTC')), and(equals(events.event, 'sign up'), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(toDateTime64('2020-06-10 00:00:00.000000', 6, 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-06-17 00:00:00.000000', 6, 'UTC')))))) AS target_timestamps,
+            arraySort(groupUniqArrayIf(toStartOfDay(toTimeZone(events.timestamp, 'UTC')), equals(events.event, '$some_event'))) AS returning_timestamps,
+            arrayMap(x -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-06-10 00:00:00', 6, 'UTC'))), toIntervalDay(x)), range(0, 7)) AS date_range,
+            arrayJoin(arrayFilter(x -> ifNull(greater(x, -1), 0), arrayMap((_breakdown_value, breakdown_value_timestamp) -> if(has(target_timestamps, breakdown_value_timestamp), minus(_breakdown_value, 1), -1), arrayEnumerate(date_range), date_range))) AS breakdown_values,
+            arrayJoin(arrayConcat(if(has(target_timestamps, date_range[plus(breakdown_values, 1)]), [0], []), arrayFilter(x -> ifNull(greater(x, 0), 0), arrayMap(_timestamp -> minus(indexOf(arraySlice(date_range, plus(breakdown_values, 1)), _timestamp), 1), returning_timestamps)))) AS intervals_from_base
+     FROM events
+     LEFT OUTER JOIN
+       (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+               person_distinct_id_overrides.distinct_id AS distinct_id
+        FROM person_distinct_id_overrides
+        WHERE equals(person_distinct_id_overrides.team_id, 2)
+        GROUP BY person_distinct_id_overrides.distinct_id
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(toDateTime64('2020-06-10 00:00:00.000000', 6, 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-06-17 00:00:00.000000', 6, 'UTC'))), in(events.event, tuple('$some_event', 'sign up')))
+     GROUP BY actor_id) AS actor_activity
   GROUP BY breakdown_values,
            intervals_from_base
   ORDER BY breakdown_values ASC,
@@ -550,91 +310,43 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=1000000,
-                       max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=23622320128
   '''
 # ---
 # name: TestRetention.test_retention_with_user_properties_via_action
   '''
-  SELECT actor_activity.breakdown_values AS breakdown_values,
+  SELECT [actor_activity.breakdown_values] AS breakdown_values,
          actor_activity.intervals_from_base AS intervals_from_base,
          count(DISTINCT actor_activity.actor_id) AS count
   FROM
-    (SELECT DISTINCT breakdown_values AS breakdown_values,
-                     intervals_from_base AS intervals_from_base,
-                     actor_id AS actor_id
-     FROM
-       (SELECT target_event.breakdown_values AS breakdown_values,
-               dateDiff('day', target_event.event_date, returning_event.event_date) AS intervals_from_base,
-               returning_event.target AS actor_id
-        FROM
-          (SELECT DISTINCT toStartOfDay(toTimeZone(events.timestamp, 'UTC')) AS event_date,
-                           events__pdi.person_id AS target,
-                           [dateDiff('day', toStartOfDay(toDateTime64('2020-06-10 00:00:00.000000', 6, 'UTC')), toStartOfDay(toTimeZone(events.timestamp, 'UTC')))] AS breakdown_values
-           FROM events
-           INNER JOIN
-             (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
-                     argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS events__pdi___person_id,
-                     person_distinct_id2.distinct_id AS distinct_id
-              FROM person_distinct_id2
-              WHERE equals(person_distinct_id2.team_id, 2)
-              GROUP BY person_distinct_id2.distinct_id
-              HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-           INNER JOIN
-             (SELECT person.id AS id,
-                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
-              FROM person
-              WHERE and(equals(person.team_id, 2), ifNull(in(tuple(person.id, person.version),
-                                                               (SELECT person.id AS id, max(person.version) AS version
-                                                                FROM person
-                                                                WHERE equals(person.team_id, 2)
-                                                                GROUP BY person.id
-                                                                HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__pdi__person ON equals(events__pdi.events__pdi___person_id, events__pdi__person.id)
-           WHERE and(equals(events.team_id, 2), and(equals(events.event, '$pageview'), ifNull(equals(events__pdi__person.properties___email, 'person1@test.com'), 0)), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(toDateTime64('2020-06-10 00:00:00.000000', 6, 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-06-17 00:00:00.000000', 6, 'UTC'))))) AS target_event
-        JOIN
-          (SELECT toStartOfDay(toTimeZone(events.timestamp, 'UTC')) AS event_date,
-                  events__pdi.person_id AS target
-           FROM events
-           INNER JOIN
-             (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
-                     person_distinct_id2.distinct_id AS distinct_id
-              FROM person_distinct_id2
-              WHERE equals(person_distinct_id2.team_id, 2)
-              GROUP BY person_distinct_id2.distinct_id
-              HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-           WHERE and(equals(events.team_id, 2), equals(events.event, '$pageview'), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(toDateTime64('2020-06-10 00:00:00.000000', 6, 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-06-17 00:00:00.000000', 6, 'UTC'))))
-           GROUP BY target,
-                    event_date) AS returning_event ON equals(returning_event.target, target_event.target)
-        WHERE ifNull(greater(returning_event.event_date, target_event.event_date), 0)
-        UNION ALL SELECT target_event.breakdown_values AS breakdown_values,
-                         0 AS intervals_from_base,
-                         target_event.target AS actor_id
-        FROM
-          (SELECT DISTINCT toStartOfDay(toTimeZone(events.timestamp, 'UTC')) AS event_date,
-                           events__pdi.person_id AS target,
-                           [dateDiff('day', toStartOfDay(toDateTime64('2020-06-10 00:00:00.000000', 6, 'UTC')), toStartOfDay(toTimeZone(events.timestamp, 'UTC')))] AS breakdown_values
-           FROM events
-           INNER JOIN
-             (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
-                     argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS events__pdi___person_id,
-                     person_distinct_id2.distinct_id AS distinct_id
-              FROM person_distinct_id2
-              WHERE equals(person_distinct_id2.team_id, 2)
-              GROUP BY person_distinct_id2.distinct_id
-              HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-           INNER JOIN
-             (SELECT person.id AS id,
-                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
-              FROM person
-              WHERE and(equals(person.team_id, 2), ifNull(in(tuple(person.id, person.version),
-                                                               (SELECT person.id AS id, max(person.version) AS version
-                                                                FROM person
-                                                                WHERE equals(person.team_id, 2)
-                                                                GROUP BY person.id
-                                                                HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__pdi__person ON equals(events__pdi.events__pdi___person_id, events__pdi__person.id)
-           WHERE and(equals(events.team_id, 2), and(equals(events.event, '$pageview'), ifNull(equals(events__pdi__person.properties___email, 'person1@test.com'), 0)), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(toDateTime64('2020-06-10 00:00:00.000000', 6, 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-06-17 00:00:00.000000', 6, 'UTC'))))) AS target_event)
-     WHERE and(or(1, isNull(breakdown_values)), or(1, isNull(intervals_from_base)))) AS actor_activity
+    (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS actor_id,
+            arraySort(groupUniqArrayIf(toStartOfDay(toTimeZone(events.timestamp, 'UTC')), and(or(and(equals(events.event, '$pageview'), ifNull(equals(events__person.properties___email, 'person1@test.com'), 0)), equals(events.event, 'non_matching_event')), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(toDateTime64('2020-06-10 00:00:00.000000', 6, 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-06-17 00:00:00.000000', 6, 'UTC')))))) AS target_timestamps,
+            arraySort(groupUniqArrayIf(toStartOfDay(toTimeZone(events.timestamp, 'UTC')), equals(events.event, '$pageview'))) AS returning_timestamps,
+            arrayMap(x -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-06-10 00:00:00', 6, 'UTC'))), toIntervalDay(x)), range(0, 7)) AS date_range,
+            arrayJoin(arrayFilter(x -> ifNull(greater(x, -1), 0), arrayMap((_breakdown_value, breakdown_value_timestamp) -> if(has(target_timestamps, breakdown_value_timestamp), minus(_breakdown_value, 1), -1), arrayEnumerate(date_range), date_range))) AS breakdown_values,
+            arrayJoin(arrayConcat(if(has(target_timestamps, date_range[plus(breakdown_values, 1)]), [0], []), arrayFilter(x -> ifNull(greater(x, 0), 0), arrayMap(_timestamp -> minus(indexOf(arraySlice(date_range, plus(breakdown_values, 1)), _timestamp), 1), returning_timestamps)))) AS intervals_from_base
+     FROM events
+     LEFT OUTER JOIN
+       (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+               person_distinct_id_overrides.distinct_id AS distinct_id
+        FROM person_distinct_id_overrides
+        WHERE equals(person_distinct_id_overrides.team_id, 2)
+        GROUP BY person_distinct_id_overrides.distinct_id
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     LEFT JOIN
+       (SELECT person.id AS id,
+               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
+        FROM person
+        WHERE and(equals(person.team_id, 2), ifNull(in(tuple(person.id, person.version),
+                                                         (SELECT person.id AS id, max(person.version) AS version
+                                                          FROM person
+                                                          WHERE equals(person.team_id, 2)
+                                                          GROUP BY person.id
+                                                          HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+     WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(toDateTime64('2020-06-10 00:00:00.000000', 6, 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-06-17 00:00:00.000000', 6, 'UTC'))), in(events.event, tuple('$pageview', '$pageview', 'non_matching_event')))
+     GROUP BY actor_id) AS actor_activity
   GROUP BY breakdown_values,
            intervals_from_base
   ORDER BY breakdown_values ASC,
@@ -643,69 +355,33 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=1000000,
-                       max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=23622320128
   '''
 # ---
 # name: TestRetention.test_timezones
   '''
-  SELECT actor_activity.breakdown_values AS breakdown_values,
+  SELECT [actor_activity.breakdown_values] AS breakdown_values,
          actor_activity.intervals_from_base AS intervals_from_base,
          count(DISTINCT actor_activity.actor_id) AS count
   FROM
-    (SELECT DISTINCT breakdown_values AS breakdown_values,
-                     intervals_from_base AS intervals_from_base,
-                     actor_id AS actor_id
-     FROM
-       (SELECT target_event.breakdown_values AS breakdown_values,
-               dateDiff('day', target_event.event_date, returning_event.event_date) AS intervals_from_base,
-               returning_event.target AS actor_id
-        FROM
-          (SELECT DISTINCT toStartOfDay(toTimeZone(events.timestamp, 'UTC')) AS event_date,
-                           events__pdi.person_id AS target,
-                           [dateDiff('day', toStartOfDay(toDateTime64('2020-06-10 00:00:00.000000', 6, 'UTC')), toStartOfDay(toTimeZone(events.timestamp, 'UTC')))] AS breakdown_values
-           FROM events
-           INNER JOIN
-             (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
-                     person_distinct_id2.distinct_id AS distinct_id
-              FROM person_distinct_id2
-              WHERE equals(person_distinct_id2.team_id, 2)
-              GROUP BY person_distinct_id2.distinct_id
-              HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-           WHERE and(equals(events.team_id, 2), equals(events.event, '$pageview'), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(toDateTime64('2020-06-10 00:00:00.000000', 6, 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-06-21 00:00:00.000000', 6, 'UTC'))))) AS target_event
-        JOIN
-          (SELECT toStartOfDay(toTimeZone(events.timestamp, 'UTC')) AS event_date,
-                  events__pdi.person_id AS target
-           FROM events
-           INNER JOIN
-             (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
-                     person_distinct_id2.distinct_id AS distinct_id
-              FROM person_distinct_id2
-              WHERE equals(person_distinct_id2.team_id, 2)
-              GROUP BY person_distinct_id2.distinct_id
-              HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-           WHERE and(equals(events.team_id, 2), equals(events.event, '$pageview'), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(toDateTime64('2020-06-10 00:00:00.000000', 6, 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-06-21 00:00:00.000000', 6, 'UTC'))))
-           GROUP BY target,
-                    event_date) AS returning_event ON equals(returning_event.target, target_event.target)
-        WHERE ifNull(greater(returning_event.event_date, target_event.event_date), 0)
-        UNION ALL SELECT target_event.breakdown_values AS breakdown_values,
-                         0 AS intervals_from_base,
-                         target_event.target AS actor_id
-        FROM
-          (SELECT DISTINCT toStartOfDay(toTimeZone(events.timestamp, 'UTC')) AS event_date,
-                           events__pdi.person_id AS target,
-                           [dateDiff('day', toStartOfDay(toDateTime64('2020-06-10 00:00:00.000000', 6, 'UTC')), toStartOfDay(toTimeZone(events.timestamp, 'UTC')))] AS breakdown_values
-           FROM events
-           INNER JOIN
-             (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
-                     person_distinct_id2.distinct_id AS distinct_id
-              FROM person_distinct_id2
-              WHERE equals(person_distinct_id2.team_id, 2)
-              GROUP BY person_distinct_id2.distinct_id
-              HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-           WHERE and(equals(events.team_id, 2), equals(events.event, '$pageview'), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(toDateTime64('2020-06-10 00:00:00.000000', 6, 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-06-21 00:00:00.000000', 6, 'UTC'))))) AS target_event)
-     WHERE and(or(1, isNull(breakdown_values)), or(1, isNull(intervals_from_base)))) AS actor_activity
+    (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS actor_id,
+            arraySort(groupUniqArrayIf(toStartOfDay(toTimeZone(events.timestamp, 'UTC')), and(equals(events.event, '$pageview'), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(toDateTime64('2020-06-10 00:00:00.000000', 6, 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-06-21 00:00:00.000000', 6, 'UTC')))))) AS target_timestamps,
+            arraySort(groupUniqArrayIf(toStartOfDay(toTimeZone(events.timestamp, 'UTC')), equals(events.event, '$pageview'))) AS returning_timestamps,
+            arrayMap(x -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-06-10 00:00:00', 6, 'UTC'))), toIntervalDay(x)), range(0, 11)) AS date_range,
+            arrayJoin(arrayFilter(x -> ifNull(greater(x, -1), 0), arrayMap((_breakdown_value, breakdown_value_timestamp) -> if(has(target_timestamps, breakdown_value_timestamp), minus(_breakdown_value, 1), -1), arrayEnumerate(date_range), date_range))) AS breakdown_values,
+            arrayJoin(arrayConcat(if(has(target_timestamps, date_range[plus(breakdown_values, 1)]), [0], []), arrayFilter(x -> ifNull(greater(x, 0), 0), arrayMap(_timestamp -> minus(indexOf(arraySlice(date_range, plus(breakdown_values, 1)), _timestamp), 1), returning_timestamps)))) AS intervals_from_base
+     FROM events
+     LEFT OUTER JOIN
+       (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+               person_distinct_id_overrides.distinct_id AS distinct_id
+        FROM person_distinct_id_overrides
+        WHERE equals(person_distinct_id_overrides.team_id, 2)
+        GROUP BY person_distinct_id_overrides.distinct_id
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(toDateTime64('2020-06-10 00:00:00.000000', 6, 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-06-21 00:00:00.000000', 6, 'UTC'))), in(events.event, tuple('$pageview', '$pageview')))
+     GROUP BY actor_id) AS actor_activity
   GROUP BY breakdown_values,
            intervals_from_base
   ORDER BY breakdown_values ASC,
@@ -714,69 +390,33 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=1000000,
-                       max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=23622320128
   '''
 # ---
 # name: TestRetention.test_timezones.1
   '''
-  SELECT actor_activity.breakdown_values AS breakdown_values,
+  SELECT [actor_activity.breakdown_values] AS breakdown_values,
          actor_activity.intervals_from_base AS intervals_from_base,
          count(DISTINCT actor_activity.actor_id) AS count
   FROM
-    (SELECT DISTINCT breakdown_values AS breakdown_values,
-                     intervals_from_base AS intervals_from_base,
-                     actor_id AS actor_id
-     FROM
-       (SELECT target_event.breakdown_values AS breakdown_values,
-               dateDiff('day', target_event.event_date, returning_event.event_date) AS intervals_from_base,
-               returning_event.target AS actor_id
-        FROM
-          (SELECT DISTINCT toStartOfDay(toTimeZone(events.timestamp, 'US/Pacific')) AS event_date,
-                           events__pdi.person_id AS target,
-                           [dateDiff('day', toStartOfDay(toDateTime64('2020-06-10 00:00:00.000000', 6, 'US/Pacific')), toStartOfDay(toTimeZone(events.timestamp, 'US/Pacific')))] AS breakdown_values
-           FROM events
-           INNER JOIN
-             (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
-                     person_distinct_id2.distinct_id AS distinct_id
-              FROM person_distinct_id2
-              WHERE equals(person_distinct_id2.team_id, 2)
-              GROUP BY person_distinct_id2.distinct_id
-              HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-           WHERE and(equals(events.team_id, 2), equals(events.event, '$pageview'), and(greaterOrEquals(toTimeZone(events.timestamp, 'US/Pacific'), toStartOfDay(toDateTime64('2020-06-10 00:00:00.000000', 6, 'US/Pacific'))), lessOrEquals(toTimeZone(events.timestamp, 'US/Pacific'), toDateTime64('2020-06-21 00:00:00.000000', 6, 'US/Pacific'))))) AS target_event
-        JOIN
-          (SELECT toStartOfDay(toTimeZone(events.timestamp, 'US/Pacific')) AS event_date,
-                  events__pdi.person_id AS target
-           FROM events
-           INNER JOIN
-             (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
-                     person_distinct_id2.distinct_id AS distinct_id
-              FROM person_distinct_id2
-              WHERE equals(person_distinct_id2.team_id, 2)
-              GROUP BY person_distinct_id2.distinct_id
-              HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-           WHERE and(equals(events.team_id, 2), equals(events.event, '$pageview'), and(greaterOrEquals(toTimeZone(events.timestamp, 'US/Pacific'), toStartOfDay(toDateTime64('2020-06-10 00:00:00.000000', 6, 'US/Pacific'))), lessOrEquals(toTimeZone(events.timestamp, 'US/Pacific'), toDateTime64('2020-06-21 00:00:00.000000', 6, 'US/Pacific'))))
-           GROUP BY target,
-                    event_date) AS returning_event ON equals(returning_event.target, target_event.target)
-        WHERE ifNull(greater(returning_event.event_date, target_event.event_date), 0)
-        UNION ALL SELECT target_event.breakdown_values AS breakdown_values,
-                         0 AS intervals_from_base,
-                         target_event.target AS actor_id
-        FROM
-          (SELECT DISTINCT toStartOfDay(toTimeZone(events.timestamp, 'US/Pacific')) AS event_date,
-                           events__pdi.person_id AS target,
-                           [dateDiff('day', toStartOfDay(toDateTime64('2020-06-10 00:00:00.000000', 6, 'US/Pacific')), toStartOfDay(toTimeZone(events.timestamp, 'US/Pacific')))] AS breakdown_values
-           FROM events
-           INNER JOIN
-             (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
-                     person_distinct_id2.distinct_id AS distinct_id
-              FROM person_distinct_id2
-              WHERE equals(person_distinct_id2.team_id, 2)
-              GROUP BY person_distinct_id2.distinct_id
-              HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-           WHERE and(equals(events.team_id, 2), equals(events.event, '$pageview'), and(greaterOrEquals(toTimeZone(events.timestamp, 'US/Pacific'), toStartOfDay(toDateTime64('2020-06-10 00:00:00.000000', 6, 'US/Pacific'))), lessOrEquals(toTimeZone(events.timestamp, 'US/Pacific'), toDateTime64('2020-06-21 00:00:00.000000', 6, 'US/Pacific'))))) AS target_event)
-     WHERE and(or(1, isNull(breakdown_values)), or(1, isNull(intervals_from_base)))) AS actor_activity
+    (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS actor_id,
+            arraySort(groupUniqArrayIf(toStartOfDay(toTimeZone(events.timestamp, 'US/Pacific')), and(equals(events.event, '$pageview'), and(greaterOrEquals(toTimeZone(events.timestamp, 'US/Pacific'), toStartOfDay(toDateTime64('2020-06-10 00:00:00.000000', 6, 'US/Pacific'))), lessOrEquals(toTimeZone(events.timestamp, 'US/Pacific'), toDateTime64('2020-06-21 00:00:00.000000', 6, 'US/Pacific')))))) AS target_timestamps,
+            arraySort(groupUniqArrayIf(toStartOfDay(toTimeZone(events.timestamp, 'US/Pacific')), equals(events.event, '$pageview'))) AS returning_timestamps,
+            arrayMap(x -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-06-10 00:00:00', 6, 'US/Pacific'))), toIntervalDay(x)), range(0, 11)) AS date_range,
+            arrayJoin(arrayFilter(x -> ifNull(greater(x, -1), 0), arrayMap((_breakdown_value, breakdown_value_timestamp) -> if(has(target_timestamps, breakdown_value_timestamp), minus(_breakdown_value, 1), -1), arrayEnumerate(date_range), date_range))) AS breakdown_values,
+            arrayJoin(arrayConcat(if(has(target_timestamps, date_range[plus(breakdown_values, 1)]), [0], []), arrayFilter(x -> ifNull(greater(x, 0), 0), arrayMap(_timestamp -> minus(indexOf(arraySlice(date_range, plus(breakdown_values, 1)), _timestamp), 1), returning_timestamps)))) AS intervals_from_base
+     FROM events
+     LEFT OUTER JOIN
+       (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+               person_distinct_id_overrides.distinct_id AS distinct_id
+        FROM person_distinct_id_overrides
+        WHERE equals(person_distinct_id_overrides.team_id, 2)
+        GROUP BY person_distinct_id_overrides.distinct_id
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'US/Pacific'), toStartOfDay(toDateTime64('2020-06-10 00:00:00.000000', 6, 'US/Pacific'))), lessOrEquals(toTimeZone(events.timestamp, 'US/Pacific'), toDateTime64('2020-06-21 00:00:00.000000', 6, 'US/Pacific'))), in(events.event, tuple('$pageview', '$pageview')))
+     GROUP BY actor_id) AS actor_activity
   GROUP BY breakdown_values,
            intervals_from_base
   ORDER BY breakdown_values ASC,
@@ -785,69 +425,33 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=1000000,
-                       max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=23622320128
   '''
 # ---
 # name: TestRetention.test_week_interval
   '''
-  SELECT actor_activity.breakdown_values AS breakdown_values,
+  SELECT [actor_activity.breakdown_values] AS breakdown_values,
          actor_activity.intervals_from_base AS intervals_from_base,
          count(DISTINCT actor_activity.actor_id) AS count
   FROM
-    (SELECT DISTINCT breakdown_values AS breakdown_values,
-                     intervals_from_base AS intervals_from_base,
-                     actor_id AS actor_id
-     FROM
-       (SELECT target_event.breakdown_values AS breakdown_values,
-               dateDiff('week', target_event.event_date, returning_event.event_date) AS intervals_from_base,
-               returning_event.target AS actor_id
-        FROM
-          (SELECT DISTINCT toStartOfWeek(toTimeZone(events.timestamp, 'UTC'), 0) AS event_date,
-                           events__pdi.person_id AS target,
-                           [dateDiff('week', toStartOfWeek(toDateTime64('2020-06-07 00:00:00.000000', 6, 'UTC'), 0), toStartOfWeek(toTimeZone(events.timestamp, 'UTC'), 0))] AS breakdown_values
-           FROM events
-           INNER JOIN
-             (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
-                     person_distinct_id2.distinct_id AS distinct_id
-              FROM person_distinct_id2
-              WHERE equals(person_distinct_id2.team_id, 2)
-              GROUP BY person_distinct_id2.distinct_id
-              HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-           WHERE and(equals(events.team_id, 2), equals(events.event, '$pageview'), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfWeek(toDateTime64('2020-06-07 00:00:00.000000', 6, 'UTC'), 0)), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-07-27 00:00:00.000000', 6, 'UTC'))))) AS target_event
-        JOIN
-          (SELECT toStartOfWeek(toTimeZone(events.timestamp, 'UTC'), 0) AS event_date,
-                  events__pdi.person_id AS target
-           FROM events
-           INNER JOIN
-             (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
-                     person_distinct_id2.distinct_id AS distinct_id
-              FROM person_distinct_id2
-              WHERE equals(person_distinct_id2.team_id, 2)
-              GROUP BY person_distinct_id2.distinct_id
-              HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-           WHERE and(equals(events.team_id, 2), equals(events.event, '$pageview'), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfWeek(toDateTime64('2020-06-07 00:00:00.000000', 6, 'UTC'), 0)), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-07-27 00:00:00.000000', 6, 'UTC'))))
-           GROUP BY target,
-                    event_date) AS returning_event ON equals(returning_event.target, target_event.target)
-        WHERE ifNull(greater(returning_event.event_date, target_event.event_date), 0)
-        UNION ALL SELECT target_event.breakdown_values AS breakdown_values,
-                         0 AS intervals_from_base,
-                         target_event.target AS actor_id
-        FROM
-          (SELECT DISTINCT toStartOfWeek(toTimeZone(events.timestamp, 'UTC'), 0) AS event_date,
-                           events__pdi.person_id AS target,
-                           [dateDiff('week', toStartOfWeek(toDateTime64('2020-06-07 00:00:00.000000', 6, 'UTC'), 0), toStartOfWeek(toTimeZone(events.timestamp, 'UTC'), 0))] AS breakdown_values
-           FROM events
-           INNER JOIN
-             (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
-                     person_distinct_id2.distinct_id AS distinct_id
-              FROM person_distinct_id2
-              WHERE equals(person_distinct_id2.team_id, 2)
-              GROUP BY person_distinct_id2.distinct_id
-              HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-           WHERE and(equals(events.team_id, 2), equals(events.event, '$pageview'), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfWeek(toDateTime64('2020-06-07 00:00:00.000000', 6, 'UTC'), 0)), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-07-27 00:00:00.000000', 6, 'UTC'))))) AS target_event)
-     WHERE and(or(1, isNull(breakdown_values)), or(1, isNull(intervals_from_base)))) AS actor_activity
+    (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS actor_id,
+            arraySort(groupUniqArrayIf(toStartOfWeek(toTimeZone(events.timestamp, 'UTC'), 0), and(equals(events.event, '$pageview'), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfWeek(toDateTime64('2020-06-07 00:00:00.000000', 6, 'UTC'), 0)), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-07-27 00:00:00.000000', 6, 'UTC')))))) AS target_timestamps,
+            arraySort(groupUniqArrayIf(toStartOfWeek(toTimeZone(events.timestamp, 'UTC'), 0), equals(events.event, '$pageview'))) AS returning_timestamps,
+            arrayMap(x -> plus(toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-06-07 00:00:00', 6, 'UTC')), 0), toIntervalWeek(x)), range(0, 7)) AS date_range,
+            arrayJoin(arrayFilter(x -> ifNull(greater(x, -1), 0), arrayMap((_breakdown_value, breakdown_value_timestamp) -> if(has(target_timestamps, breakdown_value_timestamp), minus(_breakdown_value, 1), -1), arrayEnumerate(date_range), date_range))) AS breakdown_values,
+            arrayJoin(arrayConcat(if(has(target_timestamps, date_range[plus(breakdown_values, 1)]), [0], []), arrayFilter(x -> ifNull(greater(x, 0), 0), arrayMap(_timestamp -> minus(indexOf(arraySlice(date_range, plus(breakdown_values, 1)), _timestamp), 1), returning_timestamps)))) AS intervals_from_base
+     FROM events
+     LEFT OUTER JOIN
+       (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+               person_distinct_id_overrides.distinct_id AS distinct_id
+        FROM person_distinct_id_overrides
+        WHERE equals(person_distinct_id_overrides.team_id, 2)
+        GROUP BY person_distinct_id_overrides.distinct_id
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfWeek(toDateTime64('2020-06-07 00:00:00.000000', 6, 'UTC'), 0)), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-07-27 00:00:00.000000', 6, 'UTC'))), in(events.event, tuple('$pageview', '$pageview')))
+     GROUP BY actor_id) AS actor_activity
   GROUP BY breakdown_values,
            intervals_from_base
   ORDER BY breakdown_values ASC,
@@ -856,69 +460,33 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=1000000,
-                       max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=23622320128
   '''
 # ---
 # name: TestRetention.test_week_interval.1
   '''
-  SELECT actor_activity.breakdown_values AS breakdown_values,
+  SELECT [actor_activity.breakdown_values] AS breakdown_values,
          actor_activity.intervals_from_base AS intervals_from_base,
          count(DISTINCT actor_activity.actor_id) AS count
   FROM
-    (SELECT DISTINCT breakdown_values AS breakdown_values,
-                     intervals_from_base AS intervals_from_base,
-                     actor_id AS actor_id
-     FROM
-       (SELECT target_event.breakdown_values AS breakdown_values,
-               dateDiff('week', target_event.event_date, returning_event.event_date) AS intervals_from_base,
-               returning_event.target AS actor_id
-        FROM
-          (SELECT DISTINCT toStartOfWeek(toTimeZone(events.timestamp, 'UTC'), 3) AS event_date,
-                           events__pdi.person_id AS target,
-                           [dateDiff('week', toStartOfWeek(toDateTime64('2020-06-08 00:00:00.000000', 6, 'UTC'), 3), toStartOfWeek(toTimeZone(events.timestamp, 'UTC'), 3))] AS breakdown_values
-           FROM events
-           INNER JOIN
-             (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
-                     person_distinct_id2.distinct_id AS distinct_id
-              FROM person_distinct_id2
-              WHERE equals(person_distinct_id2.team_id, 2)
-              GROUP BY person_distinct_id2.distinct_id
-              HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-           WHERE and(equals(events.team_id, 2), equals(events.event, '$pageview'), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfWeek(toDateTime64('2020-06-08 00:00:00.000000', 6, 'UTC'), 3)), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-07-27 00:00:00.000000', 6, 'UTC'))))) AS target_event
-        JOIN
-          (SELECT toStartOfWeek(toTimeZone(events.timestamp, 'UTC'), 3) AS event_date,
-                  events__pdi.person_id AS target
-           FROM events
-           INNER JOIN
-             (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
-                     person_distinct_id2.distinct_id AS distinct_id
-              FROM person_distinct_id2
-              WHERE equals(person_distinct_id2.team_id, 2)
-              GROUP BY person_distinct_id2.distinct_id
-              HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-           WHERE and(equals(events.team_id, 2), equals(events.event, '$pageview'), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfWeek(toDateTime64('2020-06-08 00:00:00.000000', 6, 'UTC'), 3)), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-07-27 00:00:00.000000', 6, 'UTC'))))
-           GROUP BY target,
-                    event_date) AS returning_event ON equals(returning_event.target, target_event.target)
-        WHERE ifNull(greater(returning_event.event_date, target_event.event_date), 0)
-        UNION ALL SELECT target_event.breakdown_values AS breakdown_values,
-                         0 AS intervals_from_base,
-                         target_event.target AS actor_id
-        FROM
-          (SELECT DISTINCT toStartOfWeek(toTimeZone(events.timestamp, 'UTC'), 3) AS event_date,
-                           events__pdi.person_id AS target,
-                           [dateDiff('week', toStartOfWeek(toDateTime64('2020-06-08 00:00:00.000000', 6, 'UTC'), 3), toStartOfWeek(toTimeZone(events.timestamp, 'UTC'), 3))] AS breakdown_values
-           FROM events
-           INNER JOIN
-             (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
-                     person_distinct_id2.distinct_id AS distinct_id
-              FROM person_distinct_id2
-              WHERE equals(person_distinct_id2.team_id, 2)
-              GROUP BY person_distinct_id2.distinct_id
-              HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-           WHERE and(equals(events.team_id, 2), equals(events.event, '$pageview'), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfWeek(toDateTime64('2020-06-08 00:00:00.000000', 6, 'UTC'), 3)), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-07-27 00:00:00.000000', 6, 'UTC'))))) AS target_event)
-     WHERE and(or(1, isNull(breakdown_values)), or(1, isNull(intervals_from_base)))) AS actor_activity
+    (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS actor_id,
+            arraySort(groupUniqArrayIf(toStartOfWeek(toTimeZone(events.timestamp, 'UTC'), 3), and(equals(events.event, '$pageview'), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfWeek(toDateTime64('2020-06-08 00:00:00.000000', 6, 'UTC'), 3)), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-07-27 00:00:00.000000', 6, 'UTC')))))) AS target_timestamps,
+            arraySort(groupUniqArrayIf(toStartOfWeek(toTimeZone(events.timestamp, 'UTC'), 3), equals(events.event, '$pageview'))) AS returning_timestamps,
+            arrayMap(x -> plus(toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-06-08 00:00:00', 6, 'UTC')), 3), toIntervalWeek(x)), range(0, 7)) AS date_range,
+            arrayJoin(arrayFilter(x -> ifNull(greater(x, -1), 0), arrayMap((_breakdown_value, breakdown_value_timestamp) -> if(has(target_timestamps, breakdown_value_timestamp), minus(_breakdown_value, 1), -1), arrayEnumerate(date_range), date_range))) AS breakdown_values,
+            arrayJoin(arrayConcat(if(has(target_timestamps, date_range[plus(breakdown_values, 1)]), [0], []), arrayFilter(x -> ifNull(greater(x, 0), 0), arrayMap(_timestamp -> minus(indexOf(arraySlice(date_range, plus(breakdown_values, 1)), _timestamp), 1), returning_timestamps)))) AS intervals_from_base
+     FROM events
+     LEFT OUTER JOIN
+       (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+               person_distinct_id_overrides.distinct_id AS distinct_id
+        FROM person_distinct_id_overrides
+        WHERE equals(person_distinct_id_overrides.team_id, 2)
+        GROUP BY person_distinct_id_overrides.distinct_id
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfWeek(toDateTime64('2020-06-08 00:00:00.000000', 6, 'UTC'), 3)), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-07-27 00:00:00.000000', 6, 'UTC'))), in(events.event, tuple('$pageview', '$pageview')))
+     GROUP BY actor_id) AS actor_activity
   GROUP BY breakdown_values,
            intervals_from_base
   ORDER BY breakdown_values ASC,
@@ -927,8 +495,8 @@
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
-                       max_ast_elements=1000000,
-                       max_expanded_ast_elements=1000000,
-                       max_query_size=524288
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=23622320128
   '''
 # ---

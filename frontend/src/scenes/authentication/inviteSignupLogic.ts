@@ -1,8 +1,9 @@
-import { actions, kea, listeners, path, reducers } from 'kea'
+import { actions, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { urlToAction } from 'kea-router'
 import api from 'lib/api'
+import { ValidatedPasswordResult, validatePassword } from 'lib/components/PasswordStrength'
 
 import { PrevalidatedInvite } from '~/types'
 
@@ -22,7 +23,6 @@ export interface ErrorInterface {
 export interface AcceptInvitePayloadInterface {
     first_name?: string
     password: string
-    email_opt_in: boolean
     role_at_organization?: string
 }
 
@@ -80,13 +80,9 @@ export const inviteSignupLogic = kea<inviteSignupLogicType>([
     })),
     forms(({ actions, values }) => ({
         signup: {
-            defaults: { email_opt_in: true, role_at_organization: '' } as AcceptInvitePayloadInterface,
+            defaults: { role_at_organization: '' } as AcceptInvitePayloadInterface,
             errors: ({ password, first_name }) => ({
-                password: !password
-                    ? 'Please enter your password to continue'
-                    : password.length < 8
-                    ? 'Password must be at least 8 characters'
-                    : undefined,
+                password: !password ? 'Please enter your password to continue' : values.validatedPassword.feedback,
                 first_name: !first_name ? 'Please enter your name' : undefined,
             }),
             submit: async (payload, breakpoint) => {
@@ -111,6 +107,14 @@ export const inviteSignupLogic = kea<inviteSignupLogicType>([
             },
         },
     })),
+    selectors({
+        validatedPassword: [
+            (s) => [s.signup],
+            ({ password }): ValidatedPasswordResult => {
+                return validatePassword(password)
+            },
+        ],
+    }),
     listeners(({ actions }) => ({
         prevalidateInviteSuccess: ({ invite }) => {
             if (invite?.first_name) {

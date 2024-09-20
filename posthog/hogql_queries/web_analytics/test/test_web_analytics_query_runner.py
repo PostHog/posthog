@@ -48,7 +48,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 )
         return person_result
 
-    def _create_web_stats_table_query(self, date_from, date_to, properties, breakdown_by=WebStatsBreakdown.Page):
+    def _create_web_stats_table_query(self, date_from, date_to, properties, breakdown_by=WebStatsBreakdown.PAGE):
         query = WebStatsTableQuery(
             dateRange=DateRange(date_from=date_from, date_to=date_to), properties=properties, breakdownBy=breakdown_by
         )
@@ -63,8 +63,8 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     def test_sample_rate_cache_key_is_same_across_subclasses(self):
         properties: list[Union[EventPropertyFilter, PersonPropertyFilter]] = [
-            EventPropertyFilter(key="$current_url", value="/a", operator=PropertyOperator.is_not),
-            PersonPropertyFilter(key="$initial_utm_source", value="google", operator=PropertyOperator.is_not),
+            EventPropertyFilter(key="$current_url", value="/a", operator=PropertyOperator.IS_NOT),
+            PersonPropertyFilter(key="$initial_utm_source", value="google", operator=PropertyOperator.IS_NOT),
         ]
         date_from = "2023-12-08"
         date_to = "2023-12-15"
@@ -76,10 +76,10 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     def test_sample_rate_cache_key_is_same_with_different_properties(self):
         properties_a: list[Union[EventPropertyFilter, PersonPropertyFilter]] = [
-            EventPropertyFilter(key="$current_url", value="/a", operator=PropertyOperator.is_not),
+            EventPropertyFilter(key="$current_url", value="/a", operator=PropertyOperator.IS_NOT),
         ]
         properties_b: list[Union[EventPropertyFilter, PersonPropertyFilter]] = [
-            EventPropertyFilter(key="$current_url", value="/b", operator=PropertyOperator.is_not),
+            EventPropertyFilter(key="$current_url", value="/b", operator=PropertyOperator.IS_NOT),
         ]
         date_from = "2023-12-08"
         date_to = "2023-12-15"
@@ -91,7 +91,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     def test_sample_rate_cache_key_changes_with_date_range(self):
         properties: list[Union[EventPropertyFilter, PersonPropertyFilter]] = [
-            EventPropertyFilter(key="$current_url", value="/a", operator=PropertyOperator.is_not),
+            EventPropertyFilter(key="$current_url", value="/a", operator=PropertyOperator.IS_NOT),
         ]
         date_from_a = "2023-12-08"
         date_from_b = "2023-12-09"

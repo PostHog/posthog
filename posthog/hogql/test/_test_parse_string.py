@@ -1,12 +1,12 @@
 from typing import Literal
 from posthog.hogql.errors import SyntaxError
-from posthog.hogql.parse_string import parse_string as parse_string_py
-from hogql_parser import unquote_string as unquote_string_cpp
+from posthog.hogql.parse_string import parse_string_literal_text as parse_string_py
+from hogql_parser import parse_string_literal_text as parse_string_cpp
 from posthog.test.base import BaseTest
 
 
 def parse_string_test_factory(backend: Literal["python", "cpp"]):
-    parse_string = parse_string_py if backend == "python" else unquote_string_cpp
+    parse_string = parse_string_py if backend == "python" else parse_string_cpp
 
     class TestParseString(BaseTest):
         def test_quote_types(self):

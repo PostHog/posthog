@@ -1,7 +1,7 @@
 import './Experiment.scss'
 
 import { IconInfo } from '@posthog/icons'
-import { LemonSelect } from '@posthog/lemon-ui'
+import { LemonSelect, Link } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { EXPERIMENT_DEFAULT_DURATION } from 'lib/constants'
@@ -20,7 +20,7 @@ import { FunnelConversionWindowFilter } from 'scenes/insights/views/Funnels/Funn
 
 import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import { TestAccountFilter } from '~/queries/nodes/InsightViz/filters/TestAccountFilter'
+import { InsightTestAccountFilter } from '~/queries/nodes/InsightViz/filters/InsightTestAccountFilter'
 import { Query } from '~/queries/Query/Query'
 import { FunnelsQuery, InsightQueryNode, TrendsQuery } from '~/queries/schema'
 import { EditorFilterProps, FilterType, InsightLogicProps, InsightShortId, InsightType } from '~/types'
@@ -152,7 +152,7 @@ export function ExperimentInsightCreator({ insightProps }: { insightProps: Insig
                         <AttributionSelect insightProps={insightProps} />
                     </>
                 )}
-                <TestAccountFilter query={querySource as InsightQueryNode} setQuery={updateQuerySource} />
+                <InsightTestAccountFilter query={querySource as InsightQueryNode} setQuery={updateQuerySource} />
             </div>
         </>
     )
@@ -164,22 +164,37 @@ export function AttributionSelect({ insightProps }: EditorFilterProps): JSX.Elem
             <div className="flex">
                 <span>Attribution type</span>
                 <Tooltip
+                    closeDelayMs={200}
                     title={
-                        <div>
-                            When breaking funnels down by a property, you can choose how to assign users to the various
-                            property values. This is useful because property values can change for a user/group as
-                            someone travels through the funnel.
-                            <ul className="list-disc pl-4 pt-4">
-                                <li>First step: the first property value seen from all steps is chosen.</li>
-                                <li>Last step: last property value seen from all steps is chosen.</li>
-                                <li>Specific step: the property value seen at that specific step is chosen.</li>
-                                <li>All steps: the property value must be seen in all steps.</li>
-                                <li>Any step: the property value must be seen on at least one step of the funnel.</li>
+                        <div className="space-y-2">
+                            <div>
+                                When breaking down funnels, it's possible that the same properties don't exist on every
+                                event. For example, if you want to break down by browser on a funnel that contains both
+                                frontend and backend events.
+                            </div>
+                            <div>
+                                In this case, you can choose from which step the properties should be selected from by
+                                modifying the attribution type. There are four modes to choose from:
+                            </div>
+                            <ul className="list-disc pl-4">
+                                <li>First touchpoint: the first property value seen in any of the steps is chosen.</li>
+                                <li>Last touchpoint: the last property value seen from all steps is chosen.</li>
+                                <li>
+                                    All steps: the property value must be seen in all steps to be considered in the
+                                    funnel.
+                                </li>
+                                <li>Specific step: only the property value seen at the selected step is chosen.</li>
                             </ul>
+                            <div>
+                                Read more in the{' '}
+                                <Link to="https://posthog.com/docs/product-analytics/funnels#attribution-types">
+                                    documentation.
+                                </Link>
+                            </div>
                         </div>
                     }
                 >
-                    <IconInfo className="w-4 info-indicator" />
+                    <IconInfo className="text-xl text-muted-alt shrink-0 ml-1" />
                 </Tooltip>
             </div>
             <Attribution insightProps={insightProps} />

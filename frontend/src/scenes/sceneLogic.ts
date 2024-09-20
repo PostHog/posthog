@@ -3,7 +3,9 @@ import { router, urlToAction } from 'kea-router'
 import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
 import { BarStatus } from 'lib/components/CommandBar/types'
 import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { getAppContext } from 'lib/utils/getAppContext'
 import { addProjectIdIfMissing, removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import posthog from 'posthog-js'
 import { emptySceneParams, preloadedScenes, redirects, routes, sceneConfigurations } from 'scenes/scenes'
@@ -13,6 +15,8 @@ import { urls } from 'scenes/urls'
 import { ProductKey } from '~/types'
 
 import { handleLoginRedirect } from './authentication/loginLogic'
+import { billingLogic } from './billing/billingLogic'
+import { SOURCE_DETAILS, sourceWizardLogic } from './data-warehouse/new/sourceWizardLogic'
 import { onboardingLogic, OnboardingStepKey } from './onboarding/onboardingLogic'
 import { organizationLogic } from './organizationLogic'
 import { preflightLogic } from './PreflightCheck/preflightLogic'
@@ -25,7 +29,8 @@ export const productUrlMapping: Partial<Record<ProductKey, string[]>> = {
     [ProductKey.SESSION_REPLAY]: [urls.replay()],
     [ProductKey.FEATURE_FLAGS]: [urls.featureFlags(), urls.earlyAccessFeatures(), urls.experiments()],
     [ProductKey.SURVEYS]: [urls.surveys()],
-    [ProductKey.PRODUCT_ANALYTICS]: [urls.insights()],
+    [ProductKey.PRODUCT_ANALYTICS]: [urls.insights(), urls.webAnalytics()],
+    [ProductKey.DATA_WAREHOUSE]: [urls.dataWarehouse()],
 }
 
 export const sceneLogic = kea<sceneLogicType>([
@@ -37,8 +42,24 @@ export const sceneLogic = kea<sceneLogicType>([
     path(['scenes', 'sceneLogic']),
     connect(() => ({
         logic: [router, userLogic, preflightLogic],
-        actions: [router, ['locationChanged'], commandBarLogic, ['setCommandBar'], inviteLogic, ['hideInviteModal']],
-        values: [featureFlagLogic, ['featureFlags']],
+        actions: [
+            router,
+            ['locationChanged'],
+            commandBarLogic,
+            ['setCommandBar'],
+            inviteLogic,
+            ['hideInviteModal'],
+            sourceWizardLogic,
+            ['selectConnector', 'handleRedirect', 'setStep'],
+        ],
+        values: [
+            featureFlagLogic,
+            ['featureFlags'],
+            billingLogic,
+            ['billing'],
+            organizationLogic,
+            ['organizationBeingDeleted'],
+        ],
     })),
     actions({
         /* 1. Prepares to open the scene, as the listener may override and do something
@@ -140,6 +161,16 @@ export const sceneLogic = kea<sceneLogicType>([
             const sceneConfig = sceneConfigurations[scene] || {}
             const { user } = userLogic.values
             const { preflight } = preflightLogic.values
+
+            if (params.searchParams?.organizationDeleted && !organizationLogic.values.organizationBeingDeleted) {
+                lemonToast.success('Organization has been deleted')
+                router.actions.push(urls.default())
+                return
+            }
+
+            if (getAppContext()?.is_region_blocked) {
+                // TODO: Later this is where we should redirect to a page to explain the region blocking
+            }
 
             if (scene === Scene.Signup && preflight && !preflight.can_create_org) {
                 // If user is on an already initiated self-hosted instance, redirect away from signup
@@ -245,11 +276,27 @@ export const sceneLogic = kea<sceneLogicType>([
                                     `Onboarding not completed for ${productKeyFromUrl}, redirecting to onboarding intro`
                                 )
                                 onboardingLogic.mount()
-                                onboardingLogic.actions.setIncludeIntro(true)
+                                onboardingLogic.actions.setIncludeIntro(!!values.billing)
                                 onboardingLogic.unmount()
-                                router.actions.replace(
-                                    urls.onboarding(productKeyFromUrl, OnboardingStepKey.PRODUCT_INTRO)
-                                )
+
+                                if (
+                                    scene === Scene.DataWarehouseTable &&
+                                    params.searchParams.kind == 'hubspot' &&
+                                    params.searchParams.code
+                                ) {
+                                    actions.selectConnector(SOURCE_DETAILS['Hubspot'])
+                                    actions.handleRedirect(params.searchParams.kind, {
+                                        code: params.searchParams.code,
+                                    })
+                                    actions.setStep(2)
+                                    router.actions.replace(
+                                        urls.onboarding(productKeyFromUrl, OnboardingStepKey.LINK_DATA)
+                                    )
+                                } else {
+                                    router.actions.replace(
+                                        urls.onboarding(productKeyFromUrl, OnboardingStepKey.PRODUCT_INTRO)
+                                    )
+                                }
                                 return
                             }
                         }
@@ -402,7 +449,9 @@ export const sceneLogic = kea<sceneLogicType>([
                 actions.openScene(scene, { params, searchParams, hashParams }, method)
         }
 
-        mapping['/*'] = (_, __, { method }) => actions.loadScene(Scene.Error404, emptySceneParams, method)
+        mapping['/*'] = (_, __, { method }) => {
+            return actions.loadScene(Scene.Error404, emptySceneParams, method)
+        }
 
         return mapping
     }),

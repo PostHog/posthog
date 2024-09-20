@@ -42,21 +42,23 @@ def validate_migration_sql(sql) -> bool:
             and "CREATE TABLE" not in operation_sql
             and "ADD CONSTRAINT" not in operation_sql
             and "-- not-null-ignore" not in operation_sql
+            # Ignore for brand-new tables
+            and (table_being_altered not in tables_created_so_far or table_being_altered not in new_tables)
         ):
             print(
                 f"\n\n\033[91mFound a non-null field or default added to an existing model. This will lock up the table while migrating. Please add 'null=True, blank=True' to the field.\nSource: `{operation_sql}`"
             )
             return True
 
-        if "RENAME" in operation_sql and "-- rename-ignore" not in operation_sql:
+        if "RENAME" in operation_sql:
             print(
-                f"\n\n\033[91mFound a rename command. This will lock up the table while migrating. Please create a new column and provide alternative method for swapping columns.\nSource: `{operation_sql}`"
+                f"\n\n\033[91mFound a RENAME command. This will lock up the table while migrating. Please create a new column and provide alternative method for swapping columns.\nSource: `{operation_sql}`"
             )
             return True
 
-        if "DROP COLUMN" in operation_sql and "-- drop-column-ignore" not in operation_sql:
+        if "DROP COLUMN" in operation_sql:
             print(
-                f"\n\n\033[91mFound a drop command. This could lead to unsafe states for the app. Please avoid dropping columns.\nSource: `{operation_sql}`"
+                f"\n\n\033[91mFound a DROP COLUMN command. This will lead to the app crashing while we roll out, and it will mean we can't roll back beyond this PR. Instead, please use the deprecate_field function: `from django_deprecate_fields import deprecate_field` and `your_field = deprecate_field(models.IntegerField(null=True, blank=True))`\nSource: `{operation_sql}`"
             )
             return True
 
@@ -67,13 +69,18 @@ def validate_migration_sql(sql) -> bool:
             return True
         if "CONSTRAINT" in operation_sql and (
             "-- existing-table-constraint-ignore" not in operation_sql
+            and " NOT VALID" not in operation_sql
             and (
                 table_being_altered not in tables_created_so_far
                 or _get_table("ALTER TABLE", operation_sql) not in new_tables
             )  # Ignore for brand-new tables
         ):
             print(
-                f"\n\n\033[91mFound a CONSTRAINT command. This locks tables which causes downtime. Please avoid adding constraints to existing tables.\nSource: `{operation_sql}`"
+                f"\n\n\033[91mFound a CONSTRAINT command without NOT VALID. This locks tables which causes downtime. "
+                "If adding a foreign key field, see `0415_pluginconfig_match_action` for an example of how to do this safely. "
+                "If adding the constraint by itself, please use `AddConstraintNotValid()` of `django.contrib.postgres.operations` instead. "
+                "See https://docs.djangoproject.com/en/4.2/ref/contrib/postgres/operations/#adding-constraints-without-enforcing-validation.\n"
+                "Source: `{operation_sql}`"
             )
             return True
         if (
@@ -82,7 +89,11 @@ def validate_migration_sql(sql) -> bool:
             and _get_table(" ON", operation_sql) not in new_tables
         ):
             print(
-                f"\n\n\033[91mFound a CREATE INDEX command that isn't run CONCURRENTLY. This locks tables which causes downtime. Please add this index CONCURRENTLY instead.\nSource: `{operation_sql}`"
+                f"\n\n\033[91mFound a CREATE INDEX command that isn't run CONCURRENTLY. This locks tables which causes downtime. "
+                "If adding a foreign key field, see `0415_pluginconfig_match_action` for an example of how to do this safely. "
+                "If adding the index by itself, please use `AddIndexConcurrently()` of `django.contrib.postgres.operations` instead. "
+                "See https://docs.djangoproject.com/en/4.2/ref/contrib/postgres/operations/#concurrent-index-operations.\n"
+                "Source: `{operation_sql}`"
             )
             return True
 

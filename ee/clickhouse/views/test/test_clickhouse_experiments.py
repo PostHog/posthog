@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 from django.core.cache import cache
 from flaky import flaky
 from rest_framework import status
@@ -7,7 +7,6 @@ from ee.api.test.base import APILicensedTest
 from dateutil import parser
 from posthog.constants import ExperimentSignificanceCode
 from posthog.models.action.action import Action
-from posthog.models.action_step import ActionStep
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.experiment import Experiment
 from posthog.models.feature_flag import FeatureFlag, get_feature_flags_for_team_in_cache
@@ -368,6 +367,100 @@ class TestExperimentCRUD(APILicensedTest):
         updated_ff = FeatureFlag.objects.get(key=ff_key)
         self.assertTrue(updated_ff.active)
 
+    def test_create_multivariate_experiment_can_update_variants_in_draft(self):
+        ff_key = "a-b-test"
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Test Experiment",
+                "description": "",
+                "end_date": None,
+                "feature_flag_key": ff_key,
+                "parameters": {
+                    "feature_flag_variants": [
+                        {
+                            "key": "control",
+                            "name": "Control Group",
+                            "rollout_percentage": 33,
+                        },
+                        {
+                            "key": "test_1",
+                            "name": "Test Variant",
+                            "rollout_percentage": 33,
+                        },
+                        {
+                            "key": "test_2",
+                            "name": "Test Variant",
+                            "rollout_percentage": 34,
+                        },
+                    ]
+                },
+                "filters": {
+                    "events": [
+                        {"order": 0, "id": "$pageview"},
+                        {"order": 1, "id": "$pageleave"},
+                    ],
+                    "properties": [],
+                },
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["name"], "Test Experiment")
+        self.assertEqual(response.json()["feature_flag_key"], ff_key)
+
+        created_ff = FeatureFlag.objects.get(key=ff_key)
+
+        self.assertEqual(created_ff.key, ff_key)
+        self.assertEqual(created_ff.active, False)
+        self.assertEqual(created_ff.filters["multivariate"]["variants"][0]["key"], "control")
+        self.assertEqual(created_ff.filters["multivariate"]["variants"][1]["key"], "test_1")
+        self.assertEqual(created_ff.filters["multivariate"]["variants"][2]["key"], "test_2")
+        self.assertEqual(created_ff.filters["groups"][0]["properties"], [])
+
+        id = response.json()["id"]
+
+        experiment = Experiment.objects.get(id=response.json()["id"])
+        self.assertTrue(experiment.is_draft)
+        # Now try updating FF
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{id}",
+            {
+                "description": "Bazinga",
+                "parameters": {
+                    "feature_flag_variants": [
+                        {
+                            "key": "control",
+                            "name": "Control Group",
+                            "rollout_percentage": 33,
+                        },
+                        {
+                            "key": "test_1",
+                            "name": "Test Variant",
+                            "rollout_percentage": 33,
+                        },
+                        {
+                            "key": "test_2",
+                            "name": "Test Variant",
+                            "rollout_percentage": 24,
+                        },
+                        {
+                            "key": "test_3",
+                            "name": "Test Variant",
+                            "rollout_percentage": 10,
+                        },
+                    ]
+                },
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        created_ff = FeatureFlag.objects.get(key=ff_key)
+
+        self.assertEqual(created_ff.key, ff_key)
+        self.assertEqual(created_ff.active, False)
+        self.assertEqual(created_ff.filters["multivariate"]["variants"][0]["key"], "control")
+        self.assertEqual(created_ff.filters["multivariate"]["variants"][3]["key"], "test_3")
+
     def test_create_multivariate_experiment(self):
         ff_key = "a-b-test"
         response = self.client.post(
@@ -422,6 +515,8 @@ class TestExperimentCRUD(APILicensedTest):
 
         id = response.json()["id"]
 
+        experiment = Experiment.objects.get(id=response.json()["id"])
+        self.assertFalse(experiment.is_draft)
         # Now try updating FF
         response = self.client.patch(
             f"/api/projects/{self.team.id}/experiments/{id}",
@@ -1436,41 +1531,43 @@ class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
         )
         cohort_extra.calculate_people_ch(pending_version=1)
 
-        action1 = Action.objects.create(team=self.team, name="action1")
-        ActionStep.objects.create(
-            event="insight viewed",
-            action=action1,
-            properties=[
+        action1 = Action.objects.create(
+            team=self.team,
+            name="action1",
+            steps_json=[
                 {
-                    "key": "insight",
-                    "type": "event",
-                    "value": ["RETENTION"],
-                    "operator": "exact",
+                    "event": "insight viewed",
+                    "properties": [
+                        {
+                            "key": "insight",
+                            "type": "event",
+                            "value": ["RETENTION"],
+                            "operator": "exact",
+                        },
+                        {
+                            "key": "id",
+                            "value": cohort_extra.id,
+                            "type": "cohort",
+                        },
+                    ],
                 },
                 {
-                    "key": "id",
-                    "value": cohort_extra.id,
-                    "type": "cohort",
+                    "event": "insight viewed",
+                    "properties": [
+                        {
+                            "key": "filters_count",
+                            "type": "event",
+                            "value": "1",
+                            "operator": "gt",
+                        }
+                    ],
+                },
+                {
+                    "event": "$autocapture",
+                    "url": "/123",
+                    "url_matching": "regex",
                 },
             ],
-        )
-        ActionStep.objects.create(
-            event="insight viewed",
-            action=action1,
-            properties=[
-                {
-                    "key": "filters_count",
-                    "type": "event",
-                    "value": "1",
-                    "operator": "gt",
-                }
-            ],
-        )
-        ActionStep.objects.create(
-            event="$autocapture",
-            action=action1,
-            url="/123",
-            url_matching=ActionStep.REGEX,
         )
         response = self._generate_experiment(
             datetime.now() - timedelta(days=5),
@@ -1600,8 +1697,8 @@ class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
         explicit_datetime = parser.isoparse(target_filter["explicit_datetime"])
 
         self.assertTrue(
-            explicit_datetime <= datetime.now(timezone.utc) - timedelta(days=5)
-            and explicit_datetime >= datetime.now(timezone.utc) - timedelta(days=5, hours=1)
+            explicit_datetime <= datetime.now(UTC) - timedelta(days=5)
+            and explicit_datetime >= datetime.now(UTC) - timedelta(days=5, hours=1)
         )
 
         cohort_id = cohort["id"]

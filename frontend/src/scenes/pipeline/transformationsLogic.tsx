@@ -4,17 +4,16 @@ import api from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { PipelineStage, PluginConfigTypeNew, PluginConfigWithPluginInfoNew, PluginType, ProductKey } from '~/types'
+import { PipelineStage, PluginConfigTypeNew, PluginConfigWithPluginInfoNew, PluginType } from '~/types'
 
-import { pipelineLogic } from './pipelineLogic'
 import type { pipelineTransformationsLogicType } from './transformationsLogicType'
 import { convertToPipelineNode, Transformation } from './types'
-import { capturePluginEvent } from './utils'
+import { capturePluginEvent, checkPermissions, loadPluginsFromUrl } from './utils'
 
 export const pipelineTransformationsLogic = kea<pipelineTransformationsLogicType>([
     path(['scenes', 'pipeline', 'transformationsLogic']),
     connect({
-        values: [teamLogic, ['currentTeamId'], userLogic, ['user'], pipelineLogic, ['canConfigurePlugins']],
+        values: [teamLogic, ['currentTeamId'], userLogic, ['user']],
     }),
     actions({
         loadPluginConfigs: true,
@@ -24,20 +23,14 @@ export const pipelineTransformationsLogic = kea<pipelineTransformationsLogicType
             tempOrder,
         }),
         savePluginConfigsOrder: (newOrders: Record<number, number>) => ({ newOrders }),
+        updatePluginConfig: (pluginConfig: PluginConfigTypeNew) => ({ pluginConfig }),
     }),
     loaders(({ values }) => ({
         plugins: [
             {} as Record<number, PluginType>,
             {
                 loadPlugins: async () => {
-                    const results = await api.loadPaginatedResults<PluginType>(
-                        `api/organizations/@current/pipeline_transformations`
-                    )
-                    const plugins: Record<number, PluginType> = {}
-                    for (const plugin of results) {
-                        plugins[plugin.id] = plugin
-                    }
-                    return plugins
+                    return loadPluginsFromUrl('api/organizations/@current/pipeline_transformations')
                 },
             },
         ],
@@ -60,7 +53,7 @@ export const pipelineTransformationsLogic = kea<pipelineTransformationsLogicType
                     return Object.fromEntries(res.map((pluginConfig) => [pluginConfig.id, pluginConfig]))
                 },
                 savePluginConfigsOrder: async ({ newOrders }) => {
-                    if (!values.canConfigurePlugins) {
+                    if (!checkPermissions(PipelineStage.Transformation, false)) {
                         return values.pluginConfigs
                     }
                     // Plugin-server sorts by order and runs the plugins in that order
@@ -86,7 +79,7 @@ export const pipelineTransformationsLogic = kea<pipelineTransformationsLogicType
                     return newPluginConfigs
                 },
                 toggleEnabled: async ({ id, enabled }) => {
-                    if (!values.canConfigurePlugins) {
+                    if (!checkPermissions(PipelineStage.Transformation, enabled)) {
                         return values.pluginConfigs
                     }
                     const { pluginConfigs, plugins } = values
@@ -97,14 +90,19 @@ export const pipelineTransformationsLogic = kea<pipelineTransformationsLogicType
                     // See comment in savePluginConfigsOrder about races
                     let order = {}
                     if (enabled) {
-                        const maxOrder = Math.max(...Object.values(values.transformations).map((pc) => pc.order), 0)
-                        order = { order: maxOrder + 1 }
+                        order = { order: values.nextAvailableOrder }
                     }
                     const response = await api.update(`api/plugin_config/${id}`, {
                         enabled,
                         ...order,
                     })
                     return { ...pluginConfigs, [id]: response }
+                },
+                updatePluginConfig: ({ pluginConfig }) => {
+                    return {
+                        ...values.pluginConfigs,
+                        [pluginConfig.id]: pluginConfig,
+                    }
                 },
             },
         ],
@@ -151,10 +149,13 @@ export const pipelineTransformationsLogic = kea<pipelineTransformationsLogicType
                 )
             },
         ],
-        shouldShowProductIntroduction: [
-            (s) => [s.user],
-            (user): boolean => {
-                return !user?.has_seen_product_intro_for?.[ProductKey.PIPELINE_TRANSFORMATIONS]
+        nextAvailableOrder: [
+            (s) => [s.transformations],
+            (transformations): number => {
+                const enabledTransformations = transformations.filter((t) => t.enabled)
+                return enabledTransformations.length > 0
+                    ? Math.max(...enabledTransformations.map((t) => t.order), 0) + 1
+                    : 0
             },
         ],
     }),

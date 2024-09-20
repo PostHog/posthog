@@ -12,7 +12,6 @@ from ee.clickhouse.queries.funnels.funnel_correlation_persons import (
 )
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.models.action import Action
-from posthog.models.action_step import ActionStep
 from posthog.models.element import Element
 from posthog.models.filters import Filter
 from posthog.models.group.util import create_group
@@ -35,8 +34,7 @@ def _create_action(**kwargs):
     team = kwargs.pop("team")
     name = kwargs.pop("name")
     properties = kwargs.pop("properties", {})
-    action = Action.objects.create(team=team, name=name)
-    ActionStep.objects.create(action=action, event=name, properties=properties)
+    action = Action.objects.create(team=team, name=name, steps_json=[{"event": name, "properties": properties}])
     return action
 
 
@@ -821,7 +819,6 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
     @also_test_with_materialized_columns(
         event_properties=[],
         person_properties=["$browser"],
-        group_properties=[(0, "industry")],
         verify_no_jsonextract=False,
     )
     @also_test_with_person_on_events_v2

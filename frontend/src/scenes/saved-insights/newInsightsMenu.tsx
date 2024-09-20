@@ -1,23 +1,14 @@
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { ReactNode } from 'react'
 import { insightTypeURL } from 'scenes/insights/utils'
-import { INSIGHT_TYPES_METADATA, InsightTypeMetadata } from 'scenes/saved-insights/SavedInsights'
+import { INSIGHT_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
 
 import { InsightType } from '~/types'
 
-function insightTypesForMenu(): [string, InsightTypeMetadata][] {
-    // never show JSON InsightType in the menu
-    return Object.entries(INSIGHT_TYPES_METADATA).filter(([insightType]) => insightType !== InsightType.JSON)
-}
-
 export function overlayForNewInsightMenu(dataAttr: string): ReactNode[] {
-    const menuEntries = insightTypesForMenu()
-
-    const insightTypeUrls = insightTypeURL(
-        Boolean(featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.BI_VIZ])
+    const menuEntries = Object.entries(INSIGHT_TYPES_METADATA).filter(
+        ([insightType]) => insightType !== InsightType.JSON
     )
 
     return menuEntries.map(
@@ -25,12 +16,8 @@ export function overlayForNewInsightMenu(dataAttr: string): ReactNode[] {
             listedInsightTypeMetadata.inMenu && (
                 <LemonButton
                     key={listedInsightType}
-                    icon={
-                        listedInsightTypeMetadata.icon && (
-                            <listedInsightTypeMetadata.icon color="var(--muted-alt)" noBackground />
-                        )
-                    }
-                    to={insightTypeUrls[listedInsightType as InsightType]}
+                    icon={listedInsightTypeMetadata.icon && <listedInsightTypeMetadata.icon />}
+                    to={insightTypeURL[listedInsightType as InsightType]}
                     data-attr={dataAttr}
                     data-attr-insight-type={listedInsightType}
                     onClick={() => {
@@ -38,9 +25,9 @@ export function overlayForNewInsightMenu(dataAttr: string): ReactNode[] {
                     }}
                     fullWidth
                 >
-                    <div className="text-default flex flex-col text-sm py-1">
+                    <div className="flex flex-col text-sm py-1">
                         <strong>{listedInsightTypeMetadata.name}</strong>
-                        <span className="text-xs font-sans">{listedInsightTypeMetadata.description}</span>
+                        <span className="text-xs font-sans font-normal">{listedInsightTypeMetadata.description}</span>
                     </div>
                 </LemonButton>
             )

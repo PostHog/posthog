@@ -2,7 +2,17 @@ import { createServer } from 'http'
 import { DateTime } from 'luxon'
 
 import { UUIDT } from '../src/utils/utils'
-import { capture, createAction, createHook, createOrganization, createTeam, createUser, reloadAction } from './api'
+import {
+    capture,
+    createAction,
+    createGroup,
+    createGroupType,
+    createHook,
+    createOrganizationRaw,
+    createTeam,
+    createUser,
+    reloadAction,
+} from './api'
 
 test.concurrent(`webhooks: fires slack webhook`, async () => {
     // Create an action with post_to_slack enabled.
@@ -30,27 +40,30 @@ test.concurrent(`webhooks: fires slack webhook`, async () => {
 
         const distinctId = new UUIDT().toString()
 
-        const organizationId = await createOrganization()
+        const organizationId = await createOrganizationRaw({
+            available_product_features: `array ['{ "key": "group_analytics", "name": "group_analytics" }'::jsonb]`,
+        })
         const teamId = await createTeam(organizationId, `http://localhost:${server.address()?.port}`)
         const user = await createUser(teamId, new UUIDT().toString())
-        const action = await createAction(
-            {
-                team_id: teamId,
-                name: 'slack',
-                description: 'slack',
-                created_at: new Date().toISOString(),
-                updated_at: new Date().toISOString(),
-                deleted: false,
-                post_to_slack: true,
-                slack_message_format:
-                    '[event.name] with [event.properties.name] was triggered by [person.properties.email]',
-                created_by_id: user.id,
-                is_calculating: false,
-                last_calculated_at: new Date().toISOString(),
-            },
-            [
+        await createGroupType(teamId, 0, 'organization')
+        await createGroup(teamId, 0, 'TestWebhookOrg', { name: 'test-webhooks' })
+        const action = await createAction({
+            team_id: teamId,
+            name: 'slack',
+            description: 'slack',
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+            deleted: false,
+            post_to_slack: true,
+            slack_message_format:
+                '[event.name] with [event.properties.name] was triggered by [person.properties.email] of [groups.organization.properties.name]',
+            created_by_id: user.id,
+            is_calculating: false,
+            last_calculated_at: new Date().toISOString(),
+            bytecode: null,
+            bytecode_error: null,
+            steps_json: [
                 {
-                    name: 'slack',
                     tag_name: 'div',
                     text: 'text',
                     href: null,
@@ -59,9 +72,11 @@ test.concurrent(`webhooks: fires slack webhook`, async () => {
                     event: '$autocapture',
                     properties: null,
                     selector: null,
+                    href_matching: null,
+                    text_matching: null,
                 },
-            ]
-        )
+            ],
+        })
 
         await reloadAction(teamId, action.id)
 
@@ -76,6 +91,7 @@ test.concurrent(`webhooks: fires slack webhook`, async () => {
                 $current_url: 'http://localhost:8000',
                 $elements: [{ tag_name: 'div', nth_child: 1, nth_of_type: 2, $el_text: 'text' }],
                 $set: { email: 't@t.com' },
+                $groups: { organization: 'TestWebhookOrg' },
             },
         })
 
@@ -86,7 +102,7 @@ test.concurrent(`webhooks: fires slack webhook`, async () => {
             await new Promise((resolve) => setTimeout(resolve, 1000))
         }
 
-        expect(webHookCalledWith).toEqual({ text: `$autocapture with hehe was triggered by t@t.com` })
+        expect(webHookCalledWith).toEqual({ text: `$autocapture with hehe was triggered by t@t.com of test-webhooks` })
     } finally {
         server.close()
     }
@@ -119,27 +135,29 @@ test.concurrent(`webhooks: fires zapier REST webhook`, async () => {
         const distinctId = new UUIDT().toString()
         const ts = new Date()
 
-        const organizationId = await createOrganization({ available_features: '{zapier}' })
+        const organizationId = await createOrganizationRaw({
+            available_product_features: `array ['{ "key": "zapier", "name": "zapier" }'::jsonb]`,
+        })
+
         const teamId = await createTeam(organizationId, `http://localhost:${server.address()?.port}`)
         const user = await createUser(teamId, new UUIDT().toString())
-        const action = await createAction(
-            {
-                team_id: teamId,
-                name: 'zapier',
-                description: 'zapier',
-                created_at: new Date().toISOString(),
-                updated_at: new Date().toISOString(),
-                deleted: false,
-                post_to_slack: false,
-                slack_message_format:
-                    '[event.name] with [event.properties.name] was triggered by [person.properties.email]',
-                created_by_id: user.id,
-                is_calculating: false,
-                last_calculated_at: new Date().toISOString(),
-            },
-            [
+        const action = await createAction({
+            team_id: teamId,
+            name: 'zapier',
+            description: 'zapier',
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+            deleted: false,
+            post_to_slack: false,
+            slack_message_format:
+                '[event.name] with [event.properties.name] was triggered by [person.properties.email]',
+            created_by_id: user.id,
+            is_calculating: false,
+            last_calculated_at: new Date().toISOString(),
+            bytecode: null,
+            bytecode_error: null,
+            steps_json: [
                 {
-                    name: 'zapier',
                     tag_name: 'div',
                     text: 'text',
                     href: null,
@@ -148,9 +166,11 @@ test.concurrent(`webhooks: fires zapier REST webhook`, async () => {
                     event: '$autocapture',
                     properties: null,
                     selector: null,
+                    text_matching: null,
+                    href_matching: null,
                 },
-            ]
-        )
+            ],
+        })
         await createHook(teamId, user.id, action.id, `http://localhost:${server.address()?.port}`)
 
         await reloadAction(teamId, action.id)
@@ -207,6 +227,7 @@ test.concurrent(`webhooks: fires zapier REST webhook`, async () => {
             properties: {
                 $current_url: 'http://localhost:8000',
                 $sent_at: expect.any(String),
+                $elements_chain: 'div:nth-child="1"nth-of-type="2"text="text"',
                 $set: {
                     email: 't@t.com',
                     $current_url: 'http://localhost:8000',

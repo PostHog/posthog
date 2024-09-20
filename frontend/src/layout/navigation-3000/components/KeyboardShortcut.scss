@@ -6,7 +6,7 @@
     height: 1.25rem;
     padding: 0.125rem 0.25rem;
     font-size: 0.75rem;
-    color: var(--default);
+    color: var(--text-3000);
     text-transform: capitalize;
     user-select: none;
     background: var(--accent-3000);
@@ -18,12 +18,6 @@
     .KeyboardShortcut--muted > & {
         color: var(--muted);
         background: none;
-    }
-
-    .ant-tooltip & {
-        color: #fff;
-        background: rgba(#000, 0.333);
-        border-color: rgba(#fff, 0.333);
     }
 
     & + .KeyboardShortcut__key {

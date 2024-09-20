@@ -13,7 +13,7 @@ describe('migrate()', () => {
                 {
                     type: 'ph-query',
                     attrs: {
-                        query: '{"kind":"InsightVizNode","source":{"kind":"TrendsQuery","properties":{"type":"AND","values":[{"type":"AND","values":[]}]},"filterTestAccounts":true,"dateRange":{"date_to":null,"date_from":"-90d"},"series":[{"kind":"EventsNode","event":"$pageview","name":"$pageview","properties":[{"key":"$referring_domain","type":"event","value":"google|duckduckgo|brave|bing","operator":"regex"},{"key":"utm_source","type":"event","value":"is_not_set","operator":"is_not_set"},{"key":"$host","type":"event","value":["posthog.com"],"operator":"exact"}],"math":"dau"}],"interval":"week","breakdown":{"breakdown_type":"event","breakdown":"$referring_domain"},"trendsFilter":{"compare":false,"display":"ActionsBar"}}}',
+                        query: '{"kind":"InsightVizNode","source":{"kind":"TrendsQuery","properties":{"type":"AND","values":[{"type":"AND","values":[]}]},"filterTestAccounts":true,"dateRange":{"date_to":null,"date_from":"-90d"},"series":[{"kind":"EventsNode","event":"$pageview","name":"$pageview","properties":[{"key":"$referring_domain","type":"event","value":"google|duckduckgo|brave|bing","operator":"regex"},{"key":"utm_source","type":"event","value":"is_not_set","operator":"is_not_set"},{"key":"$host","type":"event","value":["posthog.com"],"operator":"exact"}],"math":"dau"}],"interval":"week","breakdown":{"breakdown_type":"event","breakdown":"$referring_domain"},"trendsFilter":{"compare":true,"display":"ActionsBar"}}}',
                         title: 'SEO trend last 90 days',
                         __init: null,
                         height: null,
@@ -58,7 +58,8 @@ describe('migrate()', () => {
                                 ],
                                 interval: 'week',
                                 breakdownFilter: { breakdown_type: 'event', breakdown: '$referring_domain' },
-                                trendsFilter: { compare: false, display: 'ActionsBar' },
+                                trendsFilter: { display: 'ActionsBar' },
+                                compareFilter: { compare: true },
                             },
                         },
                         title: 'SEO trend last 90 days',
@@ -411,7 +412,8 @@ describe('migrate()', () => {
                                     type: 'AND',
                                     values: [{ type: 'AND', values: [] }],
                                 },
-                                trendsFilter: { compare: false, display: 'ActionsBar' },
+                                trendsFilter: { display: 'ActionsBar' },
+                                compareFilter: { compare: true, compare_to: '-4w' },
                                 filterTestAccounts: true,
                             },
                         },
@@ -469,7 +471,8 @@ describe('migrate()', () => {
                                     type: 'AND',
                                     values: [{ type: 'AND', values: [] }],
                                 },
-                                trendsFilter: { compare: false, display: 'ActionsBar' },
+                                trendsFilter: { display: 'ActionsBar' },
+                                compareFilter: { compare: true, compare_to: '-4w' },
                                 filterTestAccounts: true,
                             },
                         },
@@ -654,11 +657,11 @@ describe('migrate()', () => {
                                     ],
                                 },
                                 trendsFilter: {
-                                    compare: false,
                                     display: 'ActionsLineGraph',
                                     show_legend: false,
                                     smoothing_intervals: 1,
                                     show_values_on_series: true,
+                                    compare: true,
                                 },
                                 filterTestAccounts: false,
                             },
@@ -784,12 +787,12 @@ describe('migrate()', () => {
                                     ],
                                 },
                                 trendsFilter: {
-                                    compare: false,
                                     display: 'ActionsLineGraph',
                                     showLegend: false,
                                     smoothingIntervals: 1,
                                     showValuesOnSeries: true,
                                 },
+                                compareFilter: { compare: true },
                                 filterTestAccounts: false,
                             },
                         },
@@ -802,22 +805,143 @@ describe('migrate()', () => {
                 },
             ],
         ],
+        [
+            'migrates compare from previously migrated trends query',
+            [
+                {
+                    type: 'ph-query',
+                    attrs: {
+                        query: {
+                            kind: 'InsightVizNode',
+                            source: {
+                                kind: 'TrendsQuery',
+                                series: [
+                                    {
+                                        kind: 'EventsNode',
+                                        event: '$pageview',
+                                    },
+                                ],
+                                trendsFilter: {
+                                    compare: true,
+                                    aggregationAxisFormat: 'percentage',
+                                },
+                            },
+                        },
+                        title: 'Some insight',
+                        __init: null,
+                        height: null,
+                        nodeId: '4c2a07ee-fc9f-45c5-b36c-5e14a10f8e22',
+                        children: null,
+                    },
+                },
+            ],
+            [
+                {
+                    type: 'ph-query',
+                    attrs: {
+                        query: {
+                            kind: 'InsightVizNode',
+                            source: {
+                                kind: 'TrendsQuery',
+                                series: [
+                                    {
+                                        kind: 'EventsNode',
+                                        event: '$pageview',
+                                    },
+                                ],
+                                trendsFilter: {
+                                    aggregationAxisFormat: 'percentage',
+                                },
+                                compareFilter: {
+                                    compare: true,
+                                },
+                            },
+                        },
+                        title: 'Some insight',
+                        __init: null,
+                        height: null,
+                        nodeId: '4c2a07ee-fc9f-45c5-b36c-5e14a10f8e22',
+                        children: null,
+                    },
+                },
+            ],
+        ],
+
+        [
+            'migrates compare from previously migrated stickiness query',
+            [
+                {
+                    type: 'ph-query',
+                    attrs: {
+                        query: {
+                            kind: 'InsightVizNode',
+                            source: {
+                                kind: 'StickinessQuery',
+                                series: [
+                                    {
+                                        kind: 'EventsNode',
+                                        event: '$pageview',
+                                    },
+                                ],
+                                stickinessFilter: {
+                                    compare: true,
+                                    showValuesOnSeries: true,
+                                },
+                            },
+                        },
+                        title: 'Some insight',
+                        __init: null,
+                        height: null,
+                        nodeId: '4c2a07ee-fc9f-45c5-b36c-5e14a10f8e22',
+                        children: null,
+                    },
+                },
+            ],
+            [
+                {
+                    type: 'ph-query',
+                    attrs: {
+                        query: {
+                            kind: 'InsightVizNode',
+                            source: {
+                                kind: 'StickinessQuery',
+                                series: [
+                                    {
+                                        kind: 'EventsNode',
+                                        event: '$pageview',
+                                    },
+                                ],
+                                stickinessFilter: {
+                                    showValuesOnSeries: true,
+                                },
+                                compareFilter: {
+                                    compare: true,
+                                },
+                            },
+                        },
+                        title: 'Some insight',
+                        __init: null,
+                        height: null,
+                        nodeId: '4c2a07ee-fc9f-45c5-b36c-5e14a10f8e22',
+                        children: null,
+                    },
+                },
+            ],
+        ],
     ]
 
-    contentToExpected.forEach(([name, prevContent, nextContent]) => {
-        it(name, () => {
-            const prevNotebook: NotebookType = {
-                ...mockNotebook,
-                user_access_level: 'editor' as const,
-                content: { type: 'doc', content: prevContent },
-            }
-            const nextNotebook: NotebookType = {
-                ...mockNotebook,
-                user_access_level: 'editor' as const,
-                content: { type: 'doc', content: nextContent },
-            }
+    it.each(contentToExpected)('migrates %s', (_name, prevContent, nextContent) => {
+        const prevNotebook: NotebookType = {
+            ...mockNotebook,
+            user_access_level: 'editor' as const,
+            content: { type: 'doc', content: prevContent },
+        }
+        const nextNotebook: NotebookType = {
+            ...mockNotebook,
+            user_access_level: 'editor' as const,
+            content: { type: 'doc', content: nextContent },
+        }
 
-            expect(migrate(prevNotebook)).toEqual(nextNotebook)
-        })
+        expect(migrate(prevNotebook)).toEqual(nextNotebook)
     })
 })

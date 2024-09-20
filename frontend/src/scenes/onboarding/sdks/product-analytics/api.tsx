@@ -3,6 +3,8 @@ import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { apiHostOrigin } from 'lib/utils/apiHost'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { PersonModeEventPropertyInstructions } from '../shared-snippets'
+
 function APISnippet(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const url = apiHostOrigin()
@@ -23,6 +25,7 @@ export function ProductAnalyticsAPIInstructions(): JSX.Element {
         <>
             <h3>Usage</h3>
             <APISnippet />
+            <PersonModeEventPropertyInstructions />
         </>
     )
 }

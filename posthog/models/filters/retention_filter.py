@@ -18,11 +18,7 @@ from .mixins.common import (
 from .mixins.funnel import FunnelCorrelationMixin
 from .mixins.groups import GroupsAggregationMixin
 from .mixins.property import PropertyMixin
-from .mixins.retention import (
-    EntitiesDerivedMixin,
-    RetentionDateDerivedMixin,
-    RetentionTypeMixin,
-)
+from .mixins.retention import EntitiesDerivedMixin, RetentionDateDerivedMixin, RetentionTypeMixin
 from .mixins.simplify import SimplifyFilterMixin
 from .mixins.utils import cached_property, include_dict
 

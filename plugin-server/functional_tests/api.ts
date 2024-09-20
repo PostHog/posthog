@@ -7,7 +7,6 @@ import { PoolClient } from 'pg'
 import { defaultConfig } from '../src/config/config'
 import { KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS } from '../src/config/kafka-topics'
 import {
-    ActionStep,
     Hook,
     Plugin,
     PluginConfig,
@@ -65,6 +64,8 @@ export const capture = async ({
     $set_once = undefined,
     topic = ['$performance_event', '$snapshot_items'].includes(event)
         ? KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS
+        : ['$$client_ingestion_warning'].includes(event)
+        ? 'client_iwarnings_ingestion'
         : 'events_plugin_ingestion',
 }: {
     teamId: number | null
@@ -267,17 +268,29 @@ export const reloadAction = async (teamId: number, actionId: number) => {
     await redis.publish('reload-action', JSON.stringify({ teamId, actionId }))
 }
 
+export const fetchIngestionWarnings = async (teamId: number) => {
+    const queryResult = (await clickHouseClient.querying(`
+        SELECT *,
+        FROM ingestion_warnings
+        WHERE team_id = ${teamId}
+        ORDER BY timestamp ASC
+    `)) as unknown as ClickHouse.ObjectQueryResult<any>
+    return queryResult.data.map((warning) => ({ ...warning, details: JSON.parse(warning.details) }))
+}
+
 export const fetchEvents = async (teamId: number, uuid?: string) => {
     const queryResult = (await clickHouseClient.querying(`
         SELECT *,
                if(notEmpty(overrides.person_id), overrides.person_id, e.person_id) as person_id
         FROM events e
-                 LEFT OUTER JOIN
-             (SELECT argMax(override_person_id, version) as person_id,
-                     old_person_id
-              FROM person_overrides
+        LEFT OUTER JOIN (
+            SELECT
+                distinct_id,
+                argMax(person_id, version) as person_id
+              FROM person_distinct_id_overrides
               WHERE team_id = ${teamId}
-              GROUP BY old_person_id) AS overrides ON e.person_id = overrides.old_person_id
+              GROUP BY distinct_id
+        ) AS overrides USING distinct_id
         WHERE team_id = ${teamId} ${uuid ? `AND uuid = '${uuid}'` : ``}
         ORDER BY timestamp ASC
     `)) as unknown as ClickHouse.ObjectQueryResult<RawClickHouseEvent>
@@ -289,6 +302,51 @@ export const fetchPersons = async (teamId: number) => {
         `SELECT * FROM person WHERE team_id = ${teamId} ORDER BY created_at ASC`
     )) as unknown as ClickHouse.ObjectQueryResult<any>
     return queryResult.data.map((person) => ({ ...person, properties: JSON.parse(person.properties) }))
+}
+
+export const fetchGroups = async (teamId: number) => {
+    const queryResult = (await clickHouseClient.querying(
+        `SELECT * FROM groups WHERE team_id = ${teamId} ORDER BY created_at ASC`
+    )) as unknown as ClickHouse.ObjectQueryResult<any>
+    return queryResult.data.map((group) => ({ ...group, group_properties: JSON.parse(group.group_properties) }))
+}
+
+export const createGroupType = async (teamId: number, index: number, groupType: string) => {
+    await postgres.query(
+        PostgresUse.COMMON_WRITE,
+        `
+        INSERT INTO posthog_grouptypemapping (team_id, group_type, group_type_index)
+        VALUES ($1, $2, $3)
+        `,
+        [teamId, groupType, index],
+        'insertGroupType'
+    )
+}
+
+export const createGroup = async (
+    teamId: number,
+    groupTypeIndex: number,
+    groupKey: string,
+    groupProperties: Record<string, any>
+) => {
+    await postgres.query(
+        PostgresUse.COMMON_WRITE,
+        `
+            INSERT INTO posthog_group (team_id, group_key, group_type_index, group_properties, created_at, properties_last_updated_at, properties_last_operation, version)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            `,
+        [
+            teamId,
+            groupKey,
+            groupTypeIndex,
+            JSON.stringify(groupProperties),
+            new Date().toISOString(),
+            JSON.stringify({}),
+            JSON.stringify({}),
+            1,
+        ],
+        'upsertGroup'
+    )
 }
 
 export const fetchPostgresPersons = async (teamId: number) => {
@@ -351,12 +409,59 @@ export const createOrganization = async (organizationProperties = {}) => {
         personalization: '{}', // DEPRECATED
         setup_section_2_completed: true, // DEPRECATED
         for_internal_metrics: false,
-        available_features: [],
         domain_whitelist: [],
+        available_product_features: [],
         is_member_join_email_enabled: false,
         slug: Math.round(Math.random() * 20000),
         ...organizationProperties,
     })
+    return organizationId
+}
+
+export const createOrganizationRaw = async (organizationProperties = {}) => {
+    const organizationId = new UUIDT().toString()
+
+    const properties = {
+        id: organizationId,
+        name: 'TEST ORG',
+        plugins_access_level: 9,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        personalization: '{}', // DEPRECATED
+        setup_section_2_completed: true, // DEPRECATED
+        for_internal_metrics: false,
+        domain_whitelist: '{}',
+        available_product_features: '{}',
+        is_member_join_email_enabled: false,
+        slug: Math.round(Math.random() * 20000),
+        ...organizationProperties,
+    }
+
+    const keys = Object.keys(properties)
+        .map((key) => `"${key}"`)
+        .join(',')
+
+    const values = Object.values(properties)
+        .map((value) => {
+            if (Array.isArray(value) && value.length > 0) {
+                return JSON.stringify(value)
+            } else if (typeof value === 'string' && !value.includes('array')) {
+                return `'${value || null}'`
+            }
+
+            return value
+        })
+        .join(',')
+
+    await postgres.query(
+        PostgresUse.COMMON_WRITE,
+        `INSERT into posthog_organization 
+        (${keys})
+        VALUES (${values})
+        `,
+        undefined,
+        ''
+    )
     return organizationId
 }
 
@@ -406,14 +511,8 @@ export const createTeam = async (
     return id
 }
 
-export const createAction = async (action: Omit<RawAction, 'id'>, steps: Omit<ActionStep, 'id' | 'action_id'>[]) => {
+export const createAction = async (action: Omit<RawAction, 'id'>) => {
     const actionRow = await insertRow(postgres, 'posthog_action', action)
-    for (const step of steps) {
-        await insertRow(postgres, 'posthog_actionstep', {
-            ...step,
-            action_id: actionRow.id,
-        })
-    }
     return actionRow
 }
 

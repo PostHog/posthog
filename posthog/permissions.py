@@ -1,16 +1,22 @@
 from typing import Optional, cast
+import time
+from typing import cast
 
-from django.db.models import Model
+from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
-
-from rest_framework.exceptions import PermissionDenied
-from rest_framework.exceptions import NotFound
+from django.db.models import Model
+import posthoganalytics
+from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAdminUser
 from rest_framework.request import Request
 from rest_framework.views import APIView
 from rest_framework.viewsets import ViewSet
-from posthog.auth import PersonalAPIKeyAuthentication, SharingAccessTokenAuthentication
 
+from posthog.auth import (
+    PersonalAPIKeyAuthentication,
+    SessionAuthentication,
+    SharingAccessTokenAuthentication,
+)
 from posthog.cloud_utils import is_cloud
 from posthog.exceptions import EnterpriseFeatureException
 from posthog.models import Organization, OrganizationMembership, Team, User
@@ -197,11 +203,7 @@ class TeamMemberLightManagementPermission(BasePermission):
 
     def has_permission(self, request, view) -> bool:
         try:
-            if request.resolver_match.url_name.startswith("team-"):
-                # /projects/ endpoint handling
-                team = view.get_object()
-            else:
-                team = view.team
+            team = view.team
         except Team.DoesNotExist:
             return True  # This will be handled as a 404 in the viewset
         requesting_level = view.user_permissions.team(team).effective_membership_level
@@ -252,7 +254,10 @@ class PremiumFeaturePermission(BasePermission):
         if not request.user or not request.user.organization:  # type: ignore
             return True
 
-        if view.premium_feature not in request.user.organization.available_features:  # type: ignore
+        if view.premium_feature not in [
+            feature["key"]
+            for feature in request.user.organization.available_product_features  # type: ignore
+        ]:
             raise EnterpriseFeatureException()
 
         return True
@@ -284,6 +289,36 @@ class SharingTokenPermission(BasePermission):
             return view.action in view.sharing_enabled_actions
 
         return False
+
+
+class TimeSensitiveActionPermission(BasePermission):
+    """
+    Validates that the authenticated session is not older than the allowed time for the action.
+    """
+
+    message = "This action requires you to be recently authenticated."
+
+    def has_permission(self, request, view) -> bool:
+        if not isinstance(request.successful_authenticator, SessionAuthentication):
+            return True
+
+        allow_safe_methods = getattr(view, "time_sensitive_allow_safe_methods", True)
+
+        if allow_safe_methods and request.method in SAFE_METHODS:
+            return True
+
+        session_created_at = request.session.get(settings.SESSION_COOKIE_CREATED_AT_KEY)
+
+        if not session_created_at:
+            # This should always be covered by the middleware but just in case
+            return False
+
+        session_age_seconds = time.time() - session_created_at
+
+        if session_age_seconds > settings.SESSION_SENSITIVE_ACTIONS_AGE:
+            return False
+
+        return True
 
 
 class ScopeBasePermission(BasePermission):
@@ -383,6 +418,10 @@ class APIScopePermission(ScopeBasePermission):
         return True
 
     def check_team_and_org_permissions(self, request, view) -> None:
+        scope_object = self.get_scope_object(request, view)
+        if scope_object == "user":
+            return  # The /api/users/@me/ endpoint is exempt from team and org scoping
+
         scoped_organizations = request.successful_authenticator.personal_api_key.scoped_organizations
         scoped_teams = request.successful_authenticator.personal_api_key.scoped_teams
 
@@ -390,16 +429,16 @@ class APIScopePermission(ScopeBasePermission):
             try:
                 team = view.team
                 if team.id not in scoped_teams:
-                    raise PermissionDenied(f"API key does not have access to the requested project '{team.id}'")
-            except (ValueError, KeyError):
-                raise PermissionDenied(f"API key with scoped projects are only supported on project-based views.")
+                    raise PermissionDenied(f"API key does not have access to the requested project: ID {team.id}.")
+            except (KeyError, AttributeError):
+                raise PermissionDenied(f"API keys with scoped projects are only supported on project-based endpoints.")
 
         if scoped_organizations:
             try:
                 organization = get_organization_from_view(view)
                 if str(organization.id) not in scoped_organizations:
                     raise PermissionDenied(
-                        f"API key does not have access to the requested organization '{organization.id}'"
+                        f"API key does not have access to the requested organization: ID {organization.id}."
                     )
             except ValueError:
                 # Indicates this is not an organization scoped view
@@ -501,5 +540,41 @@ class AccessControlPermission(ScopeBasePermission):
         if not has_access:
             self.message = f"You do not have {required_level} access to this resource."
             return False
+
+        return True
+
+
+class PostHogFeatureFlagPermission(BasePermission):
+    def has_permission(self, request, view) -> bool:
+        user = cast(User, request.user)
+        organization = get_organization_from_view(view)
+        flag = getattr(view, "posthog_feature_flag", None)
+
+        config = {}
+
+        if not flag:
+            raise ImproperlyConfigured(
+                "PostHogFeatureFlagPermission requires the view to define the posthog_feature_flag attribute."
+            )
+
+        if isinstance(flag, str):
+            config[flag] = ["*"]
+        else:
+            config = flag
+
+        for required_flag, actions in config.items():
+            if "*" in actions or view.action in actions:
+                org_id = str(organization.id)
+
+                enabled = posthoganalytics.feature_enabled(
+                    required_flag,
+                    user.distinct_id,
+                    groups={"organization": org_id},
+                    group_properties={"organization": {"id": org_id}},
+                    only_evaluate_locally=False,
+                    send_feature_flag_events=False,
+                )
+
+                return enabled or False
 
         return True

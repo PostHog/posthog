@@ -32,11 +32,11 @@ export function PersonPreview(props: PersonPreviewProps): JSX.Element | null {
     if (!person) {
         return (
             <div className="p-2 max-w-160">
-                <h4>Person profile not found</h4>
+                <h4>No profile associated with this ID</h4>
                 <p>
-                    The Person may have been deleted.
-                    <br />
-                    Alternatively, the events for this user may have had Person Profiles disabled.
+                    Person profiles allow you to see a detailed view of a Person's user properties, track users across
+                    devices, and more. To create person profiles, see{' '}
+                    <Link to="https://posthog.com/docs/data/persons#capturing-person-profiles">here.</Link>
                 </p>
             </div>
         )
@@ -60,11 +60,7 @@ export function PersonPreview(props: PersonPreviewProps): JSX.Element | null {
                     onNotebookOpened={() => props.onClose?.()}
                     size="small"
                 />
-                <LemonButton
-                    size="small"
-                    icon={<IconOpenInNew />}
-                    to={urls.personByDistinctId(person?.distinct_ids[0])}
-                />
+                <LemonButton size="small" icon={<IconOpenInNew />} to={url} />
             </div>
 
             <div className="flex-1 overflow-y-auto border-t">

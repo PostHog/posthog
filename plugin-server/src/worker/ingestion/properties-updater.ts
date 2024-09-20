@@ -1,10 +1,10 @@
 import { Properties } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
-import { Group, GroupTypeIndex, TeamId, TimestampFormat } from '../../types'
+import { Group, GroupTypeIndex, TeamId } from '../../types'
 import { DB } from '../../utils/db/db'
 import { PostgresUse } from '../../utils/db/postgres'
-import { castTimestampOrNow, RaceConditionError } from '../../utils/utils'
+import { RaceConditionError } from '../../utils/utils'
 
 interface PropertiesUpdate {
     updated: boolean
@@ -71,10 +71,6 @@ export async function upsertGroup(
 
         if (propertiesUpdate.updated) {
             await Promise.all([
-                db.updateGroupCache(teamId, groupTypeIndex, groupKey, {
-                    properties: propertiesUpdate.properties,
-                    created_at: castTimestampOrNow(createdAt, TimestampFormat.ClickHouse),
-                }),
                 db.upsertGroupClickhouse(
                     teamId,
                     groupTypeIndex,

@@ -15,6 +15,7 @@ from posthog.constants import (
     BreakdownAttributionType,
     FunnelOrderType,
 )
+from posthog.hogql.database.database import create_hogql_database
 from posthog.models import Entity, Filter, Team
 from posthog.models.action.util import format_action_filter
 from posthog.models.property import PropertyName
@@ -24,7 +25,6 @@ from posthog.models.property.util import (
     get_single_or_multi_property_string_expr,
     parse_prop_grouped_clauses,
 )
-from posthog.models.team.team import groups_on_events_querying_enabled
 from posthog.queries.breakdown_props import (
     format_breakdown_cohort_join_query,
     get_breakdown_cohort_name,
@@ -32,7 +32,7 @@ from posthog.queries.breakdown_props import (
 )
 from posthog.queries.funnels.funnel_event_query import FunnelEventQuery
 from posthog.queries.insight import insight_sync_execute
-from posthog.queries.util import correct_result_for_sampling, get_person_properties_mode
+from posthog.queries.util import alias_poe_mode_for_legacy, correct_result_for_sampling, get_person_properties_mode
 from posthog.schema import PersonsOnEventsMode
 from posthog.utils import relative_date_parse, generate_short_id
 
@@ -69,7 +69,12 @@ class ClickhouseFunnelBase(ABC):
         self._include_preceding_timestamp = include_preceding_timestamp
         self._include_properties = include_properties or []
 
-        self._filter.hogql_context.person_on_events_mode = team.person_on_events_mode
+        # HACK: Because we're in a legacy query, we need to override hogql_context with the legacy-alised PoE mode
+        self._filter.hogql_context.modifiers.personsOnEventsMode = alias_poe_mode_for_legacy(team.person_on_events_mode)
+        # Recreate the database with the legacy-alised PoE mode
+        self._filter.hogql_context.database = create_hogql_database(
+            team_id=self._team.pk, modifiers=self._filter.hogql_context.modifiers
+        )
 
         # handle default if window isn't provided
         if not self._filter.funnel_window_days and not self._filter.funnel_window_interval:
@@ -228,9 +233,11 @@ class ClickhouseFunnelBase(ABC):
                 # breakdown_value will return the underlying id if different from display ready value (ex: cohort id)
                 serialized_result.update(
                     {
-                        "breakdown": get_breakdown_cohort_name(breakdown_value)
-                        if self._filter.breakdown_type == "cohort"
-                        else breakdown_value,
+                        "breakdown": (
+                            get_breakdown_cohort_name(breakdown_value)
+                            if self._filter.breakdown_type == "cohort"
+                            else breakdown_value
+                        ),
                         "breakdown_value": breakdown_value,
                     }
                 )
@@ -434,7 +441,7 @@ class ClickhouseFunnelBase(ABC):
             team=self._team,
             extra_fields=[*self._extra_event_fields, *extra_fields],
             extra_event_properties=self._extra_event_properties,
-            person_on_events_mode=self._team.person_on_events_mode,
+            person_on_events_mode=alias_poe_mode_for_legacy(self._team.person_on_events_mode),
         ).get_query(entities_to_use, entity_name, skip_entity_filter=skip_entity_filter)
 
         self.params.update(params)
@@ -728,7 +735,7 @@ class ClickhouseFunnelBase(ABC):
 
         self.params.update({"breakdown": self._filter.breakdown})
         if self._filter.breakdown_type == "person":
-            if self._team.person_on_events_mode != PersonsOnEventsMode.disabled:
+            if alias_poe_mode_for_legacy(self._team.person_on_events_mode) != PersonsOnEventsMode.DISABLED:
                 basic_prop_selector, basic_prop_params = get_single_or_multi_property_string_expr(
                     self._filter.breakdown,
                     table="events",
@@ -758,24 +765,13 @@ class ClickhouseFunnelBase(ABC):
             # :TRICKY: We only support string breakdown for group properties
             assert isinstance(self._filter.breakdown, str)
 
-            if self._team.person_on_events_mode != PersonsOnEventsMode.disabled and groups_on_events_querying_enabled():
-                properties_field = f"group{self._filter.breakdown_group_type_index}_properties"
-                expression, _ = get_property_string_expr(
-                    table="events",
-                    property_name=self._filter.breakdown,
-                    var="%(breakdown)s",
-                    column=properties_field,
-                    allow_denormalized_props=True,
-                    materialised_table_column=properties_field,
-                )
-            else:
-                properties_field = f"group_properties_{self._filter.breakdown_group_type_index}"
-                expression, _ = get_property_string_expr(
-                    table="groups",
-                    property_name=self._filter.breakdown,
-                    var="%(breakdown)s",
-                    column=properties_field,
-                )
+            properties_field = f"group_properties_{self._filter.breakdown_group_type_index}"
+            expression, _ = get_property_string_expr(
+                table="groups",
+                property_name=self._filter.breakdown,
+                var="%(breakdown)s",
+                column=properties_field,
+            )
             basic_prop_selector = f"{expression} AS prop_basic"
         elif self._filter.breakdown_type == "hogql":
             from posthog.hogql.hogql import translate_hogql

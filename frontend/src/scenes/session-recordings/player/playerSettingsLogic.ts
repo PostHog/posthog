@@ -1,7 +1,8 @@
-import { actions, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
-import { AutoplayDirection, DurationType, SessionRecordingPlayerTab } from '~/types'
+import { AutoplayDirection, SessionRecordingPlayerTab, SessionRecordingSidebarStacking } from '~/types'
 
 import type { playerSettingsLogicType } from './playerSettingsLogicType'
 
@@ -19,6 +20,11 @@ export enum TimestampFormat {
     Relative = 'relative',
     UTC = 'utc',
     Device = 'device',
+}
+
+export enum PlaybackMode {
+    Recording = 'recording',
+    Waterfall = 'waterfall',
 }
 
 const MiniFilters: SharedListMiniFilter[] = [
@@ -185,45 +191,42 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
         setTab: (tab: SessionRecordingPlayerTab) => ({ tab }),
         setMiniFilter: (key: string, enabled: boolean) => ({ key, enabled }),
         setSearchQuery: (search: string) => ({ search }),
-        setDurationTypeToShow: (type: DurationType) => ({ type }),
         setShowFilters: (showFilters: boolean) => ({ showFilters }),
-        setPrefersAdvancedFilters: (prefersAdvancedFilters: boolean) => ({ prefersAdvancedFilters }),
         setQuickFilterProperties: (properties: string[]) => ({ properties }),
         setTimestampFormat: (format: TimestampFormat) => ({ format }),
+        setPreferredSidebarStacking: (stacking: SessionRecordingSidebarStacking) => ({ stacking }),
+        setPlaybackMode: (mode: PlaybackMode) => ({ mode }),
+        setSidebarOpen: (open: boolean) => ({ open }),
+        setShowMouseTail: (showMouseTail: boolean) => ({ showMouseTail }),
+        setShowSeekbarTicks: (show: boolean) => ({ show }),
     }),
-    reducers(() => ({
-        showFilters: [
-            true,
+    connect({
+        values: [teamLogic, ['currentTeam']],
+    }),
+    reducers(({ values }) => ({
+        showFilters: [true, { persist: true }, { setShowFilters: (_, { showFilters }) => showFilters }],
+        sidebarOpen: [false, { persist: true }, { setSidebarOpen: (_, { open }) => open }],
+        preferredSidebarStacking: [
+            SessionRecordingSidebarStacking.Horizontal as SessionRecordingSidebarStacking,
+            { persist: true },
             {
-                persist: true,
-            },
-            {
-                setShowFilters: (_, { showFilters }) => showFilters,
+                setPreferredSidebarStacking: (_, { stacking }) => stacking,
             },
         ],
-        prefersAdvancedFilters: [
-            true,
+        playbackMode: [
+            PlaybackMode.Recording as PlaybackMode,
+            { persist: true },
             {
-                persist: true,
-            },
-            {
-                setPrefersAdvancedFilters: (_, { prefersAdvancedFilters }) => prefersAdvancedFilters,
+                setPlaybackMode: (_, { mode }) => mode,
             },
         ],
         quickFilterProperties: [
-            ['$geoip_country_name'] as string[],
+            [...(values.currentTeam?.person_display_name_properties || [])] as string[],
             {
                 persist: true,
             },
             {
                 setQuickFilterProperties: (_, { properties }) => properties,
-            },
-        ],
-        durationTypeToShow: [
-            'duration' as DurationType,
-            { persist: true },
-            {
-                setDurationTypeToShow: (_, { type }) => type,
             },
         ],
         speed: [
@@ -266,6 +269,20 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
             { persist: true },
             {
                 setHideViewedRecordings: (_, { hideViewedRecordings }) => hideViewedRecordings,
+            },
+        ],
+        showMouseTail: [
+            true,
+            { persist: true },
+            {
+                setShowMouseTail: (_, { showMouseTail }) => showMouseTail,
+            },
+        ],
+        showSeekbarTicks: [
+            true,
+            { persist: true },
+            {
+                setShowSeekbarTicks: (_, { show }) => show,
             },
         ],
 

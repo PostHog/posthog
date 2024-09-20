@@ -153,7 +153,7 @@ def create_tile(
             id="deleted insight",
         ),
         # Dashboard tile test cases
-        pytest.param(create_tile, {}, TargetCacheAge.LOW_PRIORITY, id="shared tile (base)"),
+        pytest.param(create_tile, {}, TargetCacheAge.HIGH_PRIORITY, id="shared tile (base)"),
         pytest.param(
             create_tile,
             {"is_dashboard_shared": False},
@@ -228,30 +228,37 @@ def create_tile(
         ),
         pytest.param(
             create_tile,
-            {"viewed_at_delta": timedelta(days=20)},
-            TargetCacheAge.LOW_PRIORITY,
+            {"viewed_at_delta": timedelta(days=20), "is_dashboard_shared": True},
+            TargetCacheAge.HIGH_PRIORITY,
+            id="shared tile viewed ages ago",
+        ),
+        pytest.param(
+            create_tile,
+            {"viewed_at_delta": timedelta(days=20), "is_dashboard_shared": False},
+            TargetCacheAge.NO_CACHING,
             id="tile viewed ages ago",
         ),
         # cacheable types of query
         pytest.param(
             create_insight,
-            {"query": {"kind": "EventsQuery"}, "viewed_at_delta": timedelta(days=1)},
+            {"query": {"kind": "EventsQuery", "select": []}, "viewed_at_delta": timedelta(days=1)},
             TargetCacheAge.MID_PRIORITY,
             id="insight with EventsQuery query viewed recently",
         ),
         pytest.param(
             create_insight,
-            {"query": {"kind": "HogQLQuery"}, "viewed_at_delta": timedelta(days=1)},
+            {"query": {"kind": "HogQLQuery", "query": ""}, "viewed_at_delta": timedelta(days=1)},
             TargetCacheAge.MID_PRIORITY,
             id="insight with HogQLQuery query viewed recently",
         ),
+        # other types of query aren't cacheable
         pytest.param(
             create_insight,
             {
                 "query": {"kind": "TimeToSeeDataSessionsQuery"},
                 "viewed_at_delta": timedelta(days=1),
             },
-            TargetCacheAge.MID_PRIORITY,
+            TargetCacheAge.NO_CACHING,
             id="insight with TimeToSeeDataSessionsQuery query viewed recently",
         ),
         pytest.param(
@@ -260,10 +267,9 @@ def create_tile(
                 "query": {"kind": "TimeToSeeDataQuery"},
                 "viewed_at_delta": timedelta(days=1),
             },
-            TargetCacheAge.MID_PRIORITY,
+            TargetCacheAge.NO_CACHING,
             id="insight with TimeToSeeDataQuery query viewed recently",
         ),
-        # other types of query aren't cacheable
         pytest.param(
             create_insight,
             {"query": {"kind": "something else"}, "viewed_at_delta": timedelta(days=1)},
@@ -274,7 +280,7 @@ def create_tile(
         pytest.param(
             create_insight,
             {
-                "query": {"kind": "something else", "source": {"kind": "EventsQuery"}},
+                "query": {"kind": "something else", "source": {"kind": "EventsQuery", "select": []}},
                 "viewed_at_delta": timedelta(days=1),
             },
             TargetCacheAge.MID_PRIORITY,
@@ -282,9 +288,23 @@ def create_tile(
         ),
         pytest.param(
             create_tile,
-            {"query": {"kind": "EventsQuery"}, "viewed_at_delta": timedelta(days=20)},
-            TargetCacheAge.LOW_PRIORITY,
+            {
+                "query": {"kind": "EventsQuery", "select": []},
+                "viewed_at_delta": timedelta(days=20),
+                "is_dashboard_shared": False,
+            },
+            TargetCacheAge.NO_CACHING,
             id="tile with query viewed ages ago",
+        ),
+        pytest.param(
+            create_tile,
+            {
+                "query": {"kind": "EventsQuery", "select": []},
+                "viewed_at_delta": timedelta(days=20),
+                "is_dashboard_shared": True,
+            },
+            TargetCacheAge.HIGH_PRIORITY,
+            id="shared tile with query viewed ages ago",
         ),
     ],
 )
@@ -403,7 +423,7 @@ def test_upsert_new_tile(mock_active_teams, team: Team, user: User):
     assert caching_state.insight == tile.insight
     assert caching_state.dashboard_tile == tile
     assert isinstance(caching_state.cache_key, str)
-    assert caching_state.target_cache_age_seconds == TargetCacheAge.LOW_PRIORITY.value.total_seconds()
+    assert caching_state.target_cache_age_seconds == TargetCacheAge.HIGH_PRIORITY.value.total_seconds()
     assert caching_state.last_refresh is None
     assert caching_state.last_refresh_queued_at is None
     assert caching_state.refresh_attempt == 0
@@ -428,6 +448,31 @@ def test_sync_insight_cache_states(team: Team, user: User):
     sync_insight_cache_states()
 
     assert InsightCachingState.objects.filter(team=team).count() == 3
+
+
+@pytest.mark.django_db
+@freeze_time("2020-01-04T13:01:01Z")
+def test_insight_cache_states_when_deleted_insight(team: Team, user: User):
+    with mute_selected_signals():
+        insight = create_insight(team=team, user=user)
+
+    assert InsightCachingState.objects.filter(team=team, insight_id=insight.id).count() == 0
+
+    # after sync we have a record for the insight
+    sync_insight_cache_states()
+    assert InsightCachingState.objects.filter(team=team, insight_id=insight.id).count() == 1
+
+    # soft-deleting the insight *does not* cascade to the caching state
+    insight.deleted = True
+    insight.save()
+
+    assert InsightCachingState.objects.filter(team=team, insight_id=insight.id).count() == 1
+
+    # periodic sync sets to no caching
+    sync_insight_cache_states()
+    single_match = InsightCachingState.objects.filter(team=team, insight_id=insight.id).first()
+    assert single_match is not None
+    assert single_match.target_cache_age_seconds is None
 
 
 class TestLazyLoader(BaseTest):

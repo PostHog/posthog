@@ -1,14 +1,14 @@
-import { IconCollapse, IconExpand, IconInfo } from '@posthog/icons'
+import { IconCalendar, IconCollapse, IconExpand, IconInfo } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { Chart, ChartDataset, ChartItem } from 'lib/Chart'
 import { getColorVar } from 'lib/colors'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { TZLabel } from 'lib/components/TZLabel'
 import { IconChevronLeft, IconChevronRight } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
-import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { Link } from 'lib/lemon-ui/Link'
@@ -29,25 +29,27 @@ export interface MetricsOverviewProps {
     metricsLoading: boolean
 }
 
-export function PipelineNodeMetrics({ pluginConfigId }: PipelineNodeMetricsProps): JSX.Element {
-    const logic = pipelineNodeMetricsLogic({ pluginConfigId })
+export function PipelineNodeMetrics({ id }: PipelineNodeMetricsProps): JSX.Element {
+    const logic = pipelineNodeMetricsLogic({ id })
 
-    const { appMetricsResponse, appMetricsResponseLoading, dateFrom } = useValues(logic)
-    const { setDateFrom } = useActions(logic)
+    const { appMetricsResponse, appMetricsResponseLoading, dateRange } = useValues(logic)
+    const { setDateRange } = useActions(logic)
 
     return (
         <div className="space-y-8">
             <div className="flex items-start justify-between gap-2">
                 <MetricsOverview metrics={appMetricsResponse?.metrics} metricsLoading={appMetricsResponseLoading} />
 
-                <LemonSelect
-                    value={dateFrom}
-                    onChange={(newValue) => setDateFrom(newValue)}
-                    options={[
-                        { label: 'Last 30 days', value: '-30d' },
-                        { label: 'Last 7 days', value: '-7d' },
-                        { label: 'Last 24 hours', value: '-24h' },
-                    ]}
+                <DateFilter
+                    dateTo={dateRange.to}
+                    dateFrom={dateRange.from}
+                    onChange={(from, to) => setDateRange(from, to)}
+                    allowedRollingDateOptions={['days', 'weeks', 'months', 'years']}
+                    makeLabel={(key) => (
+                        <>
+                            <IconCalendar /> {key}
+                        </>
+                    )}
                 />
             </div>
 
@@ -58,7 +60,7 @@ export function PipelineNodeMetrics({ pluginConfigId }: PipelineNodeMetricsProps
 
             <div>
                 <h2>Errors</h2>
-                <ErrorsOverview pluginConfigId={pluginConfigId} />
+                <ErrorsOverview id={id} />
             </div>
         </div>
     )
@@ -189,14 +191,14 @@ function colorConfig(baseColorVar: string): Partial<ChartDataset<'line', any>> {
     }
 }
 
-function ErrorsOverview({ pluginConfigId }: { pluginConfigId: number }): JSX.Element {
-    const logic = pipelineNodeMetricsLogic({ pluginConfigId })
+function ErrorsOverview({ id }: { id: number | string }): JSX.Element {
+    const logic = pipelineNodeMetricsLogic({ id })
     const { appMetricsResponse, appMetricsResponseLoading } = useValues(logic)
     const { openErrorDetailsModal } = useActions(logic)
 
     return (
         <>
-            <ErrorDetailsModal pluginConfigId={pluginConfigId} />
+            <ErrorDetailsModal id={id} />
             <LemonTable
                 dataSource={appMetricsResponse?.errors || []}
                 loading={appMetricsResponseLoading}
@@ -257,8 +259,8 @@ function ErrorsOverview({ pluginConfigId }: { pluginConfigId: number }): JSX.Ele
     )
 }
 
-function ErrorDetailsModal({ pluginConfigId }: { pluginConfigId: number }): JSX.Element {
-    const logic = pipelineNodeMetricsLogic({ pluginConfigId })
+function ErrorDetailsModal({ id }: { id: number | string }): JSX.Element {
+    const logic = pipelineNodeMetricsLogic({ id })
     // const { appMetricsResponse, appMetricsResponseLoading } = useValues(logic)
     const { errorDetails, errorDetailsModalError, errorDetailsLoading } = useValues(logic)
     const { closeErrorDetailsModal } = useActions(logic)
@@ -351,13 +353,13 @@ function CollapsibleSection(props: {
     const [isExpanded, setIsExpanded] = useState(props.defaultIsExpanded)
 
     return (
-        <div className="bg-mid border rounded">
+        <div className="bg-bg-3000 border rounded">
             <LemonButton
                 fullWidth
                 onClick={() => setIsExpanded(!isExpanded)}
                 sideIcon={isExpanded ? <IconCollapse /> : <IconExpand />}
                 title={isExpanded ? 'Show less' : 'Show more'}
-                className="bg-mid"
+                className="bg-bg-3000"
             >
                 {props.title}
             </LemonButton>

@@ -9,6 +9,16 @@
 #
 
 services:
+    proxy:
+        extends:
+            file: docker-compose.base.yml
+            service: proxy
+        ports:
+            - 8010:8000
+        depends_on:
+            - replay-capture
+            - capture
+            - web
     db:
         extends:
             file: docker-compose.base.yml
@@ -37,6 +47,8 @@ services:
             - ./docker/clickhouse/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
             - ./docker/clickhouse/config.xml:/etc/clickhouse-server/config.xml
             - ./docker/clickhouse/users-dev.xml:/etc/clickhouse-server/users.xml
+            - ./docker/clickhouse/user_defined_function.xml:/etc/clickhouse-server/user_defined_function.xml
+            - ./posthog/user_scripts:/var/lib/clickhouse/user_scripts
         depends_on:
             - kafka
             - zookeeper
@@ -55,10 +67,10 @@ services:
         depends_on:
             - zookeeper
 
-    object_storage:
+    objectstorage:
         extends:
             file: docker-compose.base.yml
-            service: object_storage
+            service: objectstorage
         ports:
             - '19000:19000'
             - '19001:19001'
@@ -70,6 +82,14 @@ services:
         ports:
             - '1080:1080'
             - '1025:1025'
+
+    webhook-tester:
+        image: tarampampam/webhook-tester:1.1.0
+        restart: on-failure
+        ports:
+            - '2080:2080'
+        environment:
+            - PORT=2080
 
     worker:
         extends:
@@ -103,16 +123,22 @@ services:
             - clickhouse
             - kafka
         links:
-            - object_storage:objectstorage
+            - objectstorage:objectstorage
 
     capture:
         extends:
             file: docker-compose.base.yml
             service: capture
-        ports:
-            - 3000:3000
         environment:
             - DEBUG=1
+        depends_on:
+            - redis
+            - kafka
+
+    replay-capture:
+        extends:
+            file: docker-compose.base.yml
+            service: replay-capture
         depends_on:
             - redis
             - kafka
@@ -131,7 +157,7 @@ services:
             - redis
             - clickhouse
             - kafka
-            - object_storage
+            - objectstorage
 
     migrate:
         extends:
@@ -185,5 +211,5 @@ services:
             - redis
             - clickhouse
             - kafka
-            - object_storage
+            - objectstorage
             - temporal

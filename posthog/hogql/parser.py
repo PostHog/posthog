@@ -11,36 +11,80 @@ from posthog.hogql.constants import RESERVED_KEYWORDS
 from posthog.hogql.errors import BaseHogQLError, NotImplementedError, SyntaxError
 from posthog.hogql.grammar.HogQLLexer import HogQLLexer
 from posthog.hogql.grammar.HogQLParser import HogQLParser
-from posthog.hogql.parse_string import parse_string, parse_string_literal
+from posthog.hogql.parse_string import parse_string_literal_text, parse_string_literal_ctx, parse_string_text_ctx
 from posthog.hogql.placeholders import replace_placeholders
 from posthog.hogql.timings import HogQLTimings
 from hogql_parser import (
     parse_expr as _parse_expr_cpp,
     parse_order_expr as _parse_order_expr_cpp,
     parse_select as _parse_select_cpp,
+    parse_full_template_string as _parse_full_template_string_cpp,
+    parse_program as _parse_program_cpp,
 )
 
-RULE_TO_PARSE_FUNCTION: dict[Literal["python", "cpp"], dict[Literal["expr", "order_expr", "select"], Callable]] = {
+
+def safe_lambda(f):
+    def wrapped(*args, **kwargs):
+        try:
+            return f(*args, **kwargs)
+        except Exception as e:
+            if str(e) == "Empty Stack":  # Antlr throws `Exception("Empty Stack")` ¯\_(ツ)_/¯
+                raise SyntaxError("Unmatched curly bracket") from e
+            raise
+
+    return wrapped
+
+
+RULE_TO_PARSE_FUNCTION: dict[
+    Literal["python", "cpp"], dict[Literal["expr", "order_expr", "select", "full_template_string", "program"], Callable]
+] = {
     "python": {
-        "expr": lambda string, start: HogQLParseTreeConverter(start=start).visit(get_parser(string).expr()),
-        "order_expr": lambda string: HogQLParseTreeConverter().visit(get_parser(string).orderExpr()),
-        "select": lambda string: HogQLParseTreeConverter().visit(get_parser(string).select()),
+        "expr": safe_lambda(
+            lambda string, start: HogQLParseTreeConverter(start=start).visit(get_parser(string).expr())
+        ),
+        "order_expr": safe_lambda(lambda string: HogQLParseTreeConverter().visit(get_parser(string).orderExpr())),
+        "select": safe_lambda(lambda string: HogQLParseTreeConverter().visit(get_parser(string).select())),
+        "full_template_string": safe_lambda(
+            lambda string: HogQLParseTreeConverter().visit(get_parser(string).fullTemplateString())
+        ),
+        "program": safe_lambda(lambda string: HogQLParseTreeConverter().visit(get_parser(string).program())),
     },
     "cpp": {
         "expr": lambda string, start: _parse_expr_cpp(string, is_internal=start is None),
         "order_expr": lambda string: _parse_order_expr_cpp(string),
         "select": lambda string: _parse_select_cpp(string),
+        "full_template_string": lambda string: _parse_full_template_string_cpp(string),
+        "program": lambda string: _parse_program_cpp(string),
     },
 }
 
-RULE_TO_HISTOGRAM: dict[Literal["expr", "order_expr", "select"], Histogram] = {
-    rule: Histogram(
+RULE_TO_HISTOGRAM: dict[Literal["expr", "order_expr", "select", "full_template_string"], Histogram] = {
+    cast(Literal["expr", "order_expr", "select", "full_template_string"], rule): Histogram(
         f"parse_{rule}_seconds",
         f"Time to parse {rule} expression",
         labelnames=["backend"],
     )
-    for rule in ("expr", "order_expr", "select")
+    for rule in ("expr", "order_expr", "select", "full_template_string")
 }
+
+
+def parse_string_template(
+    string: str,
+    placeholders: Optional[dict[str, ast.Expr]] = None,
+    timings: Optional[HogQLTimings] = None,
+    *,
+    backend: Literal["python", "cpp"] = "cpp",
+) -> ast.Call:
+    """Parse a full template string without start/end quotes"""
+    if timings is None:
+        timings = HogQLTimings()
+    with timings.measure(f"parse_full_template_string_{backend}"):
+        with RULE_TO_HISTOGRAM["full_template_string"].labels(backend=backend).time():
+            node = RULE_TO_PARSE_FUNCTION[backend]["full_template_string"]("F'" + string)
+        if placeholders:
+            with timings.measure("replace_placeholders"):
+                node = replace_placeholders(node, placeholders)
+    return node
 
 
 def parse_expr(
@@ -49,10 +93,10 @@ def parse_expr(
     start: Optional[int] = 0,
     timings: Optional[HogQLTimings] = None,
     *,
-    backend: Optional[Literal["python", "cpp"]] = None,
+    backend: Literal["python", "cpp"] = "cpp",
 ) -> ast.Expr:
-    if not backend:
-        backend = "cpp"
+    if expr == "":
+        raise SyntaxError("Empty query")
     if timings is None:
         timings = HogQLTimings()
     with timings.measure(f"parse_expr_{backend}"):
@@ -69,10 +113,8 @@ def parse_order_expr(
     placeholders: Optional[dict[str, ast.Expr]] = None,
     timings: Optional[HogQLTimings] = None,
     *,
-    backend: Optional[Literal["python", "cpp"]] = None,
+    backend: Literal["python", "cpp"] = "cpp",
 ) -> ast.OrderExpr:
-    if not backend:
-        backend = "cpp"
     if timings is None:
         timings = HogQLTimings()
     with timings.measure(f"parse_order_expr_{backend}"):
@@ -89,10 +131,8 @@ def parse_select(
     placeholders: Optional[dict[str, ast.Expr]] = None,
     timings: Optional[HogQLTimings] = None,
     *,
-    backend: Optional[Literal["python", "cpp"]] = None,
+    backend: Literal["python", "cpp"] = "cpp",
 ) -> ast.SelectQuery | ast.SelectUnionQuery:
-    if not backend:
-        backend = "cpp"
     if timings is None:
         timings = HogQLTimings()
     with timings.measure(f"parse_select_{backend}"):
@@ -101,6 +141,20 @@ def parse_select(
         if placeholders:
             with timings.measure("replace_placeholders"):
                 node = replace_placeholders(node, placeholders)
+    return node
+
+
+def parse_program(
+    source: str,
+    timings: Optional[HogQLTimings] = None,
+    *,
+    backend: Literal["python", "cpp"] = "cpp",
+) -> ast.Program:
+    if timings is None:
+        timings = HogQLTimings()
+    with timings.measure(f"parse_expr_{backend}"):
+        with RULE_TO_HISTOGRAM["expr"].labels(backend=backend).time():
+            node = RULE_TO_PARSE_FUNCTION[backend]["program"](source)
     return node
 
 
@@ -154,13 +208,129 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             if start is not None and end is not None and e.start is None or e.end is None:
                 e.start = start
                 e.end = end
-            raise e
+            raise
+
+    def visitProgram(self, ctx: HogQLParser.ProgramContext):
+        declarations: list[ast.Declaration] = []
+        for declaration in ctx.declaration():
+            if not declaration.statement() or not declaration.statement().emptyStmt():
+                statement = self.visit(declaration)
+                declarations.append(cast(ast.Declaration, statement))
+        return ast.Program(declarations=declarations)
+
+    def visitDeclaration(self, ctx: HogQLParser.DeclarationContext):
+        return self.visitChildren(ctx)
+
+    def visitExpression(self, ctx: HogQLParser.ExpressionContext):
+        return self.visitChildren(ctx)
+
+    def visitVarDecl(self, ctx: HogQLParser.VarDeclContext):
+        return ast.VariableDeclaration(
+            name=ctx.identifier().getText(),
+            expr=self.visit(ctx.expression()) if ctx.expression() else None,
+        )
+
+    def visitVarAssignment(self, ctx: HogQLParser.VarAssignmentContext):
+        return ast.VariableAssignment(
+            left=self.visit(ctx.expression(0)),
+            right=self.visit(ctx.expression(1)),
+        )
+
+    def visitStatement(self, ctx: HogQLParser.StatementContext):
+        return self.visitChildren(ctx)
+
+    def visitExprStmt(self, ctx: HogQLParser.ExprStmtContext):
+        return ast.ExprStatement(expr=self.visit(ctx.expression()))
+
+    def visitReturnStmt(self, ctx: HogQLParser.ReturnStmtContext):
+        return ast.ReturnStatement(expr=self.visit(ctx.expression()) if ctx.expression() else None)
+
+    def visitThrowStmt(self, ctx: HogQLParser.ThrowStmtContext):
+        return ast.ThrowStatement(expr=self.visit(ctx.expression()) if ctx.expression() else None)
+
+    def visitCatchBlock(self, ctx: HogQLParser.CatchBlockContext):
+        return (
+            self.visit(ctx.catchVar) if ctx.catchVar else None,
+            self.visit(ctx.catchType) if ctx.catchType else None,
+            self.visit(ctx.catchStmt),
+        )
+
+    def visitTryCatchStmt(self, ctx: HogQLParser.TryCatchStmtContext):
+        return ast.TryCatchStatement(
+            try_stmt=self.visit(ctx.tryStmt),
+            catches=[self.visit(catch) for catch in ctx.catchBlock()],
+            finally_stmt=self.visit(ctx.finallyStmt) if ctx.finallyStmt else None,
+        )
+
+    def visitIfStmt(self, ctx: HogQLParser.IfStmtContext):
+        return ast.IfStatement(
+            expr=self.visit(ctx.expression()),
+            then=self.visit(ctx.statement(0)),
+            else_=self.visit(ctx.statement(1)) if ctx.statement(1) else None,
+        )
+
+    def visitWhileStmt(self, ctx: HogQLParser.WhileStmtContext):
+        return ast.WhileStatement(
+            expr=self.visit(ctx.expression()),
+            body=self.visit(ctx.statement()) if ctx.statement() else None,
+        )
+
+    def visitForInStmt(self, ctx: HogQLParser.ForInStmtContext):
+        first_identifier = ctx.identifier(0).getText()
+        second_identifier = ctx.identifier(1).getText() if ctx.identifier(1) else None
+        return ast.ForInStatement(
+            valueVar=second_identifier if second_identifier is not None else first_identifier,
+            keyVar=first_identifier if second_identifier is not None else None,
+            expr=self.visit(ctx.expression()),
+            body=self.visit(ctx.statement()),
+        )
+
+    def visitForStmt(self, ctx: HogQLParser.ForStmtContext):
+        initializer = ctx.initializerVarDeclr or ctx.initializerVarAssignment or ctx.initializerExpression
+        increment = ctx.incrementVarDeclr or ctx.incrementVarAssignment or ctx.incrementExpression
+
+        return ast.ForStatement(
+            initializer=self.visit(initializer) if initializer else None,
+            condition=self.visit(ctx.condition) if ctx.condition else None,
+            increment=self.visit(increment) if increment else None,
+            body=self.visit(ctx.statement()),
+        )
+
+    def visitFuncStmt(self, ctx: HogQLParser.FuncStmtContext):
+        return ast.Function(
+            name=ctx.identifier().getText(),
+            params=self.visit(ctx.identifierList()) if ctx.identifierList() else [],
+            body=self.visit(ctx.block()),
+        )
+
+    def visitKvPairList(self, ctx: HogQLParser.KvPairListContext):
+        return [self.visit(kv) for kv in ctx.kvPair()]
+
+    def visitKvPair(self, ctx: HogQLParser.KvPairContext):
+        k, v = ctx.expression()
+        return (self.visit(k), self.visit(v))
+
+    def visitIdentifierList(self, ctx: HogQLParser.IdentifierListContext):
+        return [ident.getText() for ident in ctx.identifier()]
+
+    def visitEmptyStmt(self, ctx: HogQLParser.EmptyStmtContext):
+        return ast.ExprStatement(expr=None)
+
+    def visitBlock(self, ctx: HogQLParser.BlockContext):
+        declarations: list[ast.Declaration] = []
+        for declaration in ctx.declaration():
+            if not declaration.statement() or not declaration.statement().emptyStmt():
+                statement = self.visit(declaration)
+                declarations.append(cast(ast.Declaration, statement))
+        return ast.Block(declarations=declarations)
+
+    ##### HogQL rules
 
     def visitSelect(self, ctx: HogQLParser.SelectContext):
         return self.visit(ctx.selectUnionStmt() or ctx.selectStmt() or ctx.hogqlxTagElement())
 
     def visitSelectUnionStmt(self, ctx: HogQLParser.SelectUnionStmtContext):
-        select_queries: list[ast.SelectQuery | ast.SelectUnionQuery] = [
+        select_queries: list[ast.SelectQuery | ast.SelectUnionQuery | ast.Placeholder] = [
             self.visit(select) for select in ctx.selectStmtWithParens()
         ]
         flattened_queries: list[ast.SelectQuery] = []
@@ -170,7 +340,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             elif isinstance(query, ast.SelectUnionQuery):
                 flattened_queries.extend(query.select_queries)
             elif isinstance(query, ast.Placeholder):
-                flattened_queries.append(query)
+                flattened_queries.append(query)  # type: ignore
             else:
                 raise Exception(f"Unexpected query node type {type(query).__name__}")
         if len(flattened_queries) == 1:
@@ -366,12 +536,10 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         raise NotImplementedError(f"Unsupported node: JoinOpCross")
 
     def visitJoinConstraintClause(self, ctx: HogQLParser.JoinConstraintClauseContext):
-        if ctx.USING():
-            raise NotImplementedError(f"Unsupported: JOIN ... USING")
         column_expr_list = self.visit(ctx.columnExprList())
         if len(column_expr_list) != 1:
             raise NotImplementedError(f"Unsupported: JOIN ... ON with multiple expressions")
-        return ast.JoinConstraint(expr=column_expr_list[0])
+        return ast.JoinConstraint(expr=column_expr_list[0], constraint_type="USING" if ctx.USING() else "ON")
 
     def visitSampleClause(self, ctx: HogQLParser.SampleClauseContext):
         ratio_expressions = ctx.ratioExpr()
@@ -481,14 +649,12 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
 
     def visitColumnExprAlias(self, ctx: HogQLParser.ColumnExprAliasContext):
         alias: str
-        if ctx.alias():
-            alias = self.visit(ctx.alias())
-        elif ctx.identifier():
+        if ctx.identifier():
             alias = self.visit(ctx.identifier())
         elif ctx.STRING_LITERAL():
-            alias = parse_string_literal(ctx.STRING_LITERAL())
+            alias = parse_string_literal_ctx(ctx.STRING_LITERAL())
         else:
-            raise NotImplementedError(f"Must specify an alias")
+            raise SyntaxError(f"Must specify an alias")
         expr = self.visit(ctx.columnExpr())
 
         if alias.lower() in RESERVED_KEYWORDS:
@@ -502,6 +668,9 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             left=ast.Constant(value=0),
             right=self.visit(ctx.columnExpr()),
         )
+
+    def visitColumnExprDict(self, ctx: HogQLParser.ColumnExprDictContext):
+        return ast.Dict(items=self.visit(ctx.kvPairList()) if ctx.kvPairList() else [])
 
     def visitColumnExprSubquery(self, ctx: HogQLParser.ColumnExprSubqueryContext):
         return self.visit(ctx.selectUnionStmt())
@@ -635,7 +804,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         )
 
     def visitColumnExprTrim(self, ctx: HogQLParser.ColumnExprTrimContext):
-        args = [self.visit(ctx.columnExpr()), ast.Constant(value=parse_string_literal(ctx.STRING_LITERAL()))]
+        args = [self.visit(ctx.columnExpr()), self.visit(ctx.string())]
         if ctx.LEADING():
             return ast.Call(name="trimLeft", args=args)
         if ctx.TRAILING():
@@ -650,14 +819,22 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
     def visitColumnExprArrayAccess(self, ctx: HogQLParser.ColumnExprArrayAccessContext):
         object: ast.Expr = self.visit(ctx.columnExpr(0))
         property: ast.Expr = self.visit(ctx.columnExpr(1))
-        if isinstance(property, ast.Constant) and property.value == 0:
-            raise SyntaxError("SQL indexes start from one, not from zero. E.g: array[1]")
         return ast.ArrayAccess(array=object, property=property)
+
+    def visitColumnExprNullArrayAccess(self, ctx: HogQLParser.ColumnExprNullArrayAccessContext):
+        object: ast.Expr = self.visit(ctx.columnExpr(0))
+        property: ast.Expr = self.visit(ctx.columnExpr(1))
+        return ast.ArrayAccess(array=object, property=property, nullish=True)
 
     def visitColumnExprPropertyAccess(self, ctx: HogQLParser.ColumnExprPropertyAccessContext):
         object = self.visit(ctx.columnExpr())
         property = ast.Constant(value=self.visit(ctx.identifier()))
         return ast.ArrayAccess(array=object, property=property)
+
+    def visitColumnExprNullPropertyAccess(self, ctx: HogQLParser.ColumnExprNullPropertyAccessContext):
+        object = self.visit(ctx.columnExpr())
+        property = ast.Constant(value=self.visit(ctx.identifier()))
+        return ast.ArrayAccess(array=object, property=property, nullish=True)
 
     def visitColumnExprBetween(self, ctx: HogQLParser.ColumnExprBetweenContext):
         raise NotImplementedError(f"Unsupported node: ColumnExprBetween")
@@ -701,9 +878,12 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
     def visitColumnExprTupleAccess(self, ctx: HogQLParser.ColumnExprTupleAccessContext):
         tuple = self.visit(ctx.columnExpr())
         index = int(ctx.DECIMAL_LITERAL().getText())
-        if index == 0:
-            raise SyntaxError("SQL indexes start from one, not from zero. E.g: array[1]")
         return ast.TupleAccess(tuple=tuple, index=index)
+
+    def visitColumnExprNullTupleAccess(self, ctx: HogQLParser.ColumnExprNullTupleAccessContext):
+        tuple = self.visit(ctx.columnExpr())
+        index = int(ctx.DECIMAL_LITERAL().getText())
+        return ast.TupleAccess(tuple=tuple, index=index, nullish=True)
 
     def visitColumnExprCase(self, ctx: HogQLParser.ColumnExprCaseContext):
         columns = [self.visit(column) for column in ctx.columnExpr()]
@@ -727,14 +907,16 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
     def visitColumnExprWinFunctionTarget(self, ctx: HogQLParser.ColumnExprWinFunctionTargetContext):
         return ast.WindowFunction(
             name=self.visit(ctx.identifier(0)),
-            args=self.visit(ctx.columnExprList()) if ctx.columnExprList() else [],
+            exprs=self.visit(ctx.columnExprs) if ctx.columnExprs else [],
+            args=self.visit(ctx.columnArgList) if ctx.columnArgList else [],
             over_identifier=self.visit(ctx.identifier(1)),
         )
 
     def visitColumnExprWinFunction(self, ctx: HogQLParser.ColumnExprWinFunctionContext):
         return ast.WindowFunction(
             name=self.visit(ctx.identifier()),
-            args=self.visit(ctx.columnExprList()) if ctx.columnExprList() else [],
+            exprs=self.visit(ctx.columnExprs) if ctx.columnExprs else [],
+            args=self.visit(ctx.columnArgList) if ctx.columnArgList else [],
             over_expr=self.visit(ctx.windowExpr()) if ctx.windowExpr() else None,
         )
 
@@ -743,10 +925,13 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
 
     def visitColumnExprFunction(self, ctx: HogQLParser.ColumnExprFunctionContext):
         name = self.visit(ctx.identifier())
-        column_expr_list = ctx.columnExprList()
-        parameters = self.visit(column_expr_list) if column_expr_list is not None else None
-        column_arg_list = ctx.columnArgList()
-        args = self.visit(column_arg_list) if column_arg_list is not None else []
+
+        parameters: list[ast.Expr] | None = self.visit(ctx.columnExprs) if ctx.columnExprs is not None else None
+        # two sets of parameters fn()(), return an empty list for the first even if no parameters
+        if ctx.LPAREN(1) and parameters is None:
+            parameters = []
+
+        args: list[ast.Expr] = self.visit(ctx.columnArgList) if ctx.columnArgList is not None else []
         distinct = True if ctx.DISTINCT() else False
         return ast.Call(name=name, params=parameters, args=args, distinct=distinct)
 
@@ -759,16 +944,10 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
     def visitColumnExprTagElement(self, ctx: HogQLParser.ColumnExprTagElementContext):
         return self.visit(ctx.hogqlxTagElement())
 
-    def visitColumnArgList(self, ctx: HogQLParser.ColumnArgListContext):
-        return [self.visit(arg) for arg in ctx.columnArgExpr()]
-
-    def visitColumnArgExpr(self, ctx: HogQLParser.ColumnArgExprContext):
-        return self.visitChildren(ctx)
-
     def visitColumnLambdaExpr(self, ctx: HogQLParser.ColumnLambdaExprContext):
         return ast.Lambda(
             args=[self.visit(identifier) for identifier in ctx.identifier()],
-            expr=self.visit(ctx.columnExpr()),
+            expr=self.visit(ctx.columnExpr() or ctx.block()),
         )
 
     def visitWithExprList(self, ctx: HogQLParser.WithExprListContext):
@@ -864,7 +1043,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         if ctx.NULL_SQL():
             return ast.Constant(value=None)
         if ctx.STRING_LITERAL():
-            text = parse_string_literal(ctx)
+            text = parse_string_literal_ctx(ctx)
             return ast.Constant(value=text)
         return self.visitChildren(ctx)
 
@@ -882,7 +1061,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         if len(text) >= 2 and (
             (text.startswith("`") and text.endswith("`")) or (text.startswith('"') and text.endswith('"'))
         ):
-            text = parse_string(text)
+            text = parse_string_literal_text(text)
         return text
 
     def visitIdentifier(self, ctx: HogQLParser.IdentifierContext):
@@ -890,7 +1069,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         if len(text) >= 2 and (
             (text.startswith("`") and text.endswith("`")) or (text.startswith('"') and text.endswith('"'))
         ):
-            text = parse_string(text)
+            text = parse_string_literal_text(text)
         return text
 
     def visitEnumValue(self, ctx: HogQLParser.EnumValueContext):
@@ -900,6 +1079,11 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return ast.Call(
             name="ifNull",
             args=[self.visit(ctx.columnExpr(0)), self.visit(ctx.columnExpr(1))],
+        )
+
+    def visitColumnExprCall(self, ctx: HogQLParser.ColumnExprCallContext):
+        return ast.ExprCall(
+            expr=self.visit(ctx.columnExpr()), args=self.visit(ctx.columnExprList()) if ctx.columnExprList() else []
         )
 
     def visitHogqlxTagElementClosed(self, ctx: HogQLParser.HogqlxTagElementClosedContext):
@@ -920,17 +1104,69 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
                 if a.name == "source":
                     raise SyntaxError(f"Nested HogQLX tags cannot have a source attribute")
             attributes.append(ast.HogQLXAttribute(name="source", value=source))
+        if ctx.columnExpr():
+            source = self.visit(ctx.columnExpr())
+            for a in attributes:
+                if a.name == "source":
+                    raise SyntaxError(f"Nested HogQLX tags cannot have a source attribute")
+            attributes.append(ast.HogQLXAttribute(name="source", value=source))
         return ast.HogQLXTag(kind=opening, attributes=attributes)
 
     def visitHogqlxTagAttribute(self, ctx: HogQLParser.HogqlxTagAttributeContext):
         name = self.visit(ctx.identifier())
         if ctx.columnExpr():
             return ast.HogQLXAttribute(name=name, value=self.visit(ctx.columnExpr()))
-        elif ctx.STRING_LITERAL():
-            return ast.HogQLXAttribute(name=name, value=ast.Constant(value=parse_string_literal(ctx.STRING_LITERAL())))
+        elif ctx.string():
+            return ast.HogQLXAttribute(name=name, value=self.visit(ctx.string()))
         else:
             return ast.HogQLXAttribute(name=name, value=ast.Constant(value=True))
 
     def visitPlaceholder(self, ctx: HogQLParser.PlaceholderContext):
-        name = self.visit(ctx.identifier())
-        return ast.Placeholder(field=name)
+        nested = self.visit(ctx.nestedIdentifier()) if ctx.nestedIdentifier() else []
+        return ast.Placeholder(chain=nested)
+
+    def visitColumnExprTemplateString(self, ctx: HogQLParser.ColumnExprTemplateStringContext):
+        return self.visit(ctx.templateString())
+
+    def visitString(self, ctx: HogQLParser.StringContext):
+        if ctx.STRING_LITERAL():
+            return ast.Constant(value=parse_string_literal_ctx(ctx.STRING_LITERAL()))
+        return self.visit(ctx.templateString())
+
+    def visitTemplateString(self, ctx: HogQLParser.TemplateStringContext):
+        pieces = []
+        for chunk in ctx.stringContents():
+            pieces.append(self.visit(chunk))
+
+        if len(pieces) == 0:
+            return ast.Constant(value="")
+        elif len(pieces) == 1:
+            return pieces[0]
+
+        return ast.Call(name="concat", args=pieces)
+
+    def visitFullTemplateString(self, ctx: HogQLParser.FullTemplateStringContext):
+        pieces = []
+        for chunk in ctx.stringContentsFull():
+            pieces.append(self.visit(chunk))
+
+        if len(pieces) == 0:
+            return ast.Constant(value="")
+        elif len(pieces) == 1:
+            return pieces[0]
+
+        return ast.Call(name="concat", args=pieces)
+
+    def visitStringContents(self, ctx: HogQLParser.StringContentsContext):
+        if ctx.STRING_TEXT():
+            return ast.Constant(value=parse_string_text_ctx(ctx.STRING_TEXT(), escape_quotes=True))
+        elif ctx.columnExpr():
+            return self.visit(ctx.columnExpr())
+        return ast.Constant(value="")
+
+    def visitStringContentsFull(self, ctx: HogQLParser.StringContentsFullContext):
+        if ctx.FULL_STRING_TEXT():
+            return ast.Constant(value=parse_string_text_ctx(ctx.FULL_STRING_TEXT(), escape_quotes=False))
+        elif ctx.columnExpr():
+            return self.visit(ctx.columnExpr())
+        return ast.Constant(value="")

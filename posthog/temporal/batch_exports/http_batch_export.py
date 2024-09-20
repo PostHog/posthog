@@ -1,8 +1,8 @@
 import asyncio
+import dataclasses
 import datetime as dt
 import io
 import json
-from dataclasses import dataclass
 
 import aiohttp
 from django.conf import settings
@@ -11,6 +11,7 @@ from temporalio.common import RetryPolicy
 
 from posthog.batch_exports.service import (
     BatchExportField,
+    BatchExportModel,
     BatchExportSchema,
     HttpBatchExportInputs,
 )
@@ -21,7 +22,6 @@ from posthog.temporal.batch_exports.batch_exports import (
     RecordsCompleted,
     StartBatchExportRunInputs,
     execute_batch_export_insert_activity,
-    finish_batch_export_run,
     get_data_interval,
     iter_records,
     start_batch_export_run,
@@ -48,29 +48,30 @@ class RetryableResponseError(Exception):
 class NonRetryableResponseError(Exception):
     """Error for HTTP status >= 400 and < 500 (excluding 429)."""
 
-    def __init__(self, status):
-        super().__init__(f"NonRetryableResponseError status: {status}")
+    def __init__(self, status, content):
+        super().__init__(f"NonRetryableResponseError (status: {status}): {content}")
 
 
-def raise_for_status(response: aiohttp.ClientResponse):
+async def raise_for_status(response: aiohttp.ClientResponse):
     """Like aiohttp raise_for_status, but it distinguishes between retryable and non-retryable
     errors."""
     if not response.ok:
         if response.status >= 500 or response.status == 429:
             raise RetryableResponseError(response.status)
         else:
-            raise NonRetryableResponseError(response.status)
+            text = await response.text()
+            raise NonRetryableResponseError(response.status, text)
 
 
 def http_default_fields() -> list[BatchExportField]:
     """Return default fields used in HTTP batch export, currently supporting only migrations."""
     return [
-        BatchExportField(expression="toString(uuid)", alias="uuid"),
+        BatchExportField(expression="uuid", alias="uuid"),
         BatchExportField(expression="timestamp", alias="timestamp"),
-        BatchExportField(expression="COALESCE(inserted_at, _timestamp)", alias="_inserted_at"),
+        BatchExportField(expression="_inserted_at", alias="_inserted_at"),
         BatchExportField(expression="event", alias="event"),
         BatchExportField(expression="nullIf(properties, '')", alias="properties"),
-        BatchExportField(expression="toString(distinct_id)", alias="distinct_id"),
+        BatchExportField(expression="distinct_id", alias="distinct_id"),
         BatchExportField(expression="elements_chain", alias="elements_chain"),
     ]
 
@@ -93,7 +94,7 @@ class HeartbeatDetails:
         return HeartbeatDetails(last_uploaded_timestamp)
 
 
-@dataclass
+@dataclasses.dataclass
 class HttpInsertInputs:
     """Inputs for HTTP insert activity."""
 
@@ -105,6 +106,8 @@ class HttpInsertInputs:
     exclude_events: list[str] | None = None
     include_events: list[str] | None = None
     run_id: str | None = None
+    is_backfill: bool = False
+    batch_export_model: BatchExportModel | None = None
     batch_export_schema: BatchExportSchema | None = None
 
 
@@ -153,7 +156,7 @@ async def post_json_file_to_url(url, batch_file, session: aiohttp.ClientSession)
     data_reader.close = lambda: None  # type: ignore
 
     async with session.post(url, data=data_reader, headers=headers) as response:
-        raise_for_status(response)
+        await raise_for_status(response)
 
     data_reader.detach()
     return response
@@ -191,6 +194,7 @@ async def insert_into_http_activity(inputs: HttpInsertInputs) -> RecordsComplete
             include_events=inputs.include_events,
             fields=fields,
             extra_query_parameters=None,
+            is_backfill=inputs.is_backfill,
         )
 
         last_uploaded_timestamp: str | None = None
@@ -324,8 +328,9 @@ class HttpBatchExportWorkflow(PostHogWorkflow):
             data_interval_end=data_interval_end.isoformat(),
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
+            is_backfill=inputs.is_backfill,
         )
-        run_id, records_total_count = await workflow.execute_activity(
+        run_id = await workflow.execute_activity(
             start_batch_export_run,
             start_batch_export_run_inputs,
             start_to_close_timeout=dt.timedelta(minutes=5),
@@ -344,20 +349,6 @@ class HttpBatchExportWorkflow(PostHogWorkflow):
             team_id=inputs.team_id,
         )
 
-        if records_total_count == 0:
-            await workflow.execute_activity(
-                finish_batch_export_run,
-                finish_inputs,
-                start_to_close_timeout=dt.timedelta(minutes=5),
-                retry_policy=RetryPolicy(
-                    initial_interval=dt.timedelta(seconds=10),
-                    maximum_interval=dt.timedelta(seconds=60),
-                    maximum_attempts=0,
-                    non_retryable_error_types=["NotNullViolation", "IntegrityError"],
-                ),
-            )
-            return
-
         insert_inputs = HttpInsertInputs(
             team_id=inputs.team_id,
             url=inputs.url,
@@ -368,6 +359,8 @@ class HttpBatchExportWorkflow(PostHogWorkflow):
             include_events=inputs.include_events,
             batch_export_schema=inputs.batch_export_schema,
             run_id=run_id,
+            is_backfill=inputs.is_backfill,
+            batch_export_model=inputs.batch_export_model,
         )
 
         await execute_batch_export_insert_activity(

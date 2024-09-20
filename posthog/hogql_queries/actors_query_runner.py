@@ -1,15 +1,22 @@
 import itertools
-from datetime import timedelta
 from typing import Optional
-from collections.abc import Generator, Sequence, Iterator
+from collections.abc import Sequence, Iterator
+
 from posthog.hogql import ast
+from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.parser import parse_expr, parse_order_expr
 from posthog.hogql.property import has_aggregation
 from posthog.hogql_queries.actor_strategies import ActorStrategy, PersonStrategy, GroupStrategy
+from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
 from posthog.hogql_queries.insights.insight_actors_query_runner import InsightActorsQueryRunner
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import QueryRunner, get_query_runner
-from posthog.schema import ActorsQuery, ActorsQueryResponse, CachedActorsQueryResponse
+from posthog.schema import (
+    ActorsQuery,
+    ActorsQueryResponse,
+    CachedActorsQueryResponse,
+    DashboardFilter,
+)
 
 
 class ActorsQueryRunner(QueryRunner):
@@ -41,21 +48,24 @@ class ActorsQueryRunner(QueryRunner):
             return GroupStrategy(self.group_type_index, team=self.team, query=self.query, paginator=self.paginator)
         return PersonStrategy(team=self.team, query=self.query, paginator=self.paginator)
 
-    def get_recordings(self, event_results, recordings_lookup) -> Generator[dict, None, None]:
-        return (
+    @staticmethod
+    def _get_recordings(event_results: list, recordings_lookup: dict) -> list[dict]:
+        return [
             {"session_id": session_id, "events": recordings_lookup[session_id]}
             for session_id in {event[2] for event in event_results}
             if session_id in recordings_lookup
-        )
+        ]
 
-    def enrich_with_actors(
+    def _enrich_with_actors(
         self,
         results,
         actor_column_index,
         actors_lookup,
         recordings_column_index: Optional[int],
         recordings_lookup: Optional[dict[str, list[dict]]],
-    ) -> Generator[list, None, None]:
+    ) -> list:
+        enriched = []
+
         for result in results:
             new_row = list(result)
             actor_id = str(result[actor_column_index])
@@ -63,11 +73,16 @@ class ActorsQueryRunner(QueryRunner):
             new_row[actor_column_index] = actor if actor else {"id": actor_id}
             if recordings_column_index is not None and recordings_lookup is not None:
                 new_row[recordings_column_index] = (
-                    self.get_recordings(result[recordings_column_index], recordings_lookup) or None
+                    self._get_recordings(result[recordings_column_index], recordings_lookup) or []
                 )
-            yield new_row
 
-    def prepare_recordings(self, column_name, input_columns):
+            enriched.append(new_row)
+
+        return enriched
+
+    def prepare_recordings(
+        self, column_name: str, input_columns: list[str]
+    ) -> tuple[int | None, dict[str, list[dict]] | None]:
         if (column_name != "person" and column_name != "actor") or "matched_recordings" not in input_columns:
             return None, None
 
@@ -76,12 +91,21 @@ class ActorsQueryRunner(QueryRunner):
         return column_index_events, self.strategy.get_recordings(matching_events_list)
 
     def calculate(self) -> ActorsQueryResponse:
+        # Funnel queries require the experimental analyzer to run correctly
+        # Can remove once clickhouse moves to version 24.3 or above
+        settings = None
+        if isinstance(self.source_query_runner, InsightActorsQueryRunner) and isinstance(
+            self.source_query_runner.source_runner, FunnelsQueryRunner
+        ):
+            settings = HogQLGlobalSettings(allow_experimental_analyzer=True)
+
         response = self.paginator.execute_hogql_query(
             query_type="ActorsQuery",
             query=self.to_query(),
             team=self.team,
             timings=self.timings,
             modifiers=self.modifiers,
+            settings=settings,
         )
         input_columns = self.input_columns()
         missing_actors_count = None
@@ -92,10 +116,11 @@ class ActorsQueryRunner(QueryRunner):
             actor_column_index = input_columns.index(column_name)
             actor_ids = (row[actor_column_index] for row in self.paginator.results)
             actors_lookup = self.strategy.get_actors(actor_ids)
+
             recordings_column_index, recordings_lookup = self.prepare_recordings(column_name, input_columns)
 
             missing_actors_count = len(self.paginator.results) - len(actors_lookup)
-            results = self.enrich_with_actors(
+            results = self._enrich_with_actors(
                 results, actor_column_index, actors_lookup, recordings_column_index, recordings_lookup
             )
 
@@ -153,7 +178,8 @@ class ActorsQueryRunner(QueryRunner):
                         op=ast.CompareOperationOp.Eq,
                         left=ast.Field(chain=[self.strategy.origin, self.strategy.origin_id]),
                         right=ast.Field(chain=[source_alias, *source_id_chain]),
-                    )
+                    ),
+                    constraint_type="ON",
                 ),
             ),
         )
@@ -171,7 +197,10 @@ class ActorsQueryRunner(QueryRunner):
                 elif expr == self.strategy.field or expr == "actor":
                     column = ast.Field(chain=[self.strategy.origin_id])
                 elif expr == "matched_recordings":
-                    column = ast.Field(chain=["matching_events"])  # TODO: Hmm?
+                    # the underlying query used to match recordings compares to a selection of "matched events"
+                    # like `groupUniqArray(100)(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS matching_events`
+                    # we look up valid session ids and match them against the session ids in matching events
+                    column = ast.Field(chain=["matching_events"])
 
                 columns.append(column)
                 if has_aggregation(column):
@@ -218,30 +247,73 @@ class ActorsQueryRunner(QueryRunner):
                 order_by = []
 
         with self.timings.measure("select"):
-            if self.query.source:
-                join_expr = self.source_table_join()
-            else:
+            if not self.query.source:
                 join_expr = ast.JoinExpr(table=ast.Field(chain=[self.strategy.origin]))
+            else:
+                assert self.source_query_runner is not None  # For type checking
+                source_query = self.source_query_runner.to_actors_query()
 
-            stmt = ast.SelectQuery(
-                select=columns,
-                select_from=join_expr,
-                where=where,
-                having=having,
-                group_by=group_by if has_any_aggregation else None,
-                order_by=order_by,
-            )
+                source_id_chain = self.source_id_column(source_query)
+                source_alias = "source"
 
-        return stmt
+                origin = self.strategy.origin
+
+                join_on: ast.Expr = ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=ast.Field(chain=[origin, self.strategy.origin_id]),
+                    right=ast.Field(chain=[source_alias, *source_id_chain]),
+                )
+
+                # For some of our users, the persons table is large. If we're looking for person,
+                # help make the join smarter by limiting the people it has to look up
+                # The persons table inlines `in` conditions on the join (see `persons.py`)
+                # Funnels queries are very big. Don't do this for funnels as it blows up the query size.
+                if isinstance(self.strategy, PersonStrategy) and not (
+                    isinstance(self.source_query_runner, InsightActorsQueryRunner)
+                    and isinstance(self.source_query_runner.source_runner, FunnelsQueryRunner)
+                ):
+                    join_on = ast.And(
+                        exprs=[
+                            join_on,
+                            ast.CompareOperation(
+                                left=ast.Field(chain=[origin, "id"]),
+                                right=ast.SelectQuery(
+                                    select=[ast.Field(chain=[source_alias, *self.source_id_column(source_query)])],
+                                    select_from=ast.JoinExpr(table=source_query, alias=source_alias),
+                                ),
+                                op=ast.CompareOperationOp.In,
+                            ),
+                        ]
+                    )
+
+                join_expr = ast.JoinExpr(
+                    table=source_query,
+                    alias=source_alias,
+                    next_join=ast.JoinExpr(
+                        table=ast.Field(chain=[origin]),
+                        join_type="INNER JOIN",
+                        constraint=ast.JoinConstraint(
+                            expr=join_on,
+                            constraint_type="ON",
+                        ),
+                    ),
+                )
+
+        return ast.SelectQuery(
+            select=columns,
+            select_from=join_expr,
+            where=where,
+            having=having,
+            group_by=group_by if has_any_aggregation else None,
+            order_by=order_by,
+        )
 
     def to_actors_query(self) -> ast.SelectQuery:
         return self.to_query()
 
-    def _is_stale(self, cached_result_package):
-        return True
-
-    def _refresh_frequency(self):
-        return timedelta(minutes=1)
+    def apply_dashboard_filters(self, dashboard_filter: DashboardFilter):
+        if self.source_query_runner:
+            self.source_query_runner.apply_dashboard_filters(dashboard_filter)
 
     def _remove_aliases(self, node: ast.Expr) -> ast.Expr:
         if isinstance(node, ast.Alias):

@@ -5,7 +5,9 @@ import { querySelectorAllDeep } from 'query-selector-shadow-dom'
 import { CSSProperties } from 'react'
 
 import { ActionStepForm, ElementRect } from '~/toolbar/types'
-import { ActionStepType, StringMatching } from '~/types'
+import { ActionStepType } from '~/types'
+
+import { ActionStepPropertyKey } from './actions/ActionStep'
 
 export const TOOLBAR_ID = '__POSTHOG_TOOLBAR__'
 export const LOCALSTORAGE_KEY = '_postHogToolbarParams'
@@ -66,11 +68,10 @@ export function elementToActionStep(element: HTMLElement, dataAttributes: string
     return {
         event: '$autocapture',
         href: element.getAttribute('href') || '',
-        name: element.getAttribute('name') || '',
         text: getSafeText(element) || '',
         selector: query || '',
         url: window.location.protocol + '//' + window.location.host + window.location.pathname,
-        url_matching: StringMatching.Exact,
+        url_matching: 'exact',
     }
 }
 
@@ -266,7 +267,11 @@ export function getBoxColors(color: 'blue' | 'red' | 'green', hover = false, opa
     }
 }
 
-export function actionStepToActionStepFormItem(step: ActionStepType, isNew = false): ActionStepForm {
+export function actionStepToActionStepFormItem(
+    step: ActionStepType,
+    isNew = false,
+    includedPropertyKeys?: ActionStepPropertyKey[]
+): ActionStepForm {
     if (!step) {
         return {}
     }
@@ -282,30 +287,30 @@ export function actionStepToActionStepFormItem(step: ActionStepType, isNew = fal
                 ...step,
                 href_selected: true,
                 selector_selected: hasSelector,
-                text_selected: false,
-                url_selected: false,
+                text_selected: includedPropertyKeys?.includes('text') || false,
+                url_selected: includedPropertyKeys?.includes('url') || false,
             }
         } else if (step.tag_name === 'button') {
             return {
                 ...step,
                 text_selected: true,
                 selector_selected: hasSelector,
-                href_selected: false,
-                url_selected: false,
+                href_selected: includedPropertyKeys?.includes('href') || false,
+                url_selected: includedPropertyKeys?.includes('url') || false,
             }
         }
         return {
             ...step,
             selector_selected: hasSelector,
-            text_selected: false,
-            url_selected: false,
-            href_selected: false,
+            text_selected: includedPropertyKeys?.includes('text') || false,
+            url_selected: includedPropertyKeys?.includes('url') || false,
+            href_selected: includedPropertyKeys?.includes('href') || false,
         }
     }
 
     return {
         ...step,
-        url_matching: step.url_matching || StringMatching.Exact,
+        url_matching: step.url_matching || 'exact',
         href_selected: typeof step.href !== 'undefined' && step.href !== null,
         text_selected: typeof step.text !== 'undefined' && step.text !== null,
         selector_selected: typeof step.selector !== 'undefined' && step.selector !== null,

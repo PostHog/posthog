@@ -1,0 +1,47 @@
+[package]
+name = "feature-flags"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+axum = { workspace = true }
+axum-client-ip = { workspace = true }
+envconfig = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
+bytes = { workspace = true }
+once_cell = "1.18.0"
+rand = { workspace = true }
+redis = { version = "0.23.3", features = [
+    "tokio-comp",
+    "cluster",
+    "cluster-async",
+] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+serde-pickle = { version = "1.1.1"}
+sha1 = "0.10.6"
+regex = "1.10.4"
+maxminddb = "0.17"
+sqlx = { workspace = true }
+uuid = { workspace = true }
+base64.workspace = true
+flate2.workspace = true
+common-alloc = { path = "../common/alloc" }
+health = { path = "../common/health" }
+common-metrics = { path = "../common/metrics" }
+tower = { workspace = true }
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+assert-json-diff = { workspace = true }
+reqwest = { workspace = true }
+futures = "0.3.30" 

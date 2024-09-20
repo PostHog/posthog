@@ -1,20 +1,22 @@
 from datetime import datetime, timedelta
+from posthog.hogql.property import property_to_expr
+from posthog.hogql.parser import parse_expr, parse_select
+from posthog.hogql.constants import HogQLGlobalSettings, MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY
 from math import ceil
 from typing import Any
 from typing import Optional
 
 from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
-from posthog.caching.utils import is_stale
 from posthog.constants import (
     TREND_FILTER_TYPE_EVENTS,
     RetentionQueryType,
 )
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
-from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import to_printed_hogql
-from posthog.hogql.property import property_to_expr, entity_to_expr
+from posthog.hogql.property import entity_to_expr
 from posthog.hogql.query import execute_hogql_query
+from posthog.models.action.action import Action
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRangeWithIntervals
@@ -27,17 +29,27 @@ from posthog.schema import (
     RetentionQueryResponse,
     IntervalType,
     RetentionEntity,
+    EntityType,
 )
 from posthog.schema import RetentionQuery, RetentionType
 
 DEFAULT_INTERVAL = IntervalType("day")
 DEFAULT_TOTAL_INTERVALS = 11
 
+DEFAULT_ENTITY = RetentionEntity(
+    **{
+        "id": "$pageview",
+        "type": TREND_FILTER_TYPE_EVENTS,
+    }
+)
+
 
 class RetentionQueryRunner(QueryRunner):
     query: RetentionQuery
     response: RetentionQueryResponse
     cached_response: CachedRetentionQueryResponse
+    target_entity: RetentionEntity
+    returning_entity: RetentionEntity
 
     def __init__(
         self,
@@ -49,36 +61,129 @@ class RetentionQueryRunner(QueryRunner):
     ):
         super().__init__(query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context)
 
+        self.target_entity = self.query.retentionFilter.targetEntity or DEFAULT_ENTITY
+        self.returning_entity = self.query.retentionFilter.returningEntity or DEFAULT_ENTITY
+
     @property
     def group_type_index(self) -> int | None:
         return self.query.aggregation_group_type_index
 
-    def get_applicable_entity(self, event_query_type):
-        default_entity = RetentionEntity(
-            **{
-                "id": "$pageview",
-                "type": TREND_FILTER_TYPE_EVENTS,
-            }
+    def filter_timestamp(self) -> ast.Expr:
+        field_to_compare = ast.Field(chain=["events", "timestamp"])
+        return ast.And(
+            exprs=[
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.GtEq,
+                    left=field_to_compare,
+                    right=self.query_date_range.get_start_of_interval_hogql(),
+                ),
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.LtEq,
+                    left=field_to_compare,
+                    right=ast.Constant(value=self.query_date_range.date_to()),
+                ),
+            ]
         )
-        target_entity = self.query.retentionFilter.targetEntity or default_entity
-        if event_query_type in [RetentionQueryType.TARGET, RetentionQueryType.TARGET_FIRST_TIME]:
-            return target_entity
 
-        return self.query.retentionFilter.returningEntity or target_entity
+    def _get_events_for_entity(self, entity: RetentionEntity) -> list[str | None]:
+        if entity.type == EntityType.ACTIONS and entity.id:
+            action = Action.objects.get(pk=int(entity.id))
+            return action.get_step_events()
+        return [entity.id] if isinstance(entity.id, str) else [None]
 
-    def retention_events_query(self, event_query_type) -> ast.SelectQuery:
+    def events_where_clause(self, event_query_type: RetentionQueryType):
+        events_where = []
+
+        if self.query.properties is not None and self.query.properties != []:
+            events_where.append(property_to_expr(self.query.properties, self.team))
+
+        if (
+            self.query.filterTestAccounts
+            and isinstance(self.team.test_account_filters, list)
+            and len(self.team.test_account_filters) > 0
+        ):
+            for prop in self.team.test_account_filters:
+                events_where.append(property_to_expr(prop, self.team))
+
+        if event_query_type == RetentionQueryType.TARGET:
+            # when it's recurring, we only have to grab events for the period, rather than events for all time
+            events_where.append(self.filter_timestamp())
+
+        # Pre filter event
+        events = self._get_events_for_entity(self.target_entity) + self._get_events_for_entity(self.returning_entity)
+        # Don't pre-filtering if any of them is "All events"
+        if None not in events:
+            events_where.append(
+                ast.CompareOperation(
+                    left=ast.Field(chain=["event"]),
+                    # Sorting for consistent snapshots in tests
+                    right=ast.Tuple(exprs=[ast.Constant(value=event) for event in sorted(events)]),  # type: ignore
+                    op=ast.CompareOperationOp.In,
+                )
+            )
+
+        return events_where
+
+    def actor_query(self, breakdown_values_filter: Optional[int] = None, cumulative: bool = False) -> ast.SelectQuery:
         start_of_interval_sql = self.query_date_range.get_start_of_interval_hogql(
             source=ast.Field(chain=["events", "timestamp"])
         )
 
-        if event_query_type == RetentionQueryType.TARGET_FIRST_TIME:
-            event_date_expr = ast.Call(name="min", args=[start_of_interval_sql])
-        else:
-            event_date_expr = start_of_interval_sql
+        event_query_type = (
+            RetentionQueryType.TARGET_FIRST_TIME
+            if self.query.retentionFilter.retentionType == RetentionType.RETENTION_FIRST_TIME
+            else RetentionQueryType.TARGET
+        )
 
-        event_filters = [
-            entity_to_expr(entity=self.get_applicable_entity(event_query_type)),
-        ]
+        target_entity_expr = entity_to_expr(self.target_entity)
+        event_filters = self.events_where_clause(event_query_type)
+
+        target_timestamps = parse_expr(
+            """
+            arraySort(
+                groupUniqArrayIf(
+                    {start_of_interval_sql},
+                    {target_entity_expr} and
+                    {filter_timestamp}
+                )
+            )
+            """,
+            {
+                "start_of_interval_sql": start_of_interval_sql,
+                "target_entity_expr": target_entity_expr,
+                "filter_timestamp": self.filter_timestamp(),
+            },
+        )
+
+        if event_query_type == RetentionQueryType.TARGET_FIRST_TIME:
+            target_timestamps = parse_expr(
+                """
+                    if(
+                        has(
+                            {target_timestamps} as _target_timestamps,
+                            {min_timestamp}
+                        ),
+                        _target_timestamps,
+                        []
+                    )
+                """,
+                {
+                    "target_timestamps": target_timestamps,
+                    "min_timestamp": self.query_date_range.date_to_start_of_interval_hogql(
+                        parse_expr(
+                            "minIf(events.timestamp, {target_entity_expr})",
+                            {
+                                "target_entity_expr": target_entity_expr,
+                            },
+                        )
+                    ),
+                },
+            )
+            is_in_breakdown_value = parse_expr("target_timestamps[1] = breakdown_value_timestamp")
+            is_first_intervals_from_base = parse_expr("target_timestamps[1] = date_range[breakdown_values + 1]")
+        else:
+            is_in_breakdown_value = parse_expr("has(target_timestamps, breakdown_value_timestamp)")
+            is_first_intervals_from_base = parse_expr("has(target_timestamps, date_range[breakdown_values + 1])")
 
         target_field = "person_id"
         if self.group_type_index is not None:
@@ -98,156 +203,138 @@ class RetentionQueryRunner(QueryRunner):
                     ),
                 )
 
-        fields = [
-            ast.Alias(alias="event_date", expr=event_date_expr),
-            ast.Alias(alias="target", expr=ast.Field(chain=["events", target_field])),
-        ]
+        intervals_from_base_array_aggregator = "arrayJoin"
+        if cumulative:
+            intervals_from_base_array_aggregator = "arrayMax"
 
-        if event_query_type in [RetentionQueryType.TARGET, RetentionQueryType.TARGET_FIRST_TIME]:
-            source_timestamp = ast.Field(chain=["events", "timestamp"])
-            if event_query_type == RetentionQueryType.TARGET_FIRST_TIME:
-                source_timestamp = ast.Call(
-                    name="min",
-                    args=[source_timestamp],
-                )
-
-            datediff_call = ast.Call(
-                name="dateDiff",
-                args=[
-                    ast.Constant(value=self.query_date_range.interval_name),
-                    self.query_date_range.get_start_of_interval_hogql(),
-                    self.query_date_range.get_start_of_interval_hogql(
-                        source=source_timestamp,
+        inner_query = ast.SelectQuery(
+            select=[
+                ast.Alias(alias="actor_id", expr=ast.Field(chain=["events", target_field])),
+                ast.Alias(alias="target_timestamps", expr=target_timestamps),
+                ast.Alias(
+                    alias="returning_timestamps",
+                    expr=parse_expr(
+                        """
+                    arraySort(
+                        groupUniqArrayIf(
+                            {start_of_interval_timestamp},
+                            {returning_entity_expr}
+                        )
+                    )
+                """,
+                        {
+                            "start_of_interval_timestamp": start_of_interval_sql,
+                            "returning_entity_expr": entity_to_expr(self.returning_entity),
+                        },
                     ),
-                ],
-            )
-            fields.append(
-                ast.Alias(alias="breakdown_values", expr=ast.Array(exprs=[datediff_call])),
-            )
-
-        if self.query.properties is not None and self.query.properties != []:
-            event_filters.append(property_to_expr(self.query.properties, self.team))
-
-        if (
-            self.query.filterTestAccounts
-            and isinstance(self.team.test_account_filters, list)
-            and len(self.team.test_account_filters) > 0
-        ):
-            for prop in self.team.test_account_filters:
-                event_filters.append(property_to_expr(prop, self.team))
-
-        date_filter_expr = self.date_filter_expr(event_query_type)
-        if event_query_type != RetentionQueryType.TARGET_FIRST_TIME:
-            event_filters.append(date_filter_expr)
-
-        group_by_fields = None
-        having_expr = None
-        if event_query_type == RetentionQueryType.TARGET_FIRST_TIME:
-            group_by_fields = [ast.Field(chain=["target"])]
-            having_expr = date_filter_expr
-        elif event_query_type == RetentionQueryType.RETURNING:
-            group_by_fields = [ast.Field(chain=["target"]), ast.Field(chain=["event_date"])]
-
-        result = ast.SelectQuery(
-            select=fields,
-            distinct=event_query_type == RetentionQueryType.TARGET,
+                ),
+                ast.Alias(
+                    alias="date_range",
+                    expr=parse_expr(
+                        """
+                        arrayMap(
+                            x -> {date_from_start_of_interval} + {to_interval_function},
+                            range(0, {total_intervals})
+                        )
+                    """,
+                        {
+                            "total_intervals": ast.Constant(value=self.query_date_range.total_intervals),
+                            "date_from_start_of_interval": self.query_date_range.date_from_to_start_of_interval_hogql(),
+                            "to_interval_function": ast.Call(
+                                name=f"toInterval{self.query_date_range.interval_name.capitalize()}",
+                                args=[ast.Field(chain=["x"])],
+                            ),
+                        },
+                    ),
+                ),
+                ast.Alias(
+                    alias="breakdown_values",
+                    expr=parse_expr(
+                        """
+                        arrayJoin(
+                            arrayFilter(
+                                x -> x > -1,
+                                arrayMap(
+                                (_breakdown_value, breakdown_value_timestamp) ->
+                                    if(
+                                        {is_in_breakdown_value},
+                                        _breakdown_value - 1,
+                                        -1
+                                    ),
+                                    arrayEnumerate(date_range),
+                                    date_range
+                                )
+                            )
+                        )
+                    """,
+                        {"is_in_breakdown_value": is_in_breakdown_value},
+                    ),
+                ),
+                ast.Alias(
+                    alias="intervals_from_base",
+                    expr=parse_expr(
+                        f"""
+                    {intervals_from_base_array_aggregator}(
+                        arrayConcat(
+                            if(
+                                {{is_first_interval_from_base}},
+                                [0],
+                                []
+                            ),
+                            arrayFilter(
+                                x -> x > 0, -- first match always comes from target_timestamps, hence not -1 here
+                                arrayMap(
+                                    _timestamp ->
+                                        indexOf(arraySlice(date_range, breakdown_values + 1), _timestamp) - 1
+                                    , returning_timestamps
+                                )
+                            )
+                        )
+                    )
+                    """,
+                        {"is_first_interval_from_base": is_first_intervals_from_base},
+                    ),
+                ),
+            ],
             select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
             where=ast.And(exprs=event_filters),
-            group_by=group_by_fields,
-            having=having_expr,
+            group_by=[ast.Field(chain=["actor_id"])],
+            having=(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=ast.Field(chain=["breakdown_values"]),
+                    right=ast.Constant(value=breakdown_values_filter),
+                )
+                if breakdown_values_filter is not None
+                else None
+            ),
         )
-
         if self.query.samplingFactor is not None and isinstance(self.query.samplingFactor, float):
-            result.select_from.sample = ast.SampleExpr(
+            inner_query.select_from.sample = ast.SampleExpr(
                 sample_value=ast.RatioExpr(left=ast.Constant(value=self.query.samplingFactor))
             )
 
-        return result
-
-    def date_filter_expr(self, event_query_type) -> ast.Expr:
-        field_to_compare = (
-            ast.Field(chain=["event_date"])
-            if event_query_type == RetentionQueryType.TARGET_FIRST_TIME
-            else ast.Field(chain=["events", "timestamp"])
-        )
-        return ast.And(
-            exprs=[
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.GtEq,
-                    left=field_to_compare,
-                    right=self.query_date_range.get_start_of_interval_hogql(),
-                ),
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.LtEq,
-                    left=field_to_compare,
-                    right=ast.Constant(value=self.query_date_range.date_to()),
-                ),
-            ]
-        )
-
-    def build_target_event_query(self) -> ast.SelectQuery:
-        event_query_type = (
-            RetentionQueryType.TARGET_FIRST_TIME
-            if self.query.retentionFilter.retentionType == RetentionType.retention_first_time
-            else RetentionQueryType.TARGET
-        )
-        return self.retention_events_query(event_query_type=event_query_type)
-
-    def build_returning_event_query(self) -> ast.SelectQuery:
-        return self.retention_events_query(event_query_type=RetentionQueryType.RETURNING)
-
-    def actor_query(self, breakdown_values_filter: Optional[Any] = None) -> ast.SelectQuery:
-        placeholders = {
-            **self.query_date_range.to_placeholders(),
-            "returning_event_query": self.build_returning_event_query(),
-            "target_event_query": self.build_target_event_query(),
-            "breakdown_values_filter": ast.Constant(value=breakdown_values_filter),
-            "selected_interval": ast.Constant(value=None),
-        }
-        return parse_select(
-            """
-            SELECT DISTINCT breakdown_values,
-                            intervals_from_base,
-                            actor_id
-
-            FROM (
-                     SELECT target_event.breakdown_values AS breakdown_values,
-                            dateDiff(
-                                    {interval},
-                                    target_event.event_date,
-                                    returning_event.event_date
-                            )                             AS intervals_from_base,
-                            returning_event.target        AS actor_id
-
-                     FROM {target_event_query} AS target_event
-                              JOIN {returning_event_query} AS returning_event
-                                   ON returning_event.target = target_event.target
-
-                     WHERE returning_event.event_date > target_event.event_date
-
-                     UNION ALL
-
-                     SELECT target_event.breakdown_values AS breakdown_values,
-                            0                             AS intervals_from_base,
-                            target_event.target           AS actor_id
-
-                     FROM {target_event_query} AS target_event
-                     )
-
-            WHERE ({breakdown_values_filter} is NULL OR breakdown_values = {breakdown_values_filter})
-              AND ({selected_interval} is NULL OR intervals_from_base = {selected_interval})
-            """,
-            placeholders,
-        )
+        return inner_query
 
     def to_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
-        placeholders = {
-            "actor_query": self.actor_query(),
-        }
         with self.timings.measure("retention_query"):
+            if self.query.retentionFilter.cumulative:
+                actor_query = parse_select(
+                    """
+                    SELECT
+                        actor_id,
+                        arrayJoin(range(0, intervals_from_base + 1)) as intervals_from_base,
+                        breakdown_values
+                    FROM {actor_query}
+                    """,
+                    {"actor_query": self.actor_query(cumulative=True)},
+                )
+            else:
+                actor_query = self.actor_query()
+
             retention_query = parse_select(
                 """
-                    SELECT actor_activity.breakdown_values         AS breakdown_values,
+                    SELECT [actor_activity.breakdown_values]       AS breakdown_values,
                            actor_activity.intervals_from_base      AS intervals_from_base,
                            COUNT(DISTINCT actor_activity.actor_id) AS count
 
@@ -261,7 +348,7 @@ class RetentionQueryRunner(QueryRunner):
 
                     LIMIT 10000
                 """,
-                placeholders,
+                {"actor_query": actor_query},
                 timings=self.timings,
             )
         return retention_query
@@ -283,11 +370,6 @@ class RetentionQueryRunner(QueryRunner):
             now=datetime.now(),
         )
 
-    def _is_stale(self, cached_result_package):
-        date_to = self.query_date_range.date_to()
-        interval = self.query_date_range.interval_name
-        return is_stale(self.team, date_to, interval, cached_result_package)
-
     def _refresh_frequency(self):
         date_to = self.query_date_range.date_to()
         date_from = self.query_date_range.date_from()
@@ -305,6 +387,16 @@ class RetentionQueryRunner(QueryRunner):
 
         return refresh_frequency
 
+    def get_date(self, first_interval):
+        date = self.query_date_range.date_from() + self.query_date_range.determine_time_delta(
+            first_interval, self.query_date_range.interval_name.title()
+        )
+        if self.query_date_range.interval_type == IntervalType.HOUR:
+            utfoffset = self.team.timezone_info.utcoffset(date)
+            if utfoffset is not None:
+                date = date + utfoffset
+        return date
+
     def calculate(self) -> RetentionQueryResponse:
         query = self.to_query()
         hogql = to_printed_hogql(query, self.team)
@@ -316,6 +408,7 @@ class RetentionQueryRunner(QueryRunner):
             timings=self.timings,
             modifiers=self.modifiers,
             limit_context=self.limit_context,
+            settings=HogQLGlobalSettings(max_bytes_before_external_group_by=MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY),
         )
 
         result_dict = {
@@ -324,7 +417,6 @@ class RetentionQueryRunner(QueryRunner):
             }
             for (breakdown_values, intervals_from_base, count) in response.results
         }
-
         results = [
             {
                 "values": [
@@ -332,12 +424,7 @@ class RetentionQueryRunner(QueryRunner):
                     for return_interval in range(self.query_date_range.total_intervals - first_interval)
                 ],
                 "label": f"{self.query_date_range.interval_name.title()} {first_interval}",
-                "date": (
-                    self.query_date_range.date_from()
-                    + self.query_date_range.determine_time_delta(
-                        first_interval, self.query_date_range.interval_name.title()
-                    )
-                ),
+                "date": self.get_date(first_interval),
             }
             for first_interval in range(self.query_date_range.total_intervals)
         ]
@@ -358,7 +445,7 @@ class RetentionQueryRunner(QueryRunner):
                     GROUP BY actor_id
                 """,
                 placeholders={
-                    "actor_query": self.actor_query(breakdown_values_filter=[interval]),
+                    "actor_query": self.actor_query(breakdown_values_filter=interval),
                 },
                 timings=self.timings,
             )

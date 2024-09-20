@@ -1,10 +1,13 @@
 import csv
-import json
+from posthog.clickhouse.client.connection import Workload
 
 from django.db import DatabaseError
+from loginas.utils import is_impersonated_session
 from sentry_sdk import start_span
 import structlog
 
+from posthog.models.activity_logging.activity_log import log_activity, Detail, changes_between, load_activity
+from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.feature_flag.flag_matching import (
     FeatureFlagMatcher,
     FlagsMatcherCache,
@@ -13,8 +16,6 @@ from posthog.models.feature_flag.flag_matching import (
 from posthog.models.person.person import PersonDistinctId
 from posthog.models.property.property import Property, PropertyGroup
 from posthog.queries.base import property_group_to_Q
-from posthog.queries.insight import insight_sync_execute
-import posthoganalytics
 from posthog.metrics import LABEL_TEAM_ID
 from posthog.renderers import SafeJSONRenderer
 from datetime import datetime
@@ -24,8 +25,8 @@ from django.conf import settings
 from django.db.models import QuerySet, Prefetch, prefetch_related_objects, OuterRef, Subquery
 from django.db.models.expressions import F
 from django.utils import timezone
-from rest_framework import serializers, viewsets
-from rest_framework.decorators import action
+from rest_framework import serializers, viewsets, request, status
+from posthog.api.utils import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -66,8 +67,7 @@ from posthog.models.person.sql import (
 )
 from posthog.queries.actor_base_query import (
     ActorBaseQuery,
-    get_people,
-    serialize_people,
+    get_serialized_people,
 )
 from posthog.queries.paths import PathsActors
 from posthog.queries.person_query import PersonQuery
@@ -350,50 +350,16 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         elif not filter.limit:
             filter = filter.shallow_clone({LIMIT: 100})
 
-        if posthoganalytics.feature_enabled(
-            "load-person-fields-from-clickhouse",
-            request.user.distinct_id,
-            person_properties={"email": request.user.email},
-        ):
-            person_query = PersonQuery(
-                filter,
-                team.pk,
-                cohort=cohort,
-                extra_fields=[
-                    "created_at",
-                    "properties",
-                    "is_identified",
-                ],
-                include_distinct_ids=True,
-            )
-            paginated_query, paginated_params = person_query.get_query(paginate=True, filter_future_persons=True)
-            serialized_actors = insight_sync_execute(
-                paginated_query,
-                {**paginated_params, **filter.hogql_context.values},
-                filter=filter,
-                query_type="cohort_persons",
-                team_id=team.pk,
-            )
-            persons = []
-            for p in serialized_actors:
-                person = Person(
-                    uuid=p[0],
-                    created_at=p[1],
-                    is_identified=p[2],
-                    properties=json.loads(p[3]),
-                )
-                person._distinct_ids = p[4]
-                persons.append(person)
+        query, params = PersonQuery(filter, team.pk, cohort=cohort).get_query(paginate=True)
+        raw_result = sync_execute(
+            query,
+            {**params, **filter.hogql_context.values},
+            workload=Workload.OFFLINE,  # this endpoint is only used by external API requests
+        )
+        actor_ids = [row[0] for row in raw_result]
+        serialized_actors = get_serialized_people(team, actor_ids, distinct_id_limit=10)
 
-            serialized_actors = serialize_people(team, data=persons)
-            _should_paginate = len(serialized_actors) >= filter.limit
-        else:
-            query, params = PersonQuery(filter, team.pk, cohort=cohort).get_query(paginate=True)
-            raw_result = sync_execute(query, {**params, **filter.hogql_context.values})
-            actor_ids = [row[0] for row in raw_result]
-            actors, serialized_actors = get_people(team, actor_ids, distinct_id_limit=10)
-
-            _should_paginate = len(actor_ids) >= filter.limit
+        _should_paginate = len(actor_ids) >= filter.limit
 
         next_url = format_query_params_absolute_url(request, filter.offset + filter.limit) if _should_paginate else None
         previous_url = (
@@ -419,10 +385,10 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             ]
             for actor in serialized_actors:
                 if actor["properties"].get("email"):
-                    actor["email"] = actor["properties"]["email"]
+                    actor["email"] = actor["properties"]["email"]  # type: ignore
                     del actor["properties"]["email"]
             serialized_actors = [
-                {
+                {  # type: ignore
                     k: v
                     for k, v in sorted(
                         actor.items(),
@@ -440,9 +406,72 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
 
         return Response({"results": serialized_actors, "next": next_url, "previous": previous_url})
 
+    @action(methods=["GET"], url_path="activity", detail=False, required_scopes=["activity_log:read"])
+    def all_activity(self, request: request.Request, **kwargs):
+        limit = int(request.query_params.get("limit", "10"))
+        page = int(request.query_params.get("page", "1"))
+
+        activity_page = load_activity(scope="Cohort", team_id=self.team_id, limit=limit, page=page)
+
+        return activity_page_response(activity_page, limit, page, request)
+
+    @action(methods=["GET"], detail=True, required_scopes=["activity_log:read"])
+    def activity(self, request: request.Request, **kwargs):
+        limit = int(request.query_params.get("limit", "10"))
+        page = int(request.query_params.get("page", "1"))
+
+        item_id = kwargs["pk"]
+        if not Cohort.objects.filter(id=item_id, team_id=self.team_id).exists():
+            return Response("", status=status.HTTP_404_NOT_FOUND)
+
+        activity_page = load_activity(
+            scope="Cohort",
+            team_id=self.team_id,
+            item_ids=[str(item_id)],
+            limit=limit,
+            page=page,
+        )
+        return activity_page_response(activity_page, limit, page, request)
+
+    def perform_create(self, serializer):
+        serializer.save()
+        log_activity(
+            organization_id=self.organization.id,
+            team_id=self.team_id,
+            user=serializer.context["request"].user,
+            was_impersonated=is_impersonated_session(serializer.context["request"]),
+            item_id=serializer.instance.id,
+            scope="Cohort",
+            activity="created",
+            detail=Detail(name=serializer.instance.name),
+        )
+
+    def perform_update(self, serializer):
+        instance_id = serializer.instance.id
+
+        try:
+            before_update = Cohort.objects.get(pk=instance_id)
+        except Cohort.DoesNotExist:
+            before_update = None
+
+        serializer.save()
+
+        changes = changes_between("Cohort", previous=before_update, current=serializer.instance)
+
+        log_activity(
+            organization_id=self.organization.id,
+            team_id=self.team_id,
+            user=serializer.context["request"].user,
+            was_impersonated=is_impersonated_session(serializer.context["request"]),
+            item_id=instance_id,
+            scope="Cohort",
+            activity="updated",
+            detail=Detail(changes=changes, name=serializer.instance.name),
+        )
+
 
 class LegacyCohortViewSet(CohortViewSet):
-    derive_current_team_from_user_only = True
+    param_derived_from_user_current_team = "project_id"
 
 
 def will_create_loops(cohort: Cohort) -> bool:
@@ -579,7 +608,7 @@ def insert_actors_into_cohort_by_query(cohort: Cohort, query: str, params: dict[
         cohort.save(update_fields=["errors_calculating", "last_calculation", "is_calculating"])
     except Exception as err:
         if settings.DEBUG:
-            raise err
+            raise
         cohort.is_calculating = False
         cohort.errors_calculating = F("errors_calculating") + 1
         cohort.save(update_fields=["errors_calculating", "is_calculating"])
@@ -704,7 +733,7 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, 
 
     except Exception as err:
         if settings.DEBUG or settings.TEST:
-            raise err
+            raise
         capture_exception(err)
 
 

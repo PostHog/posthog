@@ -1,16 +1,14 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { urlToAction } from 'kea-router'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { insightDataLogic, queryFromKind } from 'scenes/insights/insightDataLogic'
-import { insightLogic } from 'scenes/insights/insightLogic'
+import { identifierToHuman } from 'lib/utils'
+import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/project/filterTestAccountDefaultsLogic'
 
-import { examples, TotalEventsTable } from '~/queries/examples'
-import { insightMap } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import { getDisplay, getShowPercentStackView, getShowValuesOnSeries } from '~/queries/nodes/InsightViz/utils'
+import { nodeKindToInsightType } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
+import { getDefaultQuery } from '~/queries/nodes/InsightViz/utils'
 import {
     ActionsNode,
     DataWarehouseNode,
@@ -21,7 +19,6 @@ import {
     InsightVizNode,
     LifecycleFilter,
     LifecycleQuery,
-    NodeKind,
     PathsFilter,
     PathsQuery,
     RetentionFilter,
@@ -34,6 +31,11 @@ import {
 import {
     containsHogQLQuery,
     filterKeyForQuery,
+    getDisplay,
+    getShowPercentStackView,
+    getShowValuesOnSeries,
+    isFunnelsQuery,
+    isHogQuery,
     isInsightQueryWithBreakdown,
     isInsightQueryWithSeries,
     isInsightVizNode,
@@ -43,9 +45,10 @@ import {
     isStickinessQuery,
     isTrendsQuery,
 } from '~/queries/utils'
-import { BaseMathType, FilterType, InsightLogicProps, InsightType } from '~/types'
+import { BaseMathType, InsightLogicProps, InsightType } from '~/types'
 
 import { MathAvailability } from '../filters/ActionFilter/ActionFilterRow/ActionFilterRow'
+import { insightSceneLogic } from '../insightSceneLogic'
 import type { insightNavLogicType } from './insightNavLogicType'
 
 export interface Tab {
@@ -105,8 +108,6 @@ export const insightNavLogic = kea<insightNavLogicType>([
     path((key) => ['scenes', 'insights', 'InsightNav', 'insightNavLogic', key]),
     connect((props: InsightLogicProps) => ({
         values: [
-            insightLogic(props),
-            ['filters'],
             featureFlagLogic,
             ['featureFlags'],
             insightDataLogic(props),
@@ -114,7 +115,7 @@ export const insightNavLogic = kea<insightNavLogicType>([
             filterTestAccountsDefaultsLogic,
             ['filterTestAccountsDefault'],
         ],
-        actions: [insightDataLogic(props), ['setQuery']],
+        actions: [insightDataLogic(props), ['setQuery'], insightSceneLogic, ['setOpenedWithQuery']],
     })),
     actions({
         setActiveView: (view: InsightType) => ({ view }),
@@ -130,40 +131,24 @@ export const insightNavLogic = kea<insightNavLogicType>([
                 }),
             },
         ],
-        userSelectedView: [
-            null as InsightType | null,
-            {
-                setActiveView: (_, { view }) => view,
-            },
-        ],
     }),
     selectors({
         activeView: [
-            (s) => [s.filters, s.query, s.userSelectedView],
-            (filters, query, userSelectedView) => {
-                // if userSelectedView is null then we must be loading an insight
-                // and, we can prefer a present query over a present filter
-                // otherwise we can have both a filter and a query and without userSelectedView we don't know which to use
-                // so, if there is a user selected view, we use that
-                // this gets much simpler once everything is using queries
-
-                if (userSelectedView === null) {
-                    if (query) {
-                        if (containsHogQLQuery(query)) {
-                            return InsightType.SQL
-                        } else if (isInsightVizNode(query)) {
-                            return insightMap[query.source.kind] || InsightType.TRENDS
-                        }
-                        return InsightType.JSON
-                    }
-                    return filters.insight || InsightType.TRENDS
+            (s) => [s.query],
+            (query) => {
+                if (containsHogQLQuery(query)) {
+                    return InsightType.SQL
+                } else if (isHogQuery(query)) {
+                    return InsightType.HOG
+                } else if (isInsightVizNode(query)) {
+                    return nodeKindToInsightType[query.source.kind] || InsightType.TRENDS
                 }
-                return userSelectedView
+                return InsightType.JSON
             },
         ],
         tabs: [
-            (s) => [s.activeView],
-            (activeView) => {
+            (s) => [s.activeView, s.query, s.featureFlags],
+            (activeView, query, featureFlags) => {
                 const tabs: Tab[] = [
                     {
                         label: 'Trends',
@@ -195,29 +180,33 @@ export const insightNavLogic = kea<insightNavLogicType>([
                         type: InsightType.LIFECYCLE,
                         dataAttr: 'insight-lifecycle-tab',
                     },
+                    {
+                        label: 'SQL',
+                        type: InsightType.SQL,
+                        dataAttr: 'insight-sql-tab',
+                    },
                 ]
 
-                tabs.push({
-                    label: (
-                        <>
-                            SQL
-                            <LemonTag type="warning" className="uppercase ml-2">
-                                Beta
-                            </LemonTag>
-                        </>
-                    ),
-                    type: InsightType.SQL,
-                    dataAttr: 'insight-sql-tab',
-                })
+                if (featureFlags[FEATURE_FLAGS.HOG] || activeView === InsightType.HOG) {
+                    tabs.push({
+                        label: <>Hog 🦔</>,
+                        type: InsightType.HOG,
+                        dataAttr: 'insight-hog-tab',
+                    })
+                }
 
                 if (activeView === InsightType.JSON) {
                     // only display this tab when it is selected by the provided insight query
                     // don't display it otherwise... humans shouldn't be able to click to select this tab
                     // it only opens when you click the <OpenEditorButton/>
+                    const humanFriendlyQueryKind: string | null =
+                        typeof query?.kind === 'string'
+                            ? identifierToHuman(query.kind.replace(/(Node|Query)$/g, ''), 'title')
+                            : null
                     tabs.push({
                         label: (
                             <>
-                                Custom{' '}
+                                {humanFriendlyQueryKind ?? 'Custom'}{' '}
                                 <LemonTag type="warning" className="uppercase ml-2">
                                     Beta
                                 </LemonTag>
@@ -234,63 +223,25 @@ export const insightNavLogic = kea<insightNavLogicType>([
     }),
     listeners(({ values, actions }) => ({
         setActiveView: ({ view }) => {
-            if ([InsightType.SQL, InsightType.JSON].includes(view as InsightType)) {
-                // if the selected view is SQL or JSON then we must have the "allow queries" flag on,
-                // so no need to check it
-                if (view === InsightType.JSON) {
-                    actions.setQuery(TotalEventsTable)
-                } else if (view === InsightType.SQL) {
-                    const biVizFlag = Boolean(values.featureFlags[FEATURE_FLAGS.BI_VIZ])
-                    actions.setQuery(biVizFlag ? examples.DataVisualization : examples.HogQLTable)
-                }
-            } else {
-                let query: InsightVizNode
+            const query = getDefaultQuery(view, values.filterTestAccountsDefault)
 
-                if (view === InsightType.TRENDS) {
-                    query = queryFromKind(NodeKind.TrendsQuery, values.filterTestAccountsDefault)
-                } else if (view === InsightType.FUNNELS) {
-                    query = queryFromKind(NodeKind.FunnelsQuery, values.filterTestAccountsDefault)
-                } else if (view === InsightType.RETENTION) {
-                    query = queryFromKind(NodeKind.RetentionQuery, values.filterTestAccountsDefault)
-                } else if (view === InsightType.PATHS) {
-                    query = queryFromKind(NodeKind.PathsQuery, values.filterTestAccountsDefault)
-                } else if (view === InsightType.STICKINESS) {
-                    query = queryFromKind(NodeKind.StickinessQuery, values.filterTestAccountsDefault)
-                } else if (view === InsightType.LIFECYCLE) {
-                    query = queryFromKind(NodeKind.LifecycleQuery, values.filterTestAccountsDefault)
-                } else {
-                    throw new Error('encountered unexpected type for view')
-                }
-
+            if (isInsightVizNode(query)) {
                 actions.setQuery({
                     ...query,
                     source: values.queryPropertyCache
                         ? mergeCachedProperties(query.source, values.queryPropertyCache)
                         : query.source,
                 } as InsightVizNode)
+                actions.setOpenedWithQuery(query)
+            } else {
+                actions.setQuery(query)
+                actions.setOpenedWithQuery(query)
             }
         },
         setQuery: ({ query }) => {
             if (isInsightVizNode(query)) {
                 actions.updateQueryPropertyCache(cachePropertiesFromQuery(query.source, values.queryPropertyCache))
             }
-        },
-    })),
-    urlToAction(({ actions }) => ({
-        '/insights/:shortId(/:mode)(/:subscriptionId)': (
-            _, // url params
-            { dashboard, ...searchParams }, // search params
-            { filters: _filters } // hash params
-        ) => {
-            // capture any filters from the URL, either #filters={} or ?insight=X&bla=foo&bar=baz
-            const filters: Partial<FilterType> | null =
-                Object.keys(_filters || {}).length > 0 ? _filters : searchParams.insight ? searchParams : null
-
-            if (!filters?.insight) {
-                return
-            }
-
-            actions.setActiveView(filters?.insight)
         },
     })),
     afterMount(({ values, actions }) => {
@@ -374,12 +325,38 @@ const mergeCachedProperties = (query: InsightQueryNode, cache: QueryPropertyCach
 
     // interval
     if (isInsightQueryWithSeries(mergedQuery) && cache.interval) {
-        mergedQuery.interval = cache.interval
+        // Only support real time queries on trends for now
+        if (!isTrendsQuery(mergedQuery) && cache.interval == 'minute') {
+            mergedQuery.interval = 'hour'
+        } else {
+            mergedQuery.interval = cache.interval
+        }
     }
 
     // breakdown filter
     if (isInsightQueryWithBreakdown(mergedQuery) && cache.breakdownFilter) {
         mergedQuery.breakdownFilter = cache.breakdownFilter
+
+        // If we've changed the query kind, convert multiple breakdowns to a single breakdown
+        if (isTrendsQuery(cache) && isFunnelsQuery(query)) {
+            if (cache.breakdownFilter.breakdowns?.length) {
+                const firstBreakdown = cache.breakdownFilter?.breakdowns?.[0]
+                mergedQuery.breakdownFilter = {
+                    ...cache.breakdownFilter,
+                    breakdowns: undefined,
+                    breakdown: firstBreakdown?.property,
+                    breakdown_type: firstBreakdown?.type,
+                    breakdown_histogram_bin_count: firstBreakdown?.histogram_bin_count,
+                    breakdown_group_type_index: firstBreakdown?.group_type_index,
+                    breakdown_normalize_url: firstBreakdown?.normalize_url,
+                }
+            } else {
+                mergedQuery.breakdownFilter = {
+                    ...cache.breakdownFilter,
+                    breakdowns: undefined,
+                }
+            }
+        }
     }
 
     // funnel paths filter

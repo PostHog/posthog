@@ -10,7 +10,7 @@ from rest_framework import exceptions, status
 
 from posthog.constants import AvailableFeature
 from posthog.models.utils import sane_repr
-from posthog.tasks.tasks import sync_all_organization_available_features
+from posthog.tasks.tasks import sync_all_organization_available_product_features
 
 
 class LicenseError(exceptions.APIException):
@@ -43,12 +43,12 @@ class LicenseManager(models.Manager):
 class License(models.Model):
     objects: LicenseManager = LicenseManager()
 
-    created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
-    plan: models.CharField = models.CharField(max_length=200)
-    valid_until: models.DateTimeField = models.DateTimeField()
-    key: models.CharField = models.CharField(max_length=200)
+    created_at = models.DateTimeField(auto_now_add=True)
+    plan = models.CharField(max_length=200)
+    valid_until = models.DateTimeField()
+    key = models.CharField(max_length=200)
     # DEPRECATED: This is no longer used
-    max_users: models.IntegerField = models.IntegerField(default=None, null=True)  # None = no restriction
+    max_users = models.IntegerField(default=None, null=True)  # None = no restriction
 
     # NOTE: Remember to update the Billing Service as well. Long-term it will be the source of truth.
     SCALE_PLAN = "scale"
@@ -56,7 +56,6 @@ class License(models.Model):
         AvailableFeature.ZAPIER,
         AvailableFeature.ORGANIZATIONS_PROJECTS,
         AvailableFeature.SOCIAL_SSO,
-        AvailableFeature.TEAM_COLLABORATION,
         AvailableFeature.INGESTION_TAXONOMY,
         AvailableFeature.PATHS_ADVANCED,
         AvailableFeature.CORRELATION_ANALYSIS,
@@ -117,4 +116,4 @@ def get_licensed_users_available() -> Optional[int]:
 
 @receiver(post_save, sender=License)
 def license_saved(sender, instance, created, raw, using, **kwargs):
-    sync_all_organization_available_features()
+    sync_all_organization_available_product_features()

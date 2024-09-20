@@ -31,12 +31,12 @@ class TestQuotaLimiting(BaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.redis_client = get_client()
-        self.redis_client.delete(f"{QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY}.{QuotaResource.EVENTS}")
-        self.redis_client.delete(f"{QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY}.{QuotaResource.RECORDINGS}")
-        self.redis_client.delete(f"{QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY}.{QuotaResource.ROWS_SYNCED}")
-        self.redis_client.delete(f"{QuotaLimitingCaches.QUOTA_LIMITING_SUSPENDED_KEY}.{QuotaResource.EVENTS}")
-        self.redis_client.delete(f"{QuotaLimitingCaches.QUOTA_LIMITING_SUSPENDED_KEY}.{QuotaResource.RECORDINGS}")
-        self.redis_client.delete(f"{QuotaLimitingCaches.QUOTA_LIMITING_SUSPENDED_KEY}.{QuotaResource.ROWS_SYNCED}")
+        self.redis_client.delete(f"@posthog/quota-limits/events")
+        self.redis_client.delete(f"@posthog/quota-limits/recordings")
+        self.redis_client.delete(f"@posthog/quota-limits/rows_synced")
+        self.redis_client.delete(f"@posthog/quota-limiting-suspended/events")
+        self.redis_client.delete(f"@posthog/quota-limiting-suspended/recordings")
+        self.redis_client.delete(f"@posthog/quota-limiting-suspended/rows_synced")
 
     @patch("posthoganalytics.capture")
     @patch("posthoganalytics.feature_enabled", return_value=True)
@@ -69,9 +69,9 @@ class TestQuotaLimiting(BaseTest):
         quota_limited_orgs, quota_limiting_suspended_orgs = update_all_org_billing_quotas()
         patch_feature_enabled.assert_called_with(
             QUOTA_LIMIT_DATA_RETENTION_FLAG,
-            self.organization.id,
+            str(self.organization.id),
             groups={"organization": org_id},
-            group_properties={"organization": {"id": org_id}},
+            group_properties={"organization": {"id": str(org_id)}},
         )
         patch_capture.assert_called_once_with(
             org_id,
@@ -86,13 +86,13 @@ class TestQuotaLimiting(BaseTest):
         assert quota_limiting_suspended_orgs["events"] == {}
         assert quota_limiting_suspended_orgs["recordings"] == {}
         assert quota_limiting_suspended_orgs["rows_synced"] == {}
-        assert self.redis_client.zrange(f"{QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY}events", 0, -1) == []
-        assert self.redis_client.zrange(f"{QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY}recordings", 0, -1) == []
-        assert self.redis_client.zrange(f"{QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY}rows_synced", 0, -1) == []
+        assert self.redis_client.zrange(f"@posthog/quota-limits/events", 0, -1) == []
+        assert self.redis_client.zrange(f"@posthog/quota-limits/recordings", 0, -1) == []
+        assert self.redis_client.zrange(f"@posthog/quota-limits/rows_synced", 0, -1) == []
 
         patch_capture.reset_mock()
         # Add this org to the redis cache.
-        team_tokens = get_team_attribute_by_quota_resource(self.organization, QuotaResource.EVENTS)
+        team_tokens = get_team_attribute_by_quota_resource(self.organization)
         add_limited_team_tokens(
             QuotaResource.EVENTS,
             {x: 1612137599 for x in team_tokens},
@@ -101,7 +101,7 @@ class TestQuotaLimiting(BaseTest):
         quota_limited_orgs, quota_limiting_suspended_orgs = update_all_org_billing_quotas()
         patch_feature_enabled.assert_called_with(
             QUOTA_LIMIT_DATA_RETENTION_FLAG,
-            self.organization.id,
+            str(self.organization.id),
             groups={"organization": org_id},
             group_properties={"organization": {"id": org_id}},
         )
@@ -116,11 +116,9 @@ class TestQuotaLimiting(BaseTest):
         assert quota_limiting_suspended_orgs["events"] == {}
         assert quota_limiting_suspended_orgs["recordings"] == {}
         assert quota_limiting_suspended_orgs["rows_synced"] == {}
-        assert self.redis_client.zrange(f"{QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY}events", 0, -1) == [
-            self.team.api_token.encode("UTF-8")
-        ]
-        assert self.redis_client.zrange(f"{QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY}recordings", 0, -1) == []
-        assert self.redis_client.zrange(f"{QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY}rows_synced", 0, -1) == []
+        assert self.redis_client.zrange(f"@posthog/quota-limits/events", 0, -1) == [self.team.api_token.encode("UTF-8")]
+        assert self.redis_client.zrange(f"@posthog/quota-limits/recordings", 0, -1) == []
+        assert self.redis_client.zrange(f"@posthog/quota-limits/rows_synced", 0, -1) == []
 
     @patch("posthoganalytics.capture")
     @patch("posthoganalytics.feature_enabled", return_value=True)
@@ -136,7 +134,7 @@ class TestQuotaLimiting(BaseTest):
         self.organization.save()
 
         time.sleep(1)
-        with self.assertNumQueries(2):
+        with self.assertNumQueries(3):
             quota_limited_orgs, quota_limiting_suspended_orgs = update_all_org_billing_quotas()
         # Shouldn't be called due to lazy evaluation of the conditional
         patch_feature_enabled.assert_not_called()
@@ -148,9 +146,9 @@ class TestQuotaLimiting(BaseTest):
         assert quota_limiting_suspended_orgs["recordings"] == {}
         assert quota_limiting_suspended_orgs["rows_synced"] == {}
 
-        assert self.redis_client.zrange(f"{QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY}events", 0, -1) == []
-        assert self.redis_client.zrange(f"{QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY}recordings", 0, -1) == []
-        assert self.redis_client.zrange(f"{QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY}rows_synced", 0, -1) == []
+        assert self.redis_client.zrange(f"@posthog/quota-limits/events", 0, -1) == []
+        assert self.redis_client.zrange(f"@posthog/quota-limits/recordings", 0, -1) == []
+        assert self.redis_client.zrange(f"@posthog/quota-limits/rows_synced", 0, -1) == []
 
     def test_billing_rate_limit_not_set_if_missing_org_usage(self) -> None:
         with self.settings(USE_TZ=False):
@@ -178,9 +176,9 @@ class TestQuotaLimiting(BaseTest):
         assert quota_limiting_suspended_orgs["recordings"] == {}
         assert quota_limiting_suspended_orgs["rows_synced"] == {}
 
-        assert self.redis_client.zrange(f"{QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY}events", 0, -1) == []
-        assert self.redis_client.zrange(f"{QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY}recordings", 0, -1) == []
-        assert self.redis_client.zrange(f"{QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY}rows_synced", 0, -1) == []
+        assert self.redis_client.zrange(f"@posthog/quota-limits/events", 0, -1) == []
+        assert self.redis_client.zrange(f"@posthog/quota-limits/recordings", 0, -1) == []
+        assert self.redis_client.zrange(f"@posthog/quota-limits/rows_synced", 0, -1) == []
 
     @patch("posthoganalytics.capture")
     def test_billing_rate_limit(self, patch_capture) -> None:
@@ -227,11 +225,11 @@ class TestQuotaLimiting(BaseTest):
                 groups={"instance": "http://localhost:8000", "organization": org_id},
             )
 
-            assert self.redis_client.zrange(f"{QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY}events", 0, -1) == [
+            assert self.redis_client.zrange(f"@posthog/quota-limits/events", 0, -1) == [
                 self.team.api_token.encode("UTF-8")
             ]
-            assert self.redis_client.zrange(f"{QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY}recordings", 0, -1) == []
-            assert self.redis_client.zrange(f"{QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY}rows_synced", 0, -1) == []
+            assert self.redis_client.zrange(f"@posthog/quota-limits/recordings", 0, -1) == []
+            assert self.redis_client.zrange(f"@posthog/quota-limits/rows_synced", 0, -1) == []
 
             self.organization.refresh_from_db()
             assert self.organization.usage == {
@@ -252,14 +250,14 @@ class TestQuotaLimiting(BaseTest):
             assert quota_limiting_suspended_orgs["events"] == {}
             assert quota_limiting_suspended_orgs["recordings"] == {}
             assert quota_limiting_suspended_orgs["rows_synced"] == {}
-            assert self.redis_client.zrange(f"{QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY}events", 0, -1) == [
+            assert self.redis_client.zrange(f"@posthog/quota-limits/events", 0, -1) == [
                 self.team.api_token.encode("UTF-8")
             ]
-            assert self.redis_client.zrange(f"{QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY}recordings", 0, -1) == []
-            assert self.redis_client.zrange(f"{QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY}rows_synced", 0, -1) == []
+            assert self.redis_client.zrange(f"@posthog/quota-limits/recordings", 0, -1) == []
+            assert self.redis_client.zrange(f"@posthog/quota-limits/rows_synced", 0, -1) == []
 
             # Reset the event limiting set so their limiting will be suspended for 1 day.
-            self.redis_client.delete(f"{QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY}events")
+            self.redis_client.delete(f"@posthog/quota-limits/events")
             quota_limited_orgs, quota_limiting_suspended_orgs = update_all_org_billing_quotas()
             assert quota_limited_orgs["events"] == {}
             assert quota_limited_orgs["recordings"] == {}
@@ -267,13 +265,13 @@ class TestQuotaLimiting(BaseTest):
             assert quota_limiting_suspended_orgs["events"] == {org_id: 1611705600}
             assert quota_limiting_suspended_orgs["recordings"] == {}
             assert quota_limiting_suspended_orgs["rows_synced"] == {}
-            assert self.redis_client.zrange(f"{QuotaLimitingCaches.QUOTA_LIMITING_SUSPENDED_KEY}events", 0, -1) == [
+            assert self.redis_client.zrange(f"@posthog/quota-limiting-suspended/events", 0, -1) == [
                 self.team.api_token.encode("UTF-8")
             ]
 
-            assert self.redis_client.zrange(f"{QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY}events", 0, -1) == []
-            assert self.redis_client.zrange(f"{QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY}recordings", 0, -1) == []
-            assert self.redis_client.zrange(f"{QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY}rows_synced", 0, -1) == []
+            assert self.redis_client.zrange(f"@posthog/quota-limits/events", 0, -1) == []
+            assert self.redis_client.zrange(f"@posthog/quota-limits/recordings", 0, -1) == []
+            assert self.redis_client.zrange(f"@posthog/quota-limits/rows_synced", 0, -1) == []
 
         # Check that limiting still suspended 23 hrs later
         with freeze_time("2021-01-25T23:00:00Z"):
@@ -284,13 +282,13 @@ class TestQuotaLimiting(BaseTest):
             assert quota_limiting_suspended_orgs["events"] == {org_id: 1611705600}
             assert quota_limiting_suspended_orgs["recordings"] == {}
             assert quota_limiting_suspended_orgs["rows_synced"] == {}
-            assert self.redis_client.zrange(f"{QuotaLimitingCaches.QUOTA_LIMITING_SUSPENDED_KEY}events", 0, -1) == [
+            assert self.redis_client.zrange(f"@posthog/quota-limiting-suspended/events", 0, -1) == [
                 self.team.api_token.encode("UTF-8")
             ]
 
-            assert self.redis_client.zrange(f"{QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY}events", 0, -1) == []
-            assert self.redis_client.zrange(f"{QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY}recordings", 0, -1) == []
-            assert self.redis_client.zrange(f"{QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY}rows_synced", 0, -1) == []
+            assert self.redis_client.zrange(f"@posthog/quota-limits/events", 0, -1) == []
+            assert self.redis_client.zrange(f"@posthog/quota-limits/recordings", 0, -1) == []
+            assert self.redis_client.zrange(f"@posthog/quota-limits/rows_synced", 0, -1) == []
             self.organization.refresh_from_db()
             assert self.organization.usage == {
                 "events": {
@@ -320,17 +318,17 @@ class TestQuotaLimiting(BaseTest):
             assert quota_limiting_suspended_orgs["events"] == {}
             assert quota_limiting_suspended_orgs["recordings"] == {}
             assert quota_limiting_suspended_orgs["rows_synced"] == {}
-            assert self.redis_client.zrange(f"{QuotaLimitingCaches.QUOTA_LIMITING_SUSPENDED_KEY}events", 0, -1) == []
+            assert self.redis_client.zrange(f"@posthog/quota-limiting-suspended/events", 0, -1) == []
 
-            assert self.redis_client.zrange(f"{QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY}events", 0, -1) == [
+            assert self.redis_client.zrange(f"@posthog/quota-limits/events", 0, -1) == [
                 self.team.api_token.encode("UTF-8")
             ]
-            assert self.redis_client.zrange(f"{QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY}recordings", 0, -1) == []
-            assert self.redis_client.zrange(f"{QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY}rows_synced", 0, -1) == []
+            assert self.redis_client.zrange(f"@posthog/quota-limits/recordings", 0, -1) == []
+            assert self.redis_client.zrange(f"@posthog/quota-limits/rows_synced", 0, -1) == []
 
         # Increase trust score. Their quota limiting suspension expiration should not update.
         with freeze_time("2021-01-25T00:00:00Z"):
-            assert self.redis_client.delete(f"{QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY}events")
+            assert self.redis_client.delete(f"@posthog/quota-limits/events")
 
             self.organization.customer_trust_scores = {"events": 10, "recordings": 0, "rows_synced": 0}
             self.organization.usage = {
@@ -347,13 +345,13 @@ class TestQuotaLimiting(BaseTest):
             assert quota_limiting_suspended_orgs["events"] == {org_id: 1611705600}
             assert quota_limiting_suspended_orgs["recordings"] == {}
             assert quota_limiting_suspended_orgs["rows_synced"] == {}
-            assert self.redis_client.zrange(f"{QuotaLimitingCaches.QUOTA_LIMITING_SUSPENDED_KEY}events", 0, -1) == [
+            assert self.redis_client.zrange(f"@posthog/quota-limiting-suspended/events", 0, -1) == [
                 self.team.api_token.encode("UTF-8")
             ]
 
-            assert self.redis_client.zrange(f"{QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY}events", 0, -1) == []
-            assert self.redis_client.zrange(f"{QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY}recordings", 0, -1) == []
-            assert self.redis_client.zrange(f"{QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY}rows_synced", 0, -1) == []
+            assert self.redis_client.zrange(f"@posthog/quota-limits/events", 0, -1) == []
+            assert self.redis_client.zrange(f"@posthog/quota-limits/recordings", 0, -1) == []
+            assert self.redis_client.zrange(f"@posthog/quota-limits/rows_synced", 0, -1) == []
 
             # Reset, quota limiting should be suspended for 3 days.
             self.organization.customer_trust_scores = {"events": 10, "recordings": 0, "rows_synced": 0}
@@ -371,13 +369,13 @@ class TestQuotaLimiting(BaseTest):
             assert quota_limiting_suspended_orgs["events"] == {org_id: 1611878400}
             assert quota_limiting_suspended_orgs["recordings"] == {}
             assert quota_limiting_suspended_orgs["rows_synced"] == {}
-            assert self.redis_client.zrange(f"{QuotaLimitingCaches.QUOTA_LIMITING_SUSPENDED_KEY}events", 0, -1) == [
+            assert self.redis_client.zrange(f"@posthog/quota-limiting-suspended/events", 0, -1) == [
                 self.team.api_token.encode("UTF-8")
             ]
 
-            assert self.redis_client.zrange(f"{QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY}events", 0, -1) == []
-            assert self.redis_client.zrange(f"{QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY}recordings", 0, -1) == []
-            assert self.redis_client.zrange(f"{QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY}rows_synced", 0, -1) == []
+            assert self.redis_client.zrange(f"@posthog/quota-limits/events", 0, -1) == []
+            assert self.redis_client.zrange(f"@posthog/quota-limits/recordings", 0, -1) == []
+            assert self.redis_client.zrange(f"@posthog/quota-limits/rows_synced", 0, -1) == []
 
             # Decrease the trust score to 0. Quota limiting should immediately take effect.
             self.organization.customer_trust_scores = {"events": 0, "recordings": 0, "rows_synced": 0}
@@ -395,16 +393,16 @@ class TestQuotaLimiting(BaseTest):
             assert quota_limiting_suspended_orgs["events"] == {}
             assert quota_limiting_suspended_orgs["recordings"] == {}
             assert quota_limiting_suspended_orgs["rows_synced"] == {}
-            assert self.redis_client.zrange(f"{QuotaLimitingCaches.QUOTA_LIMITING_SUSPENDED_KEY}events", 0, -1) == []
+            assert self.redis_client.zrange(f"@posthog/quota-limiting-suspended/events", 0, -1) == []
 
-            assert self.redis_client.zrange(f"{QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY}events", 0, -1) == [
+            assert self.redis_client.zrange(f"@posthog/quota-limits/events", 0, -1) == [
                 self.team.api_token.encode("UTF-8")
             ]
-            assert self.redis_client.zrange(f"{QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY}recordings", 0, -1) == []
-            assert self.redis_client.zrange(f"{QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY}rows_synced", 0, -1) == []
+            assert self.redis_client.zrange(f"@posthog/quota-limits/recordings", 0, -1) == []
+            assert self.redis_client.zrange(f"@posthog/quota-limits/rows_synced", 0, -1) == []
 
         with freeze_time("2021-01-28T00:00:00Z"):
-            self.redis_client.delete(f"{QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY}events")
+            self.redis_client.delete(f"@posthog/quota-limits/events")
 
             # Quota limiting suspension date set in previous billing period, update to new suspension expiration
             self.organization.customer_trust_scores = {"events": 10, "recordings": 0, "rows_synced": 0}
@@ -423,13 +421,13 @@ class TestQuotaLimiting(BaseTest):
             assert quota_limiting_suspended_orgs["events"] == {org_id: 1612137600}
             assert quota_limiting_suspended_orgs["recordings"] == {}
             assert quota_limiting_suspended_orgs["rows_synced"] == {}
-            assert self.redis_client.zrange(f"{QuotaLimitingCaches.QUOTA_LIMITING_SUSPENDED_KEY}events", 0, -1) == [
+            assert self.redis_client.zrange(f"@posthog/quota-limiting-suspended/events", 0, -1) == [
                 self.team.api_token.encode("UTF-8")
             ]
 
-            assert self.redis_client.zrange(f"{QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY}events", 0, -1) == []
-            assert self.redis_client.zrange(f"{QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY}recordings", 0, -1) == []
-            assert self.redis_client.zrange(f"{QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY}rows_synced", 0, -1) == []
+            assert self.redis_client.zrange(f"@posthog/quota-limits/events", 0, -1) == []
+            assert self.redis_client.zrange(f"@posthog/quota-limits/recordings", 0, -1) == []
+            assert self.redis_client.zrange(f"@posthog/quota-limits/rows_synced", 0, -1) == []
 
     def test_set_org_usage_summary_updates_correctly(self):
         self.organization.usage = {
@@ -621,6 +619,17 @@ class TestQuotaLimiting(BaseTest):
                 "quota_limiting_suspended_until": None,
             }
 
+        self.organization.customer_trust_scores = {"events": 7, "rows_synced": 10}
+        self.organization.save()
+        assert org_quota_limited_until(
+            self.organization, QuotaResource.RECORDINGS, previously_quota_limited_team_tokens_rows_synced
+        ) == {
+            "quota_limited_until": 1612137599,
+            "quota_limiting_suspended_until": None,
+        }
+        self.organization.refresh_from_db()
+        assert self.organization.customer_trust_scores == {"events": 7, "recordings": 0, "rows_synced": 10}
+
     def test_over_quota_but_not_dropped_org(self):
         self.organization.usage = None
         previously_quota_limited_team_tokens_events = list_limited_team_attributes(
@@ -706,7 +715,7 @@ class TestQuotaLimiting(BaseTest):
             # rows_synced uses teams, not tokens
             assert sorted(
                 list_limited_team_attributes(QuotaResource.ROWS_SYNCED, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY)
-            ) == sorted(["1337", str(self.team.pk), str(other_team.pk)])
+            ) == sorted(["1337", str(self.team.api_token), str(other_team.api_token)])
 
             self.organization.usage["events"]["usage"] = 80
             self.organization.usage["rows_synced"]["usage"] = 36
@@ -739,7 +748,7 @@ class TestQuotaLimiting(BaseTest):
                 list_limited_team_attributes(
                     QuotaResource.ROWS_SYNCED, QuotaLimitingCaches.QUOTA_LIMITING_SUSPENDED_KEY
                 )
-            ) == sorted([str(self.team.pk), str(other_team.pk)])
+            ) == sorted([str(self.team.api_token), str(other_team.api_token)])
 
             self.organization.usage["events"]["usage"] = 80
             self.organization.usage["rows_synced"]["usage"] = 36

@@ -1,7 +1,9 @@
 import { router } from 'kea-router'
 import api from 'lib/api'
-import { convertPropertyGroupToProperties } from 'lib/components/PropertyFilters/utils'
+import { convertPropertyGroupToProperties, isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { UniversalFilterValue } from 'lib/components/UniversalFilters/UniversalFilters'
+import { isActionFilter, isEventFilter } from 'lib/components/UniversalFilters/utils'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { getCoreFilterDefinition } from 'lib/taxonomy'
 import { genericOperatorMap } from 'lib/utils'
@@ -10,11 +12,11 @@ import { openBillingPopupModal } from 'scenes/billing/BillingPopup'
 import { toLocalFilters } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { getDisplayNameFromEntityFilter } from 'scenes/insights/utils'
 import { DEFAULT_RECORDING_FILTERS } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
-import { PLAYLIST_LIMIT_REACHED_MESSAGE } from 'scenes/session-recordings/sessionRecordingsLogic'
+import { PLAYLIST_LIMIT_REACHED_MESSAGE } from 'scenes/session-recordings/sessionReplaySceneLogic'
 import { urls } from 'scenes/urls'
 
 import { cohortsModelType } from '~/models/cohortsModelType'
-import { PropertyOperator, RecordingFilters, SessionRecordingPlaylistType } from '~/types'
+import { PropertyOperator, SessionRecordingPlaylistType } from '~/types'
 
 function getOperatorSymbol(operator: PropertyOperator | null): string {
     if (!operator) {
@@ -27,11 +29,15 @@ function getOperatorSymbol(operator: PropertyOperator | null): string {
 }
 
 export function summarizePlaylistFilters(
-    filters: Partial<RecordingFilters>,
+    filters: UniversalFilterValue[],
     cohortsById: cohortsModelType['values']['cohortsById']
 ): string | null {
+    const eventFilters = filters.filter(isEventFilter)
+    const actionFilters = filters.filter(isActionFilter)
+    const propertyFilters = filters.filter(isValidPropertyFilter)
+
     let summary: string
-    const localFilters = toLocalFilters(filters)
+    const localFilters = toLocalFilters({ events: eventFilters, actions: actionFilters })
 
     summary = localFilters
         .map((localFilter) => {
@@ -39,7 +45,7 @@ export function summarizePlaylistFilters(
         })
         .join(' & ')
 
-    const properties = convertPropertyGroupToProperties(filters.properties)
+    const properties = convertPropertyGroupToProperties(propertyFilters)
     if (properties && (properties.length ?? 0) > 0) {
         const propertiesSummary = properties
             .map((property) => {

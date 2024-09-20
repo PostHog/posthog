@@ -10,7 +10,6 @@ from collections.abc import Sequence
 import sqlparse
 from clickhouse_driver import Client as SyncClient
 from django.conf import settings as app_settings
-from statshog.defaults.django import statsd
 
 from posthog.clickhouse.client.connection import Workload, get_pool
 from posthog.clickhouse.client.escape import substitute_params
@@ -18,6 +17,20 @@ from posthog.clickhouse.query_tagging import get_query_tag_value, get_query_tags
 from posthog.errors import wrap_query_error
 from posthog.settings import TEST
 from posthog.utils import generate_short_id, patchable
+from prometheus_client import Counter, Gauge
+from sentry_sdk import set_tag
+
+QUERY_ERROR_COUNTER = Counter(
+    "clickhouse_query_failure",
+    "Query execution failure signal is dispatched when a query fails.",
+    labelnames=["exception_type", "query_type"],
+)
+
+QUERY_EXECUTION_TIME_GAUGE = Gauge(
+    "clickhouse_query_execution_time",
+    "Clickhouse query execution time",
+    labelnames=["query_type"],
+)
 
 InsertParams = Union[list, tuple, types.GeneratorType]
 NonInsertParams = dict[str, Any]
@@ -41,9 +54,15 @@ is_invalid_algorithm = lambda algo: algo not in CLICKHOUSE_SUPPORTED_JOIN_ALGORI
 
 @lru_cache(maxsize=1)
 def default_settings() -> dict:
+    # https://clickhouse.com/blog/clickhouse-fully-supports-joins-how-to-choose-the-right-algorithm-part5
+    # We default to three memory bound join operations, in decreasing order of speed
+    # The merge algorithms are not memory bound, and can be selectively used in places where it makes sense
     return {
-        "join_algorithm": "direct,parallel_hash",
+        "join_algorithm": "direct,parallel_hash,hash",
         "distributed_replica_max_ignored_errors": 1000,
+        # max_query_size can't be set in a query, because it determines the size of the buffer used to parse the query
+        # https://clickhouse.com/docs/en/operations/settings/settings#max_query_size
+        "max_query_size": 1048576,
     }
 
 
@@ -88,6 +107,19 @@ def sync_execute(
         except ModuleNotFoundError:  # when we run plugin server tests it tries to run above, ignore
             pass
 
+    if workload == Workload.DEFAULT and (
+        # When someone uses an API key, always put their query to the offline cluster
+        get_query_tag_value("access_method") == "personal_api_key"
+        or
+        # Execute all celery tasks not directly set to be online on the offline cluster
+        get_query_tag_value("kind") == "celery"
+    ):
+        workload = Workload.OFFLINE
+
+    # Make sure we always have process_query_task on the online cluster
+    if get_query_tag_value("id") == "posthog.tasks.tasks.process_query_task":
+        workload = Workload.ONLINE
+
     with get_pool(workload, team_id, readonly).get_client() as client:
         start_time = perf_counter()
 
@@ -95,10 +127,17 @@ def sync_execute(
         query_id = validated_client_query_id()
         core_settings = {**default_settings(), **(settings or {})}
         tags["query_settings"] = core_settings
+
+        query_type = tags.get("query_type", "Other")
+        set_tag("query_type", query_type)
+        if team_id is not None:
+            set_tag("team_id", team_id)
+
         settings = {
             **core_settings,
             "log_comment": json.dumps(tags, separators=(",", ":")),
         }
+
         try:
             result = client.execute(
                 prepared_sql,
@@ -107,18 +146,17 @@ def sync_execute(
                 with_column_types=with_column_types,
                 query_id=query_id,
             )
-        except Exception as err:
-            err = wrap_query_error(err)
-            statsd.incr(
-                "clickhouse_sync_execution_failure",
-                tags={"failed": True, "reason": type(err).__name__},
-            )
+        except Exception as e:
+            err = wrap_query_error(e)
+            exception_type = type(err).__name__
+            set_tag("clickhouse_exception_type", exception_type)
+            QUERY_ERROR_COUNTER.labels(exception_type=exception_type, query_type=query_type).inc()
 
-            raise err
+            raise err from e
         finally:
             execution_time = perf_counter() - start_time
 
-            statsd.timing("clickhouse_sync_execution_time", execution_time * 1000.0)
+            QUERY_EXECUTION_TIME_GAUGE.labels(query_type=query_type).set(execution_time * 1000.0)
 
             if query_counter := getattr(thread_local_storage, "query_counter", None):
                 query_counter.total_query_time += execution_time

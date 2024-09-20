@@ -56,7 +56,7 @@ function MoreMenu(): JSX.Element {
                     hedgehogMode
                         ? {
                               icon: <IconFlare />,
-                              label: 'Hedgehog accessories',
+                              label: 'Hedgehog options',
                               onClick: () => {
                                   setVisibleMenu('hedgehog')
                               },
@@ -143,8 +143,8 @@ export function ToolbarInfoMenu(): JSX.Element | null {
 
 export function Toolbar(): JSX.Element | null {
     const ref = useRef<HTMLDivElement | null>(null)
-    const { minimized, dragPosition, isDragging, hedgehogMode, isEmbeddedInApp } = useValues(toolbarLogic)
-    const { setVisibleMenu, toggleMinimized, onMouseDown, setElement, setIsBlurred } = useActions(toolbarLogic)
+    const { minimized, position, isDragging, hedgehogMode, isEmbeddedInApp } = useValues(toolbarLogic)
+    const { setVisibleMenu, toggleMinimized, onMouseOrTouchDown, setElement, setIsBlurred } = useActions(toolbarLogic)
     const { isAuthenticated, userIntent } = useValues(toolbarConfigLogic)
     const { authenticate } = useActions(toolbarConfigLogic)
 
@@ -184,13 +184,14 @@ export function Toolbar(): JSX.Element | null {
                     hedgehogMode && 'Toolbar--hedgehog-mode',
                     isDragging && 'Toolbar--dragging'
                 )}
-                onMouseDown={(e) => onMouseDown(e as any)}
+                onMouseDown={(e) => onMouseOrTouchDown(e.nativeEvent)}
+                onTouchStart={(e) => onMouseOrTouchDown(e.nativeEvent)}
                 onMouseOver={() => setIsBlurred(false)}
                 // eslint-disable-next-line react/forbid-dom-props
                 style={
                     {
-                        '--toolbar-button-x': `${dragPosition.x}px`,
-                        '--toolbar-button-y': `${dragPosition.y}px`,
+                        '--toolbar-button-x': `${position.x}px`,
+                        '--toolbar-button-y': `${position.y}px`,
                     } as any
                 }
             >

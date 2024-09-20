@@ -14,10 +14,10 @@ describe('a11y', () => {
         'replay',
         'featureflags',
         'experiments',
-        'events',
+        'activity',
         'datamanagement',
         'personsmanagement',
-        'apps',
+        'pipeline',
         'toolbarlaunch',
         'settings',
     ]

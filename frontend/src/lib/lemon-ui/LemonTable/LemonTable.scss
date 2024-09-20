@@ -96,7 +96,7 @@
     }
 
     a.Link {
-        color: var(--default);
+        color: var(--text-3000);
 
         &:not(:disabled):hover {
             color: var(--primary-3000-hover);
@@ -146,7 +146,7 @@
 
             &.LemonTable__expansion {
                 position: relative;
-                background: var(--side);
+                background: var(--bg-3000);
 
                 > td {
                     // Disable padding inside the expansion for better tailored placement of contents
@@ -156,17 +156,17 @@
 
             &.LemonTable__row--status-highlighted {
                 font-weight: 600;
-                color: var(--default);
+                color: var(--text-3000);
 
                 > td:not(.LemonTable__cell--sticky) {
-                    background: var(--primary-bg-hover);
+                    background: var(--primary-highlight);
                 }
             }
 
             > td {
                 padding-top: 0.3125rem;
                 padding-bottom: 0.3125rem;
-                color: var(--text-secondary);
+                color: var(--text-secondary-3000);
 
                 // Make spacing of buttons tighter in tables by adding negative vertical margin
                 .LemonButton {
@@ -253,7 +253,7 @@
     cursor: default;
 
     .LemonTable__header-content {
-        color: var(--text-secondary);
+        color: var(--text-secondary-3000);
     }
 
     &.LemonTable__header--actionable {
@@ -262,14 +262,14 @@
         &:hover {
             &:not(:has(.LemonTable__header--no-hover:hover)) {
                 .LemonTable__header-content {
-                    color: var(--default);
+                    color: var(--text-3000);
                 }
             }
         }
 
         &:active {
             .LemonTable__header-content {
-                color: var(--default);
+                color: var(--text-3000);
             }
         }
     }
@@ -292,15 +292,15 @@
 }
 
 // NOTE: this is outside of the storybook check for 3000 selective styling
-.LemonTable__cell--sticky::before {
+.LemonTable__cell--sticky {
     background: var(--lemon-table-background-color);
 
-    .InsightViz & {
-        background: var(--bg-light);
+    .LemonTable__row--status-highlighted &::before {
+        background: var(--primary-highlight);
     }
 }
 
-.LemonTable__header--sticky::before {
+.LemonTable__header--sticky {
     background: var(--lemon-table-background-color);
 }
 
@@ -316,20 +316,13 @@ body:not(.storybook-test-runner) {
         // Replicate .scrollable style for sticky cells
         &::before {
             position: absolute;
-            top: 0;
-            bottom: 1px; // Leave room for box shadow border
-            left: 0;
+            inset: 0;
             z-index: -1; // Place below cell content
-            width: 100%;
             clip-path: inset(0 -16px 0 0);
             content: '';
             box-shadow: -16px 0 16px 16px transparent;
             transition: box-shadow 200ms ease;
         }
-    }
-
-    tr.LemonTable__row--status-highlighted .LemonTable__cell--sticky::before {
-        background: var(--primary-bg-hover);
     }
 
     .ScrollableShadows--left {

@@ -1,15 +1,21 @@
-import { IconWarning } from '@posthog/icons'
-import { LemonButton, LemonModal, LemonModalProps, LemonSelect, LemonTextArea, Link } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonCalendarSelectInput,
+    LemonModal,
+    LemonModalProps,
+    LemonSelect,
+    LemonTextArea,
+    Link,
+} from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { DatePicker } from 'lib/components/DatePicker'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { shortTimeZone } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
 import { AnnotationScope } from '~/types'
 
-import { ANNOTATION_DAYJS_FORMAT, annotationModalLogic, annotationScopeToName } from './annotationModalLogic'
+import { annotationModalLogic, annotationScopeToName } from './annotationModalLogic'
 
 export function NewAnnotationButton(): JSX.Element {
     const { openModalToCreateAnnotation } = useActions(annotationModalLogic)
@@ -24,11 +30,15 @@ export function AnnotationModal({
     overlayRef,
     contentRef,
 }: Pick<LemonModalProps, 'overlayRef' | 'contentRef'>): JSX.Element {
-    const { isModalOpen, existingModalAnnotation, isAnnotationModalSubmitting, onSavedInsight, timezone } =
-        useValues(annotationModalLogic)
+    const {
+        isModalOpen,
+        existingModalAnnotation,
+        annotationModal,
+        isAnnotationModalSubmitting,
+        onSavedInsight,
+        timezone,
+    } = useValues(annotationModalLogic)
     const { closeModal, deleteAnnotation, submitAnnotationModal } = useActions(annotationModalLogic)
-
-    const isInsightScoped = existingModalAnnotation?.scope === AnnotationScope.Insight
 
     return (
         <LemonModal
@@ -94,40 +104,66 @@ export function AnnotationModal({
                         }
                         className="flex-1"
                     >
-                        <DatePicker
-                            className="h-10"
-                            allowClear={false}
-                            showTime
-                            showSecond={false}
-                            format={ANNOTATION_DAYJS_FORMAT}
-                        />
+                        <LemonCalendarSelectInput granularity="minute" />
                     </LemonField>
                     <LemonField name="scope" label="Scope" className="flex-1">
                         <LemonSelect
                             options={[
-                                ...(existingModalAnnotation?.scope === AnnotationScope.Insight || onSavedInsight
-                                    ? [
-                                          {
-                                              value: AnnotationScope.Insight,
-                                              label: annotationScopeToName[AnnotationScope.Insight],
-                                          },
-                                      ]
-                                    : []),
+                                {
+                                    value: AnnotationScope.Insight,
+                                    label: annotationScopeToName[AnnotationScope.Insight],
+                                    tooltip: existingModalAnnotation?.insight_name ? (
+                                        existingModalAnnotation.insight_name
+                                    ) : existingModalAnnotation?.insight_derived_name ? (
+                                        <i>{existingModalAnnotation.insight_derived_name}</i>
+                                    ) : undefined,
+                                    disabledReason:
+                                        (!onSavedInsight && 'You need to save the insight first.') ||
+                                        // if existing annotation data in db (for backwards compatibility) doesn't have insight id set on it
+                                        // we can't let them change scope to insight as we don't know which insight to map to
+                                        (existingModalAnnotation
+                                            ? !existingModalAnnotation?.dashboard_item &&
+                                              'To select this scope, open this annotation on the target insight'
+                                            : undefined),
+                                    sideIcon: existingModalAnnotation?.insight_short_id ? (
+                                        <Link
+                                            to={urls.insightView(existingModalAnnotation?.insight_short_id)}
+                                            target="_blank"
+                                            targetBlankIcon
+                                        />
+                                    ) : null,
+                                },
+                                {
+                                    value: AnnotationScope.Dashboard,
+                                    label: annotationScopeToName[AnnotationScope.Dashboard],
+                                    tooltip: existingModalAnnotation?.dashboard_name,
+                                    disabledReason:
+                                        (!annotationModal.dashboardId &&
+                                            'To select this scope, open this annotation on the target dashboard') ||
+                                        (existingModalAnnotation?.scope === AnnotationScope.Dashboard &&
+                                            'Already scoped to dashboard') ||
+                                        (existingModalAnnotation && existingModalAnnotation?.dashboard_name
+                                            ? annotationModal.dashboardId != existingModalAnnotation.dashboard_id &&
+                                              `To select this scope, open this annotation on the ${existingModalAnnotation?.dashboard_name} dashboard`
+                                            : undefined),
+                                    sideIcon:
+                                        existingModalAnnotation?.dashboard_id &&
+                                        existingModalAnnotation?.scope !== AnnotationScope.Dashboard &&
+                                        existingModalAnnotation.dashboard_id !== annotationModal.dashboardId ? (
+                                            <Link
+                                                to={urls.dashboard(existingModalAnnotation?.dashboard_id)}
+                                                target="_blank"
+                                                targetBlankIcon
+                                            />
+                                        ) : null,
+                                },
                                 {
                                     value: AnnotationScope.Project,
                                     label: annotationScopeToName[AnnotationScope.Project],
-                                    sideIcon: isInsightScoped ? <IconWarning /> : undefined,
-                                    tooltip: isInsightScoped
-                                        ? "After saving, it won't be possible to make the annotation insight-scoped again."
-                                        : undefined,
                                 },
                                 {
                                     value: AnnotationScope.Organization,
                                     label: annotationScopeToName[AnnotationScope.Organization],
-                                    sideIcon: isInsightScoped ? <IconWarning /> : undefined,
-                                    tooltip: isInsightScoped
-                                        ? "After saving, it won't be possible to make the annotation insight-scoped again."
-                                        : undefined,
                                 },
                             ]}
                             fullWidth

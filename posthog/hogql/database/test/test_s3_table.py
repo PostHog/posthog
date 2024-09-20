@@ -1,11 +1,14 @@
+from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database
+from posthog.hogql.database.s3_table import build_function_call
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast
 from posthog.hogql.query import create_default_modifiers_for_team
 from posthog.test.base import BaseTest
 from posthog.hogql.database.test.tables import create_aapl_stock_s3_table
 from posthog.hogql.errors import ExposedHogQLError
+from posthog.warehouse.models.table import DataWarehouseTable
 
 
 class TestS3Table(BaseTest):
@@ -72,7 +75,7 @@ class TestS3Table(BaseTest):
 
         self.assertEqual(
             clickhouse,
-            "SELECT aapl_stock.High AS High, aapl_stock.Low AS Low FROM (SELECT * FROM s3(%(hogql_val_0_sensitive)s, %(hogql_val_1)s)) AS aapl_stock JOIN (SELECT * FROM s3(%(hogql_val_3_sensitive)s, %(hogql_val_4)s)) AS aapl_stock_2 ON equals(aapl_stock.High, aapl_stock_2.High) LIMIT 10",
+            "SELECT aapl_stock.High AS High, aapl_stock.Low AS Low FROM (SELECT * FROM s3(%(hogql_val_0_sensitive)s, %(hogql_val_1)s)) AS aapl_stock JOIN (SELECT * FROM s3(%(hogql_val_2_sensitive)s, %(hogql_val_3)s)) AS aapl_stock_2 ON equals(aapl_stock.High, aapl_stock_2.High) LIMIT 10",
         )
 
     def test_s3_table_select_join_with_alias(self):
@@ -95,7 +98,7 @@ class TestS3Table(BaseTest):
         # Alias will completely override table name to prevent ambiguous table names that can be shared if the same table is joinedfrom multiple times
         self.assertEqual(
             clickhouse,
-            "SELECT a.High AS High, a.Low AS Low FROM (SELECT * FROM s3(%(hogql_val_0_sensitive)s, %(hogql_val_1)s)) AS a JOIN (SELECT * FROM s3(%(hogql_val_3_sensitive)s, %(hogql_val_4)s)) AS b ON equals(a.High, b.High) LIMIT 10",
+            "SELECT a.High AS High, a.Low AS Low FROM (SELECT * FROM s3(%(hogql_val_0_sensitive)s, %(hogql_val_1)s)) AS a JOIN (SELECT * FROM s3(%(hogql_val_2_sensitive)s, %(hogql_val_3)s)) AS b ON equals(a.High, b.High) LIMIT 10",
         )
 
     def test_s3_table_select_and_non_s3_join(self):
@@ -189,7 +192,7 @@ class TestS3Table(BaseTest):
         )
         self.assertEqual(
             hogql,
-            "SELECT uuid, event FROM events WHERE globalIn(event, (SELECT Date FROM aapl_stock)) LIMIT 10000",
+            f"SELECT uuid, event FROM events WHERE globalIn(event, (SELECT Date FROM aapl_stock)) LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
 
         clickhouse = self._select(
@@ -199,5 +202,95 @@ class TestS3Table(BaseTest):
 
         self.assertEqual(
             clickhouse,
-            f"SELECT events.uuid AS uuid, events.event AS event FROM events WHERE and(equals(events.team_id, {self.team.pk}), ifNull(globalIn(events.event, (SELECT aapl_stock.Date AS Date FROM s3(%(hogql_val_0_sensitive)s, %(hogql_val_1)s) AS aapl_stock)), 0)) LIMIT 10000",
+            f"SELECT events.uuid AS uuid, events.event AS event FROM events WHERE and(equals(events.team_id, {self.team.pk}), ifNull(globalIn(events.event, (SELECT aapl_stock.Date AS Date FROM s3(%(hogql_val_0_sensitive)s, %(hogql_val_1)s) AS aapl_stock)), 0)) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+        )
+
+    def test_s3_build_function_call_without_context(self):
+        res = build_function_call("http://url.com", DataWarehouseTable.TableFormat.Parquet, "key", "secret", None, None)
+        assert res == "s3('http://url.com', 'key', 'secret', 'Parquet')"
+
+    def test_s3_build_function_call_without_context_with_structure(self):
+        res = build_function_call(
+            "http://url.com", DataWarehouseTable.TableFormat.Parquet, "key", "secret", "some structure", None
+        )
+        assert res == "s3('http://url.com', 'key', 'secret', 'Parquet', 'some structure')"
+
+    def test_s3_build_function_call_without_context_and_delta_format(self):
+        res = build_function_call("http://url.com", DataWarehouseTable.TableFormat.Delta, "key", "secret", None, None)
+        assert res == "deltaLake('http://url.com', 'key', 'secret')"
+
+    def test_s3_build_function_call_without_context_and_deltaS3Wrapper_format(self):
+        res = build_function_call(
+            "http://url.com/folder", DataWarehouseTable.TableFormat.DeltaS3Wrapper, "key", "secret", None, None
+        )
+        assert res == "s3('http://url.com/folder__query/*.parquet', 'key', 'secret', 'Parquet')"
+
+    def test_s3_build_function_call_without_context_and_deltaS3Wrapper_format_with_slash(self):
+        res = build_function_call(
+            "http://url.com/folder/", DataWarehouseTable.TableFormat.DeltaS3Wrapper, "key", "secret", None, None
+        )
+        assert res == "s3('http://url.com/folder__query/*.parquet', 'key', 'secret', 'Parquet')"
+
+    def test_s3_build_function_call_without_context_and_deltaS3Wrapper_format_with_structure(self):
+        res = build_function_call(
+            "http://url.com/folder",
+            DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+            "key",
+            "secret",
+            "some structure",
+            None,
+        )
+        assert res == "s3('http://url.com/folder__query/*.parquet', 'key', 'secret', 'Parquet', 'some structure')"
+
+    def test_s3_build_function_call_without_context_and_delta_format_and_with_structure(self):
+        res = build_function_call(
+            "http://url.com", DataWarehouseTable.TableFormat.Delta, "key", "secret", "some structure", None
+        )
+        assert res == "deltaLake('http://url.com', 'key', 'secret', 'some structure')"
+
+    def test_s3_build_function_call_azure(self):
+        res = build_function_call(
+            "https://tomposthogtest.blob.core.windows.net/somecontainer/path/to/file.parquet",
+            DataWarehouseTable.TableFormat.Parquet,
+            "tomposthogtest",
+            "blah",
+            "some structure",
+            None,
+        )
+
+        assert (
+            res
+            == "azureBlobStorage('https://tomposthogtest.blob.core.windows.net', 'somecontainer', 'path/to/file.parquet', 'tomposthogtest', 'blah', 'Parquet', 'auto', 'some structure')"
+        )
+
+    def test_s3_build_function_call_azure_without_structure(self):
+        res = build_function_call(
+            "https://tomposthogtest.blob.core.windows.net/somecontainer/path/to/file.parquet",
+            DataWarehouseTable.TableFormat.Parquet,
+            "tomposthogtest",
+            "blah",
+            None,
+            None,
+        )
+
+        assert (
+            res
+            == "azureBlobStorage('https://tomposthogtest.blob.core.windows.net', 'somecontainer', 'path/to/file.parquet', 'tomposthogtest', 'blah', 'Parquet', 'auto')"
+        )
+
+    def test_s3_build_function_call_azure_with_context(self):
+        self._init_database()
+
+        res = build_function_call(
+            "https://tomposthogtest.blob.core.windows.net/somecontainer/path/to/file.parquet",
+            DataWarehouseTable.TableFormat.Parquet,
+            "tomposthogtest",
+            "blah",
+            None,
+            self.context,
+        )
+
+        assert (
+            res
+            == "azureBlobStorage(%(hogql_val_0_sensitive)s, %(hogql_val_1_sensitive)s, %(hogql_val_2_sensitive)s, %(hogql_val_3_sensitive)s, %(hogql_val_4_sensitive)s, %(hogql_val_5)s, 'auto')"
         )

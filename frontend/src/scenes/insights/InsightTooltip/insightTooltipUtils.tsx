@@ -1,9 +1,9 @@
 import { dayjs } from 'lib/dayjs'
 import { capitalizeFirstLetter, midEllipsis, pluralize } from 'lib/utils'
-import { isTrendsFilter } from 'scenes/insights/sharedUtils'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import { BreakdownFilter } from '~/queries/schema'
 import { ActionFilter, CompareLabelType, FilterType, IntervalType } from '~/types'
 
 import { formatBreakdownLabel } from '../utils'
@@ -12,7 +12,7 @@ export interface SeriesDatum {
     id: number // determines order that series will be displayed in
     dataIndex: number
     datasetIndex: number
-    breakdown_value?: string | number
+    breakdown_value?: string | number | string[]
     compare_label?: CompareLabelType
     action?: ActionFilter
     label?: string
@@ -55,7 +55,8 @@ export interface InsightTooltipProps extends Omit<TooltipConfig, 'renderSeries' 
     date?: string
     hideInspectActorsSection?: boolean
     seriesData: SeriesDatum[]
-    entitiesAsColumnsOverride?: boolean
+    formula?: boolean
+    breakdownFilter?: BreakdownFilter | undefined | null
     groupTypeLabel?: string
     timezone?: string | null
 }
@@ -79,26 +80,30 @@ export function getTooltipTitle(
 }
 
 export const INTERVAL_UNIT_TO_DAYJS_FORMAT: Record<IntervalType, string> = {
+    minute: 'DD MMM YYYY HH:mm:00',
     hour: 'DD MMM YYYY HH:00',
     day: 'DD MMM YYYY',
     week: 'DD MMM YYYY',
     month: 'MMMM YYYY',
 }
 
-export function getFormattedDate(dayInput?: string | number, interval: IntervalType = 'day'): string {
-    // Number of days
-    if (Number.isInteger(dayInput)) {
-        return pluralize(dayInput as number, 'day')
+export function getFormattedDate(input?: string | number, interval: IntervalType = 'day'): string {
+    // Number of intervals (i.e. days, weeks)
+    if (Number.isInteger(input)) {
+        return pluralize(input as number, interval)
     }
-    const day = dayjs(dayInput)
+    const day = dayjs(input)
     // Dayjs formatted day
-    if (dayInput !== undefined && day.isValid()) {
+    if (input !== undefined && day.isValid()) {
         return day.format(INTERVAL_UNIT_TO_DAYJS_FORMAT[interval])
     }
-    return String(dayInput)
+    return String(input)
 }
 
-export function invertDataSource(seriesData: SeriesDatum[]): InvertedSeriesDatum[] {
+export function invertDataSource(
+    seriesData: SeriesDatum[],
+    breakdownFilter: BreakdownFilter | null | undefined
+): InvertedSeriesDatum[] {
     // NOTE: Assuming these logics are mounted elsewhere, and we're not interested in tracking changes.
     const cohorts = cohortsModel.findMounted()?.values?.cohorts
     const formatPropertyValueForDisplay = propertyDefinitionsModel.findMounted()?.values?.formatPropertyValueForDisplay
@@ -108,14 +113,7 @@ export function invertDataSource(seriesData: SeriesDatum[]): InvertedSeriesDatum
         const pillValues = []
         if (s.breakdown_value !== undefined) {
             pillValues.push(
-                formatBreakdownLabel(
-                    cohorts,
-                    formatPropertyValueForDisplay,
-                    s.breakdown_value,
-                    s.filter?.breakdown,
-                    s.filter?.breakdown_type,
-                    s.filter && isTrendsFilter(s.filter) && s.filter?.breakdown_histogram_bin_count !== undefined
-                )
+                formatBreakdownLabel(s.breakdown_value, breakdownFilter, cohorts, formatPropertyValueForDisplay)
             )
         }
         if (s.compare_label) {
@@ -124,8 +122,11 @@ export function invertDataSource(seriesData: SeriesDatum[]): InvertedSeriesDatum
         if (pillValues.length > 0) {
             datumTitle = (
                 <>
-                    {pillValues.map((pill) => (
-                        <span key={pill}>{midEllipsis(pill, 60)}</span>
+                    {pillValues.map((pill, index) => (
+                        <>
+                            <span key={pill}>{midEllipsis(pill, 60)}</span>
+                            {index < pillValues.length - 1 && ' '}
+                        </>
                     ))}
                 </>
             )

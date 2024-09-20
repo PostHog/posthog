@@ -2,8 +2,8 @@ import { IconPencil } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonModal, LemonTabs, Link, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Field, Form } from 'kea-forms'
-import { CodeEditor } from 'lib/components/CodeEditors'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { CodeEditor } from 'lib/monaco/CodeEditor'
 
 import { PluginInstallationType } from '~/types'
 

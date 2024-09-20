@@ -22,10 +22,6 @@
         padding-bottom: 1rem;
         margin-top: 0.5rem;
 
-        .ant-form-horizontal {
-            min-height: 32px;
-        }
-
         .border-top {
             border-top-left-radius: 4px;
             border-top-right-radius: 4px;
@@ -75,14 +71,6 @@
         margin-bottom: 1rem;
         border-top: 1px solid var(--border);
     }
-
-    .ant-input-number-disabled {
-        color: black;
-    }
-
-    .ant-input[disabled] {
-        color: black;
-    }
 }
 
 .view-experiment {
@@ -97,12 +85,6 @@
 
     .participants {
         background-color: white;
-
-        .ant-collapse-header {
-            padding-top: 0.5rem;
-            padding-bottom: 0.5rem;
-            padding-left: 0.75rem;
-        }
     }
 
     .variants-list {
@@ -121,11 +103,6 @@
 
     .experiment-result {
         padding-top: 1rem;
-    }
-
-    .ant-collapse-content-box {
-        display: flex;
-        flex-flow: column;
     }
 
     .secondary-progress {
@@ -147,7 +124,7 @@
         min-height: 320px;
         margin-top: 1rem;
         font-size: 24px;
-        background-color: var(--side);
+        background-color: var(--bg-3000);
         border: 1px solid var(--border);
     }
 
@@ -181,10 +158,4 @@
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.5px;
-}
-
-.experiment-view {
-    .InsightViz .LemonTable__cell--sticky::before {
-        background: var(--bg-table);
-    }
 }

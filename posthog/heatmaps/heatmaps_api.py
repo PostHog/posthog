@@ -86,6 +86,31 @@ class HeatmapsRequestSerializer(serializers.Serializer):
     def validate_date_to(self, value) -> date:
         return self.validate_date(value, "date_to")
 
+    def validate_url_pattern(self, value: str | None) -> str | None:
+        if value is None:
+            return None
+
+        validated_value = value
+
+        # we insist on the pattern being anchored
+        if not value.startswith("^"):
+            validated_value = f"^{value}"
+        if not value.endswith("$"):
+            validated_value = f"{validated_value}$"
+
+        # KLUDGE: we allow API callers to send something that isn't really `re2` syntax used in match()
+        # KLUDGE: so if it has * but not .* then we expect at least one character to match, so we use .+ instead
+        # KLUDGE: this means we don't support valid regex since we can't support matching aaaaa with a*
+        # KLUDGE: but you could send a+ and it would match aaaaa
+        validated_value = "".join(
+            [
+                f".+" if c == "*" and i > 0 and validated_value[i - 1] != "." else c
+                for i, c in enumerate(validated_value)
+            ]
+        )
+
+        return validated_value
+
     def validate(self, values) -> dict:
         url_exact = values.get("url_exact", None)
         url_pattern = values.get("url_pattern", None)
@@ -215,4 +240,4 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
 
 class LegacyHeatmapViewSet(HeatmapViewSet):
-    derive_current_team_from_user_only = True
+    param_derived_from_user_current_team = "team_id"

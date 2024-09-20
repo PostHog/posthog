@@ -6,7 +6,6 @@ import datetime as dt
 import gzip
 import hashlib
 import json
-from operator import itemgetter
 import os
 import re
 import secrets
@@ -14,18 +13,14 @@ import string
 import time
 import uuid
 import zlib
+from collections.abc import Generator, Mapping
 from enum import Enum
 from functools import lru_cache, wraps
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    Optional,
-    Union,
-    cast,
-)
-from collections.abc import Generator, Mapping
-from urllib.parse import urljoin, urlparse
+from operator import itemgetter
+from typing import TYPE_CHECKING, Any, Optional, Union, cast
+from urllib.parse import unquote, urljoin, urlparse
 from zoneinfo import ZoneInfo
+from rest_framework import serializers
 
 import lzstring
 import posthoganalytics
@@ -49,7 +44,10 @@ from sentry_sdk.api import capture_exception
 
 from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import AvailableFeature
-from posthog.exceptions import RequestParsingError
+from posthog.exceptions import (
+    RequestParsingError,
+    UnspecifiedCompressionFallbackParsingError,
+)
 from posthog.git import get_git_branch, get_git_commit_short
 from posthog.metrics import KLUDGES_COUNTER
 from posthog.redis import get_client
@@ -60,6 +58,7 @@ if TYPE_CHECKING:
     from posthog.models import Team, User
 
 DATERANGE_MAP = {
+    "second": datetime.timedelta(seconds=1),
     "minute": datetime.timedelta(minutes=1),
     "hour": datetime.timedelta(hours=1),
     "day": datetime.timedelta(days=1),
@@ -67,9 +66,9 @@ DATERANGE_MAP = {
     "month": datetime.timedelta(days=31),
 }
 ANONYMOUS_REGEX = r"^([a-z0-9]+\-){4}([a-z0-9]+)$"
+UUID_REGEX = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
 
 DEFAULT_DATE_FROM_DAYS = 7
-
 
 logger = structlog.get_logger(__name__)
 
@@ -80,6 +79,7 @@ __location__ = os.path.realpath(os.path.join(os.getcwd(), os.path.dirname(__file
 def format_label_date(date: datetime.datetime, interval: str = "default") -> str:
     date_formats = {
         "default": "%-d-%b-%Y",
+        "minute": "%-d-%b-%Y %H:%M",
         "hour": "%-d-%b-%Y %H:%M",
         "month": "%b %Y",
     }
@@ -195,14 +195,23 @@ def relative_date_parse_with_delta_mapping(
             parsed_dt = parsed_dt.astimezone(timezone_info)
         return parsed_dt, None, None
 
-    regex = r"\-?(?P<number>[0-9]+)?(?P<type>[a-z])(?P<position>Start|End)?"
+    regex = r"\-?(?P<number>[0-9]+)?(?P<type>[a-zA-Z])(?P<position>Start|End)?"
     match = re.search(regex, input)
     parsed_dt = (now or dt.datetime.now()).astimezone(timezone_info)
     delta_mapping: dict[str, int] = {}
     if not match:
         return parsed_dt, delta_mapping, None
-    if match.group("type") == "h":
-        delta_mapping["hours"] = int(match.group("number"))
+    elif match.group("type") == "h":
+        if match.group("number"):
+            delta_mapping["hours"] = int(match.group("number"))
+        if match.group("position") == "Start":
+            delta_mapping["minute"] = 0
+            delta_mapping["second"] = 0
+            delta_mapping["microsecond"] = 0
+        elif match.group("position") == "End":
+            delta_mapping["minute"] = 59
+            delta_mapping["second"] = 59
+            delta_mapping["microsecond"] = 999999
     elif match.group("type") == "d":
         if match.group("number"):
             delta_mapping["days"] = int(match.group("number"))
@@ -276,6 +285,8 @@ def render_template(
     *,
     team_for_public_context: Optional["Team"] = None,
 ) -> HttpResponse:
+    from posthog.geoip import get_geoip_properties
+
     """Render Django template.
 
     If team_for_public_context is provided, this means this is a public page such as a shared dashboard.
@@ -304,7 +315,7 @@ def render_template(
     if settings.E2E_TESTING:
         context["e2e_testing"] = True
         context["js_posthog_api_key"] = "'phc_ex7Mnvi4DqeB6xSQoXU1UVPzAmUIpiciRKQQXGGTYQO'"
-        context["js_posthog_host"] = "'https://internal-e.posthog.com'"
+        context["js_posthog_host"] = "'https://internal-t.posthog.com'"
         context["js_posthog_ui_host"] = "'https://us.posthog.com'"
 
     elif settings.SELF_CAPTURE:
@@ -315,7 +326,7 @@ def render_template(
             context["js_posthog_host"] = "window.location.origin"
     else:
         context["js_posthog_api_key"] = "'sTMFPsFhdP1Ssg'"
-        context["js_posthog_host"] = "'https://internal-e.posthog.com'"
+        context["js_posthog_host"] = "'https://internal-t.posthog.com'"
         context["js_posthog_ui_host"] = "'https://us.posthog.com'"
 
     context["js_capture_time_to_see_data"] = settings.CAPTURE_TIME_TO_SEE_DATA
@@ -333,6 +344,9 @@ def render_template(
         "year_in_hog_url": year_in_hog_url,
     }
 
+    geo_ip_country_code = get_geoip_properties(get_ip_address(request)).get("$geoip_country_code", None)
+    posthog_app_context["is_region_blocked"] = geo_ip_country_code in settings.BLOCKED_GEOIP_REGIONS
+
     posthog_bootstrap: dict[str, Any] = {}
     posthog_distinct_id: Optional[str] = None
 
@@ -340,6 +354,7 @@ def render_template(
     if not request.GET.get("no-preloaded-app-context"):
         from posthog.api.shared import TeamPublicSerializer
         from posthog.api.team import TeamSerializer
+        from posthog.api.project import ProjectSerializer
         from posthog.api.user import UserSerializer
         from posthog.user_permissions import UserPermissions
         from posthog.rbac.user_access_control import UserAccessControl
@@ -347,6 +362,7 @@ def render_template(
 
         posthog_app_context = {
             "current_user": None,
+            "current_project": None,
             "current_team": None,
             "preflight": json.loads(preflight_check(request).getvalue()),
             "default_event_name": "$pageview",
@@ -387,6 +403,12 @@ def render_template(
                     many=False,
                 )
                 posthog_app_context["current_team"] = team_serialized.data
+                project_serialized = ProjectSerializer(
+                    user.team.project,
+                    context={"request": request, "user_permissions": user_permissions},
+                    many=False,
+                )
+                posthog_app_context["current_project"] = project_serialized.data
                 posthog_app_context["frontend_apps"] = get_frontend_apps(user.team.pk)
                 posthog_app_context["default_event_name"] = get_default_event_name(user.team)
 
@@ -553,12 +575,13 @@ def get_compare_period_dates(
 ) -> tuple[datetime.datetime, datetime.datetime]:
     diff = date_to - date_from
     new_date_from = date_from - diff
+    new_date_to = date_from
     if interval == "hour":
         # Align previous period time range with that of the current period, so that results are comparable day-by-day
         # (since variations based on time of day are major)
         new_date_from = new_date_from.replace(hour=date_from.hour, minute=0, second=0, microsecond=0)
         new_date_to = (new_date_from + diff).replace(minute=59, second=59, microsecond=999999)
-    else:
+    elif interval != "minute":
         # Align previous period time range to day boundaries
         new_date_from = new_date_from.replace(hour=0, minute=0, second=0, microsecond=0)
         # Handle date_from = -7d, -14d etc. specially
@@ -599,19 +622,32 @@ def base64_decode(data):
     """
     Decodes base64 bytes into string taking into account necessary transformations to match client libraries.
     """
-    if not isinstance(data, str):
-        data = data.decode()
+    if isinstance(data, str):
+        data = data.encode("ascii")
 
-    data = base64.b64decode(data.replace(" ", "+") + "===")
+    # Check if the data is URL-encoded
+    if data.startswith(b"data="):
+        data = unquote(data.decode("ascii")).split("=", 1)[1]
+        data = data.encode("ascii")
+    else:
+        # If it's not starting with 'data=', it might be just URL-encoded,
+        data = unquote(data.decode("ascii")).encode("ascii")
 
-    return data.decode("utf8", "surrogatepass").encode("utf-16", "surrogatepass")
+    # Remove any whitespace and add padding if necessary
+    data = data.replace(b" ", b"")
+    missing_padding = len(data) % 4
+    if missing_padding:
+        data += b"=" * (4 - missing_padding)
+
+    decoded = base64.b64decode(data)
+    return decoded.decode("utf-8", "surrogatepass")
 
 
 def decompress(data: Any, compression: str):
     if not data:
         return None
 
-    if compression == "gzip" or compression == "gzip-js":
+    if compression in ("gzip", "gzip-js"):
         if data == b"undefined":
             raise RequestParsingError(
                 "data being loaded from the request body for decompression is the literal string 'undefined'"
@@ -635,32 +671,32 @@ def decompress(data: Any, compression: str):
 
         data = data.encode("utf-16", "surrogatepass").decode("utf-16")
 
-    base64_decoded = None
+    # Attempt base64 decoding after decompression
     try:
         base64_decoded = base64_decode(data)
-        KLUDGES_COUNTER.labels(kludge="base64_after_decompression_" + compression).inc()
+        KLUDGES_COUNTER.labels(kludge=f"base64_after_decompression_{compression}").inc()
+        data = base64_decoded
     except Exception:
         pass
 
-    if base64_decoded:
-        data = base64_decoded
-
     try:
-        # parse_constant gets called in case of NaN, Infinity etc
-        # default behaviour is to put those into the DB directly
-        # but we just want it to return None
+        # Use custom parse_constant to handle NaN, Infinity, etc.
         data = json.loads(data, parse_constant=lambda x: None)
     except (json.JSONDecodeError, UnicodeDecodeError) as error_main:
         if compression == "":
             try:
+                # Attempt gzip decompression as fallback for unspecified compression
                 fallback = decompress(data, "gzip")
                 KLUDGES_COUNTER.labels(kludge="unspecified_gzip_fallback").inc()
                 return fallback
-            except Exception as inner:
-                # re-trying with compression set didn't succeed, throw original error
-                raise RequestParsingError("Invalid JSON: {}".format(str(error_main))) from inner
+            except Exception:
+                # Increment a separate counter for JSON parsing failures after all decompression attempts
+                # We do this because we're no longer tracking these fallbacks in Sentry (since they're not actionable defects),
+                # but we still want to know how often they occur.
+                KLUDGES_COUNTER.labels(kludge="json_parse_failure_after_unspecified_gzip_fallback").inc()
+                raise UnspecifiedCompressionFallbackParsingError(f"Invalid JSON: {error_main}")
         else:
-            raise RequestParsingError("Invalid JSON: {}".format(str(error_main)))
+            raise RequestParsingError(f"Invalid JSON: {error_main}")
 
     # TODO: data can also be an array, function assumes it's either None or a dictionary.
     return data
@@ -1011,15 +1047,55 @@ def get_available_timezones_with_offsets() -> dict[str, float]:
     return result
 
 
-def refresh_requested_by_client(request: Request) -> bool:
-    return _request_has_key_set("refresh", request)
+def refresh_requested_by_client(request: Request) -> bool | str:
+    return _request_has_key_set(
+        "refresh",
+        request,
+        allowed_values=[
+            "async",
+            "blocking",
+            "force_async",
+            "force_blocking",
+            "force_cache",
+            "lazy_async",
+        ],
+    )
 
 
-def _request_has_key_set(key: str, request: Request) -> bool:
+def cache_requested_by_client(request: Request) -> bool | str:
+    return _request_has_key_set("use_cache", request)
+
+
+def filters_override_requested_by_client(request: Request) -> Optional[dict]:
+    raw_filters = request.query_params.get("filters_override")
+
+    if raw_filters is not None:
+        try:
+            return json.loads(raw_filters)
+        except Exception:
+            raise serializers.ValidationError({"filters_override": "Invalid JSON passed in filters_override parameter"})
+
+    return None
+
+
+def _request_has_key_set(key: str, request: Request, allowed_values: Optional[list[str]] = None) -> bool | str:
     query_param = request.query_params.get(key)
     data_value = request.data.get(key)
 
-    return (query_param is not None and (query_param == "" or query_param.lower() == "true")) or data_value is True
+    value = query_param if query_param is not None else data_value
+
+    if value is None:
+        return False
+    if isinstance(value, bool):
+        return value
+    if str(value).lower() in ["true", "1", "yes", ""]:  # "" means it's set but no value
+        return True
+    if str(value).lower() in ["false", "0", "no"]:
+        return False
+    if allowed_values and value in allowed_values:
+        assert isinstance(value, str)
+        return value
+    return False
 
 
 def str_to_bool(value: Any) -> bool:
@@ -1259,12 +1335,12 @@ async def wait_for_parallel_celery_group(task: Any, expires: Optional[datetime.d
     default_expires = datetime.timedelta(minutes=5)
 
     if not expires:
-        expires = datetime.datetime.now(tz=datetime.timezone.utc) + default_expires
+        expires = datetime.datetime.now(tz=datetime.UTC) + default_expires
 
     sleep_generator = sleep_time_generator()
 
     while not task.ready():
-        if datetime.datetime.now(tz=datetime.timezone.utc) > expires:
+        if datetime.datetime.now(tz=datetime.UTC) > expires:
             child_states = []
             child: AsyncResult
             children = task.children or []

@@ -1,16 +1,16 @@
 import { captureException } from '@sentry/node'
 import { Histogram } from 'prom-client'
-import { format } from 'util'
 import { RustyHook } from 'worker/rusty-hook'
 
-import { Action, Hook, PostIngestionEvent, Team } from '../../types'
+import { Action, Hook, HookPayload, PostIngestionEvent, Team } from '../../types'
 import { PostgresRouter, PostgresUse } from '../../utils/db/postgres'
+import { convertToHookPayload } from '../../utils/event'
 import { trackedFetch } from '../../utils/fetch'
 import { status } from '../../utils/status'
-import { getPropertyValueByPath, stringify } from '../../utils/utils'
 import { AppMetric, AppMetrics } from './app-metrics'
 import { OrganizationManager } from './organization-manager'
 import { TeamManager } from './team-manager'
+import { WebhookFormatter } from './webhook-formatter'
 
 export const webhookProcessStepDuration = new Histogram({
     name: 'webhook_process_event_duration',
@@ -27,245 +27,6 @@ export async function instrumentWebhookStep<T>(tag: string, run: () => Promise<T
     const res = await run()
     end()
     return res
-}
-
-export enum WebhookType {
-    Slack = 'slack',
-    Discord = 'discord',
-    Other = 'other',
-}
-
-export function determineWebhookType(url: string): WebhookType {
-    url = url.toLowerCase()
-    if (url.includes('slack.com')) {
-        return WebhookType.Slack
-    }
-    if (url.includes('discord.com')) {
-        return WebhookType.Discord
-    }
-    return WebhookType.Other
-}
-
-// https://api.slack.com/reference/surfaces/formatting#escaping
-function escapeSlack(text: string): string {
-    return text.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
-}
-
-function escapeMarkdown(text: string): string {
-    const markdownChars: string[] = ['\\', '`', '*', '_', '{', '}', '[', ']', '(', ')', '!']
-    const lineStartChars: string[] = ['#', '-', '+']
-
-    let escapedText = ''
-    let isNewLine = true
-
-    for (const char of text) {
-        if (isNewLine && lineStartChars.includes(char)) {
-            escapedText += '\\' + char
-        } else if (!isNewLine && markdownChars.includes(char)) {
-            escapedText += '\\' + char
-        } else {
-            escapedText += char
-        }
-
-        isNewLine = char === '\n' || char === '\r'
-    }
-
-    return escapedText
-}
-
-export function webhookEscape(text: string, webhookType: WebhookType): string {
-    if (webhookType === WebhookType.Slack) {
-        return escapeSlack(stringify(text))
-    }
-    return escapeMarkdown(stringify(text))
-}
-
-export function toWebhookLink(text: string | null, url: string, webhookType: WebhookType): [string, string] {
-    const name = stringify(text)
-    if (webhookType === WebhookType.Slack) {
-        return [escapeSlack(name), `<${escapeSlack(url)}|${escapeSlack(name)}>`]
-    } else {
-        return [escapeMarkdown(name), `[${escapeMarkdown(name)}](${escapeMarkdown(url)})`]
-    }
-}
-
-// Sync with .../api/person.py and .../lib/constants.tsx
-export const PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES = [
-    'email',
-    'Email',
-    'name',
-    'Name',
-    'username',
-    'Username',
-    'UserName',
-]
-
-function getProjectUrl(team: Team, siteUrl: string): string {
-    return `${siteUrl}/project/${team.id}`
-}
-
-function getPersonLink(team: Team, siteUrl: string, event: PostIngestionEvent): string {
-    return `${getProjectUrl(team, siteUrl)}/person/${encodeURIComponent(event.distinctId)}`
-}
-
-function getActionLink(team: Team, siteUrl: string, action: Action): string {
-    return `${getProjectUrl(team, siteUrl)}/action/${action.id}`
-}
-
-function getEventLink(team: Team, siteUrl: string, event: PostIngestionEvent): string {
-    return `${getProjectUrl(team, siteUrl)}/events/${encodeURIComponent(event.eventUuid)}/${encodeURIComponent(
-        event.timestamp
-    )}`
-}
-
-export function getPersonDetails(
-    event: PostIngestionEvent,
-    siteUrl: string,
-    webhookType: WebhookType,
-    team: Team
-): [string, string] {
-    // Sync the logic below with the frontend `asDisplay`
-    const personDisplayNameProperties = team.person_display_name_properties ?? PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
-    const customPropertyKey = personDisplayNameProperties.find((x) => event.person_properties?.[x])
-    const propertyIdentifier = customPropertyKey ? event.person_properties[customPropertyKey] : undefined
-
-    const customIdentifier: string =
-        typeof propertyIdentifier !== 'string' ? JSON.stringify(propertyIdentifier) : propertyIdentifier
-
-    const display: string | undefined = (customIdentifier || event.distinctId)?.trim()
-
-    return toWebhookLink(display, getPersonLink(team, siteUrl, event), webhookType)
-}
-
-export function getActionDetails(
-    team: Team,
-    action: Action,
-    siteUrl: string,
-    webhookType: WebhookType
-): [string, string] {
-    return toWebhookLink(action.name, getActionLink(team, siteUrl, action), webhookType)
-}
-
-export function getEventDetails(
-    team: Team,
-    event: PostIngestionEvent,
-    siteUrl: string,
-    webhookType: WebhookType
-): [string, string] {
-    return toWebhookLink(event.event, getEventLink(team, siteUrl, event), webhookType)
-}
-
-const TOKENS_REGEX_BRACKETS_EXCLUDED = /(?<=(?<!\\)\[)(.*?)(?=(?<!\\)\])/g
-const TOKENS_REGEX_BRACKETS_INCLUDED = /(?<!\\)\[(.*?)(?<!\\)\]/g
-
-export function getTokens(messageFormat: string): [string[], string] {
-    // This finds property value tokens, basically any string contained in square brackets
-    // Examples: "[foo]" is matched in "bar [foo]", "[action.name]" is matched in "action [action.name]"
-    // The backslash is used as an escape character - "\[foo\]" is not matched, allowing square brackets in messages
-    const matchedTokens = messageFormat.match(TOKENS_REGEX_BRACKETS_EXCLUDED) || []
-    // Replace the tokens with placeholders, and unescape leftover brackets
-    const tokenizedMessage = messageFormat.replace(TOKENS_REGEX_BRACKETS_INCLUDED, '%s').replace(/\\(\[|\])/g, '$1')
-    return [matchedTokens, tokenizedMessage]
-}
-
-export function getValueOfToken(
-    action: Action,
-    event: PostIngestionEvent,
-    team: Team,
-    siteUrl: string,
-    webhookType: WebhookType,
-    tokenParts: string[]
-): [string, string] {
-    let text = ''
-    let markdown = ''
-
-    if (tokenParts[0] === 'user') {
-        // [user.name] and [user.foo] are DEPRECATED as they had odd mechanics
-        // [person] OR [event.properties.bar] should be used instead
-        if (tokenParts[1] === 'name') {
-            ;[text, markdown] = getPersonDetails(event, siteUrl, webhookType, team)
-        } else {
-            const propertyName = `$${tokenParts[1]}`
-            const property = event.properties?.[propertyName]
-            markdown = text = webhookEscape(property, webhookType)
-        }
-    } else if (tokenParts[0] === 'person') {
-        if (tokenParts.length === 1) {
-            ;[text, markdown] = getPersonDetails(event, siteUrl, webhookType, team)
-        } else if (tokenParts[1] === 'link') {
-            markdown = text = webhookEscape(getPersonLink(team, siteUrl, event), webhookType)
-        } else if (tokenParts[1] === 'properties' && tokenParts.length > 2) {
-            const property = event.person_properties
-                ? getPropertyValueByPath(event.person_properties, tokenParts.slice(2))
-                : undefined
-            markdown = text = webhookEscape(property, webhookType)
-        }
-    } else if (tokenParts[0] === 'action') {
-        if (tokenParts[1] === 'name') {
-            ;[text, markdown] = getActionDetails(team, action, siteUrl, webhookType)
-        } else if (tokenParts[1] === 'link') {
-            markdown = text = webhookEscape(getActionLink(team, siteUrl, action), webhookType)
-        }
-    } else if (tokenParts[0] === 'event') {
-        if (tokenParts.length === 1) {
-            ;[text, markdown] = getEventDetails(team, event, siteUrl, webhookType)
-        } else if (tokenParts[1] === 'link') {
-            markdown = text = webhookEscape(getEventLink(team, siteUrl, event), webhookType)
-        } else if (tokenParts[1] === 'uuid') {
-            markdown = text = webhookEscape(event.eventUuid, webhookType)
-        } else if (tokenParts[1] === 'name') {
-            // deprecated
-            markdown = text = webhookEscape(event.event, webhookType)
-        } else if (tokenParts[1] === 'event') {
-            markdown = text = webhookEscape(event.event, webhookType)
-        } else if (tokenParts[1] === 'timestamp') {
-            markdown = text = webhookEscape(event.timestamp, webhookType)
-        } else if (tokenParts[1] === 'distinct_id') {
-            markdown = text = webhookEscape(event.distinctId, webhookType)
-        } else if (tokenParts[1] === 'properties' && tokenParts.length > 2) {
-            const property = event.properties
-                ? getPropertyValueByPath(event.properties, tokenParts.slice(2))
-                : undefined
-            markdown = text = webhookEscape(property, webhookType)
-        }
-    } else {
-        throw new Error()
-    }
-    return [text, markdown]
-}
-
-export function getFormattedMessage(
-    messageFormat: string,
-    action: Action,
-    event: PostIngestionEvent,
-    team: Team,
-    siteUrl: string,
-    webhookType: WebhookType
-): [string, string] {
-    let messageText: string
-    let messageMarkdown: string
-
-    try {
-        const [tokens, tokenizedMessage] = getTokens(messageFormat)
-        const values: string[] = []
-        const markdownValues: string[] = []
-
-        for (const token of tokens) {
-            const tokenParts = token.split('.') || []
-
-            const [value, markdownValue] = getValueOfToken(action, event, team, siteUrl, webhookType, tokenParts)
-            values.push(value)
-            markdownValues.push(markdownValue)
-        }
-        messageText = format(tokenizedMessage, ...values)
-        messageMarkdown = format(tokenizedMessage, ...markdownValues)
-    } catch (error) {
-        const [actionName, actionMarkdown] = getActionDetails(team, action, siteUrl, webhookType)
-        messageText = `⚠ Error: There are one or more formatting errors in the message template for action "${actionName}".`
-        messageMarkdown = `*⚠ Error: There are one or more formatting errors in the message template for action "${actionMarkdown}".*`
-    }
-
-    return [messageText, messageMarkdown]
 }
 
 export class HookCommander {
@@ -352,24 +113,16 @@ export class HookCommander {
     ): Record<string, any> {
         const endTimer = webhookProcessStepDuration.labels('messageFormatting').startTimer()
         try {
-            const webhookType = determineWebhookType(webhookUrl)
-            const [messageText, messageMarkdown] = getFormattedMessage(
+            const webhookFormatter = new WebhookFormatter({
+                webhookUrl,
                 messageFormat,
-                action,
                 event,
                 team,
-                this.siteUrl,
-                webhookType
-            )
-            if (webhookType === WebhookType.Slack) {
-                return {
-                    text: messageText,
-                    blocks: [{ type: 'section', text: { type: 'mrkdwn', text: messageMarkdown } }],
-                }
-            }
-            return {
-                text: messageMarkdown,
-            }
+                siteUrl: this.siteUrl,
+                sourceName: action.name ?? 'Unamed action',
+                sourcePath: `/action/${action.id}`,
+            })
+            return webhookFormatter.generateWebhookPayload()
         } finally {
             endTimer()
         }
@@ -399,20 +152,12 @@ export class HookCommander {
             const messageFormat = action.slack_message_format || '[action.name] was triggered by [person]'
             body = this.formatMessage(url, messageFormat, action, event, team)
         } else {
-            let sendablePerson: Record<string, any> = {}
-            const { person_id, person_created_at, person_properties, ...data } = event
-            if (person_id) {
-                sendablePerson = {
-                    uuid: person_id,
-                    properties: person_properties,
-                    created_at: person_created_at,
-                }
+            const hookBody: HookPayload = {
+                hook: { id: hook.id, event: hook.event, target: hook.target },
+                data: convertToHookPayload(event),
             }
 
-            body = {
-                hook: { id: hook.id, event: hook.event, target: hook.target },
-                data: { ...data, person: sendablePerson },
-            }
+            body = hookBody
         }
 
         const enqueuedInRustyHook = await this.rustyHook.enqueueIfEnabledForTeam({

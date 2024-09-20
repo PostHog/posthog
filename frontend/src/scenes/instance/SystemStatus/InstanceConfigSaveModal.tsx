@@ -29,7 +29,7 @@ function ChangeRow({ metricKey, oldValue, value, isSecret }: ChangeRowInterface)
                 {!isSecret && (
                     <>
                         {' from '}
-                        <span className="font-bold text-default">
+                        <span className="font-bold text-text-3000">
                             {RenderMetricValue(null, {
                                 key: metricKey,
                                 value: oldValue,
@@ -40,7 +40,7 @@ function ChangeRow({ metricKey, oldValue, value, isSecret }: ChangeRowInterface)
                     </>
                 )}
                 {' to '}
-                <span className="font-bold text-default">
+                <span className="font-bold text-text-3000">
                     {RenderMetricValue(null, { key: metricKey, value, emptyNullLabel: 'Unset' })}
                 </span>
                 {isSecret && (

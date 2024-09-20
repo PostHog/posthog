@@ -1,3 +1,4 @@
+import { EventType, eventWithTime, IncrementalSource } from 'rrweb'
 import { playerConfig, ReplayPlugin } from 'rrweb/typings/types'
 
 export const PLACEHOLDER_SVG_DATA_IMAGE_URL =
@@ -13,18 +14,18 @@ export const CorsPlugin: ReplayPlugin & {
     _replaceFontCssUrls: (value: string | null): string | null => {
         return (
             value?.replace(
-                /url\("(https:\/\/\S*(?:.eot|.woff2|.ttf|.woff)\S*)"\)/gi,
+                /url\("(https:\/\/\S*(?:\.eot|\.woff2|\.ttf|\.woff)\S*)"\)/gi,
                 `url("${PROXY_URL}/proxy?url=$1")`
             ) || null
         )
     },
 
     _replaceFontUrl: (value: string): string => {
-        return value.replace(/^(https:\/\/\S*(?:.eot|.woff2|.ttf|.woff)\S*)$/i, `${PROXY_URL}/proxy?url=$1`)
+        return value.replace(/^(https:\/\/\S*(?:\.eot|\.woff2|\.ttf|\.woff)\S*)$/i, `${PROXY_URL}/proxy?url=$1`)
     },
 
     _replaceJSUrl: (value: string): string => {
-        return value.replace(/^(https:\/\/\S*(?:.js)\S*)$/i, `${PROXY_URL}/proxy?url=$1`)
+        return value.replace(/^(https:\/\/\S*(?:\.js)\S*)$/i, `${PROXY_URL}/proxy?url=$1`)
     },
 
     onBuild: (node) => {
@@ -66,7 +67,68 @@ export const CorsPlugin: ReplayPlugin & {
     },
 }
 
+export type Node = {
+    id: number
+    type: number
+    tagName: string
+    childNodes: Node[]
+    textContent?: string
+}
+
+export const WindowTitlePlugin = (cb: (windowId: string, title: string) => void): ReplayPlugin => {
+    const titleElementIds = new Set<number>()
+
+    const extractTitleTextEl = (node: Node): Node | undefined => {
+        // Document node
+        if (node.type === 0) {
+            const el = node.childNodes.find((n) => n.type === 2) // element node
+
+            if (el) {
+                const headEl = el.childNodes.filter((n) => n.type === 2).find((n) => n.tagName === 'head')
+
+                if (headEl) {
+                    const titleEl = headEl.childNodes.filter((n) => n.type === 2).find((n) => n.tagName === 'title')
+
+                    if (titleEl) {
+                        const textEl = titleEl.childNodes.find((n) => n.type === 3) // text node
+                        return textEl
+                    }
+                }
+            }
+        }
+    }
+
+    return {
+        // eslint-disable-next-line @typescript-eslint/no-misused-promises
+        handler: async (e: eventWithTime, isSync) => {
+            if ('windowId' in e && e.windowId && isSync) {
+                const windowId = e.windowId as string
+                if (e.type === EventType.FullSnapshot) {
+                    titleElementIds.clear()
+                    const el = extractTitleTextEl(e.data.node as Node)
+                    if (windowId && el && el.textContent) {
+                        titleElementIds.add(el.id)
+                        cb(windowId, el.textContent)
+                    }
+                } else if (e.type === EventType.IncrementalSnapshot && e.data.source === IncrementalSource.Mutation) {
+                    e.data.texts.forEach(({ id, value }) => {
+                        if (titleElementIds.has(id) && value) {
+                            cb(windowId, value)
+                        }
+                    })
+                }
+            }
+        },
+    }
+}
+
+const defaultStyleRules = `.ph-no-capture { background-image: ${PLACEHOLDER_SVG_DATA_IMAGE_URL} }`
+// replaces a common rule in Shopify templates removed during capture
+// fix tracked in https://github.com/rrweb-io/rrweb/pull/1322
+const shopifyShorthandCSSFix =
+    '@media (prefers-reduced-motion: no-preference) { .scroll-trigger:not(.scroll-trigger--offscreen).animate--slide-in { animation: var(--animation-slide-in) } }'
+
 export const COMMON_REPLAYER_CONFIG: Partial<playerConfig> = {
     triggerFocus: false,
-    insertStyleRules: [`.ph-no-capture {   background-image: ${PLACEHOLDER_SVG_DATA_IMAGE_URL} }`],
+    insertStyleRules: [defaultStyleRules, shopifyShorthandCSSFix],
 }

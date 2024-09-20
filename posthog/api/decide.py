@@ -1,7 +1,5 @@
-import re
 from random import random
-from typing import Any, Optional, Union
-from urllib.parse import urlparse
+from typing import Union, cast
 
 import structlog
 from django.conf import settings
@@ -12,11 +10,15 @@ from rest_framework import status
 from sentry_sdk import capture_exception
 from statshog.defaults.django import statsd
 
-from posthog.api.geoip import get_geoip_properties
+from posthog.geoip import get_geoip_properties
 from posthog.api.survey import SURVEY_TARGETING_FLAG_PREFIX
-from posthog.api.utils import get_project_id, get_token
+from posthog.api.utils import get_project_id, get_token, hostname_in_allowed_url_list, parse_domain
 from posthog.database_healthcheck import DATABASE_FOR_FLAG_MATCHING
-from posthog.exceptions import RequestParsingError, generate_exception_response
+from posthog.exceptions import (
+    UnspecifiedCompressionFallbackParsingError,
+    RequestParsingError,
+    generate_exception_response,
+)
 from posthog.logging.timing import timed
 from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import Team, User
@@ -56,32 +58,6 @@ def on_permitted_recording_domain(team: Team, request: HttpRequest) -> bool:
     return is_authorized_web_client or is_authorized_mobile_client
 
 
-def hostname_in_allowed_url_list(allowed_url_list: Optional[list[str]], hostname: Optional[str]) -> bool:
-    if not hostname:
-        return False
-
-    permitted_domains = []
-    if allowed_url_list:
-        for url in allowed_url_list:
-            host = parse_domain(url)
-            if host:
-                permitted_domains.append(host)
-
-    for permitted_domain in permitted_domains:
-        if "*" in permitted_domain:
-            pattern = "^{}$".format(re.escape(permitted_domain).replace("\\*", "(.*)"))
-            if re.search(pattern, hostname):
-                return True
-        elif permitted_domain == hostname:
-            return True
-
-    return False
-
-
-def parse_domain(url: Any) -> Optional[str]:
-    return urlparse(url).hostname
-
-
 @csrf_exempt
 @timed("posthog_cloud_decide_endpoint")
 def get_decide(request: HttpRequest):
@@ -116,6 +92,15 @@ def get_decide(request: HttpRequest):
                 tags={"endpoint": "decide", "api_version_string": api_version_string},
             )
             api_version = 2
+        except UnspecifiedCompressionFallbackParsingError as error:
+            # Notably don't capture this exception as it's not caused by buggy behavior,
+            # it's just a fallback for when we can't parse the request due to a missing header
+            # that we attempted to kludge by manually setting the compression type to gzip
+            # If this kludge fails, though all we need to do is return a 400 and move on
+            return cors_response(
+                request,
+                generate_exception_response("decide", f"Malformed request data: {error}", code="malformed_data"),
+            )
         except RequestParsingError as error:
             capture_exception(error)  # We still capture this on Sentry to identify actual potential bugs
             return cors_response(
@@ -155,6 +140,18 @@ def get_decide(request: HttpRequest):
             team = user.teams.get(id=project_id)
 
         if team:
+            if team.id in settings.DECIDE_SHORT_CIRCUITED_TEAM_IDS:
+                return cors_response(
+                    request,
+                    generate_exception_response(
+                        "decide",
+                        f"Team with ID {team.id} cannot access the /decide endpoint."
+                        f"Please contact us at hey@posthog.com",
+                        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    ),
+                )
+
+            token = cast(str, token)  # we know it's not None if we found a team
             structlog.contextvars.bind_contextvars(team_id=team.id)
 
             disable_flags = process_bool(data.get("disable_flags")) is True
@@ -219,12 +216,25 @@ def get_decide(request: HttpRequest):
             else:
                 response["featureFlags"] = {}
 
-            response["capturePerformance"] = True if team.capture_performance_opt_in else False
+            capture_network_timing = True if team.capture_performance_opt_in else False
+            capture_web_vitals = True if team.autocapture_web_vitals_opt_in else False
+            autocapture_web_vitals_allowed_metrics = None
+            if capture_web_vitals:
+                autocapture_web_vitals_allowed_metrics = team.autocapture_web_vitals_allowed_metrics
+            response["capturePerformance"] = (
+                {
+                    "network_timing": capture_network_timing,
+                    "web_vitals": capture_web_vitals,
+                    "web_vitals_allowed_metrics": autocapture_web_vitals_allowed_metrics,
+                }
+                if capture_network_timing or capture_web_vitals
+                else False
+            )
+
             response["autocapture_opt_out"] = True if team.autocapture_opt_out else False
             response["autocaptureExceptions"] = (
                 {
                     "endpoint": "/e/",
-                    "errors_to_ignore": team.autocapture_exceptions_errors_to_ignore or [],
                 }
                 if team.autocapture_exceptions_opt_in
                 else False
@@ -251,7 +261,18 @@ def get_decide(request: HttpRequest):
             ):
                 response["elementsChainAsString"] = True
 
-            response["sessionRecording"] = _session_recording_config_response(request, team)
+            response["sessionRecording"] = _session_recording_config_response(request, team, token)
+
+            if settings.DECIDE_SESSION_REPLAY_QUOTA_CHECK:
+                from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, list_limited_team_attributes
+
+                limited_tokens_recordings = list_limited_team_attributes(
+                    QuotaResource.RECORDINGS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+                )
+
+                if token in limited_tokens_recordings:
+                    response["quotaLimited"] = ["recordings"]
+                    response["sessionRecording"] = False
 
             response["surveys"] = True if team.surveys_opt_in else False
             response["heatmaps"] = True if team.heatmaps_opt_in else False
@@ -297,7 +318,7 @@ def get_decide(request: HttpRequest):
     return cors_response(request, JsonResponse(response))
 
 
-def _session_recording_config_response(request: HttpRequest, team: Team) -> bool | dict:
+def _session_recording_config_response(request: HttpRequest, team: Team, token: str) -> bool | dict:
     session_recording_config_response: bool | dict = False
 
     try:
@@ -337,8 +358,8 @@ def _session_recording_config_response(request: HttpRequest, team: Team) -> bool
                     {
                         "recordCanvas": record_canvas,
                         # hard coded during beta while we decide on sensible values
-                        "canvasFps": 4 if record_canvas else None,
-                        "canvasQuality": "0.6" if record_canvas else None,
+                        "canvasFps": 3 if record_canvas else None,
+                        "canvasQuality": "0.4" if record_canvas else None,
                     }
                 )
     except Exception as e:
