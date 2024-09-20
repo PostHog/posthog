@@ -184,7 +184,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         setSubTemplateId: (subTemplateId: HogFunctionSubTemplateIdType | null) => ({ subTemplateId }),
         loadSampleGlobals: true,
         setUnsavedConfiguration: (configuration: HogFunctionConfigurationType | null) => ({ configuration }),
-        disableBeforeUnload: true,
+        persistForUnload: true,
     }),
     reducers({
         showSource: [
@@ -204,21 +204,6 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             null as HogFunctionSubTemplateIdType | null,
             {
                 setSubTemplateId: (_, { subTemplateId }) => subTemplateId,
-            },
-        ],
-
-        ready: [
-            false,
-            {
-                // Helper as this needs to be called before anything is ready to go
-                resetConfiguration: () => true,
-            },
-        ],
-
-        beforeUnloadDisabled: [
-            false,
-            {
-                disableBeforeUnload: () => true,
             },
         ],
 
@@ -724,7 +709,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
 
             const paramsFromUrl = cache.paramsFromUrl ?? {}
             const unsavedConfigurationToApply =
-                !values.ready && (values.unsavedConfiguration?.timestamp ?? 0) > Date.now() - UNSAVED_CONFIGURATION_TTL
+                (values.unsavedConfiguration?.timestamp ?? 0) > Date.now() - UNSAVED_CONFIGURATION_TTL
                     ? values.unsavedConfiguration?.configuration
                     : null
 
@@ -733,6 +718,8 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             if (unsavedConfigurationToApply) {
                 actions.setConfigurationValues(unsavedConfigurationToApply)
             }
+
+            actions.setUnsavedConfiguration(null)
 
             if (paramsFromUrl.integration_target && paramsFromUrl.integration_id) {
                 const inputs = values.configuration?.inputs ?? {}
@@ -832,6 +819,10 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         setSubTemplateId: () => {
             actions.resetToTemplate()
         },
+
+        persistForUnload: () => {
+            actions.setUnsavedConfiguration(values.configuration)
+        },
     })),
     afterMount(({ props, actions, cache }) => {
         cache.paramsFromUrl = {
@@ -858,13 +849,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         }
     }),
 
-    subscriptions(({ props, actions, values }) => ({
-        configuration: (configuration) => {
-            if (values.ready) {
-                actions.setUnsavedConfiguration(values.configurationChanged ? configuration : null)
-            }
-        },
-
+    subscriptions(({ props, actions }) => ({
         hogFunction: (hogFunction) => {
             if (hogFunction && props.templateId) {
                 // Catch all for any scenario where we need to redirect away from the template to the actual hog function
@@ -884,7 +869,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
     })),
 
     beforeUnload(({ actions, values }) => ({
-        enabled: () => !values.beforeUnloadDisabled && values.configurationChanged,
+        enabled: () => !values.unsavedConfiguration && values.configurationChanged,
         message: 'Changes you made will be discarded.',
         onConfirm: () => {
             actions.resetForm()
