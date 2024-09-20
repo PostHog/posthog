@@ -115,7 +115,7 @@ COPY hogvm hogvm/
 COPY posthog posthog/
 COPY ee ee/
 COPY --from=frontend-build /code/frontend/dist /code/frontend/dist
-RUN SKIP_SERVICE_VERSION_REQUIREMENTS=1 SECRET_KEY='unsafe secret key for collectstatic only' DATABASE_URL='postgres:///' REDIS_URL='redis:///' python manage.py collectstatic --noinput
+RUN SKIP_SERVICE_VERSION_REQUIREMENTS=1 STATIC_COLLECTION=1 DATABASE_URL='postgres:///' REDIS_URL='redis:///' python manage.py collectstatic --noinput
 
 
 #
@@ -141,7 +141,8 @@ RUN apt-get update && \
 #
 # ---------------------------------------------------------
 #
-FROM unit:python3.11
+# NOTE: newer images change the base image from bullseye to bookworm which makes compiled openssl versions have all sorts of issues
+FROM unit:1.32.0-python3.11 
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 ENV PYTHONUNBUFFERED 1

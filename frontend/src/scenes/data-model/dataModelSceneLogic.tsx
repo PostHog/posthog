@@ -15,7 +15,7 @@ export const dataModelSceneLogic = kea<dataModelSceneLogicType>([
         values: [databaseTableListLogic, ['posthogTablesMap', 'viewsMapById']],
     })),
     actions({
-        traverseAncestors: (viewId: DataWarehouseSavedQuery['id']) => ({ viewId }),
+        traverseAncestors: (viewId: DataWarehouseSavedQuery['id'], level: number) => ({ viewId, level }),
         setNodes: (nodes: Record<string, Node>) => ({ nodes }),
     }),
     reducers({
@@ -27,8 +27,8 @@ export const dataModelSceneLogic = kea<dataModelSceneLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
-        traverseAncestors: async ({ viewId }) => {
-            const result = await api.dataWarehouseSavedQueries.ancestors(viewId)
+        traverseAncestors: async ({ viewId, level }) => {
+            const result = await api.dataWarehouseSavedQueries.ancestors(viewId, level)
 
             result.ancestors.forEach((ancestor) => {
                 actions.setNodes({
@@ -39,6 +39,7 @@ export const dataModelSceneLogic = kea<dataModelSceneLogicType>([
                         leaf: [...(values.nodeMap[ancestor]?.leaf || []), viewId],
                     },
                 })
+                actions.traverseAncestors(ancestor, 1)
             })
         },
     })),
@@ -48,14 +49,14 @@ export const dataModelSceneLogic = kea<dataModelSceneLogicType>([
             (s) => [s.personFields],
             (personFields) =>
                 Object.entries(personFields)
-                    .filter(([_, data]) => data.type != 'view')
+                    .filter(([_, data]) => data.type != 'view' && !(data.type == 'lazy_table' && data.name !== 'pdi'))
                     .map(([column, data]) => ({ column, type: data.type })),
         ],
         joinedFields: [
             (s) => [s.personFields],
             (personFields) =>
                 Object.entries(personFields)
-                    .filter(([_, data]) => data.type == 'view')
+                    .filter(([_, data]) => data.type == 'view' || (data.type == 'lazy_table' && data.name !== 'pdi'))
                     .map(([_, data]) => data),
         ],
         joinedFieldsAsNodes: [
@@ -87,10 +88,10 @@ export const dataModelSceneLogic = kea<dataModelSceneLogicType>([
                     [field.id]: {
                         nodeId: field.id,
                         name: values.viewsMapById[field.id]?.name || field.id,
-                        leaf: [field.name],
+                        leaf: [`${field.name}_joined`],
                     },
                 })
-                actions.traverseAncestors(field.id)
+                field.id && actions.traverseAncestors(field.id, 1)
             })
         },
     })),

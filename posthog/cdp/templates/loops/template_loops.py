@@ -5,15 +5,16 @@ from posthog.cdp.templates.hog_function_template import HogFunctionTemplate, Hog
 template: HogFunctionTemplate = HogFunctionTemplate(
     status="beta",
     id="template-loops",
-    name="Send events to Loops",
-    description="Passes PostHog events to Loops.so",
+    name="Loops",
+    description="Send events to Loops",
     icon_url="/static/services/loops.png",
+    category=["Email Marketing"],
     hog="""
 let apiKey := inputs.apiKey
 
 let payload := {
     'userId': event.distinct_id,
-    'eventName': event.name == '$set' ? '$identify' : event.name,
+    'eventName': event.event == '$set' ? '$identify' : event.event,
     'email': person.properties.email
 }
 for (let key, value in person.properties) {

@@ -6,9 +6,10 @@ from posthog.cdp.templates.hog_function_template import HogFunctionTemplate, Hog
 template: HogFunctionTemplate = HogFunctionTemplate(
     status="beta",
     id="template-Intercom",
-    name="Send data to Intercom",
+    name="Intercom",
     description="Send events and contact information to Intercom",
     icon_url="/static/services/intercom.png",
+    category=["Customer Success"],
     hog="""
 if (empty(inputs.email)) {
     print('`email` input is empty. Skipping.')
@@ -23,7 +24,7 @@ let res := fetch(f'https://{inputs.host}/events', {
     'Accept': 'application/json'
   },
   'body': {
-    'event_name': event.name,
+    'event_name': event.event,
     'created_at': toInt(toUnixTimestamp(toDateTime(event.timestamp))),
     'email': inputs.email,
     'id': event.distinct_id,
