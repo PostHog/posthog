@@ -26,6 +26,7 @@ describe('sessionRecordingPlayerLogic', () => {
         mockWarn.mockClear()
         useMocks({
             get: {
+                '/api/projects/:team_id/session_recordings/:id/comments/': { results: [] },
                 '/api/projects/:team/session_recordings/:id/snapshots/': (req, res, ctx) => {
                     // with no sources, returns sources...
                     if (req.url.searchParams.get('source') === 'blob') {
