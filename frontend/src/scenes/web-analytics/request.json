@@ -1,0 +1,29 @@
+{
+    "query": {
+        "kind": "TrendsQuery",
+        "dateRange": {
+            "date_from": "-7d",
+            "date_to": ""
+        },
+        "interval": "hour",
+        "series": [
+            {
+                "event": "$pageview",
+                "kind": "EventsNode",
+                "math": "dau",
+                "name": "Pageview",
+                "custom_name": "2Unique visitors"
+            }
+        ],
+        "trendsFilter": {
+            "display": "ActionsLineGraph"
+        },
+        "compareFilter": {
+            "compare": true
+        },
+        "filterTestAccounts": false,
+        "properties": []
+    },
+    "client_query_id": "c65c7683-af09-426d-b37b-d2486b6a4c28",
+    "refresh": "async"
+}

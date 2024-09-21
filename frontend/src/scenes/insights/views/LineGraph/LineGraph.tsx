@@ -38,7 +38,7 @@ import { createTooltipData } from 'scenes/insights/views/LineGraph/tooltip-data'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-import { hexToRGBA, lightenDarkenColor } from '~/lib/utils'
+import { hexToRGBA, lightenDarkenColor, cleanupDateList } from '~/lib/utils'
 import { groupsModel } from '~/models/groupsModel'
 import { TrendsFilter } from '~/queries/schema'
 import { GraphDataset, GraphPoint, GraphPointPayload, GraphType } from '~/types'
@@ -767,10 +767,36 @@ export function LineGraph_({
             options.indexAxis = 'y'
         }
         Chart.register(ChartjsPluginStacked100)
+        labels = cleanupDateList(labels)
         const newChart = new Chart(canvasRef.current?.getContext('2d') as ChartItem, {
             type: (isBar ? GraphType.Bar : type) as ChartType,
-            data: { labels, datasets },
-            options,
+            data: { labels: labels.map((label) => {
+                return label
+            }), datasets: datasets },
+            options: {
+                ...options,
+                scales: {
+                    x: {
+                        ticks: {
+                            autoSkip: true,
+                            // maxTicksLimit: 5,
+                            // autoSkipPadding: 2,
+                            maxRotation: 0,
+                            minRotation: 0,
+                            callback: function(value, index, values) {
+                                console.log(value)
+                                console.log(index)
+                                console.log(values)
+                                const item = this.getLabelForValue(value)
+                                const itemSplit = item.split(' ')
+                                const date = itemSplit[0]
+                                const time = itemSplit[1]
+                                return [time, date]
+                            },
+                        } 
+                    }
+                },
+            },
             plugins: [ChartDataLabels],
         })
         setMyLineChart(newChart)

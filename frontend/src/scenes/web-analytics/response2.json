@@ -1,0 +1,21 @@
+{
+    "cache_key": "cache_cb3ecd1787f383186e316b1a55b0c5e2",
+    "query_status": {
+        "complete": false,
+        "dashboard_id": null,
+        "end_time": null,
+        "error": false,
+        "error_message": null,
+        "expiration_time": "2024-09-19T07:15:13.850075Z",
+        "id": "70a4aff7-292b-41c5-9f87-4f49b9f2da45",
+        "insight_id": null,
+        "labels": null,
+        "pickup_time": null,
+        "query_async": true,
+        "query_progress": null,
+        "results": null,
+        "start_time": "2024-09-19T06:55:13.200988Z",
+        "task_id": "2ca74d5e-aeaf-4ecd-8ff1-e7baddaf1398",
+        "team_id": 1
+    }
+}

@@ -549,6 +549,24 @@ export function humanFriendlyDetailedTime(
     return parsedDate.format(formatString)
 }
 
+export function cleanupDateList(list1: string[]): string[] {
+    let previousDate: dayjs.Dayjs | null = null
+
+    return list1.map((dateTimeString) => {
+        const dateTime = new Date(dateTimeString)
+        const currentDate = dayjs(dateTime)
+        const time = currentDate.format('HH:mm')
+        let formattedDate = ''
+
+        if (!currentDate.isSame(previousDate, 'd')) {
+            formattedDate = currentDate.format('YYYY-MM-DD')
+            previousDate = currentDate
+        }
+
+        return formattedDate + ' ' + time
+    })
+}
+
 // Pad numbers with leading zeros
 export const zeroPad = (num: number, places: number): string => String(num).padStart(places, '0')
 
