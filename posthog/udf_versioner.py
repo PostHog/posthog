@@ -24,12 +24,9 @@ LAST_VERSION_STR = format_version_string(UDF_VERSION - 1)
 
 augment_function_name = lambda name: f"{name}_{VERSION_STR}"
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Create a new version for UDF deployment.")
-    parser.add_argument("-f", "--force", action="store_true", help="override existing directories")
-    args = parser.parse_args()
 
-    os.chdir("user_scripts")
+def prepare_version(force=False):
+    os.chdir(os.path.join(ROOT_PATH, "user_scripts"))
     if args.force:
         shutil.rmtree(VERSION_STR)
     try:
@@ -59,3 +56,11 @@ if __name__ == "__main__":
         last_version_root.append(function)
 
     last_version_xml.write(os.path.join(VERSION_STR, CLICKHOUSE_XML_FILENAME))
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Create a new version for UDF deployment.")
+    parser.add_argument("-f", "--force", action="store_true", help="override existing directories")
+    args = parser.parse_args()
+
+    prepare_version(args.force)
