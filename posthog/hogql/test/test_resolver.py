@@ -404,12 +404,12 @@ class TestResolver(BaseTest):
     def test_visit_hogqlx_tag(self):
         node = self._select("select event from <HogQLQuery query='select event from events' />")
         node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
-        table_node = cast(ast.SelectQuery, node).select_from.table
+        table_node = cast(ast.SelectQuery, node).select_from.table  # type: ignore
         expected = ast.SelectQuery(
             select=[ast.Alias(hidden=True, alias="event", expr=ast.Field(chain=["event"]))],
             select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
         )
-        assert clone_expr(table_node, clear_types=True) == expected
+        assert clone_expr(table_node, clear_types=True) == expected  # type: ignore
 
     def test_visit_hogqlx_tag_alias(self):
         node = self._select("select event from <HogQLQuery query='select event from events' /> a")

@@ -717,7 +717,7 @@ class BytecodeCompiler(Visitor):
 
     def visit_function(self, node: ast.Function):
         # add an implicit return if none at the end of the function
-        body = node.body
+        body: ast.Statement | ast.Block = node.body
         if isinstance(node.body, ast.Block):
             if len(node.body.declarations) == 0 or not isinstance(node.body.declarations[-1], ast.ReturnStatement):
                 body = ast.Block(declarations=[*node.body.declarations, ast.ReturnStatement(expr=None)])

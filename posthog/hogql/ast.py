@@ -42,6 +42,21 @@ class VariableDeclaration(Declaration):
 
 
 @dataclass(kw_only=True)
+class Block(Expr):
+    declarations: list[Declaration]
+    type: Optional[Type] = None
+
+    @cached_property
+    def placeholder_chain(self) -> str | None:
+        if len(self.declarations) == 1:
+            declaration = self.declarations[0]
+            if isinstance(declaration, ExprStatement) or isinstance(declaration, ReturnStatement):
+                if isinstance(declaration.expr, Field):
+                    return ".".join(str(c) for c in declaration.expr.chain)
+        return None
+
+
+@dataclass(kw_only=True)
 class Statement(Declaration):
     pass
 
@@ -63,23 +78,23 @@ class ThrowStatement(Statement):
 
 @dataclass(kw_only=True)
 class TryCatchStatement(Statement):
-    try_stmt: Statement
+    try_stmt: Statement | Block
     # var name (e), error type (RetryError), stmt ({})  # (e: RetryError) {}
-    catches: list[tuple[Optional[str], Optional[str], Statement]]
-    finally_stmt: Optional[Statement] = None
+    catches: list[tuple[Optional[str], Optional[str], Statement | Block]]
+    finally_stmt: Optional[Statement | Block] = None
 
 
 @dataclass(kw_only=True)
 class IfStatement(Statement):
     expr: Expr
-    then: Statement
-    else_: Optional[Statement] = None
+    then: Statement | Block
+    else_: Optional[Statement | Block] = None
 
 
 @dataclass(kw_only=True)
 class WhileStatement(Statement):
     expr: Expr
-    body: Statement
+    body: Statement | Block
 
 
 @dataclass(kw_only=True)
@@ -87,7 +102,7 @@ class ForStatement(Statement):
     initializer: Optional[VariableDeclaration | VariableAssignment | Expr]
     condition: Optional[Expr]
     increment: Optional[Expr]
-    body: Statement
+    body: Statement | Block
 
 
 @dataclass(kw_only=True)
@@ -95,28 +110,14 @@ class ForInStatement(Statement):
     keyVar: Optional[str]
     valueVar: str
     expr: Expr
-    body: Statement
+    body: Statement | Block
 
 
 @dataclass(kw_only=True)
 class Function(Statement):
     name: str
     params: list[str]
-    body: Statement
-
-
-@dataclass(kw_only=True)
-class Block(Statement):
-    declarations: list[Declaration]
-
-    @cached_property
-    def placeholder_chain(self) -> str | None:
-        if len(self.declarations) == 1:
-            declaration = self.declarations[0]
-            if isinstance(declaration, ExprStatement) or isinstance(declaration, ReturnStatement):
-                if isinstance(declaration.expr, Field):
-                    return ".".join(str(c) for c in declaration.expr.chain)
-        return None
+    body: Statement | Block
 
 
 @dataclass(kw_only=True)
@@ -737,7 +738,7 @@ class JoinExpr(Expr):
     type: Optional[TableOrSelectType] = None
 
     join_type: Optional[str] = None
-    table: Optional[Union["SelectQuery", "SelectUnionQuery", Field]] = None
+    table: Optional[Union["SelectQuery", "SelectUnionQuery", Field, Block]] = None
     table_args: Optional[list[Expr]] = None
     alias: Optional[str] = None
     table_final: Optional[bool] = None

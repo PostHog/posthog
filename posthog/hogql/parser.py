@@ -272,7 +272,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
     def visitWhileStmt(self, ctx: HogQLParser.WhileStmtContext):
         return ast.WhileStatement(
             expr=self.visit(ctx.expression()),
-            body=self.visit(ctx.statement()) if ctx.statement() else None,
+            body=self.visit(ctx.statement()),
         )
 
     def visitForInStmt(self, ctx: HogQLParser.ForInStmtContext):

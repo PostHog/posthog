@@ -286,7 +286,16 @@ class Resolver(CloningVisitor):
             cte = lookup_cte_by_name(self.scopes, table_name)
             if cte:
                 node = cast(ast.JoinExpr, clone_expr(node))
-                node.table = clone_expr(cte.expr)
+                table = clone_expr(cte.expr)
+                if (
+                    isinstance(table, ast.SelectQuery)
+                    or isinstance(table, ast.SelectUnionQuery)
+                    or isinstance(table, ast.Field)
+                    or isinstance(table, ast.Block)
+                ):
+                    node.table = table
+                else:
+                    raise QueryError(f"CTE {table_name} is not a SELECT query or subquery. Can not use as a table")
                 if node.alias is None:
                     node.alias = table_name
 
@@ -342,7 +351,7 @@ class Resolver(CloningVisitor):
 
             # :TRICKY: Make sure to clone and visit _all_ JoinExpr fields/nodes.
             node.type = node_type
-            node.table = cast(ast.Field, clone_expr(node.table))
+            node.table = cast(ast.Field, clone_expr(cast(ast.Expr, node.table)))
             node.table.type = node_table_type
             if node.table_args is not None:
                 node.table_args = [self.visit(arg) for arg in node.table_args]
@@ -388,10 +397,14 @@ class Resolver(CloningVisitor):
                     raise QueryError(
                         f'Already have joined a table called "{node.alias}". Can\'t join another one with the same name.'
                     )
-                node.type = ast.SelectQueryAliasType(alias=node.alias, select_query_type=node.table.type)
+                assert node.table is not None
+                node.type = ast.SelectQueryAliasType(
+                    alias=node.alias, select_query_type=cast(ast.SelectQueryType, node.table.type)
+                )
                 scope.tables[node.alias] = node.type
             else:
-                node.type = node.table.type
+                assert node.table is not None
+                node.type = cast(ast.SelectQueryType, node.table.type)
                 scope.anonymous_tables.append(node.type)
 
             # :TRICKY: Make sure to clone and visit _all_ JoinExpr fields/nodes.
