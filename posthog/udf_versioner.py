@@ -6,10 +6,10 @@ import xml.etree.ElementTree as ET
 
 
 # Increment this and run this file every time you make breaking changes to UDFs
-# After running this, you have to copy the `user_defined_function.xml` file to the charts repo and deploy it
+# After running this, you have to copy the `user_defined_function.xml` file in the newly created version folder to the `posthog-cloud-infra` repo and deploy it
 # After it goes out, it is safe to land the posthog repo code
-# If deploys aren't seamless, look into movie the copy to clickhouse earlier in the deploy process
-UDF_VERSION = 1
+# If deploys aren't seamless, look into moving the copy to clickhouse earlier in the deploy process
+UDF_VERSION = 1  # Last modified by: @aspicer, 2024-09-20
 
 XML_CONFIG = "user_defined_function.xml"
 

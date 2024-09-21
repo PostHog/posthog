@@ -1044,6 +1044,9 @@ if is_cloud():
     for v in UDFS.values():
         v.clickhouse_name = augment_function_name(v.clickhouse_name)
 
+HOGQL_CLICKHOUSE_FUNCTIONS.update(UDFS)
+
+
 ALL_EXPOSED_FUNCTION_NAMES = [
     name for name in chain(HOGQL_CLICKHOUSE_FUNCTIONS.keys(), HOGQL_AGGREGATIONS.keys()) if not name.startswith("_")
 ]
