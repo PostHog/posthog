@@ -6,10 +6,10 @@ import xml.etree.ElementTree as ET
 from xml import etree
 
 # For revertible cloud deploys:
-# 1. Edit and develop using the top level functions inside of user_scripts, along with `user_defined_function.xml` inside of `docker/clickhouse`
-# 1. Increment the version below and run this file every time you make breaking changes to UDFs (likely involving type definitions).
-# 2. After running this, you have to copy the `user_defined_function.xml` file in the newly created version folder (e.g. `user_scripts/v4/user_defined_function.xml`) to the `posthog-cloud-infra` repo and deploy it
-# 3. After that deploy goes out, it is safe to land and deploy the changes to the `posthog` repo
+# 1. Develop using the python files at the top level of `user_scripts`, with schema defined in `docker/clickhouse/user_defined_function.xml`
+# 2. If you're made breaking changes to UDFs (likely involving changing type definitions), when ready to deploy, increment the version below and run this file
+# 3. Copy the `user_defined_function.xml` file in the newly created version folder (e.g. `user_scripts/v4/user_defined_function.xml`) to the `posthog-cloud-infra` repo and deploy it
+# 4. After that deploy goes out, it is safe to land and deploy the changes to the `posthog` repo
 # If deploys aren't seamless, look into moving the action that copies the `user_scripts` folder to the clickhouse cluster earlier in the deploy process
 UDF_VERSION = 0  # Last modified by: @aspicer, 2024-09-20
 
