@@ -13,8 +13,6 @@ from xml import etree
 # If deploys aren't seamless, look into moving the action that copies the `user_scripts` folder to the clickhouse cluster earlier in the deploy process
 UDF_VERSION = 0  # Last modified by: @aspicer, 2024-09-20
 
-ROOT_PATH = os.path.abspath(os.path.dirname(__name__))
-
 CLICKHOUSE_XML_FILENAME = "user_defined_function.xml"
 ACTIVE_XML_CONFIG = "../../docker/clickhouse/user_defined_function.xml"
 
@@ -26,7 +24,7 @@ augment_function_name = lambda name: f"{name}_{VERSION_STR}"
 
 
 def prepare_version(force=False):
-    os.chdir(os.path.join(ROOT_PATH, "user_scripts"))
+    os.chdir(os.path.join(os.path.dirname(os.path.abspath(__file__)), "user_scripts"))
     if args.force:
         shutil.rmtree(VERSION_STR)
     try:
