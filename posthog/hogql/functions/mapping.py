@@ -1029,7 +1029,6 @@ HOGQL_POSTHOG_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
 }
 
 
-## UDFS
 UDFS: dict[str, HogQLFunctionMeta] = {
     "aggregate_funnel": HogQLFunctionMeta("aggregate_funnel", 6, 6, aggregate=False),
     "aggregate_funnel_array": HogQLFunctionMeta("aggregate_funnel_array", 6, 6, aggregate=False),
@@ -1040,8 +1039,10 @@ UDFS: dict[str, HogQLFunctionMeta] = {
     "aggregate_funnel_test": HogQLFunctionMeta("aggregate_funnel_test", 6, 6, aggregate=False),
 }
 if is_cloud():
-    pass
+    from posthog.udf_versioner import augment_function_name
 
+    for v in UDFS.values():
+        v.clickhouse_name = augment_function_name(v.clickhouse_name)
 
 ALL_EXPOSED_FUNCTION_NAMES = [
     name for name in chain(HOGQL_CLICKHOUSE_FUNCTIONS.keys(), HOGQL_AGGREGATIONS.keys()) if not name.startswith("_")
