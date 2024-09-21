@@ -29,7 +29,7 @@ class TestTemplateRudderstack(BaseHogFunctionTemplateTest):
                     "uuid": "96a04bdc-6021-4120-a3e3-f1988f59ba5f",
                     "timestamp": "2024-08-29T13:40:22.713Z",
                     "distinct_id": "85bcd2e4-d10d-4a99-9dc8-43789b7226a1",
-                    "name": "$pageview",
+                    "event": "$pageview",
                     "properties": {"$current_url": "https://example.com", "$browser": "Chrome"},
                 },
                 "person": {"uuid": "a08ff8e1-a5ee-49cc-99e9-564e455c33f0"},
@@ -88,7 +88,7 @@ class TestTemplateRudderstack(BaseHogFunctionTemplateTest):
             self.run_function(
                 inputs=self._inputs(),
                 globals={
-                    "event": {"name": event_name, "properties": {"url": "https://example.com", "$browser": "Chrome"}},
+                    "event": {"event": event_name, "properties": {"url": "https://example.com", "$browser": "Chrome"}},
                 },
             )
 
@@ -111,7 +111,7 @@ class TestTemplateMigration(BaseTest):
             {
                 "host": {"value": "us.i.example.com"},
                 "token": {"value": "ignored"},
-                "identifier": {"value": "{event.properties.$user_id ?? event.distinct_id ?? person.uuid}"},
+                "identifier": {"value": "{event.properties.$user_id ?? event.distinct_id ?? person.id}"},
             }
         )
         assert template["filters"] == {}

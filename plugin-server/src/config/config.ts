@@ -171,6 +171,9 @@ export function getDefaultConfig(): PluginsServerConfig {
         SESSION_RECORDING_OVERFLOW_MIN_PER_BATCH: 1_000_000, // All sessions consume at least 1MB/batch, to penalise poor batching
         SESSION_RECORDING_KAFKA_CONSUMPTION_STATISTICS_EVENT_INTERVAL_MS: 0, // 0 disables stats collection
         SESSION_RECORDING_KAFKA_FETCH_MIN_BYTES: 1_048_576, // 1MB
+
+        ENCRYPTION_SALT_KEYS: isDevEnv() || isTestEnv() ? '00beef0000beef0000beef0000beef00' : '',
+
         // CDP
         CDP_WATCHER_COST_ERROR: 100,
         CDP_WATCHER_COST_TIMING: 20,
@@ -197,6 +200,8 @@ export function getDefaultConfig(): PluginsServerConfig {
             : isDevEnv()
             ? 'postgres://posthog:posthog@localhost:5432/cyclotron'
             : '',
+
+        CYCLOTRON_SHARD_DEPTH_LIMIT: 1000000,
     }
 }
 

@@ -346,9 +346,8 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                 for (let i = 0; i < count; i++) {
                     chain.push(popStack())
                 }
-
                 if (options?.globals && chain[0] in options.globals && Object.hasOwn(options.globals, chain[0])) {
-                    pushStack(convertJSToHog(getNestedValue(options.globals, chain)))
+                    pushStack(convertJSToHog(getNestedValue(options.globals, chain, true)))
                 } else if (
                     options?.asyncFunctions &&
                     chain.length == 1 &&

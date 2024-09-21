@@ -56,6 +56,7 @@ export interface RecordingViewedSummaryAnalytics {
     // how long was the video playing for
     // (this could be longer than the duration, since someone could seek around multiple times)
     play_time_ms?: number
+    buffer_time_ms?: number
     recording_duration_ms?: number
     recording_age_ms?: number
     meta_data_load_time_ms?: number
@@ -270,23 +271,56 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             },
         ],
         playingTimeTracking: [
-            { isPlaying: false as boolean, lastTimestamp: null as number | null, watchTime: 0 },
             {
+                isPlaying: false as boolean,
+                isBuffering: false as boolean,
+                lastTimestamp: null as number | null,
+                watchTime: 0,
+                bufferTime: 0,
+            },
+            {
+                startBuffer: (state) => {
+                    return {
+                        isPlaying: false,
+                        isBuffering: true,
+                        lastTimestamp:
+                            (state.isBuffering ? state.lastTimestamp : performance.now()) || performance.now(),
+                        watchTime: state.watchTime,
+                        bufferTime: state.bufferTime,
+                    }
+                },
+                stopBuffer: (state) => {
+                    return {
+                        isPlaying: state.isPlaying,
+                        isBuffering: false,
+                        lastTimestamp: null,
+                        watchTime: state.watchTime,
+                        bufferTime:
+                            state.lastTimestamp !== null
+                                ? state.bufferTime + (performance.now() - state.lastTimestamp)
+                                : state.bufferTime,
+                    }
+                },
                 setPlay: (state) => {
                     return {
                         isPlaying: true,
-                        lastTimestamp: state.lastTimestamp || performance.now(),
+                        isBuffering: false,
+                        // if we are already playing then we carry the last timestamp over, otherwise we start from now
+                        lastTimestamp: (state.isPlaying ? state.lastTimestamp : performance.now()) || performance.now(),
                         watchTime: state.watchTime,
+                        bufferTime: state.bufferTime,
                     }
                 },
                 setPause: (state) => {
                     return {
                         isPlaying: false,
+                        isBuffering: state.isBuffering,
                         lastTimestamp: null,
                         watchTime:
                             state.lastTimestamp !== null
                                 ? state.watchTime + (performance.now() - state.lastTimestamp)
                                 : state.watchTime,
+                        bufferTime: state.bufferTime,
                     }
                 },
                 setEndReached: (state, { reached }) => {
@@ -296,11 +330,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
                     return {
                         isPlaying: false,
+                        isBuffering: state.isBuffering,
                         lastTimestamp: null,
                         watchTime:
                             state.lastTimestamp !== null
                                 ? state.watchTime + (performance.now() - state.lastTimestamp)
                                 : state.watchTime,
+                        bufferTime: state.bufferTime,
                     }
                 },
                 setErrorPlayerState: (state, { show }) => {
@@ -309,11 +345,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     }
                     return {
                         isPlaying: state.isPlaying,
+                        isBuffering: state.isBuffering,
                         lastTimestamp: null,
                         watchTime:
                             state.lastTimestamp !== null
                                 ? state.watchTime + (performance.now() - state.lastTimestamp)
                                 : state.watchTime,
+                        bufferTime: state.bufferTime,
                     }
                 },
                 seekToTime: (state) => {
@@ -1100,6 +1138,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         const summaryAnalytics: RecordingViewedSummaryAnalytics = {
             viewed_time_ms: cache.openTime !== undefined ? performance.now() - cache.openTime : undefined,
             play_time_ms: playTimeMs,
+            buffer_time_ms: values.playingTimeTracking.bufferTime || 0,
             recording_duration_ms: values.sessionPlayerData ? values.sessionPlayerData.durationMs : undefined,
             recording_age_ms:
                 values.sessionPlayerData && values.sessionPlayerData.segments.length > 0

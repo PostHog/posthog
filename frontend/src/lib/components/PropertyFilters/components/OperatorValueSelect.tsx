@@ -97,7 +97,7 @@ export function OperatorValueSelect({
         let propertyType = propertyDefinition?.property_type
         if (propertyKey === 'selector' || propertyKey === 'tag_name') {
             propertyType = PropertyType.Selector
-        } else if (propertyKey === 'id') {
+        } else if (propertyKey === 'id' && type === PropertyFilterType.Cohort) {
             propertyType = PropertyType.Cohort
         }
         const operatorMapping: Record<string, string> = chooseOperatorMap(propertyType)

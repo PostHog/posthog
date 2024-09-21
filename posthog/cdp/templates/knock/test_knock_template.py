@@ -27,7 +27,7 @@ class TestTemplateKnock(BaseHogFunctionTemplateTest):
                 "event": {
                     "uuid": "9d67cc3f-edf7-490d-b311-f03c21c64caf",
                     "distinct_id": "8b9c729c-c59b-4c39-b5a6-af9fa1233054",
-                    "name": "$pageview",
+                    "event": "$pageview",
                     "timestamp": "2024-09-16T16:11:48.577Z",
                     "url": "http://localhost:8000/project/1/events/",
                     "properties": {
@@ -67,7 +67,7 @@ class TestTemplateKnock(BaseHogFunctionTemplateTest):
                 "event": {
                     "uuid": "9d67cc3f-edf7-490d-b311-f03c21c64caf",
                     "distinct_id": "8b9c729c-c59b-4c39-b5a6-af9fa1233054",
-                    "name": "$pageview",
+                    "event": "$pageview",
                     "timestamp": "2024-09-16T16:11:48.577Z",
                     "url": "http://localhost:8000/project/1/events/",
                     "properties": {
@@ -87,7 +87,7 @@ class TestTemplateKnock(BaseHogFunctionTemplateTest):
                 "event": {
                     "uuid": "9d67cc3f-edf7-490d-b311-f03c21c64caf",
                     "distinct_id": "8b9c729c-c59b-4c39-b5a6-af9fa1233054",
-                    "name": "$pageview",
+                    "event": "$pageview",
                     "timestamp": "2024-09-16T16:11:48.577Z",
                     "url": "http://localhost:8000/project/1/events/",
                     "properties": {

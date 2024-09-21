@@ -26,7 +26,7 @@ class TestTemplateAvo(BaseHogFunctionTemplateTest):
                 "event": {
                     "uuid": "0191c693-d93b-7516-b1e3-64ec33c96464",
                     "distinct_id": "66e614bd-d9f2-491e-9e2c-eeab3090f72f",
-                    "name": "sign up",
+                    "event": "sign up",
                     "properties": {
                         "distinct_id": "66e614bd-d9f2-491e-9e2c-eeab3090f72f",
                         "token": "phc_ex7Mnvi4DqeB6xSQoXU1UVPzAmUIpicMFKELQXGGTYQO",
@@ -107,7 +107,7 @@ class TestTemplateAvo(BaseHogFunctionTemplateTest):
             self.run_function(
                 inputs=self._inputs(),
                 globals={
-                    "event": {"name": "sign up", "properties": {"test": property_value}},
+                    "event": {"event": "sign up", "properties": {"test": property_value}},
                 },
             )
 
@@ -132,7 +132,7 @@ class TestTemplateAvo(BaseHogFunctionTemplateTest):
                 },
                 globals={
                     "event": {
-                        "name": "sign up",
+                        "event": "sign up",
                         "properties": {"name": "Max", "company": "PostHog", "job": "Product Engineer"},
                     },
                 },
@@ -202,7 +202,7 @@ class TestTemplateMigration(BaseTest):
         assert template["filters"] == {
             "events": [
                 {
-                    "id": "All events",
+                    "id": None,
                     "name": "All events",
                     "type": "events",
                     "order": 0,

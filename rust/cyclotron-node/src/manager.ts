@@ -5,7 +5,7 @@ import { convertToInternalPoolConfig, serializeObject } from './helpers'
 import { CyclotronJobInit, CyclotronPoolConfig } from './types'
 
 export class CyclotronManager {
-    constructor(private config: { shards: CyclotronPoolConfig[] }) {
+    constructor(private config: { shards: CyclotronPoolConfig[], shardDepthLimit: number }) {
         this.config = config
     }
 
@@ -13,6 +13,7 @@ export class CyclotronManager {
         return await cyclotron.maybeInitManager(
             JSON.stringify({
                 shards: this.config.shards.map((shard) => convertToInternalPoolConfig(shard)),
+                shard_depth_limit: this.config.shardDepthLimit,
             })
         )
     }
