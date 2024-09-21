@@ -51,12 +51,12 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
             actor = "e.distinct_id" if self.team.aggregate_users_by_distinct_id else "e.person_id"
             return parse_expr(f"count(DISTINCT {actor})")
         elif self.series.math == "weekly_active":
-            return ast.Placeholder(
-                expr=ast.Field(chain=["replaced"])
+            return ast.Block(
+                declarations=[ast.ExprStatement(expr=ast.Field(chain=["replaced"]))]
             )  # This gets replaced when doing query orchestration
         elif self.series.math == "monthly_active":
-            return ast.Placeholder(
-                expr=ast.Field(chain=["replaced"])
+            return ast.Block(
+                declarations=[ast.ExprStatement(expr=ast.Field(chain=["replaced"]))]
             )  # This gets replaced when doing query orchestration
         elif self.series.math == "unique_session":
             return parse_expr('count(DISTINCT e."$session_id")')

@@ -125,7 +125,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         return parse_expr(
             """
             arrayMap(
-                number -> {date_from_start_of_interval} + {plus_interval}, -- NOTE: flipped the order around to use start date
+                number -> ({date_from_start_of_interval} + {plus_interval}), -- NOTE: flipped the order around to use start date
                 range(
                     0,
                     coalesce(

@@ -204,9 +204,6 @@ class WhereClauseExtractor(CloningVisitor):
     def visit_constant(self, node: ast.Constant) -> ast.Expr:
         return ast.Constant(value=node.value)
 
-    def visit_placeholder(self, node: ast.Placeholder) -> ast.Expr:
-        raise Exception()  # this should never happen, as placeholders should be resolved before this runs
-
     def visit_and(self, node: ast.And) -> ast.Expr:
         exprs = [self.visit(expr) for expr in node.exprs]
         flattened = flatten_ands(exprs)
@@ -450,9 +447,6 @@ class IsTimeOrIntervalConstantVisitor(Visitor[bool]):
     def visit_not(self, node: ast.Not) -> bool:
         return False
 
-    def visit_placeholder(self, node: ast.Placeholder) -> bool:
-        raise Exception()
-
     def visit_alias(self, node: ast.Alias) -> bool:
         return self.visit(node.expr)
 
@@ -532,9 +526,6 @@ class IsSimpleTimestampFieldExpressionVisitor(Visitor[bool]):
 
     def visit_not(self, node: ast.Not) -> bool:
         return False
-
-    def visit_placeholder(self, node: ast.Placeholder) -> bool:
-        raise Exception()
 
     def visit_alias(self, node: ast.Alias) -> bool:
         from posthog.hogql.database.schema.events import EventsTable

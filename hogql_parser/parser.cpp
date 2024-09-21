@@ -2195,6 +2195,8 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
 
   VISIT(ColumnExprIdentifier) { return visit(ctx->columnIdentifier()); }
 
+  VISIT(ColumnExprBlock) { return visit(ctx->block()); }
+
   VISIT(ColumnExprFunction) {
     string name = visitAsString(ctx->identifier());
 
@@ -2569,9 +2571,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     RETURN_NEW_AST_NODE("HogQLXTag", "{s:s#,s:N}", "kind", opening.data(), opening.size(), "attributes", attributes);
   }
 
-  VISIT(Placeholder) {
-    RETURN_NEW_AST_NODE("Placeholder", "{s:N}", "expr", visitAsPyObject(ctx->columnExpr()));
-  }
+  VISIT(Placeholder) { return visit(ctx->block()); }
 
   VISIT_UNSUPPORTED(EnumValue)
 

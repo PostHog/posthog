@@ -233,7 +233,7 @@ class RetentionQueryRunner(QueryRunner):
                     expr=parse_expr(
                         """
                         arrayMap(
-                            x -> {date_from_start_of_interval} + {to_interval_function},
+                            x -> ({date_from_start_of_interval} + {to_interval_function}),
                             range(0, {total_intervals})
                         )
                     """,

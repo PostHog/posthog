@@ -590,6 +590,8 @@ class _Printer(Visitor):
 
     def visit_lambda(self, node: ast.Lambda):
         identifiers = [self._print_identifier(arg) for arg in node.args]
+        if isinstance(node.expr, ast.Block):
+            raise QueryError("Cannot print multi line lambdas")
         if len(identifiers) == 0:
             raise ValueError("Lambdas require at least one argument")
         elif len(identifiers) == 1:
@@ -1164,7 +1166,7 @@ class _Printer(Visitor):
                 )
             raise QueryError(f"Unsupported function call '{node.name}(...)'")
 
-    def visit_placeholder(self, node: ast.Placeholder):
+    def visit_block(self, node: ast.Block):
         raise QueryError(f"Unresolved placeholder: {{{node.field}}}")
 
     def visit_alias(self, node: ast.Alias):

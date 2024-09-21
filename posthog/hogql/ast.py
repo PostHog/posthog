@@ -1,4 +1,5 @@
 from enum import StrEnum
+from functools import cached_property
 from typing import Any, Literal, Optional, Union
 from dataclasses import dataclass, field
 
@@ -107,6 +108,15 @@ class Function(Statement):
 @dataclass(kw_only=True)
 class Block(Statement):
     declarations: list[Declaration]
+
+    @cached_property
+    def placeholder_chain(self) -> str | None:
+        if len(self.declarations) == 1:
+            declaration = self.declarations[0]
+            if isinstance(declaration, ExprStatement) or isinstance(declaration, ReturnStatement):
+                if isinstance(declaration.expr, Field):
+                    return ".".join(declaration.expr.chain)
+        return None
 
 
 @dataclass(kw_only=True)
@@ -694,17 +704,6 @@ class Constant(Expr):
 @dataclass(kw_only=True)
 class Field(Expr):
     chain: list[str | int]
-
-
-@dataclass(kw_only=True)
-class Placeholder(Expr):
-    expr: Expr
-
-    @property
-    def field(self):
-        if isinstance(self.expr, Field):
-            return ".".join(str(chain) for chain in self.expr.chain)
-        return None
 
 
 @dataclass(kw_only=True)

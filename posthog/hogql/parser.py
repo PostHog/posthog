@@ -923,6 +923,9 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
     def visitColumnExprIdentifier(self, ctx: HogQLParser.ColumnExprIdentifierContext):
         return self.visit(ctx.columnIdentifier())
 
+    def visitColumnExprBlock(self, ctx: HogQLParser.ColumnExprBlockContext):
+        return self.visit(ctx.block())
+
     def visitColumnExprFunction(self, ctx: HogQLParser.ColumnExprFunctionContext):
         name = self.visit(ctx.identifier())
 
@@ -1122,7 +1125,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             return ast.HogQLXAttribute(name=name, value=ast.Constant(value=True))
 
     def visitPlaceholder(self, ctx: HogQLParser.PlaceholderContext):
-        return ast.Placeholder(expr=self.visit(ctx.columnExpr()))
+        return self.visit(ctx.block())
 
     def visitColumnExprTemplateString(self, ctx: HogQLParser.ColumnExprTemplateStringContext):
         return self.visit(ctx.templateString())

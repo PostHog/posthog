@@ -519,7 +519,15 @@ class Resolver(CloningVisitor):
         raise QueryError("You can only call simple functions in HogQL, not expressions")
 
     def visit_block(self, node: ast.Block):
-        raise QueryError("You can not use blocks in HogQL")
+        if len(node.declarations) == 1:
+            declaration = node.declarations[0]
+            if isinstance(declaration, ast.ExprStatement) or isinstance(declaration, ast.ReturnStatement):
+                if isinstance(declaration.expr, ast.Field):
+                    raise QueryError(f"Unresolved placeholder: {{{node.placeholder_chain}}}")
+                else:
+                    raise QueryError("Blocks can only contain HogQL field access expressions")
+            raise QueryError("Blocks can only contain a single HogQL expression")
+        raise QueryError("Unexpected block. It should have been resolved by now.")
 
     def visit_lambda(self, node: ast.Lambda):
         """Visit each SELECT query or subquery."""

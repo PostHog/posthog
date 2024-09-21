@@ -228,9 +228,6 @@ class BytecodeCompiler(Visitor):
             )
         return [*chain, Operation.GET_GLOBAL, len(node.chain)]
 
-    def visit_placeholder(self, node: ast.Placeholder):
-        raise QueryError(f"Unresolved placeholder: {{{node.field}}}")
-
     def visit_tuple_access(self, node: ast.TupleAccess):
         return [
             *self.visit(node.tuple),
