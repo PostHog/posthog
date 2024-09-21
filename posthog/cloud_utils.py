@@ -18,7 +18,7 @@ def is_cloud() -> bool:
 
 
 def is_ci() -> bool:
-    return os.environ.get("GITHUB_ACTIONS")
+    return os.environ.get("GITHUB_ACTIONS") is not None
 
 
 def get_cached_instance_license() -> Optional["License"]:
