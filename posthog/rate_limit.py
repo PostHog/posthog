@@ -295,6 +295,12 @@ class AISustainedRateThrottle(UserRateThrottle):
     rate = "40/day"
 
 
+class HogQLQueryThrottle(PersonalApiKeyRateThrottle):
+    # Lower rate limit for HogQL queries
+    scope = "query"
+    rate = "120/hour"
+
+
 class UserPasswordResetThrottle(UserOrEmailRateThrottle):
     scope = "user_password_reset"
     rate = "6/day"

@@ -99,6 +99,9 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
         )
 
     def create_parquet_file(self):
+        if not OBJECT_STORAGE_ACCESS_KEY_ID or not OBJECT_STORAGE_SECRET_ACCESS_KEY:
+            raise Exception("Missing vars")
+
         fs = s3fs.S3FileSystem(
             client_kwargs={
                 "region_name": "us-east-1",
@@ -128,7 +131,9 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
         table_name = "test_table_1"
 
         credential = DataWarehouseCredential.objects.create(
-            access_key=OBJECT_STORAGE_ACCESS_KEY_ID, access_secret=OBJECT_STORAGE_SECRET_ACCESS_KEY, team=self.team
+            access_key=OBJECT_STORAGE_ACCESS_KEY_ID,
+            access_secret=OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            team=self.team,
         )
 
         # TODO: use env vars

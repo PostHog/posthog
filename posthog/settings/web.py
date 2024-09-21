@@ -3,10 +3,13 @@ import os
 from datetime import timedelta
 
 from corsheaders.defaults import default_headers
+import structlog
 
 from posthog.settings.base_variables import BASE_DIR, DEBUG, TEST
 from posthog.settings.utils import get_from_env, get_list, str_to_bool
 from posthog.utils_cors import CORS_ALLOWED_TRACING_HEADERS
+
+logger = structlog.get_logger(__name__)
 
 # django-axes settings to lockout after too many attempts
 
@@ -367,8 +370,6 @@ KAFKA_PRODUCE_ACK_TIMEOUT_SECONDS = int(os.getenv("KAFKA_PRODUCE_ACK_TIMEOUT_SEC
 
 # We keep the number of buckets low to reduce resource usage on the Prometheus
 PROMETHEUS_LATENCY_BUCKETS = [0.1, 0.3, 0.9, 2.7, 8.1, float("inf")]
-
-SALT_KEY = get_list(os.getenv("SALT_KEY", "0123456789abcdefghijklmnopqrstuvwxyz"))
 
 # temporary flag to control new UUID version setting in posthog-js
 # is set to v7 to test new generation but can be set to "og" to revert

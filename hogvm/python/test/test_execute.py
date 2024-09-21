@@ -978,9 +978,15 @@ class TestBytecodeExecute:
         assert self._run_program("let a := {'b': {'d': 2}}; return (((a??{}).b)??{}).c") is None
         assert self._run_program("let a := {'b': {'d': 2}}; return (((a??{}).b)??{}).d") == 2
         assert self._run_program("let a := {'b': {'d': 2}}; return a?.b?.c") is None
+        assert self._run_program("let a := {'b': {'d': 2}}; return a.b.c") is None
         assert self._run_program("let a := {'b': {'d': 2}}; return a?.b?.d") == 2
+        assert self._run_program("let a := {'b': {'d': 2}}; return a.b.d") == 2
         assert self._run_program("let a := {'b': {'d': 2}}; return a?.b?.['c']") is None
+        assert self._run_program("let a := {'b': {'d': 2}}; return a.b['c']") is None
         assert self._run_program("let a := {'b': {'d': 2}}; return a?.b?.['d']") == 2
+        assert self._run_program("let a := {'b': {'d': 2}}; return a.b['d']") == 2
+        assert self._run_program("return properties.foo") == "bar"
+        assert self._run_program("return properties.not.here") is None
 
     def test_bytecode_uncaught_errors(self):
         try:

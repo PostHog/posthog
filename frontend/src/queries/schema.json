@@ -2657,6 +2657,10 @@
                 "color": {
                     "type": "string"
                 },
+                "colorMode": {
+                    "enum": ["light", "dark"],
+                    "type": "string"
+                },
                 "columnName": {
                     "type": "string"
                 },

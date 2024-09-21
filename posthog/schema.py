@@ -261,12 +261,18 @@ class CompareFilter(BaseModel):
     compare_to: Optional[str] = None
 
 
+class ColorMode(StrEnum):
+    LIGHT = "light"
+    DARK = "dark"
+
+
 class ConditionalFormattingRule(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     bytecode: list
     color: str
+    colorMode: Optional[ColorMode] = None
     columnName: str
     id: str
     input: str

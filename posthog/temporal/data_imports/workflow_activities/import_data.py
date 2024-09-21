@@ -312,6 +312,39 @@ async def import_data_activity(inputs: ImportDataActivityInputs):
             schema=schema,
             reset_pipeline=reset_pipeline,
         )
+    elif model.pipeline.source_type == ExternalDataSource.Type.BIGQUERY:
+        # from posthog.temporal.data_imports.pipelines.bigquery import bigquery_source
+        from posthog.temporal.data_imports.pipelines.sql_database import bigquery_source
+
+        dataset_id = model.pipeline.job_inputs.get("dataset_id")
+        project_id = model.pipeline.job_inputs.get("project_id")
+        private_key = model.pipeline.job_inputs.get("private_key")
+        private_key_id = model.pipeline.job_inputs.get("private_key_id")
+        client_email = model.pipeline.job_inputs.get("client_email")
+        token_uri = model.pipeline.job_inputs.get("token_uri")
+
+        source = bigquery_source(
+            dataset_id=dataset_id,
+            project_id=project_id,
+            private_key=private_key,
+            private_key_id=private_key_id,
+            client_email=client_email,
+            token_uri=token_uri,
+            table_name=schema.name,
+            incremental_field=schema.sync_type_config.get("incremental_field") if schema.is_incremental else None,
+            incremental_field_type=schema.sync_type_config.get("incremental_field_type")
+            if schema.is_incremental
+            else None,
+        )
+
+        return await _run(
+            job_inputs=job_inputs,
+            source=source,
+            logger=logger,
+            inputs=inputs,
+            schema=schema,
+            reset_pipeline=reset_pipeline,
+        )
     else:
         raise ValueError(f"Source type {model.pipeline.source_type} not supported")
 
