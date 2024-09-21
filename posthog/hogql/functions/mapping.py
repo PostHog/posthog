@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from itertools import chain
 from typing import Optional
 
-from posthog.cloud_utils import is_cloud
+from posthog.cloud_utils import is_cloud, is_ci
 from posthog.hogql import ast
 from posthog.hogql.ast import (
     ArrayType,
@@ -1038,7 +1038,8 @@ UDFS: dict[str, HogQLFunctionMeta] = {
     "aggregate_funnel_cohort_trends": HogQLFunctionMeta("aggregate_funnel_cohort_trends", 7, 7, aggregate=False),
     "aggregate_funnel_test": HogQLFunctionMeta("aggregate_funnel_test", 6, 6, aggregate=False),
 }
-if is_cloud():
+# We want CI to fail if there is a breaking change and the version hasn't been incremented
+if is_cloud() or is_ci():
     from posthog.udf_versioner import augment_function_name
 
     for v in UDFS.values():
