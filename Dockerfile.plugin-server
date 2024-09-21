@@ -1,0 +1,62 @@
+# Use a base image that supports both Rust and Node.js, matching the version used for building the plugin server.
+FROM ghcr.io/posthog/rust-node-container:bullseye_rust_1.80.1-node_18.19.1 AS plugin-server-build
+
+# Set working directory and shell configuration
+WORKDIR /code/plugin-server
+SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
+
+# Copy Rust code needed for the build
+COPY ./rust /code/rust
+WORKDIR /code/plugin-server
+
+# Copy package and configuration files needed for building dependencies
+COPY ./plugin-server/package.json ./plugin-server/pnpm-lock.yaml ./plugin-server/tsconfig.json ./
+COPY ./plugin-server/patches/ ./patches/
+
+# Install dependencies needed for building the plugin server
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    make \
+    g++ \
+    gcc \
+    python3 \
+    libssl-dev \
+    zlib1g-dev && \
+    rm -rf /var/lib/apt/lists/*
+
+# Enable corepack, set up the store directory, and install dependencies
+RUN corepack enable && \
+    mkdir /tmp/pnpm-store && \
+    pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store && \
+    rm -rf /tmp/pnpm-store
+
+# Copy plugin server source code and build it
+COPY ./plugin-server/src/ ./src/
+RUN pnpm build
+
+# Install only production dependencies
+RUN corepack enable && \
+    mkdir /tmp/pnpm-store && \
+    pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store --prod && \
+    rm -rf /tmp/pnpm-store
+
+# Set up the runtime image based on a minimal Node.js environment
+FROM node:18.19.1-bullseye-slim
+
+# Set working directory and shell configuration
+WORKDIR /code/plugin-server
+SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
+
+# Copy built plugin server and node_modules from the build stage
+COPY --from=plugin-server-build /code/plugin-server/dist /code/plugin-server/dist
+COPY --from=plugin-server-build /code/plugin-server/node_modules /code/plugin-server/node_modules
+COPY --from=plugin-server-build /code/plugin-server/package.json /code/plugin-server/package.json
+
+# Expose container port and run entry point script.
+EXPOSE 8000
+
+# Expose the port from which we serve OpenMetrics data.
+EXPOSE 8001
+COPY unit.json.tpl /docker-entrypoint.d/unit.json.tpl
+USER root
+CMD ["./bin/docker"]

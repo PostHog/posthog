@@ -4,18 +4,14 @@
 # PostHog has sunset support for self-hosted K8s deployments.
 # See: https://posthog.com/blog/sunsetting-helm-support-posthog
 #
-# Note: for PostHog Cloud remember to update ‘Dockerfile.cloud’ as appropriate.
-#
 # The stages are used to:
 #
 # - frontend-build: build the frontend (static assets)
-# - plugin-server-build: build plugin-server (Node.js app) & fetch its runtime dependencies
 # - posthog-build: fetch PostHog (Django app) dependencies & build Django collectstatic
 # - fetch-geoip-db: fetch the GeoIP database
+# - final-build: in this last stage, we import the artifacts from the previous stages, add some runtime dependencies and build the final image.
 #
-# In the last stage, we import the artifacts from the previous
-# stages, add some runtime dependencies and build the final image.
-#
+
 
 
 #
@@ -37,48 +33,10 @@ COPY ee/frontend/ ee/frontend/
 COPY ./bin/ ./bin/
 COPY babel.config.js tsconfig.json webpack.config.js tailwind.config.js ./
 RUN pnpm build
-
 #
 # ---------------------------------------------------------
 #
-FROM ghcr.io/posthog/rust-node-container:bullseye_rust_1.80.1-node_18.19.1 AS plugin-server-build
-WORKDIR /code
-COPY ./rust ./rust
-WORKDIR /code/plugin-server
-SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
-# Compile and install Node.js dependencies.
-COPY ./plugin-server/package.json ./plugin-server/pnpm-lock.yaml ./plugin-server/tsconfig.json ./
-COPY ./plugin-server/patches/ ./patches/
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
-    "make" \
-    "g++" \
-    "gcc" \
-    "python3" \
-    "libssl-dev" \
-    "zlib1g-dev" \
-    && \
-    rm -rf /var/lib/apt/lists/* && \
-    corepack enable && \
-    mkdir /tmp/pnpm-store && \
-    pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store && \
-    rm -rf /tmp/pnpm-store
-
-# Build the plugin server.
-#
-# Note: we run the build as a separate action to increase
-# the cache hit ratio of the layers above.
-COPY ./plugin-server/src/ ./src/
-RUN pnpm build
-
-# As the plugin-server is now built, let’s keep
-# only prod dependencies in the node_module folder
-# as we will copy it to the last image.
-RUN corepack enable && \
-    mkdir /tmp/pnpm-store && \
-    pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store --prod && \
-    rm -rf /tmp/pnpm-store
 
 
 #
@@ -116,6 +74,10 @@ COPY posthog posthog/
 COPY ee ee/
 COPY --from=frontend-build /code/frontend/dist /code/frontend/dist
 RUN SKIP_SERVICE_VERSION_REQUIREMENTS=1 STATIC_COLLECTION=1 DATABASE_URL='postgres:///' REDIS_URL='redis:///' python manage.py collectstatic --noinput
+#
+# ---------------------------------------------------------
+#
+
 
 
 #
@@ -136,13 +98,17 @@ RUN apt-get update && \
     mkdir share && \
     ( curl -s -L "https://mmdbcdn.posthog.net/" --http1.1 | brotli --decompress --output=./share/GeoLite2-City.mmdb ) && \
     chmod -R 755 ./share/GeoLite2-City.mmdb
+#
+# ---------------------------------------------------------
+#
+
 
 
 #
 # ---------------------------------------------------------
 #
 # NOTE: newer images change the base image from bullseye to bookworm which makes compiled openssl versions have all sorts of issues
-FROM unit:1.32.0-python3.11 
+FROM unit:1.32.0-python3.11 AS final-build
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 ENV PYTHONUNBUFFERED 1
@@ -184,12 +150,6 @@ USER posthog
 # Add the commit hash
 ARG COMMIT_HASH
 RUN echo $COMMIT_HASH > /code/commit.txt
-
-# Add in the compiled plugin-server & its runtime dependencies from the plugin-server-build stage.
-COPY --from=plugin-server-build --chown=posthog:posthog /code/plugin-server/dist /code/plugin-server/dist
-COPY --from=plugin-server-build --chown=posthog:posthog /code/plugin-server/node_modules /code/plugin-server/node_modules
-COPY --from=plugin-server-build --chown=posthog:posthog /code/plugin-server/package.json /code/plugin-server/package.json
-
 
 # Copy the Python dependencies and Django staticfiles from the posthog-build stage.
 COPY --from=posthog-build --chown=posthog:posthog /code/staticfiles /code/staticfiles

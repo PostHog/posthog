@@ -47,7 +47,7 @@ jobs:
                         - 'posthog/migrations/**'
                         - 'posthog/plugins/**'
                         - 'docker*.yml'
-                        - '*Dockerfile'
+                        - 'Dockerfile.plugin-server'
 
     code-quality:
         name: Code quality
