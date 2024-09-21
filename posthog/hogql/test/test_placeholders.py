@@ -15,7 +15,11 @@ class TestParser(BaseTest):
         expr = parse_expr("{foo}")
         self.assertEqual(
             expr,
-            ast.Block(declarations=[ast.ExprStatement(expr=ast.Field(chain=["foo"], start=0, end=5), start=0, end=5)]),
+            ast.Block(
+                declarations=[ast.ExprStatement(expr=ast.Field(chain=["foo"], start=1, end=4), start=1, end=4)],
+                start=0,
+                end=5,
+            ),
         )
         expr2 = replace_placeholders(expr, {"foo": ast.Constant(value="bar")})
         self.assertEqual(
@@ -48,7 +52,11 @@ class TestParser(BaseTest):
                 op=ast.CompareOperationOp.Lt,
                 left=ast.Field(chain=["timestamp"], start=0, end=9),
                 right=ast.Block(
-                    declarations=[ast.ExprStatement(expr=ast.Field(chain=["timestamp"], start=12, end=23))]
+                    declarations=[
+                        ast.ExprStatement(expr=ast.Field(chain=["timestamp"], start=13, end=22), start=13, end=22)
+                    ],
+                    start=12,
+                    end=23,
                 ),
             ),
         )
@@ -78,7 +86,7 @@ class TestParser(BaseTest):
 
         assert expr.ctes is not None and expr.ctes["test"] is not None
         assert isinstance(expr.ctes["test"].expr, ast.SelectQuery)
-        assert isinstance(expr.ctes["test"].expr.select[0], ast.Placeholder)
+        assert isinstance(expr.ctes["test"].expr.select[0], ast.Block)
 
         expr2 = cast(ast.SelectQuery, replace_placeholders(expr, {"foo": ast.Constant(value=1)}))
 

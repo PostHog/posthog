@@ -1167,7 +1167,7 @@ class _Printer(Visitor):
             raise QueryError(f"Unsupported function call '{node.name}(...)'")
 
     def visit_block(self, node: ast.Block):
-        raise QueryError(f"Unresolved placeholder: {{{node.field}}}")
+        raise QueryError(f"Unresolved placeholder: {{{node.placeholder_chain}}}")
 
     def visit_alias(self, node: ast.Alias):
         # Skip hidden aliases completely.

@@ -525,7 +525,7 @@ class Resolver(CloningVisitor):
                 if isinstance(declaration.expr, ast.Field):
                     raise QueryError(f"Unresolved placeholder: {{{node.placeholder_chain}}}")
                 else:
-                    raise QueryError("Blocks can only contain HogQL field access expressions")
+                    raise QueryError("You can only use field access in placeholders")
             raise QueryError("Blocks can only contain a single HogQL expression")
         raise QueryError("Unexpected block. It should have been resolved by now.")
 

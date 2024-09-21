@@ -115,7 +115,7 @@ class Block(Statement):
             declaration = self.declarations[0]
             if isinstance(declaration, ExprStatement) or isinstance(declaration, ReturnStatement):
                 if isinstance(declaration.expr, Field):
-                    return ".".join(declaration.expr.chain)
+                    return ".".join(str(c) for c in declaration.expr.chain)
         return None
 
 

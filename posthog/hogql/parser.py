@@ -330,7 +330,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return self.visit(ctx.selectUnionStmt() or ctx.selectStmt() or ctx.hogqlxTagElement())
 
     def visitSelectUnionStmt(self, ctx: HogQLParser.SelectUnionStmtContext):
-        select_queries: list[ast.SelectQuery | ast.SelectUnionQuery | ast.Placeholder] = [
+        select_queries: list[ast.SelectQuery | ast.SelectUnionQuery | ast.Block] = [
             self.visit(select) for select in ctx.selectStmtWithParens()
         ]
         flattened_queries: list[ast.SelectQuery] = []
@@ -339,7 +339,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
                 flattened_queries.append(query)
             elif isinstance(query, ast.SelectUnionQuery):
                 flattened_queries.extend(query.select_queries)
-            elif isinstance(query, ast.Placeholder):
+            elif isinstance(query, ast.Block):
                 flattened_queries.append(query)  # type: ignore
             else:
                 raise Exception(f"Unexpected query node type {type(query).__name__}")

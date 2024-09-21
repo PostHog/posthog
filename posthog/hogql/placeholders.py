@@ -32,7 +32,7 @@ class FindPlaceholders(TraversingVisitor):
             raise QueryError("Placeholders can only contain a simple expression")
         if not isinstance(declaration.expr, ast.Field):
             raise QueryError("Placeholders can only contain a single field expression")
-        self.found.add(".".join(declaration.expr.chain))
+        self.found.add(".".join(str(c) for c in declaration.expr.chain))
 
 
 class ReplacePlaceholders(CloningVisitor):
