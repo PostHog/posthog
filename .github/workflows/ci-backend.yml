@@ -158,10 +158,6 @@ jobs:
         steps:
             - uses: actions/checkout@v3
 
-            - name: Copy full versioned UDF config to docker
-              run: |
-                  cp posthog/user_scripts/latest_user_defined_function.xml docker/clickhouse/user_defined_function.xml
-
             - name: Stop/Start stack with Docker Compose
               run: |
                   docker compose -f docker-compose.dev.yml down
