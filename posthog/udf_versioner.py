@@ -5,13 +5,18 @@ import glob
 import xml.etree.ElementTree as ET
 
 
-# Increment this and run this file every time you make breaking changes to UDFs
-# After running this, you have to copy the `user_defined_function.xml` file in the newly created version folder to the `posthog-cloud-infra` repo and deploy it
-# After it goes out, it is safe to land the posthog repo code
-# If deploys aren't seamless, look into moving the copy to clickhouse earlier in the deploy process
-UDF_VERSION = 1  # Last modified by: @aspicer, 2024-09-20
+# For revertible cloud deploys:
+# 1. Edit and develop using the top level functions inside of user_scripts, along with `user_defined_function.xml` inside of `docker/clickhouse`
+# 1. Increment the version below and run this file every time you make breaking changes to UDFs (likely involving type definitions).
+# 2. After running this, you have to copy the `user_defined_function.xml` file in the newly created version folder (e.g. `user_scripts/v4/user_defined_function.xml`) to the `posthog-cloud-infra` repo and deploy it
+# 3. After that deploy goes out, it is safe to land and deploy the changes to the `posthog` repo
+# If deploys aren't seamless, look into moving the action that copies the `user_scripts` folder to the clickhouse cluster earlier in the deploy process
+UDF_VERSION = 0  # Last modified by: @aspicer, 2024-09-20
 
-XML_CONFIG = "user_defined_function.xml"
+ROOT_PATH = os.path.abspath(os.path.dirname(__name__))
+
+CLICKHOUSE_XML_FILENAME = "user_defined_function.xml"
+ACTIVE_XML_CONFIG = "../../docker/clickhouse/user_defined_function.xml"
 
 format_version_string = lambda version: f"v{version}"
 VERSION_STR = format_version_string(UDF_VERSION)
@@ -37,12 +42,12 @@ if __name__ == "__main__":
     for file in glob.glob("*.py"):
         shutil.copy(file, VERSION_STR)
 
-    base_xml = ET.parse(XML_CONFIG)
+    base_xml = ET.parse(ACTIVE_XML_CONFIG)
 
     if os.path.exists(LAST_VERSION_STR):
-        last_version_xml = ET.parse(os.path.join(LAST_VERSION_STR, XML_CONFIG))
+        last_version_xml = ET.parse(os.path.join(LAST_VERSION_STR, CLICKHOUSE_XML_FILENAME))
     else:
-        last_version_xml = ET.parse(XML_CONFIG)
+        last_version_xml = ET.parse(ACTIVE_XML_CONFIG)
 
     last_version_root = last_version_xml.getroot()
     # We want to update the name and the command to include the version, and add it to last version
@@ -53,6 +58,4 @@ if __name__ == "__main__":
         command.text = f"{VERSION_STR}/{command.text}"
         last_version_root.append(function)
 
-    last_version_xml.write(os.path.join(VERSION_STR, XML_CONFIG))
-
-# TODO: Update Mapping
+    last_version_xml.write(os.path.join(VERSION_STR, CLICKHOUSE_XML_FILENAME))
