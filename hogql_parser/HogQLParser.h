@@ -68,8 +68,8 @@ public:
     RuleTableArgList = 69, RuleDatabaseIdentifier = 70, RuleFloatingLiteral = 71, 
     RuleNumberLiteral = 72, RuleLiteral = 73, RuleInterval = 74, RuleKeyword = 75, 
     RuleKeywordForAlias = 76, RuleAlias = 77, RuleIdentifier = 78, RuleEnumValue = 79, 
-    RulePlaceholder = 80, RuleString = 81, RuleTemplateString = 82, RuleStringContents = 83, 
-    RuleFullTemplateString = 84, RuleStringContentsFull = 85
+    RuleString = 80, RuleTemplateString = 81, RuleStringContents = 82, RuleFullTemplateString = 83, 
+    RuleStringContentsFull = 84
   };
 
   explicit HogQLParser(antlr4::TokenStream *input);
@@ -169,7 +169,6 @@ public:
   class AliasContext;
   class IdentifierContext;
   class EnumValueContext;
-  class PlaceholderContext;
   class StringContext;
   class TemplateStringContext;
   class StringContentsContext;
@@ -583,13 +582,14 @@ public:
 
   class  SelectStmtWithParensContext : public antlr4::ParserRuleContext {
   public:
+    HogQLParser::BlockContext *placeholder = nullptr;
     SelectStmtWithParensContext(antlr4::ParserRuleContext *parent, size_t invokingState);
     virtual size_t getRuleIndex() const override;
     SelectStmtContext *selectStmt();
     antlr4::tree::TerminalNode *LPAREN();
     SelectUnionStmtContext *selectUnionStmt();
     antlr4::tree::TerminalNode *RPAREN();
-    PlaceholderContext *placeholder();
+    BlockContext *block();
 
 
     virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
@@ -1064,9 +1064,10 @@ public:
 
   class  RatioExprContext : public antlr4::ParserRuleContext {
   public:
+    HogQLParser::BlockContext *placeholder = nullptr;
     RatioExprContext(antlr4::ParserRuleContext *parent, size_t invokingState);
     virtual size_t getRuleIndex() const override;
-    PlaceholderContext *placeholder();
+    BlockContext *block();
     std::vector<NumberLiteralContext *> numberLiteral();
     NumberLiteralContext* numberLiteral(size_t i);
     antlr4::tree::TerminalNode *SLASH();
@@ -1729,6 +1730,17 @@ public:
     virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
   };
 
+  class  ColumnExprPlaceholderContext : public ColumnExprContext {
+  public:
+    ColumnExprPlaceholderContext(ColumnExprContext *ctx);
+
+    antlr4::tree::TerminalNode *LBRACE();
+    NestedIdentifierContext *nestedIdentifier();
+    antlr4::tree::TerminalNode *RBRACE();
+
+    virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
+  };
+
   class  ColumnExprNullishContext : public ColumnExprContext {
   public:
     ColumnExprNullishContext(ColumnExprContext *ctx);
@@ -2020,7 +2032,6 @@ public:
   public:
     ColumnIdentifierContext(antlr4::ParserRuleContext *parent, size_t invokingState);
     virtual size_t getRuleIndex() const override;
-    PlaceholderContext *placeholder();
     NestedIdentifierContext *nestedIdentifier();
     TableIdentifierContext *tableIdentifier();
     antlr4::tree::TerminalNode *DOT();
@@ -2083,7 +2094,8 @@ public:
   public:
     TableExprPlaceholderContext(TableExprContext *ctx);
 
-    PlaceholderContext *placeholder();
+    HogQLParser::BlockContext *placeholder = nullptr;
+    BlockContext *block();
 
     virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
   };
@@ -2410,19 +2422,6 @@ public:
   };
 
   EnumValueContext* enumValue();
-
-  class  PlaceholderContext : public antlr4::ParserRuleContext {
-  public:
-    PlaceholderContext(antlr4::ParserRuleContext *parent, size_t invokingState);
-    virtual size_t getRuleIndex() const override;
-    BlockContext *block();
-
-
-    virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
-   
-  };
-
-  PlaceholderContext* placeholder();
 
   class  StringContext : public antlr4::ParserRuleContext {
   public:

@@ -407,6 +407,10 @@ public:
     return visitChildren(ctx);
   }
 
+  virtual std::any visitColumnExprPlaceholder(HogQLParser::ColumnExprPlaceholderContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
   virtual std::any visitColumnExprNullish(HogQLParser::ColumnExprNullishContext *ctx) override {
     return visitChildren(ctx);
   }
@@ -560,10 +564,6 @@ public:
   }
 
   virtual std::any visitEnumValue(HogQLParser::EnumValueContext *ctx) override {
-    return visitChildren(ctx);
-  }
-
-  virtual std::any visitPlaceholder(HogQLParser::PlaceholderContext *ctx) override {
     return visitChildren(ctx);
   }
 

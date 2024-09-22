@@ -215,6 +215,8 @@ public:
 
     virtual std::any visitColumnExprTimestamp(HogQLParser::ColumnExprTimestampContext *context) = 0;
 
+    virtual std::any visitColumnExprPlaceholder(HogQLParser::ColumnExprPlaceholderContext *context) = 0;
+
     virtual std::any visitColumnExprNullish(HogQLParser::ColumnExprNullishContext *context) = 0;
 
     virtual std::any visitColumnExprAnd(HogQLParser::ColumnExprAndContext *context) = 0;
@@ -292,8 +294,6 @@ public:
     virtual std::any visitIdentifier(HogQLParser::IdentifierContext *context) = 0;
 
     virtual std::any visitEnumValue(HogQLParser::EnumValueContext *context) = 0;
-
-    virtual std::any visitPlaceholder(HogQLParser::PlaceholderContext *context) = 0;
 
     virtual std::any visitString(HogQLParser::StringContext *context) = 0;
 

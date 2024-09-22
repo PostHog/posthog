@@ -846,7 +846,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       return visit(select_stmt_ctx);
     }
 
-    auto placeholder_ctx = ctx->placeholder();
+    auto placeholder_ctx = ctx->placeholder;
     if (placeholder_ctx) {
       return visitAsPyObject(placeholder_ctx);
     }
@@ -1429,7 +1429,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
   }
 
   VISIT(RatioExpr) {
-    auto placeholder_ctx = ctx->placeholder();
+    auto placeholder_ctx = ctx->placeholder;
     if (placeholder_ctx) {
       return visitAsPyObject(placeholder_ctx);
     }
@@ -2195,6 +2195,19 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
 
   VISIT(ColumnExprIdentifier) { return visit(ctx->columnIdentifier()); }
 
+  VISIT(ColumnExprPlaceholder) {
+    auto nested_identifier_ctx = ctx->nestedIdentifier();
+    vector<string> nested =
+        nested_identifier_ctx ? any_cast<vector<string>>(visit(nested_identifier_ctx)) : vector<string>();
+
+    PyObject* field = build_ast_node("Field", "{s:N}", "chain", X_PyList_FromStrings(nested));
+    PyObject* value = build_ast_node("ExprStatement", "{s:O}", "expr", field);
+    PyObject* declarations = PyList_New(1);
+    if (!declarations) throw PyInternalError();
+    PyList_SET_ITEM(declarations, 0, value);
+    RETURN_NEW_AST_NODE("Block", "{s:O}", "declarations", declarations);
+  }
+
   VISIT(ColumnExprBlock) { return visit(ctx->block()); }
 
   VISIT(ColumnExprFunction) {
@@ -2300,10 +2313,6 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
   }
 
   VISIT(ColumnIdentifier) {
-    auto placeholder_ctx = ctx->placeholder();
-    if (placeholder_ctx) {
-      return visitAsPyObject(placeholder_ctx);
-    }
     auto table_identifier_ctx = ctx->tableIdentifier();
     auto nested_identifier_ctx = ctx->nestedIdentifier();
     vector<string> table =
@@ -2336,7 +2345,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
 
   VISIT(TableExprSubquery) { return visit(ctx->selectUnionStmt()); }
 
-  VISIT(TableExprPlaceholder) { return visitAsPyObject(ctx->placeholder()); }
+  VISIT(TableExprPlaceholder) { return visitAsPyObject(ctx->placeholder); }
 
   VISIT(TableExprAlias) {
     auto alias_ctx = ctx->alias();
@@ -2570,8 +2579,6 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
 
     RETURN_NEW_AST_NODE("HogQLXTag", "{s:s#,s:N}", "kind", opening.data(), opening.size(), "attributes", attributes);
   }
-
-  VISIT(Placeholder) { return visit(ctx->block()); }
 
   VISIT_UNSUPPORTED(EnumValue)
 

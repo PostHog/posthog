@@ -499,6 +499,11 @@ class HogQLParserVisitor(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
 
+    # Visit a parse tree produced by HogQLParser#ColumnExprPlaceholder.
+    def visitColumnExprPlaceholder(self, ctx:HogQLParser.ColumnExprPlaceholderContext):
+        return self.visitChildren(ctx)
+
+
     # Visit a parse tree produced by HogQLParser#ColumnExprNullish.
     def visitColumnExprNullish(self, ctx:HogQLParser.ColumnExprNullishContext):
         return self.visitChildren(ctx)
@@ -691,11 +696,6 @@ class HogQLParserVisitor(ParseTreeVisitor):
 
     # Visit a parse tree produced by HogQLParser#enumValue.
     def visitEnumValue(self, ctx:HogQLParser.EnumValueContext):
-        return self.visitChildren(ctx)
-
-
-    # Visit a parse tree produced by HogQLParser#placeholder.
-    def visitPlaceholder(self, ctx:HogQLParser.PlaceholderContext):
         return self.visitChildren(ctx)
 
 

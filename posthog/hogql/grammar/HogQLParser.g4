@@ -54,7 +54,7 @@ kvPairList: kvPair (COMMA kvPair)* COMMA?;
 select: (selectUnionStmt | selectStmt | hogqlxTagElement) EOF;
 
 selectUnionStmt: selectStmtWithParens (UNION ALL selectStmtWithParens)*;
-selectStmtWithParens: selectStmt | LPAREN selectUnionStmt RPAREN | placeholder;
+selectStmtWithParens: selectStmt | LPAREN selectUnionStmt RPAREN | placeholder=block;
 
 selectStmt:
     with=withClause?
@@ -117,7 +117,7 @@ joinConstraintClause
 sampleClause: SAMPLE ratioExpr (OFFSET ratioExpr)?;
 orderExprList: orderExpr (COMMA orderExpr)*;
 orderExpr: columnExpr (ASCENDING | DESCENDING | DESC)? (NULLS (FIRST | LAST))? (COLLATE STRING_LITERAL)?;
-ratioExpr: placeholder | numberLiteral (SLASH numberLiteral)?;
+ratioExpr: placeholder=block | numberLiteral (SLASH numberLiteral)?;
 settingExprList: settingExpr (COMMA settingExpr)*;
 settingExpr: identifier EQ_SINGLE literal;
 
@@ -207,8 +207,9 @@ columnExpr
     | LBRACKET columnExprList? RBRACKET                                                   # ColumnExprArray
     | LBRACE (kvPairList)? RBRACE                                                         # ColumnExprDict
     | columnLambdaExpr                                                                    # ColumnExprLambda
-    | columnIdentifier                                                                    # ColumnExprIdentifier
+    | LBRACE nestedIdentifier RBRACE                                                      # ColumnExprPlaceholder // Faster to parse than block
     | block                                                                               # ColumnExprBlock
+    | columnIdentifier                                                                    # ColumnExprIdentifier
     ;
 
 columnLambdaExpr:
@@ -242,7 +243,7 @@ withExpr
 // HogQL allows unlimited ("*") nestedIdentifier-s "properties.b.a.a.w.a.s".
 // We parse and convert "databaseIdentifier.tableIdentifier.columnIdentifier.nestedIdentifier.*"
 // to just one ast.Field(chain=['a','b','columnIdentifier','on','and','on']).
-columnIdentifier: placeholder | ((tableIdentifier DOT)? nestedIdentifier);
+columnIdentifier: ((tableIdentifier DOT)? nestedIdentifier);
 nestedIdentifier: identifier (DOT identifier)*;
 tableExpr
     : tableIdentifier                    # TableExprIdentifier
@@ -250,7 +251,7 @@ tableExpr
     | LPAREN selectUnionStmt RPAREN      # TableExprSubquery
     | tableExpr (alias | AS identifier)  # TableExprAlias
     | hogqlxTagElement                   # TableExprTag
-    | placeholder                        # TableExprPlaceholder
+    | placeholder=block                  # TableExprPlaceholder
     ;
 tableFunctionExpr: identifier LPAREN tableArgList? RPAREN;
 tableIdentifier: (databaseIdentifier DOT)? identifier;
@@ -294,7 +295,6 @@ keywordForAlias
 alias: IDENTIFIER | keywordForAlias;  // |interval| can't be an alias, otherwise 'INTERVAL 1 SOMETHING' becomes ambiguous.
 identifier: IDENTIFIER | interval | keyword;
 enumValue: string EQ_SINGLE numberLiteral;
-placeholder: block;
 
 string: STRING_LITERAL | templateString;
 templateString : QUOTE_SINGLE_TEMPLATE stringContents* QUOTE_SINGLE ;

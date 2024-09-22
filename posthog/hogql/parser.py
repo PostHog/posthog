@@ -348,7 +348,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return ast.SelectUnionQuery(select_queries=flattened_queries)
 
     def visitSelectStmtWithParens(self, ctx: HogQLParser.SelectStmtWithParensContext):
-        return self.visit(ctx.selectStmt() or ctx.selectUnionStmt() or ctx.placeholder())
+        return self.visit(ctx.selectStmt() or ctx.selectUnionStmt() or ctx.placeholder)
 
     def visitSelectStmt(self, ctx: HogQLParser.SelectStmtContext):
         select_query = ast.SelectQuery(
@@ -557,8 +557,8 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return ast.OrderExpr(expr=self.visit(ctx.columnExpr()), order=cast(Literal["ASC", "DESC"], order))
 
     def visitRatioExpr(self, ctx: HogQLParser.RatioExprContext):
-        if ctx.placeholder():
-            return self.visit(ctx.placeholder())
+        if ctx.placeholder:
+            return self.visit(ctx.placeholder)
 
         number_literals = ctx.numberLiteral()
 
@@ -971,9 +971,6 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return ast.CTE(name=name, expr=expr, cte_type="column")
 
     def visitColumnIdentifier(self, ctx: HogQLParser.ColumnIdentifierContext):
-        if ctx.placeholder():
-            return self.visit(ctx.placeholder())
-
         table = self.visit(ctx.tableIdentifier()) if ctx.tableIdentifier() else []
         nested = self.visit(ctx.nestedIdentifier()) if ctx.nestedIdentifier() else []
 
@@ -998,7 +995,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return self.visit(ctx.selectUnionStmt())
 
     def visitTableExprPlaceholder(self, ctx: HogQLParser.TableExprPlaceholderContext):
-        return self.visit(ctx.placeholder())
+        return self.visit(ctx.placeholder)
 
     def visitTableExprAlias(self, ctx: HogQLParser.TableExprAliasContext):
         alias: str = self.visit(ctx.alias() or ctx.identifier())
@@ -1123,9 +1120,6 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             return ast.HogQLXAttribute(name=name, value=self.visit(ctx.string()))
         else:
             return ast.HogQLXAttribute(name=name, value=ast.Constant(value=True))
-
-    def visitPlaceholder(self, ctx: HogQLParser.PlaceholderContext):
-        return self.visit(ctx.block())
 
     def visitColumnExprTemplateString(self, ctx: HogQLParser.ColumnExprTemplateStringContext):
         return self.visit(ctx.templateString())
