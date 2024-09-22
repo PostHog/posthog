@@ -580,7 +580,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                             timestamp: timestamp,
                             search: comment.comment,
                             data: comment,
-                            windowId: windowIdForTimestamp(timestamp),
+                            windowId: windowIdForTimestamp(timestamp.valueOf()),
                         })
                     }
                 }
