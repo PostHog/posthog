@@ -2,7 +2,7 @@ import { afterMount, kea, path, props, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 
-import { AlertType } from '~/queries/schema'
+import { AlertState, AlertType } from '~/queries/schema'
 
 import { alertsLogicType } from './alertsLogicType'
 
@@ -32,4 +32,5 @@ export const alertsLogic = kea<alertsLogicType>([
     afterMount(({ actions }) => actions.loadAlerts()),
 ])
 
-const alertComparatorKey = (alert: AlertType): number => (!alert.enabled ? 3 : alert.state === 'not_met' ? 2 : 1)
+const alertComparatorKey = (alert: AlertType): number =>
+    !alert.enabled ? 3 : alert.state === AlertState.NOT_FIRING ? 2 : 1

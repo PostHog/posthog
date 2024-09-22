@@ -26,7 +26,7 @@ interface EditAlertProps {
     onClose?: () => void
 }
 
-export function AlertState({ alert }: { alert: AlertType }): JSX.Element | null {
+export function AlertStateTable({ alert }: { alert: AlertType }): JSX.Element | null {
     if (!alert.checks || alert.checks.length === 0) {
         return null
     }
@@ -34,7 +34,7 @@ export function AlertState({ alert }: { alert: AlertType }): JSX.Element | null 
     return (
         <div className="bg-bg-3000 p-4 mt-10 rounded-lg">
             <h3>
-                Current status {alert.state === 'firing' ? 'firing' : 'not met'}
+                Current status {alert.state}
                 <AlertStateIndicator alert={alert} />
             </h3>
             <table className="w-full table-auto border-spacing-2 border-collapse">
@@ -49,7 +49,7 @@ export function AlertState({ alert }: { alert: AlertType }): JSX.Element | null 
                 <tbody>
                     {alert.checks.map((check) => (
                         <tr key={check.id}>
-                            <td>{check.state === 'firing' ? 'Firing' : 'Not met'}</td>
+                            <td>{check.state}</td>
                             <td className="text-right">
                                 <TZLabel time={check.created_at} />
                             </td>
@@ -81,7 +81,7 @@ export function EditAlertModal({ alertId, onClose, isOpen, onEditSuccess, insigh
                     alert={alert}
                     onClose={onClose}
                     onEditSuccess={onEditSuccess}
-                    alertState={<AlertState alert={alert} />}
+                    alertState={<AlertStateTable alert={alert} />}
                 />
             ) : alertId !== undefined ? (
                 // we have alertId but didn't get alert

@@ -1904,11 +1904,24 @@ export interface AlertCondition {
     // TODO: Think about things like relative thresholds, rate of change, etc.
 }
 
+export enum AlertState {
+    FIRING = 'Firing',
+    NOT_FIRING = 'Not firing',
+    ERRORED = 'Errored',
+}
+
+export enum AlertCalculationInterval {
+    HOURLY = 'hourly',
+    DAILY = 'daily',
+    WEEKLY = 'weekly',
+    MONTHLY = 'monthly',
+}
+
 export interface AlertCheck {
     id: string
     created_at: string
     calculated_value: number
-    state: string
+    state: AlertState
     targets_notified: boolean
 }
 
@@ -1930,11 +1943,12 @@ export interface AlertType extends AlertTypeBase {
     threshold: { configuration: InsightThreshold }
     created_by: UserBasicType
     created_at: string
-    state: string
+    state: AlertState
     last_notified_at: string
+    last_checked_at: string
     checks: AlertCheck[]
     series_index: number
-    calculation_interval: 'hour' | 'day' | 'week' | 'month'
+    calculation_interval: AlertCalculationInterval
 }
 
 export interface HogCompileResponse {

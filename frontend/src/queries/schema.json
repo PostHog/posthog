@@ -311,6 +311,10 @@
             "enum": ["numeric", "duration", "duration_ms", "percentage", "percentage_scaled"],
             "type": "string"
         },
+        "AlertCalculationInterval": {
+            "enum": ["hourly", "daily", "weekly", "monthly"],
+            "type": "string"
+        },
         "AlertCheck": {
             "additionalProperties": false,
             "properties": {
@@ -324,7 +328,7 @@
                     "type": "string"
                 },
                 "state": {
-                    "type": "string"
+                    "$ref": "#/definitions/AlertState"
                 },
                 "targets_notified": {
                     "type": "boolean"
@@ -337,12 +341,15 @@
             "additionalProperties": false,
             "type": "object"
         },
+        "AlertState": {
+            "enum": ["Firing", "Not firing", "Errored"],
+            "type": "string"
+        },
         "AlertType": {
             "additionalProperties": false,
             "properties": {
                 "calculation_interval": {
-                    "enum": ["hour", "day", "week", "month"],
-                    "type": "string"
+                    "$ref": "#/definitions/AlertCalculationInterval"
                 },
                 "checks": {
                     "items": {
@@ -368,6 +375,12 @@
                 "insight": {
                     "type": "number"
                 },
+                "insight_short_id": {
+                    "$ref": "#/definitions/InsightShortId"
+                },
+                "last_checked_at": {
+                    "type": "string"
+                },
                 "last_notified_at": {
                     "type": "string"
                 },
@@ -378,7 +391,7 @@
                     "type": "number"
                 },
                 "state": {
-                    "type": "string"
+                    "$ref": "#/definitions/AlertState"
                 },
                 "subscribed_users": {
                     "items": {
@@ -406,6 +419,8 @@
                 "enabled",
                 "id",
                 "insight",
+                "insight_short_id",
+                "last_checked_at",
                 "last_notified_at",
                 "name",
                 "series_index",
@@ -427,11 +442,14 @@
                 "insight": {
                     "type": "number"
                 },
+                "insight_short_id": {
+                    "$ref": "#/definitions/InsightShortId"
+                },
                 "name": {
                     "type": "string"
                 }
             },
-            "required": ["name", "condition", "enabled", "insight"],
+            "required": ["name", "condition", "enabled", "insight", "insight_short_id"],
             "type": "object"
         },
         "AlertTypeWrite": {
@@ -446,6 +464,9 @@
                 "insight": {
                     "type": "number"
                 },
+                "insight_short_id": {
+                    "$ref": "#/definitions/InsightShortId"
+                },
                 "name": {
                     "type": "string"
                 },
@@ -456,7 +477,7 @@
                     "type": "array"
                 }
             },
-            "required": ["condition", "enabled", "insight", "name", "subscribed_users"],
+            "required": ["condition", "enabled", "insight", "insight_short_id", "name", "subscribed_users"],
             "type": "object"
         },
         "AnyDataNode": {

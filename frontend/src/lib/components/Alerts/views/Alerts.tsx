@@ -7,7 +7,7 @@ import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/column
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { urls } from 'scenes/urls'
 
-import { AlertType } from '../../../../queries/schema'
+import { AlertState, AlertType } from '../../../../queries/schema'
 import { alertsLogic } from '../alertsLogic'
 import { EditAlertModal } from './EditAlertModal'
 import { AlertStateIndicator } from './ManageAlertsModal'
@@ -88,7 +88,7 @@ export function Alerts({ alertId }: AlertsProps): JSX.Element {
                 rowKey="id"
                 loadingSkeletonRows={5}
                 nouns={['alert', 'alerts']}
-                rowClassName={(alert) => (alert.state === 'firing' ? 'highlighted' : null)}
+                rowClassName={(alert) => (alert.state === AlertState.NOT_FIRING ? null : 'highlighted')}
             />
         </>
     )

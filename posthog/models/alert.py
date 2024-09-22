@@ -7,7 +7,14 @@ from django.core.exceptions import ValidationError
 from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager import conversion_to_query_based
 from posthog.models.insight import Insight
 from posthog.models.utils import UUIDModel, CreatedMetaFields
-from posthog.schema import AlertCondition, InsightThreshold
+from posthog.schema import AlertCondition, InsightThreshold, AlertState, AlertCalculationInterval
+
+
+ALERT_STATE_CHOICES = [
+    (AlertState.FIRING, AlertState.FIRING),
+    (AlertState.NOT_FIRING, AlertState.NOT_FIRING),
+    (AlertState.ERRORED, AlertState.ERRORED),
+]
 
 
 def are_alerts_supported_for_insight(insight: Insight) -> bool:
@@ -29,10 +36,10 @@ class ConditionValidator:
         validators: Any = [
             self.validate_absolute_threshold,
         ]
-        matches = []
+        breaches = []
         for validator in validators:
-            matches += validator(calculated_value)
-        return matches
+            breaches += validator(calculated_value)
+        return breaches
 
     def validate_absolute_threshold(self, calculated_value: float) -> list[str]:
         if not self.threshold or not self.threshold.absoluteThreshold:
@@ -68,7 +75,7 @@ class Threshold(CreatedMetaFields, UUIDModel):
 
 
 class AlertConfiguration(CreatedMetaFields, UUIDModel):
-    ALERTS_PER_TEAM = 10
+    ALERTS_PER_TEAM = 5
 
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
     insight = models.ForeignKey("posthog.Insight", on_delete=models.CASCADE)
@@ -86,26 +93,24 @@ class AlertConfiguration(CreatedMetaFields, UUIDModel):
 
     # how often to recalculate the alert
     CALCULATION_INTERVAL_CHOICES = [
-        ("hour", "HOUR"),
-        ("day", "DAY"),
-        ("week", "WEEK"),
-        ("month", "MONTH"),
+        (AlertCalculationInterval.HOURLY, AlertCalculationInterval.HOURLY.value),
+        (AlertCalculationInterval.DAILY, AlertCalculationInterval.DAILY.value),
+        (AlertCalculationInterval.WEEKLY, AlertCalculationInterval.WEEKLY.value),
+        (AlertCalculationInterval.MONTHLY, AlertCalculationInterval.MONTHLY.value),
     ]
-    calculation_interval = models.CharField(max_length=10, choices=CALCULATION_INTERVAL_CHOICES, default="day")
+    calculation_interval = models.CharField(
+        max_length=10, choices=CALCULATION_INTERVAL_CHOICES, default=AlertCalculationInterval.DAILY
+    )
 
     # The threshold to evaluate the alert against. If null, the alert must have other conditions to trigger.
     threshold = models.ForeignKey(Threshold, on_delete=models.CASCADE, null=True, blank=True)
     condition = models.JSONField(default=dict)
 
-    STATE_CHOICES = [
-        ("firing", "FIRING"),
-        ("inactive", "INACTIVE"),
-        ("errored", "ERRORED"),
-    ]
-    state = models.CharField(max_length=10, choices=STATE_CHOICES, default="inactive")
+    state = models.CharField(max_length=10, choices=ALERT_STATE_CHOICES, default="inactive")
     enabled = models.BooleanField(default=True)
 
     last_notified_at = models.DateTimeField(null=True, blank=True)
+    last_checked_at = models.DateTimeField(null=True, blank=True)
 
     @property
     def insight_short_id(self) -> str:
@@ -139,41 +144,48 @@ class AlertConfiguration(CreatedMetaFields, UUIDModel):
             aggregated_value: result of insight calculation compressed to one number to compare against threshold
             error: any error raised while calculating insight value, if present then set state as errored
         """
+
         targets_notified = {}
-        matches = []
+        breaches = []
+        notify = False
 
         if not error:
-            matches = self.evaluate_condition(aggregated_value) if aggregated_value is not None else []
+            try:
+                breaches = self.evaluate_condition(aggregated_value) if aggregated_value is not None else []
+            except Exception as err:
+                # error checking the condition
+                error = f"Error checking alert condition {str(err)}"
 
-            # Determine the appropriate state for this check
-            if matches:
-                if self.state != "firing":
-                    # Transition to firing state and send a notification
-                    check_state = "firing"
-                    self.last_notified_at = datetime.now(UTC)
-                    targets_notified = {"users": list(self.subscribed_users.all().values_list("email", flat=True))}
-                else:
-                    check_state = "firing"  # Already firing, no new notification
-                    matches = []  # Don't send duplicate notifications
-            else:
-                check_state = "not_met"
-                self.state = "inactive"  # Set the Alert to inactive if the threshold is no longer met
-                # TODO: Optionally send a resolved notification when alert goes from firing to not_met?
+        # If the alert is not already errored, notify user
+        if error and self.state != AlertState.ERRORED:
+            self.state = AlertState.ERRORED
+            notify = True
+        # If the alert is not already firing, notify user
+        elif breaches and self.state != AlertState.FIRING:
+            self.state = AlertState.FIRING
+            notify = True
         else:
-            self.state = "errored"  # Alert evaluation failed, record this failure and propagte to user if on their side
-            check_state = "errored"
+            self.state = AlertState.NOT_FIRING  # Set the Alert to not firing if the threshold is no longer met
+            # TODO: Optionally send a resolved notification when alert goes from firing to not_firing?
 
         alert_check = AlertCheck.objects.create(
             alert_configuration=self,
             calculated_value=aggregated_value,
             condition=self.condition,
             targets_notified=targets_notified,
-            state=check_state,
+            state=self.state,
             error=error,
         )
 
+        now = datetime.now(UTC)
+        self.last_checked_at = datetime.now(UTC)
+
+        if notify:
+            self.last_notified_at = now
+            targets_notified = {"users": list(self.subscribed_users.all().values_list("email", flat=True))}
+
         self.save()
-        return alert_check, matches
+        return alert_check, breaches, notify
 
 
 class AlertSubscription(CreatedMetaFields, UUIDModel):
@@ -204,12 +216,7 @@ class AlertCheck(UUIDModel):
     targets_notified = models.JSONField(default=dict)
     error = models.JSONField(null=True, blank=True)
 
-    STATE_CHOICES = [
-        ("firing", "FIRING"),
-        ("not_met", "NOT_MET"),
-        ("errored", "ERRORED"),
-    ]
-    state = models.CharField(max_length=10, choices=STATE_CHOICES, default="not_met")
+    state = models.CharField(max_length=10, choices=ALERT_STATE_CHOICES, default=AlertState.NOT_FIRING)
 
     def __str__(self):
         return f"AlertCheck for {self.alert_configuration.name} at {self.created_at}"

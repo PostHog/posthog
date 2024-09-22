@@ -28,15 +28,11 @@ class AggregationAxisFormat(StrEnum):
     PERCENTAGE_SCALED = "percentage_scaled"
 
 
-class AlertCheck(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    calculated_value: float
-    created_at: str
-    id: str
-    state: str
-    targets_notified: bool
+class AlertCalculationInterval(StrEnum):
+    HOURLY = "hourly"
+    DAILY = "daily"
+    WEEKLY = "weekly"
+    MONTHLY = "monthly"
 
 
 class AlertCondition(BaseModel):
@@ -46,32 +42,10 @@ class AlertCondition(BaseModel):
     )
 
 
-class CalculationInterval(StrEnum):
-    HOUR = "hour"
-    DAY = "day"
-    WEEK = "week"
-    MONTH = "month"
-
-
-class AlertTypeBase(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    condition: AlertCondition
-    enabled: bool
-    insight: float
-    name: str
-
-
-class AlertTypeWrite(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    condition: AlertCondition
-    enabled: bool
-    insight: float
-    name: str
-    subscribed_users: list[int]
+class AlertState(StrEnum):
+    FIRING = "Firing"
+    NOT_FIRING = "Not firing"
+    ERRORED = "Errored"
 
 
 class Kind(StrEnum):
@@ -1664,6 +1638,40 @@ class ActorsQueryResponse(BaseModel):
         default=None, description="Measured timings for different parts of the query generation process"
     )
     types: list[str]
+
+
+class AlertCheck(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    calculated_value: float
+    created_at: str
+    id: str
+    state: AlertState
+    targets_notified: bool
+
+
+class AlertTypeBase(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    condition: AlertCondition
+    enabled: bool
+    insight: float
+    insight_short_id: str
+    name: str
+
+
+class AlertTypeWrite(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    condition: AlertCondition
+    enabled: bool
+    insight: float
+    insight_short_id: str
+    name: str
+    subscribed_users: list[int]
 
 
 class Breakdown(BaseModel):
@@ -3832,7 +3840,7 @@ class AlertType(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    calculation_interval: CalculationInterval
+    calculation_interval: AlertCalculationInterval
     checks: list[AlertCheck]
     condition: AlertCondition
     created_at: str
@@ -3840,10 +3848,12 @@ class AlertType(BaseModel):
     enabled: bool
     id: str
     insight: float
+    insight_short_id: str
+    last_checked_at: str
     last_notified_at: str
     name: str
     series_index: float
-    state: str
+    state: AlertState
     subscribed_users: list[UserBasicType]
     threshold: Threshold
 
