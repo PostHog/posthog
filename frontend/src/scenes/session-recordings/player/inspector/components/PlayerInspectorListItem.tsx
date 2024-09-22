@@ -6,6 +6,7 @@ import { IconComment, IconOffline, IconUnverifiedEvent } from 'lib/lemon-ui/icon
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { ceilMsToClosestSecond, colonDelimitedDuration } from 'lib/utils'
 import { useEffect } from 'react'
+import { ItemComment } from 'scenes/session-recordings/player/inspector/components/ItemComment'
 import { useDebouncedCallback } from 'use-debounce'
 import useResizeObserver from 'use-resize-observer'
 
@@ -18,7 +19,7 @@ import { sessionRecordingPlayerLogic } from '../../sessionRecordingPlayerLogic'
 import { InspectorListItem, playerInspectorLogic } from '../playerInspectorLogic'
 import { ItemConsoleLog } from './ItemConsoleLog'
 import { ItemDoctor } from './ItemDoctor'
-import { ItemComment, ItemEvent } from './ItemEvent'
+import { ItemEvent } from './ItemEvent'
 
 const typeToIconAndDescription = {
     [SessionRecordingPlayerTab.ALL]: {

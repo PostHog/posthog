@@ -1,3 +1,4 @@
+import hashlib
 import os
 import time
 from contextlib import contextmanager
@@ -307,6 +308,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             query = """
                 SELECT
                     short_id,
+                    title,
                     string_agg(text_elem->>'text', ' ') AS comment,
                     timestamp_elem->'attrs'->>'playbackTime' AS timeInRecording
                 FROM
@@ -318,19 +320,26 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     timestamp_elem->>'type' = 'ph-replay-timestamp'
                     AND team_id = %s
                     AND jsonb_extract_path_text(timestamp_elem->'attrs', 'sessionRecordingId') = %s
-                GROUP BY team_id, short_id, timeInRecording;
+                GROUP BY team_id, title, short_id, timeInRecording;
             """
 
             cursor.execute(query, [self.team_id, recording.session_id])
             results = cursor.fetchall()
             recording_comments = []
             for result in results:
+                short_id = result[0]
+                title = result[1]
+                comment = result[2]
+                time_in_recording = result[3]
+                # the individual comments don't have an id, so we'll generate one
+                artificial_id = hashlib.sha256(f"{short_id}-{title}-{comment}-{time_in_recording}".encode()).hexdigest()
                 recording_comments.append(
                     {
-                        "id": f"{result[0]}-{result[1]}",
-                        "notebookShortId": result[0],
-                        "comment": result[1],
-                        "timeInRecording": result[2],
+                        "id": artificial_id,
+                        "notebookShortId": short_id,
+                        "notebookTitle": title,
+                        "comment": comment,
+                        "timeInRecording": time_in_recording,
                     }
                 )
 

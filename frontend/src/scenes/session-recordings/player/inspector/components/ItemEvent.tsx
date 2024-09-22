@@ -8,7 +8,7 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 import { autoCaptureEventToDescription, capitalizeFirstLetter, isString } from 'lib/utils'
 import { insightUrlForEvent } from 'scenes/insights/utils'
 
-import { InspectorListItemComment, InspectorListItemEvent } from '../playerInspectorLogic'
+import { InspectorListItemEvent } from '../playerInspectorLogic'
 import { SimpleKeyValueList } from './SimpleKeyValueList'
 
 export interface ItemEventProps {
@@ -49,28 +49,6 @@ function SummarizeWebVitals({ properties }: { properties: Record<string, any> })
     )
 }
 
-export function ItemComment({
-    item,
-    expanded,
-    setExpanded,
-}: {
-    item: InspectorListItemComment
-    expanded: boolean
-    setExpanded: (expanded: boolean) => void
-}): JSX.Element {
-    return (
-        <div data-attr="item-comment">
-            <LemonButton noPadding onClick={() => setExpanded(!expanded)} fullWidth className="font-normal">
-                <div className="flex flex-row w-full justify-between gap-2 items-center p-2 text-xs cursor-pointer truncate">
-                    <div className="font-medium shrink-0">{item.data.comment}</div>
-                </div>
-            </LemonButton>
-
-            {expanded && <div className="p-2 text-xs border-t">some kind of clever link to the notebook</div>}
-        </div>
-    )
-}
-
 export function ItemEvent({ item, expanded, setExpanded }: ItemEventProps): JSX.Element {
     const insightUrl = insightUrlForEvent(item.data)
 
@@ -106,10 +84,10 @@ export function ItemEvent({ item, expanded, setExpanded }: ItemEventProps): JSX.
     return (
         <div data-attr="item-event">
             <LemonButton noPadding onClick={() => setExpanded(!expanded)} fullWidth className="font-normal">
-                <div className="flex flex-row w-full justify-between gap-2 items-center p-2 text-xs cursor-pointer truncate">
-                    <div>
+                <div className="flex flex-row w-full justify-between gap-2 items-center p-2 text-xs cursor-pointer">
+                    <div className="truncate">
                         <PropertyKeyInfo
-                            className="font-medium shrink-0"
+                            className="font-medium"
                             disablePopover
                             ellipsis={true}
                             value={capitalizeFirstLetter(autoCaptureEventToDescription(item.data))}

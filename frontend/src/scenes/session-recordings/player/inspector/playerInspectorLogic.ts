@@ -70,6 +70,7 @@ export type InspectorListItemEvent = InspectorListItemBase & {
 export type RecordingComment = {
     id: string
     notebookShortId: string
+    notebookTitle: string
     comment: string
     timeInRecording: number
 }

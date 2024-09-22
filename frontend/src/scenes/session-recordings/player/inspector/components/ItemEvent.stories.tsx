@@ -49,8 +49,7 @@ function makeItem(
 }
 
 const BasicTemplate: StoryFn<typeof ItemEvent> = (props: Partial<ItemEventProps>) => {
-    const item = makeItem()
-    props.item = props.item || item
+    props.item = props.item || makeItem(undefined, { event: 'A long event name if no other name is provided' })
     props.setExpanded = props.setExpanded || (() => {})
 
     const propsToUse = props as ItemEventProps
@@ -62,6 +61,11 @@ const BasicTemplate: StoryFn<typeof ItemEvent> = (props: Partial<ItemEventProps>
             <LemonDivider />
             <h3>Expanded</h3>
             <ItemEvent {...propsToUse} expanded={true} />
+            <LemonDivider />
+            <h3>Collapsed with overflowing text</h3>
+            <div className="w-52">
+                <ItemEvent {...propsToUse} expanded={false} />
+            </div>
         </div>
     )
 }
