@@ -190,6 +190,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 'end',
                 'durationMs',
                 'sessionComments',
+                'windowIdForTimestamp',
             ],
             sessionRecordingPlayerLogic(props),
             ['currentPlayerTime'],
@@ -465,6 +466,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 s.doctorEvents,
                 s.browserVisibilityChanges,
                 s.sessionComments,
+                s.windowIdForTimestamp,
             ],
             (
                 start,
@@ -475,7 +477,8 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 offlineStatusChanges,
                 doctorEvents,
                 browserVisibilityChanges,
-                sessionComments
+                sessionComments,
+                windowIdForTimestamp
             ): InspectorListItem[] => {
                 // NOTE: Possible perf improvement here would be to have a selector to parse the items
                 // and then do the filtering of what items are shown, elsewhere
@@ -578,7 +581,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                             search: comment.comment,
                             data: comment,
                             // TODO we'd have to figure out which is the active window at this timestamp
-                            windowId: undefined,
+                            windowId: windowIdForTimestamp(timestamp),
                         })
                     }
                 }

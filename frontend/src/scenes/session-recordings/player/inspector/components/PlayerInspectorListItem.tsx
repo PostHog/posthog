@@ -56,7 +56,7 @@ const typeToIconAndDescription = {
     },
     ['comment']: {
         Icon: IconComment,
-        tooltip: 'Comment',
+        tooltip: 'A user commented on this timestamp in the recording',
     },
 }
 const PLAYER_INSPECTOR_LIST_ITEM_MARGIN = 4

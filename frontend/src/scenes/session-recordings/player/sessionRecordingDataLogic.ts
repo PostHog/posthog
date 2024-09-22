@@ -785,6 +785,16 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 (sessionEventsData || []).filter((e) => e.event === '$web_vitals'),
         ],
 
+        windowIdForTimestamp: [
+            (s) => [s.segments],
+            (segments) =>
+                (timestamp: number): string | undefined => {
+                    return segments.find(
+                        (segment) => segment.startTimestamp <= timestamp && segment.endTimestamp >= timestamp
+                    )?.windowId
+                },
+        ],
+
         sessionPlayerData: [
             (s, p) => [
                 s.sessionPlayerMetaData,
