@@ -557,8 +557,8 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return ast.OrderExpr(expr=self.visit(ctx.columnExpr()), order=cast(Literal["ASC", "DESC"], order))
 
     def visitRatioExpr(self, ctx: HogQLParser.RatioExprContext):
-        if ctx.placeholder:
-            return self.visit(ctx.placeholder)
+        if ctx.block():
+            return self.visit(ctx.block())
 
         number_literals = ctx.numberLiteral()
 
@@ -995,7 +995,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return self.visit(ctx.selectUnionStmt())
 
     def visitTableExprPlaceholder(self, ctx: HogQLParser.TableExprPlaceholderContext):
-        return self.visit(ctx.placeholder)
+        return self.visit(ctx.block())
 
     def visitTableExprAlias(self, ctx: HogQLParser.TableExprAliasContext):
         alias: str = self.visit(ctx.alias() or ctx.identifier())

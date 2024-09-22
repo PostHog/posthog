@@ -846,9 +846,9 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       return visit(select_stmt_ctx);
     }
 
-    auto placeholder_ctx = ctx->placeholder;
-    if (placeholder_ctx) {
-      return visitAsPyObject(placeholder_ctx);
+    auto block_ctx = ctx->block();
+    if (block_ctx) {
+      return visitAsPyObject(block_ctx);
     }
 
     return visit(ctx->selectUnionStmt());
@@ -885,7 +885,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
         int extend_code = X_PyList_Extend(flattened_queries, sub_select_queries);
         if (extend_code == -1) goto select_queries_loop_py_error;
         Py_DECREF(sub_select_queries);
-      } else if (is_ast_node_instance(query, "Placeholder")) {
+      } else if (is_ast_node_instance(query, "Block")) {
         int append_code = PyList_Append(flattened_queries, query);
         if (append_code == -1) goto select_queries_loop_py_error;
       } else {
@@ -1429,9 +1429,9 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
   }
 
   VISIT(RatioExpr) {
-    auto placeholder_ctx = ctx->placeholder;
-    if (placeholder_ctx) {
-      return visitAsPyObject(placeholder_ctx);
+    auto block_ctx = ctx->block();
+    if (block_ctx) {
+      return visitAsPyObject(block_ctx);
     }
 
     auto number_literal_ctxs = ctx->numberLiteral();
@@ -2345,7 +2345,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
 
   VISIT(TableExprSubquery) { return visit(ctx->selectUnionStmt()); }
 
-  VISIT(TableExprPlaceholder) { return visitAsPyObject(ctx->placeholder); }
+  VISIT(TableExprPlaceholder) { return visitAsPyObject(ctx->block()); }
 
   VISIT(TableExprAlias) {
     auto alias_ctx = ctx->alias();

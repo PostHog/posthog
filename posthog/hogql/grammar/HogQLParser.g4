@@ -54,7 +54,7 @@ kvPairList: kvPair (COMMA kvPair)* COMMA?;
 select: (selectUnionStmt | selectStmt | hogqlxTagElement) EOF;
 
 selectUnionStmt: selectStmtWithParens (UNION ALL selectStmtWithParens)*;
-selectStmtWithParens: selectStmt | LPAREN selectUnionStmt RPAREN | placeholder=block;
+selectStmtWithParens: selectStmt | LPAREN selectUnionStmt RPAREN | block;
 
 selectStmt:
     with=withClause?
@@ -117,7 +117,7 @@ joinConstraintClause
 sampleClause: SAMPLE ratioExpr (OFFSET ratioExpr)?;
 orderExprList: orderExpr (COMMA orderExpr)*;
 orderExpr: columnExpr (ASCENDING | DESCENDING | DESC)? (NULLS (FIRST | LAST))? (COLLATE STRING_LITERAL)?;
-ratioExpr: placeholder=block | numberLiteral (SLASH numberLiteral)?;
+ratioExpr: block | numberLiteral (SLASH numberLiteral)?;
 settingExprList: settingExpr (COMMA settingExpr)*;
 settingExpr: identifier EQ_SINGLE literal;
 
@@ -251,7 +251,7 @@ tableExpr
     | LPAREN selectUnionStmt RPAREN      # TableExprSubquery
     | tableExpr (alias | AS identifier)  # TableExprAlias
     | hogqlxTagElement                   # TableExprTag
-    | placeholder=block                  # TableExprPlaceholder
+    | block                              # TableExprPlaceholder
     ;
 tableFunctionExpr: identifier LPAREN tableArgList? RPAREN;
 tableIdentifier: (databaseIdentifier DOT)? identifier;
