@@ -553,22 +553,74 @@ export function humanFriendlyDetailedTime(
     return parsedDate.format(formatString)
 }
 
-export function cleanupDateList(list1: string[]): string[] {
+export function cleanupDateList(dateTimeList: string[]): string[] {
+    const date1 = dayjs(dateTimeList[0])
+    const date2 = dayjs(dateTimeList[1])
+    const diffInHours = date2.diff(date1, 'hour')
+    const diffInDays = date2.diff(date1, 'day')
+    const diffInWeeks = date2.diff(date1, 'week')
+    const diffInMonths = date2.diff(date1, 'month')
+
     let previousDate: dayjs.Dayjs | null = null
 
-    return list1.map((dateTimeString) => {
-        const dateTime = new Date(dateTimeString)
-        const currentDate = dayjs(dateTime)
-        const time = currentDate.format('HH:mm')
-        let formattedDate = ''
+    if (diffInHours === 1) {
+        return dateTimeList.map((dateTimeString) => {
+            const dateTime = new Date(dateTimeString)
+            const currentDate = dayjs(dateTime)
+            const time = currentDate.format('HH:mm')
+            let formattedDate = ''
 
-        if (!currentDate.isSame(previousDate, 'd')) {
-            formattedDate = currentDate.format('YYYY-MM-DD')
-            previousDate = currentDate
-        }
+            if (!currentDate.isSame(previousDate, 'day')) {
+                formattedDate = currentDate.format('YYYY-MM-DD')
+                previousDate = currentDate
+            }
 
-        return formattedDate + ' ' + time
-    })
+            return [time, formattedDate]
+        })
+    } else if (diffInDays === 1) {
+        return dateTimeList.map((dateTimeString) => {
+            const dateTime = new Date(dateTimeString)
+            const currentDate = dayjs(dateTime)
+            const time = currentDate.format('HH:mm')
+            let formattedDate = currentDate.format('DD-MMM')
+
+            if (!currentDate.isSame(previousDate, 'month')) {
+                formattedDate = currentDate.format('DD-MMM-YYYY')
+                previousDate = currentDate
+            }
+
+            return [time, formattedDate]
+        })
+    } else if (diffInWeeks === 1) {
+        return dateTimeList.map((dateTimeString) => {
+            const dateTime = new Date(dateTimeString)
+            const currentDate = dayjs(dateTime)
+            const time = currentDate.format('HH:mm')
+            let formattedDate = currentDate.format('DD-MMM')
+
+            if (!currentDate.isSame(previousDate, 'year')) {
+                formattedDate = currentDate.format('DD-MMM-YYYY')
+                previousDate = currentDate
+            }
+
+            return [time, formattedDate]
+        })
+    } else if (diffInMonths === 1) {
+        return dateTimeList.map((dateTimeString) => {
+            const dateTime = new Date(dateTimeString)
+            const currentDate = dayjs(dateTime)
+            const time = currentDate.format('HH:mm')
+            let formattedDate = currentDate.format('DD-MMM')
+
+            if (!currentDate.isSame(previousDate, 'year')) {
+                formattedDate = currentDate.format('DD-MMM-YYYY')
+                previousDate = currentDate
+            }
+
+            return [time, formattedDate]
+        })
+    }
+    return dateTimeList
 }
 
 // Pad numbers with leading zeros
