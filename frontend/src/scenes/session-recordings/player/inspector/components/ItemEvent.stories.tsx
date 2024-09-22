@@ -63,7 +63,7 @@ const BasicTemplate: StoryFn<typeof ItemEvent> = (props: Partial<ItemEventProps>
             <ItemEvent {...propsToUse} expanded={true} />
             <LemonDivider />
             <h3>Collapsed with overflowing text</h3>
-            <div className="w-52">
+            <div className="w-20">
                 <ItemEvent {...propsToUse} expanded={false} />
             </div>
         </div>

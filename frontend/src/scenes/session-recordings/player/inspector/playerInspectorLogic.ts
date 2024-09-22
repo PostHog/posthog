@@ -580,7 +580,6 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                             timestamp: timestamp,
                             search: comment.comment,
                             data: comment,
-                            // TODO we'd have to figure out which is the active window at this timestamp
                             windowId: windowIdForTimestamp(timestamp),
                         })
                     }
