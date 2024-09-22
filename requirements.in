@@ -103,7 +103,7 @@ phonenumberslite==8.13.6
 openai==1.43.0
 tiktoken==0.7.0
 nh3==0.2.14
-hogql-parser==1.0.42
+hogql-parser==1.0.43
 zxcvbn==4.4.28
 zstd==1.5.5.1
 xmlsec==1.3.13 # Do not change this version - it will break SAML
