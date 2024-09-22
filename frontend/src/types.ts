@@ -375,6 +375,7 @@ export interface OrganizationDomainType {
 export interface BaseMemberType {
     id: string
     user: UserBasicType
+    last_login: string | null
     joined_at: string
     updated_at: string
     is_2fa_enabled: boolean
@@ -4517,13 +4518,11 @@ export type HogFunctionInvocationGlobals = {
         distinct_id: string
         properties: Record<string, any>
         timestamp: string
-        name: string
         url: string
     }
     person?: {
         id: string
         properties: Record<string, any>
-        uuid: string
         name: string
         url: string
     }
