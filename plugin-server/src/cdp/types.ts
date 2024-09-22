@@ -66,18 +66,25 @@ export type HogFunctionInvocationGlobals = {
         url: string
     }
     event: {
+        /* Database fields */
         uuid: string
-        name: string
+        event: string
         distinct_id: string
         properties: Record<string, any>
+        elements_chain: string
         timestamp: string
+
+        /* Special fields in Hog */
         url: string
     }
     person?: {
-        uuid: string
+        /** Database fields */
+        id: string
+        properties: Record<string, any>
+
+        /** Special fields in Hog */
         name: string
         url: string
-        properties: Record<string, any>
     }
     groups?: Record<string, GroupType>
 }

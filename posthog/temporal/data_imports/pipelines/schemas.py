@@ -35,6 +35,7 @@ PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING = {
     ExternalDataSource.Type.MYSQL: (),
     ExternalDataSource.Type.MSSQL: (),
     ExternalDataSource.Type.VITALLY: VITALLY_ENDPOINTS,
+    ExternalDataSource.Type.BIGQUERY: (),
 }
 
 PIPELINE_TYPE_INCREMENTAL_ENDPOINTS_MAPPING = {
@@ -47,6 +48,7 @@ PIPELINE_TYPE_INCREMENTAL_ENDPOINTS_MAPPING = {
     ExternalDataSource.Type.MYSQL: (),
     ExternalDataSource.Type.MSSQL: (),
     ExternalDataSource.Type.VITALLY: VITALLY_INCREMENTAL_ENDPOINTS,
+    ExternalDataSource.Type.BIGQUERY: (),
 }
 
 PIPELINE_TYPE_INCREMENTAL_FIELDS_MAPPING: dict[ExternalDataSource.Type, dict[str, list[IncrementalField]]] = {
@@ -59,4 +61,5 @@ PIPELINE_TYPE_INCREMENTAL_FIELDS_MAPPING: dict[ExternalDataSource.Type, dict[str
     ExternalDataSource.Type.MYSQL: {},
     ExternalDataSource.Type.MSSQL: {},
     ExternalDataSource.Type.VITALLY: VITALLY_INCREMENTAL_FIELDS,
+    ExternalDataSource.Type.BIGQUERY: {},
 }
