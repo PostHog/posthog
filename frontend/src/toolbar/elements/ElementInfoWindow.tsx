@@ -81,7 +81,7 @@ export function ElementInfoWindow(): JSX.Element | null {
             {onClose ? (
                 <div
                     onClick={onClose}
-                    className="absolute origin-top-left bg-black text-white rounded-full w-6 h-6 z-[7] flex items-center justify-around text-center cursor-pointer"
+                    className="absolute origin-top-left bg-[#000] text-white rounded-full w-6 h-6 z-[7] flex items-center justify-around text-center cursor-pointer"
                     // eslint-disable-next-line react/forbid-dom-props
                     style={{
                         pointerEvents: pointerEvents ? 'all' : 'none',
