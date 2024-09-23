@@ -206,9 +206,9 @@ export function normalizeEvent<T extends PipelineEvent | PluginEvent>(event: T):
     event.ip = null
 
     if (hasSetOrSetOnceInitialEventToPersonProperty(properties)) {
-        RAW_INITIAL_EVENT_TO_PERSON_PROPERTY_COUNTER.inc({
+        RAW_INITIAL_EVENT_TO_PERSON_PROPERTY_COUNTER.labels({
             library: getKnownLibValueOrSentinel(properties['$lib']),
-        })
+        }).inc()
     }
 
     if (!['$snapshot', '$performance_event'].includes(event.event)) {
