@@ -376,29 +376,6 @@ export const billingLogic = kea<billingLogicType>([
                 return projectedTotal
             },
         ],
-        over20kAnnual: [
-            (s) => [s.billing, s.preflight, s.projectedTotalAmountUsdWithBillingLimits],
-            (billing, preflight, projectedTotalAmountUsd) => {
-                if (!billing || !preflight?.cloud) {
-                    return
-                }
-                if (
-                    billing.current_total_amount_usd_after_discount &&
-                    (parseFloat(billing.current_total_amount_usd_after_discount) > 1666 ||
-                        projectedTotalAmountUsd > 1666) &&
-                    billing.billing_period?.interval === 'month'
-                ) {
-                    return true
-                }
-                return false
-            },
-        ],
-        isAnnualPlan: [
-            (s) => [s.billing],
-            (billing) => {
-                return billing?.billing_period?.interval === 'year'
-            },
-        ],
         supportPlans: [
             (s) => [s.billing],
             (billing: BillingType): BillingPlanType[] => {
