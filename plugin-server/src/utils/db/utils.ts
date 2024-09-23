@@ -78,6 +78,8 @@ export const campaignParams = new Set([
 
 export const initialCampaignParams = new Set(Array.from(campaignParams, (key) => `$initial_${key.replace('$', '')}`))
 
+export const initialCampaignParamsDefault = Object.fromEntries(Array.from(initialCampaignParams, (key) => [key, null]))
+
 // When changing this set, make sure you also make the same changes in:
 // - taxonomy.tsx (PERSON_PROPERTIES_ADAPTED_FROM_EVENT)
 export const eventToPersonProperties = new Set([
