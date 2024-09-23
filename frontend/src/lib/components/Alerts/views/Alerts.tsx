@@ -50,6 +50,14 @@ export function Alerts({ alertId }: AlertsProps): JSX.Element {
             },
         },
         {
+            title: 'Last checked',
+            sorter: true,
+            dataIndex: 'last_checked_at',
+            render: function renderLastChecked(last_checked_at: any) {
+                return <div className="whitespace-nowrap">{last_checked_at && <TZLabel time={last_checked_at} />}</div>
+            },
+        },
+        {
             title: 'Last notified',
             sorter: true,
             dataIndex: 'last_notified_at',

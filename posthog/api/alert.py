@@ -97,6 +97,7 @@ class AlertSerializer(serializers.ModelSerializer):
             "state",
             "enabled",
             "last_notified_at",
+            "last_checked_at",
             "checks",
             "series_index",
             "calculation_interval",
@@ -107,6 +108,7 @@ class AlertSerializer(serializers.ModelSerializer):
             "created_at",
             "state",
             "last_notified_at",
+            "last_checked_at",
             "insight_short_id",
         ]
 

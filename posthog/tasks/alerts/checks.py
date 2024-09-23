@@ -262,7 +262,6 @@ def _aggregate_insight_result_value(
 
 
 def _send_notifications_for_breaches(alert: AlertConfiguration, breaches: list[str]) -> None:
-    return
     subject = f"PostHog alert {alert.name} is firing"
     campaign_key = f"alert-firing-notification-{alert.id}-{timezone.now().timestamp()}"
     insight_url = f"/project/{alert.team.pk}/insights/{alert.insight.short_id}"
