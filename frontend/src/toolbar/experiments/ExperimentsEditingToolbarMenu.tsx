@@ -1,4 +1,4 @@
-import { IconPlus, IconSearch, IconTrash } from '@posthog/icons'
+import { IconPlus, IconRecord, IconTrash, IconDocument, IconEye } from '@posthog/icons'
 import { LemonDivider } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form, Group } from 'kea-forms'
@@ -8,6 +8,9 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'
 import { experimentsTabLogic } from '~/toolbar/experiments/experimentsTabLogic'
 import { WebExperimentTransformField } from '~/toolbar/experiments/WebExperimentTransformField'
+import {LemonSlider} from "lib/lemon-ui/LemonSlider";
+import {IconWithBadge} from "lib/lemon-ui/icons";
+
 
 export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
     const { selectedExperimentId, inspectingElement, experimentForm } = useValues(experimentsTabLogic)
@@ -39,7 +42,7 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
                 </ToolbarMenu.Header>
                 <ToolbarMenu.Body>
                     <div>
-                        <div className="flex">
+                        <div className="grid grid-cols-3 gap-2 mt-2">
                             {selectedExperimentId === 'new' ? (
                                 <EditableField
                                     placeholder="please enter experiment name"
@@ -52,59 +55,74 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
                             ) : (
                                 <h4>{experimentForm.name}</h4>
                             )}
+                            <div className='col-span-1'/>
                             <LemonButton
                                 type="secondary"
                                 size="small"
-                                className="ml-3"
-                                sideIcon={<IconPlus />}
+                                className="col-span-1"
+                                sideIcon={<IconPlus/>}
                                 onClick={addNewVariant}
                             >
                                 Add variant
                             </LemonButton>
                         </div>
                         <Group name="variants">
-                            <LemonDivider />
-
-                            <div className="mt-2">
+                            <div>
                                 {Object.keys(experimentForm.variants || {}).map((variant, index) => (
+
                                     <Group key={variant} name={['variants', index]}>
                                         <div className="flex flex-col">
-                                            {selectedExperimentId === 'new' && variant !== 'control' ? (
-                                                <EditableField
-                                                    onSave={(newName) => {
-                                                        if (experimentForm.variants) {
-                                                            const webVariant = experimentForm.variants[variant]
-                                                            if (webVariant) {
-                                                                experimentForm.variants[newName] = webVariant
-                                                                delete experimentForm.variants[variant]
-                                                                setExperimentFormValue(
-                                                                    'variants',
-                                                                    experimentForm.variants
-                                                                )
+                                            <LemonDivider thick={true}/>
+                                            <div className="grid grid-cols-3 gap-2 m-1">
+                                                {selectedExperimentId === 'new' && variant !== 'control' ? (
+                                                    <EditableField
+                                                        onSave={(newName) => {
+                                                            if (experimentForm.variants) {
+                                                                const webVariant = experimentForm.variants[variant]
+                                                                if (webVariant) {
+                                                                    experimentForm.variants[newName] = webVariant
+                                                                    delete experimentForm.variants[variant]
+                                                                    setExperimentFormValue(
+                                                                        'variants',
+                                                                        experimentForm.variants
+                                                                    )
+                                                                }
                                                             }
-                                                        }
-                                                        variant = newName
-                                                    }}
-                                                    name="item-name-small"
-                                                    value={variant}
-                                                />
-                                            ) : (
-                                                <h3 className="mb-0">{variant}</h3>
-                                            )}
-                                            <div className="flex p-1 flex-col-4">
-                                                <span>
-                                                    (rollout percentage :{' '}
-                                                    {experimentForm.variants && experimentForm.variants[variant]
-                                                        ? experimentForm.variants[variant].rollout_percentage
-                                                        : 0}{' '}
-                                                    )
-                                                </span>
-
+                                                            variant = newName
+                                                        }}
+                                                        name="item-name-small"
+                                                        value={variant}
+                                                    />
+                                                ) : (
+                                                    <h2 className="col-span-1">{variant}</h2>
+                                                )}
+                                                <div className="col-span-1">
+                                                    <IconWithBadge content='50%' status='success'/>
+                                                </div>
                                                 <LemonButton
                                                     type="secondary"
                                                     size="small"
-                                                    className="ml-2"
-                                                    sideIcon={<IconPlus />}
+                                                    className="col-span-1"
+                                                    status="danger"
+                                                    onClick={(e) => {
+                                                        e.stopPropagation()
+                                                        removeVariant(variant)
+                                                    }}
+                                                    sideIcon={<IconTrash/>}
+                                                >
+                                                    Remove
+                                                </LemonButton>
+                                            </div>
+                                            <LemonDivider dashed={true}/>
+                                            <div className="grid grid-cols-3 gap-2 m-1">
+                                                <span className="col-span-1">
+                                                    <IconDocument/>
+                                                    Elements</span>
+                                                <LemonButton
+                                                    type="secondary"
+                                                    size="small"
+                                                    className="ml-2 col-span-1"
+                                                    sideIcon={<IconPlus/>}
                                                     onClick={(e) => {
                                                         e.stopPropagation()
                                                         addNewElement(variant)
@@ -113,69 +131,61 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
                                                     Add element
                                                 </LemonButton>
 
-                                                <LemonButton
-                                                    type="secondary"
-                                                    size="small"
-                                                    className="ml-2"
-                                                    onClick={(e) => {
-                                                        e.stopPropagation()
-                                                        removeVariant(variant)
-                                                    }}
-                                                    sideIcon={<IconTrash />}
-                                                >
-                                                    Remove
-                                                </LemonButton>
+                                                <div className="col-span-1"/>
                                             </div>
 
-                                            <LemonDivider />
+                                            <LemonDivider/>
                                             {experimentForm.variants![variant].transforms.map((transform, tIndex) => (
-                                                <div key={tIndex}>
+                                                    <div key={tIndex}>
                                                     <span>
                                                         {tIndex + 1} ) {transform.selector ?? 'no element selected'}
                                                     </span>
-                                                    <div className="flex p-1 flex-col-3">
-                                                        <LemonButton
-                                                            size="small"
-                                                            type={
-                                                                inspectingElement === tIndex + 1
-                                                                    ? 'primary'
-                                                                    : 'tertiary'
-                                                            }
-                                                            onClick={(e) => {
-                                                                e.stopPropagation()
-                                                                selectVariant(variant)
-                                                                inspectForElementWithIndex(
-                                                                    variant,
-                                                                    inspectingElement === tIndex + 1 ? null : tIndex + 1
-                                                                )
-                                                            }}
-                                                            icon={<IconSearch />}
-                                                        >
-                                                            {transform.selector ? 'Change element' : 'Select element'}
-                                                        </LemonButton>
-                                                        <LemonButton
-                                                            type="tertiary"
-                                                            size="small"
-                                                            className="ml-2"
-                                                            onClick={(e) => {
-                                                                e.stopPropagation()
-                                                                removeElement(variant, tIndex)
-                                                            }}
-                                                            sideIcon={<IconTrash />}
-                                                        >
-                                                            Remove
-                                                        </LemonButton>
+                                                        <div className="grid grid-cols-3 gap-2 m-1">
+                                                            <LemonButton
+                                                                size="small"
+                                                                className='col-span-1'
+                                                                type={
+                                                                    inspectingElement === tIndex + 1
+                                                                        ? 'primary'
+                                                                        : 'secondary'
+                                                                }
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation()
+                                                                    selectVariant(variant)
+                                                                    inspectForElementWithIndex(
+                                                                        variant,
+                                                                        inspectingElement === tIndex + 1 ? null : tIndex + 1
+                                                                    )
+                                                                }}
+                                                                icon={<IconRecord/>}
+                                                            >
+                                                                {transform.selector ? 'Change' : 'Select'}
+                                                            </LemonButton>
+                                                            <LemonButton
+                                                                type="secondary"
+                                                                status="danger"
+                                                                size="small"
+                                                                className='col-span-1'
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation()
+                                                                    removeElement(variant, tIndex)
+                                                                }}
+                                                                sideIcon={<IconTrash/>}
+                                                            >
+                                                                Remove
+                                                            </LemonButton>
+                                                            <div className="col-span-1"/>
+                                                        </div>
+                                                        <WebExperimentTransformField
+                                                            tIndex={tIndex}
+                                                            variant={variant}
+                                                            transform={transform}
+                                                        />
                                                     </div>
-                                                    <WebExperimentTransformField
-                                                        tIndex={tIndex}
-                                                        variant={variant}
-                                                        transform={transform}
-                                                    />
-                                                </div>
-                                            ))}
-                                        </div>
+                                                ))}
+                                            </div>
                                     </Group>
-                                ))}
+                                    ))}
                             </div>
                         </Group>
                     </div>

@@ -303,6 +303,8 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
                     }
 
                     actions.setExperimentFormValue('variants', values.experimentForm.variants)
+                    actions.selectVariant(variant)
+                    actions.inspectForElementWithIndex( variant, webVariant.transforms.length)
                 }
             }
         },
