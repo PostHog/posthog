@@ -246,13 +246,13 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
         ? () => {
               ops += 1
               logTelemetry()
-              if ((ops & 127) === 0) {
+              if ((ops & 31) === 0) {
                   checkTimeout()
               }
           }
         : () => {
               ops += 1
-              if ((ops & 127) === 0) {
+              if ((ops & 31) === 0) {
                   checkTimeout()
               }
           }
