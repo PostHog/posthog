@@ -86,7 +86,7 @@ def calculate_cohort_ch(cohort_id: int, pending_version: int, initiating_user_id
     set_tag("cohort_id", cohort.id)
     set_tag("team_id", cohort.team.id)
 
-    staleness_hours = 0
+    staleness_hours = 0.0
     if cohort.last_calculation is not None:
         staleness_hours = (timezone.now() - cohort.last_calculation).total_seconds() / 3600
     COHORT_STALENESS_HOURS_GAUGE.set(staleness_hours)
