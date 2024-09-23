@@ -20,6 +20,8 @@ use serde_json::Value;
 use tokio::runtime::Runtime;
 use uuid::Uuid;
 
+mod metrics_interop;
+
 static WORKER: OnceCell<Worker> = OnceCell::new();
 static MANAGER: OnceCell<QueueManager> = OnceCell::new();
 static RUNTIME: OnceCell<Runtime> = OnceCell::new();

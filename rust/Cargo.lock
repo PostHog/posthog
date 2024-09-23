@@ -938,8 +938,10 @@ dependencies = [
 name = "cyclotron-node"
 version = "0.1.0"
 dependencies = [
+ "ahash",
  "chrono",
  "cyclotron-core",
+ "metrics",
  "neon",
  "once_cell",
  "serde",
