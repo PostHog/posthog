@@ -18,6 +18,7 @@ from posthog.hogql.constants import LimitContext
 from posthog.metrics import pushed_metrics_registry
 from posthog.ph_client import get_ph_client
 from posthog.redis import get_client
+from posthog.settings import CLICKHOUSE_CLUSTER
 from posthog.tasks.utils import CeleryQueue
 
 logger = get_logger(__name__)
@@ -408,11 +409,14 @@ def clickhouse_errors_count() -> None:
             name,
             value as errors,
             dateDiff('minute', last_error_time, now()) minutes_ago
-        from clusterAllReplicas('posthog', system, errors)
+        from clusterAllReplicas(%(cluster)s, system, errors)
         where code in (999, 225, 242)
         order by minutes_ago
     """
-    rows = sync_execute(QUERY)
+    params = {
+        "cluster": CLICKHOUSE_CLUSTER,
+    }
+    rows = sync_execute(QUERY, params)
     with pushed_metrics_registry("celery_clickhouse_errors") as registry:
         errors_gauge = Gauge(
             "posthog_celery_clickhouse_errors",
