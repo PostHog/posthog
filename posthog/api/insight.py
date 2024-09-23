@@ -2,6 +2,7 @@ import json
 from functools import lru_cache
 from typing import Any, Optional, Union, cast
 
+import posthoganalytics
 import structlog
 from django.db import transaction
 from django.db.models import Count, Prefetch, QuerySet
@@ -15,13 +16,12 @@ from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_sche
 from loginas.utils import is_impersonated_session
 from prometheus_client import Counter
 from rest_framework import request, serializers, status, viewsets
-from posthog.api.utils import action
 from rest_framework.exceptions import ParseError, PermissionDenied, ValidationError
 from rest_framework.parsers import JSONParser
+from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
-from rest_framework.request import Request
 
 from posthog import schema
 from posthog.api.documentation import extend_schema
@@ -32,14 +32,13 @@ from posthog.api.insight_serializers import (
     TrendResultsSerializer,
     TrendSerializer,
 )
+from posthog.api.monitoring import Feature, monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
-from posthog.api.utils import format_paginated_url
+from posthog.api.utils import action, format_paginated_url
 from posthog.auth import SharingAccessTokenAuthentication
-from posthog.caching.fetch_from_cache import (
-    InsightResult,
-)
+from posthog.caching.fetch_from_cache import InsightResult
 from posthog.clickhouse.cancel import cancel_query_on_cluster
 from posthog.constants import (
     INSIGHT,
@@ -51,13 +50,17 @@ from posthog.constants import (
     FunnelVizType,
 )
 from posthog.decorators import cached_by_filters
+from posthog.event_usage import groups
 from posthog.helpers.multi_property_breakdown import (
     protect_old_clients_from_multi_property_default,
 )
 from posthog.hogql.constants import BREAKDOWN_VALUES_LIMIT
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.timings import HogQLTimings
-from posthog.hogql_queries.apply_dashboard_filters import WRAPPER_NODE_KINDS
+from posthog.hogql_queries.apply_dashboard_filters import (
+    WRAPPER_NODE_KINDS,
+    apply_dashboard_filters_to_dict,
+)
 from posthog.hogql_queries.legacy_compatibility.feature_flag import (
     hogql_insights_replace_filters,
 )
@@ -86,6 +89,8 @@ from posthog.models.filters import RetentionFilter
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.insight import InsightViewed
+from posthog.models.organization import Organization
+from posthog.models.team.team import Team
 from posthog.models.utils import UUIDT
 from posthog.queries.funnels import (
     ClickhouseFunnelTimeToConvert,
@@ -104,14 +109,10 @@ from posthog.rate_limit import (
 from posthog.settings import CAPTURE_TIME_TO_SEE_DATA, SITE_URL
 from posthog.user_permissions import UserPermissionsSerializerMixin
 from posthog.utils import (
+    filters_override_requested_by_client,
     refresh_requested_by_client,
     relative_date_parse,
     str_to_bool,
-    filters_override_requested_by_client,
-)
-from posthog.api.monitoring import monitor, Feature
-from posthog.hogql_queries.apply_dashboard_filters import (
-    apply_dashboard_filters_to_dict,
 )
 
 logger = structlog.get_logger(__name__)
@@ -134,6 +135,7 @@ def log_insight_activity(
     user: User,
     was_impersonated: bool,
     changes: Optional[list[Change]] = None,
+    properties: Optional[dict[str, any]] = None,
 ) -> None:
     """
     Insight id and short_id are passed separately as some activities (like delete) alter the Insight instance
@@ -153,6 +155,17 @@ def log_insight_activity(
             activity=activity,
             detail=Detail(name=insight_name, changes=changes, short_id=insight_short_id),
         )
+        if properties is None:
+            properties = {}
+        organization = Organization.objects.get(id=organization_id)
+        team = Team.objects.get(id=team_id)
+        if not was_impersonated:
+            posthoganalytics.capture(
+                user.distinct_id,
+                "insight activity",
+                {"activity": activity, "insight_id": insight_id, **properties},
+                groups=(groups(organization, team) if team_id else groups(organization)),
+            )
 
 
 class QuerySchemaParser(JSONParser):
@@ -286,6 +299,7 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
     query_status = serializers.SerializerMethodField()
     hogql = serializers.SerializerMethodField()
     types = serializers.SerializerMethodField()
+    user_action_context = serializers.SerializerMethodField()
 
     class Meta:
         model = Insight
@@ -323,6 +337,7 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
             "query_status",
             "hogql",
             "types",
+            "user_action_context",
         ]
         read_only_fields = (
             "created_at",
@@ -339,8 +354,12 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
             "is_cached",
         )
 
+    def get_user_action_context(self, obj):
+        return None
+
     @monitor(feature=Feature.INSIGHT, endpoint="insight", method="POST")
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Insight:
+        user_action_context = self.context["request"].data.get("user_action_context")
         request = self.context["request"]
         tags = validated_data.pop("tags", None)  # tags are created separately as global tag relationships
         team_id = self.context["team_id"]
@@ -365,6 +384,9 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
         # Manual tag creation since this create method doesn't call super()
         self._attempt_set_tags(tags, insight)
 
+        properties = {}
+        properties["creation_context"] = user_action_context
+
         log_insight_activity(
             activity="created",
             insight=insight,
@@ -374,6 +396,7 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
             team_id=team_id,
             user=self.context["request"].user,
             was_impersonated=is_impersonated_session(self.context["request"]),
+            properties=properties,
         )
 
         return insight
@@ -381,6 +404,7 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
     @transaction.atomic()
     @monitor(feature=Feature.INSIGHT, endpoint="insight", method="PATCH")
     def update(self, instance: Insight, validated_data: dict, **kwargs) -> Insight:
+        user_action_context = self.context["request"].data.get("user_action_context")
         dashboards_before_change: list[Union[str, dict]] = []
         try:
             # since it is possible to be undeleting a soft deleted insight
@@ -415,13 +439,13 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
         if not are_alerts_supported_for_insight(updated_insight):
             instance.alertconfiguration_set.all().delete()
 
-        self._log_insight_update(before_update, dashboards_before_change, updated_insight)
+        self._log_insight_update(before_update, dashboards_before_change, updated_insight, user_action_context)
 
         self.user_permissions.reset_insights_dashboard_cached_results()
 
         return updated_insight
 
-    def _log_insight_update(self, before_update, dashboards_before_change, updated_insight):
+    def _log_insight_update(self, before_update, dashboards_before_change, updated_insight, user_action_context):
         """
         KLUDGE: Automatic detection of insight dashboard updates is flaky
         This removes any detected update from the auto-detected changes
@@ -435,6 +459,9 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
         synthetic_dashboard_changes = self._synthetic_dashboard_changes(dashboards_before_change)
         changes = detected_changes + synthetic_dashboard_changes
 
+        properties = {}
+        properties["creation_context"] = user_action_context
+
         log_insight_activity(
             activity="updated",
             insight=updated_insight,
@@ -445,6 +472,7 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
             user=self.context["request"].user,
             was_impersonated=is_impersonated_session(self.context["request"]),
             changes=changes,
+            properties=properties,
         )
 
     def _synthetic_dashboard_changes(self, dashboards_before_change: list[dict]) -> list[Change]:
