@@ -6,8 +6,8 @@ import { PlayerInspectorControls } from '../inspector/PlayerInspectorControls'
 import { PlayerInspectorList } from '../inspector/PlayerInspectorList'
 import { PlayerSidebarDebuggerTab } from './PlayerSidebarDebuggerTab'
 import { playerSidebarLogic } from './playerSidebarLogic'
-import { PlayerSidebarPersonTab } from './PlayerSidebarPersonTab'
 import { PlayerSidebarOverviewTab } from './PlayerSidebarOverviewTab'
+import { PlayerSidebarPersonTab } from './PlayerSidebarPersonTab'
 
 export function PlayerSidebarTab(): JSX.Element | null {
     const { activeTab } = useValues(playerSidebarLogic)
