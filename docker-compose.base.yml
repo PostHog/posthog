@@ -189,6 +189,7 @@ services:
                 BIN: property-defs-rs
         restart: on-failure
         environment:
+            DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             KAFKA_HOSTS: 'kafka:9092'
             SKIP_WRITES: 'false'
             SKIP_READS: 'false'
