@@ -12,23 +12,16 @@
             e."properties" as "properties",
             e."$window_id" as $window_id,
             e."$session_id" as $session_id,
-            pdi.person_id as person_id,
+            if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) as person_id,
             e.distinct_id as distinct_id,
             e.team_id as team_id,
             e.uuid as uuid
      FROM events e
-     INNER JOIN
+     LEFT OUTER JOIN
        (SELECT distinct_id,
                argMax(person_id, version) as person_id
         FROM person_distinct_id2
         WHERE team_id = 2
-          AND distinct_id IN
-            (SELECT distinct_id
-             FROM events
-             WHERE team_id = 2
-               AND event = '$pageview'
-               AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-08 00:00:00', 'UTC')), 'UTC')
-               AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC'))
         GROUP BY distinct_id
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      WHERE team_id = 2
@@ -67,23 +60,16 @@
             e."properties" as "properties",
             e."$window_id" as $window_id,
             e."$session_id" as $session_id,
-            pdi.person_id as person_id,
+            if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) as person_id,
             e.distinct_id as distinct_id,
             e.team_id as team_id,
             e.uuid as uuid
      FROM events e
-     INNER JOIN
+     LEFT OUTER JOIN
        (SELECT distinct_id,
                argMax(person_id, version) as person_id
         FROM person_distinct_id2
         WHERE team_id = 2
-          AND distinct_id IN
-            (SELECT distinct_id
-             FROM events
-             WHERE team_id = 2
-               AND event = '$pageview'
-               AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-08 00:00:00', 'UTC')), 'UTC')
-               AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC'))
         GROUP BY distinct_id
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      INNER JOIN
@@ -132,23 +118,16 @@
             e."properties" as "properties",
             e."$window_id" as $window_id,
             e."$session_id" as $session_id,
-            pdi.person_id as person_id,
+            if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) as person_id,
             e.distinct_id as distinct_id,
             e.team_id as team_id,
             e.uuid as uuid
      FROM events e
-     INNER JOIN
+     LEFT OUTER JOIN
        (SELECT distinct_id,
                argMax(person_id, version) as person_id
         FROM person_distinct_id2
         WHERE team_id = 2
-          AND distinct_id IN
-            (SELECT distinct_id
-             FROM events
-             WHERE team_id = 2
-               AND event = '$pageview'
-               AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-08 00:00:00', 'UTC')), 'UTC')
-               AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC'))
         GROUP BY distinct_id
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      WHERE team_id = 2
