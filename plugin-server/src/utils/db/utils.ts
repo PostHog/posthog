@@ -51,10 +51,25 @@ export function timeoutGuard(
     }, timeout)
 }
 
-// When changing this set, make sure you also make the same changes in:
-// - taxonomy.tsx (CAMPAIGN_PROPERTIES)
-// - posthog-js event-utils.ts (CAMPAIGN_PARAMS)
-export const campaignParams = new Set([
+// when changing this set, be sure to update the frontend as well (taxonomy.tsx (eventToPersonProperties))
+export const eventToPersonProperties = new Set([
+    // mobile params
+    '$app_build',
+    '$app_name',
+    '$app_namespace',
+    '$app_version',
+    // web params
+    '$browser',
+    '$browser_version',
+    '$device_type',
+    '$current_url',
+    '$pathname',
+    '$os',
+    '$os_name', // $os_name is a special case, it's treated as an alias of $os!
+    '$os_version',
+    '$referring_domain',
+    '$referrer',
+    // campaign params - automatically added by posthog-js here https://github.com/PostHog/posthog-js/blob/master/src/utils/event-utils.ts
     'utm_source',
     'utm_medium',
     'utm_campaign',
@@ -75,31 +90,6 @@ export const campaignParams = new Set([
     'igshid', // instagram
     'ttclid', // tiktok
     'rdt_cid', // reddit
-])
-
-export const initialCampaignParams = new Set(Array.from(campaignParams, (key) => `$initial_${key.replace('$', '')}`))
-
-// When changing this set, make sure you also make the same changes in:
-// - taxonomy.tsx (PERSON_PROPERTIES_ADAPTED_FROM_EVENT)
-export const eventToPersonProperties = new Set([
-    // mobile params
-    '$app_build',
-    '$app_name',
-    '$app_namespace',
-    '$app_version',
-    // web params
-    '$browser',
-    '$browser_version',
-    '$device_type',
-    '$current_url',
-    '$pathname',
-    '$os',
-    '$os_name', // $os_name is a special case, it's treated as an alias of $os!
-    '$os_version',
-    '$referring_domain',
-    '$referrer',
-
-    ...campaignParams,
 ])
 export const initialEventToPersonProperties = new Set(
     Array.from(eventToPersonProperties, (key) => `$initial_${key.replace('$', '')}`)
