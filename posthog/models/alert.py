@@ -106,7 +106,7 @@ class AlertConfiguration(CreatedMetaFields, UUIDModel):
     threshold = models.ForeignKey(Threshold, on_delete=models.CASCADE, null=True, blank=True)
     condition = models.JSONField(default=dict)
 
-    state = models.CharField(max_length=10, choices=ALERT_STATE_CHOICES, default="inactive")
+    state = models.CharField(max_length=10, choices=ALERT_STATE_CHOICES, default=AlertState.NOT_FIRING)
     enabled = models.BooleanField(default=True)
 
     last_notified_at = models.DateTimeField(null=True, blank=True)

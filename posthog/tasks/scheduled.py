@@ -249,15 +249,15 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     )
 
     sender.add_periodic_task(
-        crontab(hour="*", minute="5"),
+        crontab(hour="*", minute="*/12"),
         hourly_alerts_task.s(),
         name="check alerts which require hourly recalculation for matches and send notifications",
     )
 
     sender.add_periodic_task(
-        crontab(hour="*", minute="5"),
+        crontab(hour="*", minute="*/12"),
         hourly_alerts_backlog_task.s(),
-        name="check number of hourly alerts that are not being checked in the last hour.",
+        name="check number of hourly alerts that are not being checked in the last hour",
     )
 
     sender.add_periodic_task(

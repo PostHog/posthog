@@ -12,7 +12,7 @@ import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { alphabet } from 'lib/utils'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 
-import { AlertType } from '~/queries/schema'
+import { AlertCalculationInterval, AlertType } from '~/queries/schema'
 import { QueryBasedInsightModel } from '~/types'
 
 import { alertFormLogic, AlertFormType } from '../alertFormLogic'
@@ -137,7 +137,7 @@ function EditAlertForm({ alert, onClose, onEditSuccess, alertState }: EditAlertF
     const { setAlertValue } = useActions(formLogic)
 
     const trendsLogic = trendsDataLogic({ dashboardItemId: alert.insight_short_id })
-    const { alertSeries, calculationIntervalsForAlerts } = useValues(trendsLogic)
+    const { alertSeries } = useValues(trendsLogic)
 
     const creatingNewAlert = alertForm.id === undefined
 
@@ -196,7 +196,7 @@ function EditAlertForm({ alert, onClose, onEditSuccess, alertState }: EditAlertF
                         <LemonSelect
                             fullWidth
                             data-attr="alert-calculation-interval"
-                            options={calculationIntervalsForAlerts.map((interval) => ({
+                            options={Object.values(AlertCalculationInterval).map((interval) => ({
                                 label: interval,
                                 value: interval,
                             }))}

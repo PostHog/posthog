@@ -16,15 +16,16 @@ from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager import (
     conversion_to_query_based,
 )
-from posthog.models import AlertConfiguration, Team, AlertCalculationInterval, AlertState
+from posthog.models import AlertConfiguration, Team
 from posthog.models.alert import AlertCheck
 from posthog.tasks.utils import CeleryQueue
-from posthog.schema import TrendsQuery, IntervalType, ChartDisplayType, NodeKind
+from posthog.schema import TrendsQuery, IntervalType, ChartDisplayType, NodeKind, AlertCalculationInterval, AlertState
 from posthog.utils import get_from_dict_or_attr
 from posthog.caching.fetch_from_cache import InsightResult
 from posthog.clickhouse.client.limit import limit_concurrency
 from prometheus_client import Gauge
 from django.db.models import Q
+
 
 HOURLY_ALERTS_BACKLOG_GAUGE = Gauge(
     "hourly_alerts_backlog",
@@ -188,10 +189,6 @@ def check_alert(alert_id: str) -> None:
 
                 filters_override = _calculate_date_range_override_for_alert(query)
 
-                # now override interval to be daily so we can get calculate an aggregated value for
-                # alert checking window
-                insight.query["source"]["interval"] = IntervalType.DAY
-
                 calculation_result = calculate_for_query_based_insight(
                     insight,
                     execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
@@ -261,34 +258,11 @@ def _aggregate_insight_result_value(
     if query.trendsFilter.display in NON_TIME_SERIES_DISPLAY_TYPES:
         return result["aggregated_value"]
 
-    date_from = filters_override["date_from"]
-    now = datetime.now(UTC)
-    start_datetime = now.replace(hour=0, minute=0, second=0, microsecond=0)
-
-    match date_from:
-        case "-1d":
-            start_datetime -= timedelta(days=1)
-        case "-1w":
-            start_datetime -= timedelta(days=7)
-        case "-1m":
-            start_datetime -= relativedelta(months=1)
-        case "-1h":
-            start_datetime -= timedelta(hours=1)
-
-    aggregate_value = 0
-
-    for day, data in zip(result["days"], result["data"]):
-        date = datetime.strptime(
-            day, "%Y-%m-%d{}".format(" %H:%M:%S" if query.interval == IntervalType.HOUR else "")
-        ).replace(tzinfo=UTC)
-
-        if start_datetime <= date <= now:
-            aggregate_value += data
-
-    return aggregate_value
+    return result["data"][-1]
 
 
 def _send_notifications_for_breaches(alert: AlertConfiguration, breaches: list[str]) -> None:
+    return
     subject = f"PostHog alert {alert.name} is firing"
     campaign_key = f"alert-firing-notification-{alert.id}-{timezone.now().timestamp()}"
     insight_url = f"/project/{alert.team.pk}/insights/{alert.insight.short_id}"
