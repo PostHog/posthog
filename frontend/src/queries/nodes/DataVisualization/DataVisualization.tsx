@@ -28,6 +28,7 @@ import { LineGraph } from './Components/Charts/LineGraph'
 import { SideBar } from './Components/SideBar'
 import { Table } from './Components/Table'
 import { TableDisplay } from './Components/TableDisplay'
+import { Variables } from './Components/Variables/Variables'
 import { dataVisualizationLogic, DataVisualizationLogicProps } from './dataVisualizationLogic'
 import { displayLogic } from './displayLogic'
 
@@ -194,6 +195,9 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                         </div>
                     </>
                 )}
+
+                <Variables />
+
                 <div className="flex flex-1 flex-row gap-4">
                     {showEditingUI && isChartSettingsPanelOpen && (
                         <div className="h-full">

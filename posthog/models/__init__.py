@@ -45,6 +45,7 @@ from .group_type_mapping import GroupTypeMapping
 from .hog_functions import HogFunction
 from .insight import Insight, InsightViewed
 from .insight_caching_state import InsightCachingState
+from .insight_variable import InsightVariable
 from .instance_setting import InstanceSetting
 from .integration import Integration
 from .messaging import MessagingRecord
@@ -111,6 +112,7 @@ __all__ = [
     "HogFunction",
     "Insight",
     "InsightCachingState",
+    "InsightVariable",
     "InsightViewed",
     "InstanceSetting",
     "Integration",
@@ -126,6 +128,7 @@ __all__ = [
     "PersonDistinctId",
     "PersonalAPIKey",
     "PersonOverride",
+    "PersonOverrideMapping",
     "Plugin",
     "PluginAttachment",
     "PluginConfig",
@@ -152,6 +155,8 @@ __all__ = [
     "UserManager",
     "DataWarehouseTable",
     "ScheduledChange",
+    "WebExperiment",
+    "Comment",
     # Deprecated models here for backwards compatibility
     "Prompt",
     "PromptSequence",

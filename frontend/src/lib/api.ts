@@ -9,6 +9,7 @@ import { stringifiedFingerprint } from 'scenes/error-tracking/utils'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
 
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
+import { Variable } from '~/queries/nodes/DataVisualization/types'
 import {
     AlertType,
     AlertTypeWrite,
@@ -822,6 +823,11 @@ class ApiRequest {
 
     public externalDataSourceSchema(schemaId: ExternalDataSourceSchema['id'], teamId?: TeamType['id']): ApiRequest {
         return this.externalDataSchemas(teamId).addPathComponent(schemaId)
+    }
+
+    // Insight Variables
+    public insightVariables(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('insight_variables')
     }
 
     // ActivityLog
@@ -2199,6 +2205,15 @@ const api = {
             >
         ): Promise<DataWarehouseViewLink> {
             return await new ApiRequest().dataWarehouseViewLink(viewId).update({ data })
+        },
+    },
+
+    insightVariables: {
+        async list(options?: ApiMethodOptions | undefined): Promise<PaginatedResponse<Variable>> {
+            return await new ApiRequest().insightVariables().get(options)
+        },
+        async create(data: Partial<any>): Promise<Variable> {
+            return await new ApiRequest().insightVariables().create({ data })
         },
     },
 
