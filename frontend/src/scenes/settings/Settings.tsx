@@ -117,10 +117,7 @@ function SettingsRenderer(props: SettingsLogicProps): JSX.Element {
                     <div key={x.id} className="relative">
                         <div
                             id={x.id}
-                            className="absolute" // eslint-disable-next-line react/forbid-dom-props
-                            style={{
-                                marginTop: '-3.5rem', // Account for top bar when scrolling to anchor
-                            }}
+                            className="absolute -mt-14" // Account for top bar when scrolling to anchor
                         />
                         <h2 className="flex gap-2 items-center">
                             {x.title}
