@@ -60,6 +60,9 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
         removeVariant: (variant: string) => ({
             variant,
         }),
+        visualizeVariant: (variant: string) => ({
+            variant,
+        }),
         addNewElement: (variant: string) => ({ variant }),
         removeElement: (variant: string, index: number) => ({ variant, index }),
         inspectForElementWithIndex: (variant: string, index: number | null) => ({ variant, index }),
@@ -259,6 +262,34 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
                 actions.rebalanceRolloutPercentage()
             }
         },
+        visualizeVariant: ({ variant }) => {
+            if (values.experimentForm && values.experimentForm.variants) {
+                const selectedVariant = values.experimentForm.variants[variant]
+                if (selectedVariant) {
+                    selectedVariant.transforms.forEach((transform) => {
+                        if (transform.selector) {
+                            const elements = document.querySelectorAll(transform.selector)
+                            elements.forEach((elements) => {
+                                const htmlElement = elements as HTMLElement
+                                if (htmlElement) {
+                                    if (transform.text) {
+                                        htmlElement.innerText = transform.text
+                                    }
+
+                                    if (transform.html) {
+                                        htmlElement.innerHTML = transform.html
+                                    }
+
+                                    if (transform.className) {
+                                        htmlElement.className = transform.className
+                                    }
+                                }
+                            })
+                        }
+                    })
+                }
+            }
+        },
         rebalanceRolloutPercentage: () => {
             const perVariantRollout = Math.round(100 / Object.keys(values.experimentForm.variants || {}).length)
             for (const existingVariant in values.experimentForm.variants) {
@@ -304,7 +335,7 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
 
                     actions.setExperimentFormValue('variants', values.experimentForm.variants)
                     actions.selectVariant(variant)
-                    actions.inspectForElementWithIndex( variant, webVariant.transforms.length)
+                    actions.inspectForElementWithIndex(variant, webVariant.transforms.length)
                 }
             }
         },

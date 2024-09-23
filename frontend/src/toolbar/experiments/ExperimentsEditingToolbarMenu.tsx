@@ -1,16 +1,14 @@
-import { IconPlus, IconRecord, IconTrash, IconDocument, IconEye } from '@posthog/icons'
+import { IconDocument, IconEye, IconPlus, IconRecord, IconTrash } from '@posthog/icons'
 import { LemonDivider } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form, Group } from 'kea-forms'
 import { EditableField } from 'lib/components/EditableField/EditableField'
+import { IconWithBadge } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
 import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'
 import { experimentsTabLogic } from '~/toolbar/experiments/experimentsTabLogic'
 import { WebExperimentTransformField } from '~/toolbar/experiments/WebExperimentTransformField'
-import {LemonSlider} from "lib/lemon-ui/LemonSlider";
-import {IconWithBadge} from "lib/lemon-ui/icons";
-
 
 export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
     const { selectedExperimentId, inspectingElement, experimentForm } = useValues(experimentsTabLogic)
@@ -23,6 +21,7 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
         addNewElement,
         removeElement,
         removeVariant,
+        visualizeVariant,
     } = useActions(experimentsTabLogic)
 
     return (
@@ -55,12 +54,12 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
                             ) : (
                                 <h4>{experimentForm.name}</h4>
                             )}
-                            <div className='col-span-1'/>
+                            <div className="col-span-1" />
                             <LemonButton
                                 type="secondary"
                                 size="small"
                                 className="col-span-1"
-                                sideIcon={<IconPlus/>}
+                                sideIcon={<IconPlus />}
                                 onClick={addNewVariant}
                             >
                                 Add variant
@@ -69,11 +68,10 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
                         <Group name="variants">
                             <div>
                                 {Object.keys(experimentForm.variants || {}).map((variant, index) => (
-
                                     <Group key={variant} name={['variants', index]}>
                                         <div className="flex flex-col">
-                                            <LemonDivider thick={true}/>
-                                            <div className="grid grid-cols-3 gap-2 m-1">
+                                            <LemonDivider thick={true} />
+                                            <div className="grid grid-cols-4 gap-2 m-1">
                                                 {selectedExperimentId === 'new' && variant !== 'control' ? (
                                                     <EditableField
                                                         onSave={(newName) => {
@@ -97,8 +95,22 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
                                                     <h2 className="col-span-1">{variant}</h2>
                                                 )}
                                                 <div className="col-span-1">
-                                                    <IconWithBadge content='50%' status='success'/>
+                                                    <IconWithBadge content="50%" status="success" />
                                                 </div>
+
+                                                <LemonButton
+                                                    type="secondary"
+                                                    size="small"
+                                                    className="col-span-1"
+                                                    status="alt"
+                                                    onClick={(e) => {
+                                                        e.stopPropagation()
+                                                        visualizeVariant(variant)
+                                                    }}
+                                                    sideIcon={<IconEye />}
+                                                >
+                                                    Visualize
+                                                </LemonButton>
                                                 <LemonButton
                                                     type="secondary"
                                                     size="small"
@@ -108,21 +120,22 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
                                                         e.stopPropagation()
                                                         removeVariant(variant)
                                                     }}
-                                                    sideIcon={<IconTrash/>}
+                                                    sideIcon={<IconTrash />}
                                                 >
                                                     Remove
                                                 </LemonButton>
                                             </div>
-                                            <LemonDivider dashed={true}/>
+                                            <LemonDivider dashed={true} />
                                             <div className="grid grid-cols-3 gap-2 m-1">
                                                 <span className="col-span-1">
-                                                    <IconDocument/>
-                                                    Elements</span>
+                                                    <IconDocument />
+                                                    Elements
+                                                </span>
                                                 <LemonButton
                                                     type="secondary"
                                                     size="small"
                                                     className="ml-2 col-span-1"
-                                                    sideIcon={<IconPlus/>}
+                                                    sideIcon={<IconPlus />}
                                                     onClick={(e) => {
                                                         e.stopPropagation()
                                                         addNewElement(variant)
@@ -131,61 +144,61 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
                                                     Add element
                                                 </LemonButton>
 
-                                                <div className="col-span-1"/>
+                                                <div className="col-span-1" />
                                             </div>
 
-                                            <LemonDivider/>
+                                            <LemonDivider />
                                             {experimentForm.variants![variant].transforms.map((transform, tIndex) => (
-                                                    <div key={tIndex}>
+                                                <div key={tIndex}>
                                                     <span>
                                                         {tIndex + 1} ) {transform.selector ?? 'no element selected'}
                                                     </span>
-                                                        <div className="grid grid-cols-3 gap-2 m-1">
-                                                            <LemonButton
-                                                                size="small"
-                                                                className='col-span-1'
-                                                                type={
-                                                                    inspectingElement === tIndex + 1
-                                                                        ? 'primary'
-                                                                        : 'secondary'
-                                                                }
-                                                                onClick={(e) => {
-                                                                    e.stopPropagation()
-                                                                    selectVariant(variant)
-                                                                    inspectForElementWithIndex(
-                                                                        variant,
-                                                                        inspectingElement === tIndex + 1 ? null : tIndex + 1
-                                                                    )
-                                                                }}
-                                                                icon={<IconRecord/>}
-                                                            >
-                                                                {transform.selector ? 'Change' : 'Select'}
-                                                            </LemonButton>
-                                                            <LemonButton
-                                                                type="secondary"
-                                                                status="danger"
-                                                                size="small"
-                                                                className='col-span-1'
-                                                                onClick={(e) => {
-                                                                    e.stopPropagation()
-                                                                    removeElement(variant, tIndex)
-                                                                }}
-                                                                sideIcon={<IconTrash/>}
-                                                            >
-                                                                Remove
-                                                            </LemonButton>
-                                                            <div className="col-span-1"/>
-                                                        </div>
-                                                        <WebExperimentTransformField
-                                                            tIndex={tIndex}
-                                                            variant={variant}
-                                                            transform={transform}
-                                                        />
+                                                    <div className="grid grid-cols-3 gap-2 m-1">
+                                                        <LemonButton
+                                                            size="small"
+                                                            className="col-span-1"
+                                                            type={
+                                                                inspectingElement === tIndex + 1
+                                                                    ? 'primary'
+                                                                    : 'secondary'
+                                                            }
+                                                            onClick={(e) => {
+                                                                e.stopPropagation()
+                                                                selectVariant(variant)
+                                                                inspectForElementWithIndex(
+                                                                    variant,
+                                                                    inspectingElement === tIndex + 1 ? null : tIndex + 1
+                                                                )
+                                                            }}
+                                                            icon={<IconRecord />}
+                                                        >
+                                                            {transform.selector ? 'Change' : 'Select'}
+                                                        </LemonButton>
+                                                        <LemonButton
+                                                            type="secondary"
+                                                            status="danger"
+                                                            size="small"
+                                                            className="col-span-1"
+                                                            onClick={(e) => {
+                                                                e.stopPropagation()
+                                                                removeElement(variant, tIndex)
+                                                            }}
+                                                            sideIcon={<IconTrash />}
+                                                        >
+                                                            Remove
+                                                        </LemonButton>
+                                                        <div className="col-span-1" />
                                                     </div>
-                                                ))}
-                                            </div>
+                                                    <WebExperimentTransformField
+                                                        tIndex={tIndex}
+                                                        variant={variant}
+                                                        transform={transform}
+                                                    />
+                                                </div>
+                                            ))}
+                                        </div>
                                     </Group>
-                                    ))}
+                                ))}
                             </div>
                         </Group>
                     </div>
