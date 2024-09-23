@@ -244,7 +244,6 @@ export function FeatureFlagReleaseConditions({
                                           })
                                         : null
                                 }
-                                restrictFeatureFlagCohortOperators={true}
                             />
                         </div>
                     )}

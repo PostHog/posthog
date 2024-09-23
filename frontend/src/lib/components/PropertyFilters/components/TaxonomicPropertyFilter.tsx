@@ -48,7 +48,6 @@ export function TaxonomicPropertyFilter({
     propertyAllowList,
     taxonomicFilterOptionsFromProp,
     allowRelativeDateOptions,
-    restrictFeatureFlagCohortOperators,
 }: PropertyFilterInternalProps): JSX.Element {
     const pageKey = useMemo(() => pageKeyInput || `filter-${uniqueMemoizedIndex++}`, [pageKeyInput])
     const groupTypes = taxonomicGroupTypes || [
@@ -90,7 +89,7 @@ export function TaxonomicPropertyFilter({
         filter?.type &&
         filter?.key &&
         !(filter?.type === PropertyFilterType.HogQL) &&
-        !(filter?.type === PropertyFilterType.Cohort && restrictFeatureFlagCohortOperators)
+        !(filter?.type === PropertyFilterType.Cohort && pageKey.includes('feature-flag'))
     const placeOperatorValueSelectOnLeft = filter?.type && filter?.key && filter?.type === PropertyFilterType.Cohort
 
     const { propertyDefinitionsByType } = useValues(propertyDefinitionsModel)
@@ -142,7 +141,6 @@ export function TaxonomicPropertyFilter({
                     onComplete()
                 }
             }}
-            restrictFeatureFlagCohortOperators={restrictFeatureFlagCohortOperators}
         />
     )
 

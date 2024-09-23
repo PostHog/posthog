@@ -29,7 +29,6 @@ export interface OperatorValueSelectProps {
     propertyDefinitions: PropertyDefinition[]
     defaultOpen?: boolean
     addRelativeDateTimeOptions?: boolean
-    restrictFeatureFlagCohortOperators?: boolean
 }
 
 interface OperatorSelectProps extends Omit<LemonSelectProps<any>, 'options'> {

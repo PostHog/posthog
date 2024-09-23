@@ -38,7 +38,6 @@ interface PropertyFiltersProps {
     propertyAllowList?: { [key in TaxonomicFilterGroupType]?: string[] }
     allowRelativeDateOptions?: boolean
     disabledReason?: string
-    restrictFeatureFlagCohortOperators?: boolean
 }
 
 export function PropertyFilters({
@@ -66,7 +65,6 @@ export function PropertyFilters({
     propertyAllowList,
     allowRelativeDateOptions,
     disabledReason = undefined,
-    restrictFeatureFlagCohortOperators = false,
 }: PropertyFiltersProps): JSX.Element {
     const logicProps = { propertyFilters, onChange, pageKey, sendAllKeyUpdates }
     const { filters, filtersWithNew } = useValues(propertyFilterLogic(logicProps))
@@ -130,7 +128,6 @@ export function PropertyFilters({
                                             propertyAllowList={propertyAllowList}
                                             taxonomicFilterOptionsFromProp={taxonomicFilterOptionsFromProp}
                                             allowRelativeDateOptions={allowRelativeDateOptions}
-                                            restrictFeatureFlagCohortOperators={restrictFeatureFlagCohortOperators}
                                         />
                                     )}
                                     errorMessage={errorMessages && errorMessages[index]}
