@@ -4,17 +4,16 @@ from typing import Any, Optional
 import structlog
 from celery import shared_task
 from dateutil.relativedelta import relativedelta
-from django.conf import settings
 from django.db.models import F
 from django.utils import timezone
+from prometheus_client import Gauge
+from sentry_sdk import set_tag
 
+from posthog.api.monitoring import Feature
 from posthog.models import Cohort
 from posthog.models.cohort import get_and_update_pending_version
 from posthog.models.cohort.util import clear_stale_cohortpeople
 from posthog.models.user import User
-from prometheus_client import Gauge
-from sentry_sdk import set_tag
-from posthog.api.monitoring import Feature
 
 COHORT_RECALCULATIONS_BACKLOG_GAUGE = Gauge(
     "cohort_recalculations_backlog",
@@ -25,7 +24,14 @@ logger = structlog.get_logger(__name__)
 MAX_AGE_MINUTES = 15
 
 
-def calculate_cohorts() -> None:
+def calculate_cohorts(parallel_count: int) -> None:
+    """
+    Calculates maximum N cohorts in parallel.
+
+    Args:
+        parallel_count: Maximum number of cohorts to calculate in parallel.
+    """
+
     # This task will be run every minute
     # Every minute, grab a few cohorts off the list and execute them
     for cohort in (
@@ -36,7 +42,7 @@ def calculate_cohorts() -> None:
             errors_calculating__lte=20,
         )
         .exclude(is_static=True)
-        .order_by(F("last_calculation").asc(nulls_first=True))[0 : settings.CALCULATE_X_COHORTS_PARALLEL]
+        .order_by(F("last_calculation").asc(nulls_first=True))[0:parallel_count]
     ):
         cohort = Cohort.objects.filter(pk=cohort.pk).get()
         update_cohort(cohort, initiating_user=None)
@@ -102,8 +108,8 @@ def insert_cohort_from_insight_filter(cohort_id: int, filter_data: dict[str, Any
 @shared_task(ignore_result=True, max_retries=1)
 def insert_cohort_from_query(cohort_id: int) -> None:
     from posthog.api.cohort import (
-        insert_cohort_query_actors_into_ch,
         insert_cohort_people_into_pg,
+        insert_cohort_query_actors_into_ch,
     )
 
     cohort = Cohort.objects.get(pk=cohort_id)
