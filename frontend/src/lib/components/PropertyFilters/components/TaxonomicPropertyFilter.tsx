@@ -87,7 +87,10 @@ export function TaxonomicPropertyFilter({
         !disablePopover &&
         ((!filter?.type && (!filter || !(filter as any)?.key)) || filter?.type === PropertyFilterType.HogQL)
     const showOperatorValueSelect =
-        filter?.type && filter?.key && filter?.type !== PropertyFilterType.HogQL && !restrictFeatureFlagCohortOperators
+        filter?.type &&
+        filter?.key &&
+        !(filter?.type === PropertyFilterType.HogQL) &&
+        !(filter?.type === PropertyFilterType.Cohort && restrictFeatureFlagCohortOperators)
     const placeOperatorValueSelectOnLeft = filter?.type && filter?.key && filter?.type === PropertyFilterType.Cohort
 
     const { propertyDefinitionsByType } = useValues(propertyDefinitionsModel)
