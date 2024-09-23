@@ -158,6 +158,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
                 "console_log_count": 0,
                 "console_warn_count": 0,
                 "console_error_count": 0,
+                "ongoing": 0,
             },
             {
                 "session_id": session_id_one,
@@ -175,6 +176,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
                 "console_log_count": 0,
                 "console_warn_count": 0,
                 "console_error_count": 0,
+                "ongoing": 0,
             },
         ]
 
@@ -338,6 +340,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
                 "console_log_count": 0,
                 "console_warn_count": 0,
                 "console_error_count": 0,
+                "ongoing": 0,
             }
         ]
 
@@ -364,6 +367,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
                 "console_log_count": 0,
                 "console_warn_count": 0,
                 "console_error_count": 0,
+                "ongoing": 0,
             },
         ]
 
@@ -1362,6 +1366,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
                 "console_log_count": 0,
                 "console_warn_count": 0,
                 "console_error_count": 0,
+                "ongoing": 0,
             }
         ]
 
@@ -3920,5 +3925,6 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
                 "session_id": "2",
                 "start_time": ANY,
                 "team_id": self.team.id,
+                "ongoing": 0,
             }
         ]
