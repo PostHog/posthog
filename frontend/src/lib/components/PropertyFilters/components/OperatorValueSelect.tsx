@@ -71,7 +71,6 @@ export function OperatorValueSelect({
     eventNames = [],
     defaultOpen,
     addRelativeDateTimeOptions,
-    restrictFeatureFlagCohortOperators,
 }: OperatorValueSelectProps): JSX.Element {
     const propertyDefinition = propertyDefinitions.find((pd) => pd.name === propertyKey)
 
@@ -105,12 +104,7 @@ export function OperatorValueSelect({
         const operatorMapping: Record<string, string> = chooseOperatorMap(propertyType)
 
         const operators = Object.keys(operatorMapping) as Array<PropertyOperator>
-        if (restrictFeatureFlagCohortOperators) {
-            // only allow In operator for feature flags
-            setOperators(operators.filter((op) => op === PropertyOperator.In))
-        } else {
-            setOperators(operators)
-        }
+        setOperators(operators)
         if ((currentOperator !== operator && operators.includes(startingOperator)) || !propertyDefinition) {
             setCurrentOperator(startingOperator)
         } else if (!operators.includes(currentOperator) && propertyDefinition) {
