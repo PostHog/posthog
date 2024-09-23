@@ -1,7 +1,7 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { subscriptions } from 'kea-subscriptions'
-import api from 'lib/api'
+import api, { ApiError } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { urls } from 'scenes/urls'
 
@@ -160,28 +160,37 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
                 const { selectedExperimentId } = values
 
                 let response: Experiment
-                if (selectedExperimentId && selectedExperimentId !== 'new') {
-                    response = await api.update(
-                        `${apiURL}/api/projects/@current/web_experiments/${selectedExperimentId}/?temporary_token=${temporaryToken}`,
-                        experimentToSave
-                    )
-                } else {
-                    response = await api.create(
-                        `${apiURL}/api/projects/@current/web_experiments/?temporary_token=${temporaryToken}`,
-                        experimentToSave
-                    )
+                try {
+                    if (selectedExperimentId && selectedExperimentId !== 'new') {
+                        response = await api.update(
+                            `${apiURL}/api/projects/@current/web_experiments/${selectedExperimentId}/?temporary_token=${temporaryToken}`,
+                            experimentToSave
+                        )
+                    } else {
+                        response = await api.create(
+                            `${apiURL}/api/projects/@current/web_experiments/?temporary_token=${temporaryToken}`,
+                            experimentToSave
+                        )
+                    }
+                    breakpoint()
+                } catch (e) {
+                    const apiError = e as ApiError
+                    if (apiError) {
+                        lemonToast.error(`Experiment save failed: ${apiError.data.detail}`)
+                    }
                 }
-                breakpoint()
 
-                experimentsLogic.actions.updateExperiment({ experiment: response })
-                actions.selectExperiment(null)
+                if (response) {
+                    experimentsLogic.actions.updateExperiment({ experiment: response })
+                    actions.selectExperiment(null)
 
-                lemonToast.success('Experiment saved', {
-                    button: {
-                        label: 'Open in PostHog',
-                        action: () => window.open(`${apiURL}${urls.experiment(response.id)}`, '_blank'),
-                    },
-                })
+                    lemonToast.success('Experiment saved', {
+                        button: {
+                            label: 'Open in PostHog',
+                            action: () => window.open(`${apiURL}${urls.experiment(response.id)}`, '_blank'),
+                        },
+                    })
+                }
             },
 
             // whether we show errors after touch (true) or submit (false)
