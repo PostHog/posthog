@@ -1,6 +1,6 @@
 import { DEFAULT_MAX_ASYNC_STEPS, DEFAULT_MAX_MEMORY, DEFAULT_TIMEOUT_MS, MAX_FUNCTION_ARGS_LENGTH } from './constants'
 import { isHogCallable, isHogClosure, isHogError, isHogUpValue, newHogCallable, newHogClosure } from './objects'
-import { Operation } from './operation'
+import { Operation, operations } from './operation'
 import { BYTECODE_STL } from './stl/bytecode'
 import { ASYNC_STL, STL } from './stl/stl'
 import { CallFrame, ExecOptions, ExecResult, HogUpValue, Telemetry, ThrowFrame, VMState } from './types'
@@ -16,20 +16,26 @@ import {
     unifyComparisonTypes,
 } from './utils'
 
-export function execSync(bytecode: any[], options?: ExecOptions): any {
+export function execSync(bytecode: any[] | VMState, options?: ExecOptions): any {
     const response = exec(bytecode, options)
     if (response.finished) {
         return response.result
     }
+    if (response.error) {
+        throw response.error
+    }
     throw new HogVMException('Unexpected async function call: ' + response.asyncFunctionName)
 }
 
-export async function execAsync(bytecode: any[], options?: ExecOptions): Promise<any> {
+export async function execAsync(bytecode: any[] | VMState, options?: ExecOptions): Promise<any> {
     let vmState: VMState | undefined = undefined
     while (true) {
         const response = exec(vmState ?? bytecode, options)
         if (response.finished) {
             return response.result
+        }
+        if (response.error) {
+            throw response.error
         }
         if (response.state && response.asyncFunctionName && response.asyncFunctionArgs) {
             vmState = response.state
@@ -53,6 +59,7 @@ export async function execAsync(bytecode: any[], options?: ExecOptions): Promise
 }
 
 export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
+    const startTime = Date.now()
     let vmState: VMState | undefined = undefined
     let bytecode: any[]
     if (!Array.isArray(code)) {
@@ -66,7 +73,6 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
     }
     const version = bytecode[0] === '_H' ? bytecode[1] ?? 0 : 0
 
-    const startTime = Date.now()
     let temp: any
     let temp2: any
     let tempArray: any[]
@@ -94,7 +100,6 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
     let ops = vmState ? vmState.ops : 0
     const timeout = options?.timeout ?? DEFAULT_TIMEOUT_MS
     const maxAsyncSteps = options?.maxAsyncSteps ?? DEFAULT_MAX_ASYNC_STEPS
-    const telemetry: Telemetry[] = []
 
     if (callStack.length === 0) {
         callStack.push({
@@ -115,6 +120,11 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
     }
     let frame: CallFrame = callStack[callStack.length - 1]
     let chunkBytecode: any[] = bytecode
+    let lastChunk = frame.chunk
+    let lastTime = startTime
+
+    const telemetry: Telemetry[] = [[startTime, lastChunk, 0, 'START', '']]
+
     const setChunkBytecode = (): void => {
         if (!frame.chunk || frame.chunk === 'root') {
             chunkBytecode = bytecode
@@ -127,7 +137,8 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
 
     function popStack(): any {
         if (stack.length === 0) {
-            throw new HogVMException('Invalid HogQL bytecode, stack is empty')
+            logTelemetry()
+            throw new HogVMException('Invalid HogQL bytecode, stack is empty, can not pop')
         }
         memUsed -= memStack.pop() ?? 0
         return stack.pop()
@@ -147,6 +158,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
         memUsed -= memStack.splice(start, deleteCount).reduce((acc, val) => acc + val, 0)
         return stack.splice(start, deleteCount)
     }
+
     function stackKeepFirstElements(count: number): any[] {
         if (count < 0 || stack.length < count) {
             throw new HogVMException('Stack underflow')
@@ -178,14 +190,18 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
             throw new HogVMException(`Execution timed out after ${timeout / 1000} seconds. Performed ${ops} ops.`)
         }
     }
-    function getFinishedState(): VMState {
+
+    function getVMState(): VMState {
         return {
-            bytecode: [],
-            stack: [],
-            upvalues: [],
-            callStack: [],
-            throwStack: [],
-            declaredFunctions: {},
+            bytecode,
+            stack: stack.map((v) => convertHogToJS(v)),
+            upvalues: sortedUpValues.map((v) => ({ ...v, value: convertHogToJS(v.value) })),
+            callStack: callStack.map((v) => ({
+                ...v,
+                closure: convertHogToJS(v.closure),
+            })),
+            throwStack,
+            declaredFunctions,
             ops,
             asyncSteps,
             syncDuration: syncDuration + (Date.now() - startTime),
@@ -193,6 +209,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
             telemetry: options?.telemetry ? telemetry : undefined,
         }
     }
+
     function captureUpValue(index: number): HogUpValue {
         for (let i = sortedUpValues.length - 1; i >= 0; i--) {
             if (sortedUpValues[i].location < index) {
@@ -221,25 +238,34 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
         }
         return options.external.regex.match
     }
-    let lastChunk = ''
+
     const logTelemetry = (): void => {
         const op = chunkBytecode[frame.ip]
+        const newTime = new Date().getTime()
         let debug = ''
-        if (op === Operation.GET_GLOBAL) {
+        if (op === Operation.CALL_LOCAL || op === Operation.GET_PROPERTY || op === Operation.GET_PROPERTY_NULLISH) {
             debug = String(stack[stack.length - 1])
-        } else if (op === Operation.CALL_GLOBAL) {
+        } else if (
+            op === Operation.GET_GLOBAL ||
+            op === Operation.CALL_GLOBAL ||
+            op === Operation.STRING ||
+            op === Operation.INTEGER ||
+            op === Operation.FLOAT
+        ) {
             debug = String(chunkBytecode[frame.ip + 1])
-        } else if (op === Operation.CALL_LOCAL) {
-            debug = String(stack[stack.length - 1])
         }
         telemetry.push([
-            new Date().getTime(),
+            newTime !== lastTime ? newTime - lastTime : 0,
             frame.chunk !== lastChunk ? frame.chunk : '',
             frame.ip,
-            chunkBytecode[frame.ip],
+            typeof chunkBytecode[frame.ip] === 'number'
+                ? String(chunkBytecode[frame.ip]) +
+                  (operations[chunkBytecode[frame.ip]] ? `/${operations[chunkBytecode[frame.ip]]}` : '')
+                : '???',
             debug,
         ])
         lastChunk = frame.chunk
+        lastTime = newTime
     }
 
     const nextOp = options?.telemetry
@@ -257,466 +283,381 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
               }
           }
 
-    while (frame.ip < chunkBytecode.length) {
-        nextOp()
-        switch (chunkBytecode[frame.ip]) {
-            case null:
-                break
-            case Operation.STRING:
-                pushStack(next())
-                break
-            case Operation.FLOAT:
-                pushStack(next())
-                break
-            case Operation.INTEGER:
-                pushStack(next())
-                break
-            case Operation.TRUE:
-                pushStack(true)
-                break
-            case Operation.FALSE:
-                pushStack(false)
-                break
-            case Operation.NULL:
-                pushStack(null)
-                break
-            case Operation.NOT:
-                pushStack(!popStack())
-                break
-            case Operation.AND:
-                temp = next()
-                temp2 = true
-                for (let i = 0; i < temp; i++) {
-                    temp2 = !!popStack() && temp2
-                }
-                pushStack(temp2)
-                break
-            case Operation.OR:
-                temp = next()
-                temp2 = false
-                for (let i = 0; i < temp; i++) {
-                    temp2 = !!popStack() || temp2
-                }
-                pushStack(temp2)
-                break
-            case Operation.PLUS:
-                pushStack(Number(popStack()) + Number(popStack()))
-                break
-            case Operation.MINUS:
-                pushStack(Number(popStack()) - Number(popStack()))
-                break
-            case Operation.DIVIDE:
-                pushStack(Number(popStack()) / Number(popStack()))
-                break
-            case Operation.MULTIPLY:
-                pushStack(Number(popStack()) * Number(popStack()))
-                break
-            case Operation.MOD:
-                pushStack(Number(popStack()) % Number(popStack()))
-                break
-            case Operation.EQ:
-                ;[temp, temp2] = unifyComparisonTypes(popStack(), popStack())
-                pushStack(temp === temp2)
-                break
-            case Operation.NOT_EQ:
-                ;[temp, temp2] = unifyComparisonTypes(popStack(), popStack())
-                pushStack(temp !== temp2)
-                break
-            case Operation.GT:
-                ;[temp, temp2] = unifyComparisonTypes(popStack(), popStack())
-                pushStack(temp > temp2)
-                break
-            case Operation.GT_EQ:
-                ;[temp, temp2] = unifyComparisonTypes(popStack(), popStack())
-                pushStack(temp >= temp2)
-                break
-            case Operation.LT:
-                ;[temp, temp2] = unifyComparisonTypes(popStack(), popStack())
-                pushStack(temp < temp2)
-                break
-            case Operation.LT_EQ:
-                ;[temp, temp2] = unifyComparisonTypes(popStack(), popStack())
-                pushStack(temp <= temp2)
-                break
-            case Operation.LIKE:
-                pushStack(like(popStack(), popStack()))
-                break
-            case Operation.ILIKE:
-                pushStack(like(popStack(), popStack(), true))
-                break
-            case Operation.NOT_LIKE:
-                pushStack(!like(popStack(), popStack()))
-                break
-            case Operation.NOT_ILIKE:
-                pushStack(!like(popStack(), popStack(), true))
-                break
-            case Operation.IN:
-                temp = popStack()
-                pushStack(popStack().includes(temp))
-                break
-            case Operation.NOT_IN:
-                temp = popStack()
-                pushStack(!popStack().includes(temp))
-                break
-            case Operation.REGEX:
-                temp = popStack()
-                pushStack(regexMatch()(popStack(), temp))
-                break
-            case Operation.NOT_REGEX:
-                temp = popStack()
-                pushStack(!regexMatch()(popStack(), temp))
-                break
-            case Operation.IREGEX:
-                temp = popStack()
-                pushStack(regexMatch()('(?i)' + popStack(), temp))
-                break
-            case Operation.NOT_IREGEX:
-                temp = popStack()
-                pushStack(!regexMatch()('(?i)' + popStack(), temp))
-                break
-            case Operation.GET_GLOBAL: {
-                const count = next()
-                const chain = []
-                for (let i = 0; i < count; i++) {
-                    chain.push(popStack())
-                }
-
-                if (options?.globals && chain[0] in options.globals && Object.hasOwn(options.globals, chain[0])) {
-                    pushStack(convertJSToHog(getNestedValue(options.globals, chain)))
-                } else if (
-                    options?.asyncFunctions &&
-                    chain.length == 1 &&
-                    Object.hasOwn(options.asyncFunctions, chain[0]) &&
-                    options.asyncFunctions[chain[0]]
-                ) {
-                    pushStack(
-                        newHogClosure(
-                            newHogCallable('async', {
-                                name: chain[0],
-                                argCount: 0, // TODO
-                                upvalueCount: 0,
-                                ip: -1,
-                                chunk: 'async',
-                            })
-                        )
-                    )
-                } else if (chain.length == 1 && chain[0] in ASYNC_STL && Object.hasOwn(ASYNC_STL, chain[0])) {
-                    pushStack(
-                        newHogClosure(
-                            newHogCallable('async', {
-                                name: chain[0],
-                                argCount: ASYNC_STL[chain[0]].maxArgs ?? 0,
-                                upvalueCount: 0,
-                                ip: -1,
-                                chunk: 'async',
-                            })
-                        )
-                    )
-                } else if (chain.length == 1 && chain[0] in STL && Object.hasOwn(STL, chain[0])) {
-                    pushStack(
-                        newHogClosure(
-                            newHogCallable('stl', {
-                                name: chain[0],
-                                argCount: STL[chain[0]].maxArgs ?? 0,
-                                upvalueCount: 0,
-                                ip: -1,
-                                chunk: 'stl',
-                            })
-                        )
-                    )
-                } else if (chain.length == 1 && chain[0] in BYTECODE_STL && Object.hasOwn(BYTECODE_STL, chain[0])) {
-                    pushStack(
-                        newHogClosure(
-                            newHogCallable('stl', {
-                                name: chain[0],
-                                argCount: BYTECODE_STL[chain[0]][0].length,
-                                upvalueCount: 0,
-                                ip: 0,
-                                chunk: `stl/${chain[0]}`,
-                            })
-                        )
-                    )
-                } else {
-                    throw new HogVMException(`Global variable not found: ${chain.join('.')}`)
-                }
-                break
-            }
-            case Operation.POP:
-                popStack()
-                break
-            case Operation.CLOSE_UPVALUE:
-                stackKeepFirstElements(stack.length - 1)
-                break
-            case Operation.RETURN: {
-                const result = popStack()
-                const lastCallFrame = callStack.pop()
-                if (callStack.length === 0 || !lastCallFrame) {
-                    return { result, finished: true, state: getFinishedState() } satisfies ExecResult
-                }
-                const stackStart = lastCallFrame.stackStart
-                stackKeepFirstElements(stackStart)
-                pushStack(result)
-                frame = callStack[callStack.length - 1]
-                setChunkBytecode()
-                continue // resume the loop without incrementing frame.ip
-            }
-            case Operation.GET_LOCAL:
-                temp = callStack.length > 0 ? callStack[callStack.length - 1].stackStart : 0
-                pushStack(stack[next() + temp])
-                break
-            case Operation.SET_LOCAL:
-                temp = (callStack.length > 0 ? callStack[callStack.length - 1].stackStart : 0) + next()
-                stack[temp] = popStack()
-                temp2 = memStack[temp]
-                memStack[temp] = calculateCost(stack[temp])
-                memUsed += memStack[temp] - temp2
-                maxMemUsed = Math.max(maxMemUsed, memUsed)
-                break
-            case Operation.GET_PROPERTY:
-                temp = popStack() // property
-                pushStack(getNestedValue(popStack(), [temp]))
-                break
-            case Operation.GET_PROPERTY_NULLISH:
-                temp = popStack() // property
-                pushStack(getNestedValue(popStack(), [temp], true))
-                break
-            case Operation.SET_PROPERTY:
-                temp = popStack() // value
-                temp2 = popStack() // field
-                setNestedValue(popStack(), [temp2], temp)
-                break
-            case Operation.DICT:
-                temp = next() * 2 // number of elements to remove from the stack
-                tempArray = spliceStack2(stack.length - temp, temp)
-                tempMap = new Map()
-                for (let i = 0; i < tempArray.length; i += 2) {
-                    tempMap.set(tempArray[i], tempArray[i + 1])
-                }
-                pushStack(tempMap)
-                break
-            case Operation.ARRAY:
-                temp = next()
-                tempArray = spliceStack2(stack.length - temp, temp)
-                pushStack(tempArray)
-                break
-            case Operation.TUPLE:
-                temp = next()
-                tempArray = spliceStack2(stack.length - temp, temp)
-                ;(tempArray as any).__isHogTuple = true
-                pushStack(tempArray)
-                break
-            case Operation.JUMP:
-                temp = next()
-                frame.ip += temp
-                break
-            case Operation.JUMP_IF_FALSE:
-                temp = next()
-                if (!popStack()) {
-                    frame.ip += temp
-                }
-                break
-            case Operation.JUMP_IF_STACK_NOT_NULL:
-                temp = next()
-                if (stack.length > 0 && stack[stack.length - 1] !== null) {
-                    frame.ip += temp
-                }
-                break
-            case Operation.DECLARE_FN: {
-                // DEPRECATED
-                const name = next()
-                const argCount = next()
-                const bodyLength = next()
-                declaredFunctions[name] = [frame.ip + 1, argCount]
-                frame.ip += bodyLength
-                break
-            }
-            case Operation.CALLABLE: {
-                const name = next()
-                const argCount = next()
-                const upvalueCount = next()
-                const bodyLength = next()
-                const callable = newHogCallable('local', {
-                    name,
-                    argCount,
-                    upvalueCount,
-                    ip: frame.ip + 1,
-                    chunk: frame.chunk,
-                })
-                pushStack(callable)
-                frame.ip += bodyLength
-                break
-            }
-            case Operation.CLOSURE: {
-                const callable = popStack()
-                if (!isHogCallable(callable)) {
-                    throw new HogVMException(`Invalid callable: ${JSON.stringify(callable)}`)
-                }
-                const upvalueCount = next()
-                const closureUpValues: number[] = []
-                if (upvalueCount !== callable.upvalueCount) {
-                    throw new HogVMException(
-                        `Invalid upvalue count. Expected ${callable.upvalueCount}, got ${upvalueCount}`
-                    )
-                }
-                const stackStart = frame.stackStart
-                for (let i = 0; i < callable.upvalueCount; i++) {
-                    const [isLocal, index] = [next(), next()]
-                    if (isLocal) {
-                        closureUpValues.push(captureUpValue(stackStart + index).id)
-                    } else {
-                        closureUpValues.push(frame.closure.upvalues[index])
+    try {
+        while (frame.ip < chunkBytecode.length) {
+            nextOp()
+            switch (chunkBytecode[frame.ip]) {
+                case null:
+                    break
+                case Operation.STRING:
+                    pushStack(next())
+                    break
+                case Operation.FLOAT:
+                    pushStack(next())
+                    break
+                case Operation.INTEGER:
+                    pushStack(next())
+                    break
+                case Operation.TRUE:
+                    pushStack(true)
+                    break
+                case Operation.FALSE:
+                    pushStack(false)
+                    break
+                case Operation.NULL:
+                    pushStack(null)
+                    break
+                case Operation.NOT:
+                    pushStack(!popStack())
+                    break
+                case Operation.AND:
+                    temp = next()
+                    temp2 = true
+                    for (let i = 0; i < temp; i++) {
+                        temp2 = !!popStack() && temp2
                     }
-                }
-                pushStack(newHogClosure(callable, closureUpValues))
-                break
-            }
-            case Operation.GET_UPVALUE: {
-                const index = next()
-                if (index >= frame.closure.upvalues.length) {
-                    throw new HogVMException(`Invalid upvalue index: ${index}`)
-                }
-                const upvalue = upvaluesById[frame.closure.upvalues[index]]
-                if (!isHogUpValue(upvalue)) {
-                    throw new HogVMException(`Invalid upvalue: ${upvalue}`)
-                }
-                if (upvalue.closed) {
-                    pushStack(upvalue.value)
-                } else {
-                    pushStack(stack[upvalue.location])
-                }
-                break
-            }
-            case Operation.SET_UPVALUE: {
-                const index = next()
-                if (index >= frame.closure.upvalues.length) {
-                    throw new HogVMException(`Invalid upvalue index: ${index}`)
-                }
-                const upvalue = upvaluesById[frame.closure.upvalues[index]]
-                if (!isHogUpValue(upvalue)) {
-                    throw new HogVMException(`Invalid upvalue: ${upvalue}`)
-                }
-                if (upvalue.closed) {
-                    upvalue.value = popStack()
-                } else {
-                    stack[upvalue.location] = popStack()
-                }
-                break
-            }
-            case Operation.CALL_GLOBAL: {
-                checkTimeout()
-                const name = next()
-                temp = next() // args.length
-                if (name in declaredFunctions && name !== 'toString') {
-                    // This is for backwards compatibility. We use a closure on the stack with local functions now.
-                    const [funcIp, argLen] = declaredFunctions[name]
-                    frame.ip += 1 // advance for when we return
-                    if (argLen > temp) {
-                        for (let i = temp; i < argLen; i++) {
-                            pushStack(null)
-                        }
+                    pushStack(temp2)
+                    break
+                case Operation.OR:
+                    temp = next()
+                    temp2 = false
+                    for (let i = 0; i < temp; i++) {
+                        temp2 = !!popStack() || temp2
                     }
-                    frame = {
-                        ip: funcIp,
-                        chunk: frame.chunk,
-                        stackStart: stack.length - argLen,
-                        argCount: argLen,
-                        closure: newHogClosure(
-                            newHogCallable('local', {
-                                name: name,
-                                argCount: argLen,
-                                upvalueCount: 0,
-                                ip: funcIp,
-                                chunk: frame.chunk,
-                            })
-                        ),
-                    } satisfies CallFrame
-                    setChunkBytecode()
-                    callStack.push(frame)
-                    continue // resume the loop without incrementing frame.ip
-                } else {
-                    if (temp > stack.length) {
-                        throw new HogVMException('Not enough arguments on the stack')
-                    }
-                    if (temp > MAX_FUNCTION_ARGS_LENGTH) {
-                        throw new HogVMException('Too many arguments')
+                    pushStack(temp2)
+                    break
+                case Operation.PLUS:
+                    pushStack(Number(popStack()) + Number(popStack()))
+                    break
+                case Operation.MINUS:
+                    pushStack(Number(popStack()) - Number(popStack()))
+                    break
+                case Operation.DIVIDE:
+                    pushStack(Number(popStack()) / Number(popStack()))
+                    break
+                case Operation.MULTIPLY:
+                    pushStack(Number(popStack()) * Number(popStack()))
+                    break
+                case Operation.MOD:
+                    pushStack(Number(popStack()) % Number(popStack()))
+                    break
+                case Operation.EQ:
+                    ;[temp, temp2] = unifyComparisonTypes(popStack(), popStack())
+                    pushStack(temp === temp2)
+                    break
+                case Operation.NOT_EQ:
+                    ;[temp, temp2] = unifyComparisonTypes(popStack(), popStack())
+                    pushStack(temp !== temp2)
+                    break
+                case Operation.GT:
+                    ;[temp, temp2] = unifyComparisonTypes(popStack(), popStack())
+                    pushStack(temp > temp2)
+                    break
+                case Operation.GT_EQ:
+                    ;[temp, temp2] = unifyComparisonTypes(popStack(), popStack())
+                    pushStack(temp >= temp2)
+                    break
+                case Operation.LT:
+                    ;[temp, temp2] = unifyComparisonTypes(popStack(), popStack())
+                    pushStack(temp < temp2)
+                    break
+                case Operation.LT_EQ:
+                    ;[temp, temp2] = unifyComparisonTypes(popStack(), popStack())
+                    pushStack(temp <= temp2)
+                    break
+                case Operation.LIKE:
+                    pushStack(like(popStack(), popStack()))
+                    break
+                case Operation.ILIKE:
+                    pushStack(like(popStack(), popStack(), true))
+                    break
+                case Operation.NOT_LIKE:
+                    pushStack(!like(popStack(), popStack()))
+                    break
+                case Operation.NOT_ILIKE:
+                    pushStack(!like(popStack(), popStack(), true))
+                    break
+                case Operation.IN:
+                    temp = popStack()
+                    pushStack(popStack().includes(temp))
+                    break
+                case Operation.NOT_IN:
+                    temp = popStack()
+                    pushStack(!popStack().includes(temp))
+                    break
+                case Operation.REGEX:
+                    temp = popStack()
+                    pushStack(regexMatch()(popStack(), temp))
+                    break
+                case Operation.NOT_REGEX:
+                    temp = popStack()
+                    pushStack(!regexMatch()(popStack(), temp))
+                    break
+                case Operation.IREGEX:
+                    temp = popStack()
+                    pushStack(regexMatch()('(?i)' + popStack(), temp))
+                    break
+                case Operation.NOT_IREGEX:
+                    temp = popStack()
+                    pushStack(!regexMatch()('(?i)' + popStack(), temp))
+                    break
+                case Operation.GET_GLOBAL: {
+                    const count = next()
+                    const chain = []
+                    for (let i = 0; i < count; i++) {
+                        chain.push(popStack())
                     }
 
-                    if (options?.functions && Object.hasOwn(options.functions, name) && options.functions[name]) {
-                        const args =
-                            version === 0
-                                ? Array(temp)
-                                      .fill(null)
-                                      .map(() => popStack())
-                                : stackKeepFirstElements(stack.length - temp)
-                        pushStack(convertJSToHog(options.functions[name](...args.map(convertHogToJS))))
+                    if (options?.globals && chain[0] in options.globals && Object.hasOwn(options.globals, chain[0])) {
+                        pushStack(convertJSToHog(getNestedValue(options.globals, chain)))
                     } else if (
-                        name !== 'toString' &&
-                        ((options?.asyncFunctions &&
-                            Object.hasOwn(options.asyncFunctions, name) &&
-                            options.asyncFunctions[name]) ||
-                            name in ASYNC_STL)
+                        options?.asyncFunctions &&
+                        chain.length == 1 &&
+                        Object.hasOwn(options.asyncFunctions, chain[0]) &&
+                        options.asyncFunctions[chain[0]]
                     ) {
-                        if (asyncSteps >= maxAsyncSteps) {
-                            throw new HogVMException(`Exceeded maximum number of async steps: ${maxAsyncSteps}`)
-                        }
-
-                        const args =
-                            version === 0
-                                ? Array(temp)
-                                      .fill(null)
-                                      .map(() => popStack())
-                                : stackKeepFirstElements(stack.length - temp)
-
-                        frame.ip += 1 // resume at the next address after async returns
-
-                        return {
-                            result: undefined,
-                            finished: false,
-                            asyncFunctionName: name,
-                            asyncFunctionArgs: args.map(convertHogToJS),
-                            state: {
-                                bytecode,
-                                stack: stack.map(convertHogToJS),
-                                upvalues: sortedUpValues,
-                                callStack: callStack.map((v) => ({
-                                    ...v,
-                                    closure: convertHogToJS(v.closure),
-                                })),
-                                throwStack,
-                                declaredFunctions,
-                                ops,
-                                asyncSteps: asyncSteps + 1,
-                                syncDuration: syncDuration + (Date.now() - startTime),
-                                maxMemUsed,
-                                telemetry: options?.telemetry ? telemetry : undefined,
-                            },
-                        } satisfies ExecResult
-                    } else if (name in STL) {
-                        const args =
-                            version === 0
-                                ? Array(temp)
-                                      .fill(null)
-                                      .map(() => popStack())
-                                : stackKeepFirstElements(stack.length - temp)
-                        pushStack(STL[name].fn(args, name, options))
-                    } else if (name in BYTECODE_STL) {
-                        const argNames = BYTECODE_STL[name][0]
-                        if (argNames.length !== temp) {
-                            throw new HogVMException(`Function ${name} requires exactly ${argNames.length} arguments`)
-                        }
-                        frame.ip += 1 // advance for when we return
-                        frame = {
-                            ip: 0,
-                            chunk: `stl/${name}`,
-                            stackStart: stack.length - temp,
-                            argCount: temp,
-                            closure: newHogClosure(
+                        pushStack(
+                            newHogClosure(
+                                newHogCallable('async', {
+                                    name: chain[0],
+                                    argCount: 0, // TODO
+                                    upvalueCount: 0,
+                                    ip: -1,
+                                    chunk: 'async',
+                                })
+                            )
+                        )
+                    } else if (chain.length == 1 && chain[0] in ASYNC_STL && Object.hasOwn(ASYNC_STL, chain[0])) {
+                        pushStack(
+                            newHogClosure(
+                                newHogCallable('async', {
+                                    name: chain[0],
+                                    argCount: ASYNC_STL[chain[0]].maxArgs ?? 0,
+                                    upvalueCount: 0,
+                                    ip: -1,
+                                    chunk: 'async',
+                                })
+                            )
+                        )
+                    } else if (chain.length == 1 && chain[0] in STL && Object.hasOwn(STL, chain[0])) {
+                        pushStack(
+                            newHogClosure(
                                 newHogCallable('stl', {
-                                    name,
-                                    argCount: temp,
+                                    name: chain[0],
+                                    argCount: STL[chain[0]].maxArgs ?? 0,
+                                    upvalueCount: 0,
+                                    ip: -1,
+                                    chunk: 'stl',
+                                })
+                            )
+                        )
+                    } else if (chain.length == 1 && chain[0] in BYTECODE_STL && Object.hasOwn(BYTECODE_STL, chain[0])) {
+                        pushStack(
+                            newHogClosure(
+                                newHogCallable('stl', {
+                                    name: chain[0],
+                                    argCount: BYTECODE_STL[chain[0]][0].length,
                                     upvalueCount: 0,
                                     ip: 0,
-                                    chunk: `stl/${name}`,
+                                    chunk: `stl/${chain[0]}`,
+                                })
+                            )
+                        )
+                    } else {
+                        throw new HogVMException(`Global variable not found: ${chain.join('.')}`)
+                    }
+                    break
+                }
+                case Operation.POP:
+                    popStack()
+                    break
+                case Operation.CLOSE_UPVALUE:
+                    stackKeepFirstElements(stack.length - 1)
+                    break
+                case Operation.RETURN: {
+                    const result = popStack()
+                    const lastCallFrame = callStack.pop()
+                    if (callStack.length === 0 || !lastCallFrame) {
+                        return {
+                            result,
+                            finished: true,
+                            state: { ...getVMState(), bytecode: [], stack: [], callStack: [], upvalues: [] },
+                        } satisfies ExecResult
+                    }
+                    const stackStart = lastCallFrame.stackStart
+                    stackKeepFirstElements(stackStart)
+                    pushStack(result)
+                    frame = callStack[callStack.length - 1]
+                    setChunkBytecode()
+                    continue // resume the loop without incrementing frame.ip
+                }
+                case Operation.GET_LOCAL:
+                    temp = callStack.length > 0 ? callStack[callStack.length - 1].stackStart : 0
+                    pushStack(stack[next() + temp])
+                    break
+                case Operation.SET_LOCAL:
+                    temp = (callStack.length > 0 ? callStack[callStack.length - 1].stackStart : 0) + next()
+                    stack[temp] = popStack()
+                    temp2 = memStack[temp]
+                    memStack[temp] = calculateCost(stack[temp])
+                    memUsed += memStack[temp] - temp2
+                    maxMemUsed = Math.max(maxMemUsed, memUsed)
+                    break
+                case Operation.GET_PROPERTY:
+                    temp = popStack() // property
+                    pushStack(getNestedValue(popStack(), [temp]))
+                    break
+                case Operation.GET_PROPERTY_NULLISH:
+                    temp = popStack() // property
+                    pushStack(getNestedValue(popStack(), [temp], true))
+                    break
+                case Operation.SET_PROPERTY:
+                    temp = popStack() // value
+                    temp2 = popStack() // field
+                    setNestedValue(popStack(), [temp2], temp)
+                    break
+                case Operation.DICT:
+                    temp = next() * 2 // number of elements to remove from the stack
+                    tempArray = spliceStack2(stack.length - temp, temp)
+                    tempMap = new Map()
+                    for (let i = 0; i < tempArray.length; i += 2) {
+                        tempMap.set(tempArray[i], tempArray[i + 1])
+                    }
+                    pushStack(tempMap)
+                    break
+                case Operation.ARRAY:
+                    temp = next()
+                    tempArray = spliceStack2(stack.length - temp, temp)
+                    pushStack(tempArray)
+                    break
+                case Operation.TUPLE:
+                    temp = next()
+                    tempArray = spliceStack2(stack.length - temp, temp)
+                    ;(tempArray as any).__isHogTuple = true
+                    pushStack(tempArray)
+                    break
+                case Operation.JUMP:
+                    temp = next()
+                    frame.ip += temp
+                    break
+                case Operation.JUMP_IF_FALSE:
+                    temp = next()
+                    if (!popStack()) {
+                        frame.ip += temp
+                    }
+                    break
+                case Operation.JUMP_IF_STACK_NOT_NULL:
+                    temp = next()
+                    if (stack.length > 0 && stack[stack.length - 1] !== null) {
+                        frame.ip += temp
+                    }
+                    break
+                case Operation.DECLARE_FN: {
+                    // DEPRECATED
+                    const name = next()
+                    const argCount = next()
+                    const bodyLength = next()
+                    declaredFunctions[name] = [frame.ip + 1, argCount]
+                    frame.ip += bodyLength
+                    break
+                }
+                case Operation.CALLABLE: {
+                    const name = next()
+                    const argCount = next()
+                    const upvalueCount = next()
+                    const bodyLength = next()
+                    const callable = newHogCallable('local', {
+                        name,
+                        argCount,
+                        upvalueCount,
+                        ip: frame.ip + 1,
+                        chunk: frame.chunk,
+                    })
+                    pushStack(callable)
+                    frame.ip += bodyLength
+                    break
+                }
+                case Operation.CLOSURE: {
+                    const callable = popStack()
+                    if (!isHogCallable(callable)) {
+                        throw new HogVMException(`Invalid callable: ${JSON.stringify(callable)}`)
+                    }
+                    const upvalueCount = next()
+                    const closureUpValues: number[] = []
+                    if (upvalueCount !== callable.upvalueCount) {
+                        throw new HogVMException(
+                            `Invalid upvalue count. Expected ${callable.upvalueCount}, got ${upvalueCount}`
+                        )
+                    }
+                    const stackStart = frame.stackStart
+                    for (let i = 0; i < callable.upvalueCount; i++) {
+                        const [isLocal, index] = [next(), next()]
+                        if (isLocal) {
+                            closureUpValues.push(captureUpValue(stackStart + index).id)
+                        } else {
+                            closureUpValues.push(frame.closure.upvalues[index])
+                        }
+                    }
+                    pushStack(newHogClosure(callable, closureUpValues))
+                    break
+                }
+                case Operation.GET_UPVALUE: {
+                    const index = next()
+                    if (index >= frame.closure.upvalues.length) {
+                        throw new HogVMException(`Invalid upvalue index: ${index}`)
+                    }
+                    const upvalue = upvaluesById[frame.closure.upvalues[index]]
+                    if (!isHogUpValue(upvalue)) {
+                        throw new HogVMException(`Invalid upvalue: ${upvalue}`)
+                    }
+                    if (upvalue.closed) {
+                        pushStack(upvalue.value)
+                    } else {
+                        pushStack(stack[upvalue.location])
+                    }
+                    break
+                }
+                case Operation.SET_UPVALUE: {
+                    const index = next()
+                    if (index >= frame.closure.upvalues.length) {
+                        throw new HogVMException(`Invalid upvalue index: ${index}`)
+                    }
+                    const upvalue = upvaluesById[frame.closure.upvalues[index]]
+                    if (!isHogUpValue(upvalue)) {
+                        throw new HogVMException(`Invalid upvalue: ${upvalue}`)
+                    }
+                    if (upvalue.closed) {
+                        upvalue.value = popStack()
+                    } else {
+                        stack[upvalue.location] = popStack()
+                    }
+                    break
+                }
+                case Operation.CALL_GLOBAL: {
+                    checkTimeout()
+                    const name = next()
+                    temp = next() // args.length
+                    if (name in declaredFunctions && name !== 'toString') {
+                        // This is for backwards compatibility. We use a closure on the stack with local functions now.
+                        const [funcIp, argLen] = declaredFunctions[name]
+                        frame.ip += 1 // advance for when we return
+                        if (argLen > temp) {
+                            for (let i = temp; i < argLen; i++) {
+                                pushStack(null)
+                            }
+                        }
+                        frame = {
+                            ip: funcIp,
+                            chunk: frame.chunk,
+                            stackStart: stack.length - argLen,
+                            argCount: argLen,
+                            closure: newHogClosure(
+                                newHogCallable('local', {
+                                    name: name,
+                                    argCount: argLen,
+                                    upvalueCount: 0,
+                                    ip: funcIp,
+                                    chunk: frame.chunk,
                                 })
                             ),
                         } satisfies CallFrame
@@ -724,159 +665,235 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                         callStack.push(frame)
                         continue // resume the loop without incrementing frame.ip
                     } else {
-                        throw new HogVMException(`Unsupported function call: ${name}`)
-                    }
-                }
-                break
-            }
-            case Operation.CALL_LOCAL: {
-                checkTimeout()
-                const closure = popStack()
-                if (!isHogClosure(closure)) {
-                    throw new HogVMException(`Invalid closure: ${JSON.stringify(closure)}`)
-                }
-                if (!isHogCallable(closure.callable)) {
-                    throw new HogVMException(`Invalid callable: ${JSON.stringify(closure.callable)}`)
-                }
-                temp = next() // args.length
-                if (temp > stack.length) {
-                    throw new HogVMException('Not enough arguments on the stack')
-                }
-                if (temp > MAX_FUNCTION_ARGS_LENGTH) {
-                    throw new HogVMException('Too many arguments')
-                }
-                if (closure.callable.__hogCallable__ === 'local') {
-                    if (closure.callable.argCount > temp) {
-                        for (let i = temp; i < closure.callable.argCount; i++) {
-                            pushStack(null)
+                        if (temp > stack.length) {
+                            throw new HogVMException('Not enough arguments on the stack')
                         }
-                    } else if (closure.callable.argCount < temp) {
-                        throw new HogVMException(
-                            `Too many arguments. Passed ${temp}, expected ${closure.callable.argCount}`
-                        )
+                        if (temp > MAX_FUNCTION_ARGS_LENGTH) {
+                            throw new HogVMException('Too many arguments')
+                        }
+
+                        if (options?.functions && Object.hasOwn(options.functions, name) && options.functions[name]) {
+                            const args =
+                                version === 0
+                                    ? Array(temp)
+                                          .fill(null)
+                                          .map(() => popStack())
+                                    : stackKeepFirstElements(stack.length - temp)
+                            pushStack(convertJSToHog(options.functions[name](...args.map((v) => convertHogToJS(v)))))
+                        } else if (
+                            name !== 'toString' &&
+                            ((options?.asyncFunctions &&
+                                Object.hasOwn(options.asyncFunctions, name) &&
+                                options.asyncFunctions[name]) ||
+                                name in ASYNC_STL)
+                        ) {
+                            if (asyncSteps >= maxAsyncSteps) {
+                                throw new HogVMException(`Exceeded maximum number of async steps: ${maxAsyncSteps}`)
+                            }
+
+                            const args =
+                                version === 0
+                                    ? Array(temp)
+                                          .fill(null)
+                                          .map(() => popStack())
+                                    : stackKeepFirstElements(stack.length - temp)
+
+                            frame.ip += 1 // resume at the next address after async returns
+
+                            return {
+                                result: undefined,
+                                finished: false,
+                                asyncFunctionName: name,
+                                asyncFunctionArgs: args.map((v) => convertHogToJS(v)),
+                                state: {
+                                    ...getVMState(),
+                                    asyncSteps: asyncSteps + 1,
+                                },
+                            } satisfies ExecResult
+                        } else if (name in STL) {
+                            const args =
+                                version === 0
+                                    ? Array(temp)
+                                          .fill(null)
+                                          .map(() => popStack())
+                                    : stackKeepFirstElements(stack.length - temp)
+                            pushStack(STL[name].fn(args, name, options))
+                        } else if (name in BYTECODE_STL) {
+                            const argNames = BYTECODE_STL[name][0]
+                            if (argNames.length !== temp) {
+                                throw new HogVMException(
+                                    `Function ${name} requires exactly ${argNames.length} arguments`
+                                )
+                            }
+                            frame.ip += 1 // advance for when we return
+                            frame = {
+                                ip: 0,
+                                chunk: `stl/${name}`,
+                                stackStart: stack.length - temp,
+                                argCount: temp,
+                                closure: newHogClosure(
+                                    newHogCallable('stl', {
+                                        name,
+                                        argCount: temp,
+                                        upvalueCount: 0,
+                                        ip: 0,
+                                        chunk: `stl/${name}`,
+                                    })
+                                ),
+                            } satisfies CallFrame
+                            setChunkBytecode()
+                            callStack.push(frame)
+                            continue // resume the loop without incrementing frame.ip
+                        } else {
+                            throw new HogVMException(`Unsupported function call: ${name}`)
+                        }
                     }
-                    frame.ip += 1 // advance for when we return
-                    frame = {
-                        ip: closure.callable.ip,
-                        chunk: closure.callable.chunk,
-                        stackStart: stack.length - closure.callable.argCount,
-                        argCount: closure.callable.argCount,
-                        closure,
-                    } satisfies CallFrame
-                    setChunkBytecode()
-                    callStack.push(frame)
-                    continue // resume the loop without incrementing frame.ip
-                } else if (closure.callable.__hogCallable__ === 'stl') {
-                    if (!closure.callable.name || !(closure.callable.name in STL)) {
+                    break
+                }
+                case Operation.CALL_LOCAL: {
+                    checkTimeout()
+                    const closure = popStack()
+                    if (!isHogClosure(closure)) {
+                        throw new HogVMException(`Invalid closure: ${JSON.stringify(closure)}`)
+                    }
+                    if (!isHogCallable(closure.callable)) {
+                        throw new HogVMException(`Invalid callable: ${JSON.stringify(closure.callable)}`)
+                    }
+                    temp = next() // args.length
+                    if (temp > stack.length) {
+                        throw new HogVMException('Not enough arguments on the stack')
+                    }
+                    if (temp > MAX_FUNCTION_ARGS_LENGTH) {
+                        throw new HogVMException('Too many arguments')
+                    }
+                    if (closure.callable.__hogCallable__ === 'local') {
+                        if (closure.callable.argCount > temp) {
+                            for (let i = temp; i < closure.callable.argCount; i++) {
+                                pushStack(null)
+                            }
+                        } else if (closure.callable.argCount < temp) {
+                            throw new HogVMException(
+                                `Too many arguments. Passed ${temp}, expected ${closure.callable.argCount}`
+                            )
+                        }
+                        frame.ip += 1 // advance for when we return
+                        frame = {
+                            ip: closure.callable.ip,
+                            chunk: closure.callable.chunk,
+                            stackStart: stack.length - closure.callable.argCount,
+                            argCount: closure.callable.argCount,
+                            closure,
+                        } satisfies CallFrame
+                        setChunkBytecode()
+                        callStack.push(frame)
+                        continue // resume the loop without incrementing frame.ip
+                    } else if (closure.callable.__hogCallable__ === 'stl') {
+                        if (!closure.callable.name || !(closure.callable.name in STL)) {
+                            throw new HogVMException(`Unsupported function call: ${closure.callable.name}`)
+                        }
+                        const stlFn = STL[closure.callable.name]
+                        if (stlFn.minArgs !== undefined && temp < stlFn.minArgs) {
+                            throw new HogVMException(
+                                `Function ${closure.callable.name} requires at least ${stlFn.minArgs} arguments`
+                            )
+                        }
+                        if (stlFn.maxArgs !== undefined && temp > stlFn.maxArgs) {
+                            throw new HogVMException(
+                                `Function ${closure.callable.name} requires at most ${stlFn.maxArgs} arguments`
+                            )
+                        }
+                        const args = Array(temp)
+                            .fill(null)
+                            .map(() => popStack())
+                        if (version > 0) {
+                            args.reverse()
+                        }
+                        if (stlFn.maxArgs !== undefined && args.length < stlFn.maxArgs) {
+                            for (let i = args.length; i < stlFn.maxArgs; i++) {
+                                args.push(null)
+                            }
+                        }
+                        pushStack(stlFn.fn(args, closure.callable.name, options))
+                    } else if (closure.callable.__hogCallable__ === 'async') {
+                        if (asyncSteps >= maxAsyncSteps) {
+                            throw new HogVMException(`Exceeded maximum number of async steps: ${maxAsyncSteps}`)
+                        }
+                        const args = Array(temp)
+                            .fill(null)
+                            .map(() => popStack())
+                        return {
+                            result: undefined,
+                            finished: false,
+                            asyncFunctionName: closure.callable.name,
+                            asyncFunctionArgs: args.map((v) => convertHogToJS(v)),
+                            state: { ...getVMState(), asyncSteps: asyncSteps + 1 },
+                        } satisfies ExecResult
+                    } else {
                         throw new HogVMException(`Unsupported function call: ${closure.callable.name}`)
                     }
-                    const stlFn = STL[closure.callable.name]
-                    if (stlFn.minArgs !== undefined && temp < stlFn.minArgs) {
-                        throw new HogVMException(
-                            `Function ${closure.callable.name} requires at least ${stlFn.minArgs} arguments`
-                        )
-                    }
-                    if (stlFn.maxArgs !== undefined && temp > stlFn.maxArgs) {
-                        throw new HogVMException(
-                            `Function ${closure.callable.name} requires at most ${stlFn.maxArgs} arguments`
-                        )
-                    }
-                    const args = Array(temp)
-                        .fill(null)
-                        .map(() => popStack())
-                    if (version > 0) {
-                        args.reverse()
-                    }
-                    if (stlFn.maxArgs !== undefined && args.length < stlFn.maxArgs) {
-                        for (let i = args.length; i < stlFn.maxArgs; i++) {
-                            args.push(null)
-                        }
-                    }
-                    pushStack(stlFn.fn(args, closure.callable.name, options))
-                } else if (closure.callable.__hogCallable__ === 'async') {
-                    if (asyncSteps >= maxAsyncSteps) {
-                        throw new HogVMException(`Exceeded maximum number of async steps: ${maxAsyncSteps}`)
-                    }
-                    const args = Array(temp)
-                        .fill(null)
-                        .map(() => popStack())
-                    return {
-                        result: undefined,
-                        finished: false,
-                        asyncFunctionName: closure.callable.name,
-                        asyncFunctionArgs: args.map(convertHogToJS),
-                        state: {
-                            bytecode,
-                            stack: stack.map(convertHogToJS),
-                            upvalues: sortedUpValues,
-                            callStack: callStack.map((v) => ({
-                                ...v,
-                                closure: convertHogToJS(v.closure),
-                            })),
-                            throwStack,
-                            declaredFunctions,
-                            ops,
-                            asyncSteps: asyncSteps + 1,
-                            syncDuration: syncDuration + (Date.now() - startTime),
-                            maxMemUsed,
-                            telemetry: options?.telemetry ? telemetry : undefined,
-                        },
-                    } satisfies ExecResult
-                } else {
-                    throw new HogVMException(`Unsupported function call: ${closure.callable.name}`)
+                    break
                 }
-                break
+                case Operation.TRY:
+                    throwStack.push({
+                        callStackLen: callStack.length,
+                        stackLen: stack.length,
+                        catchIp: frame.ip + 1 + next(),
+                    })
+                    break
+                case Operation.POP_TRY:
+                    if (throwStack.length > 0) {
+                        throwStack.pop()
+                    } else {
+                        throw new HogVMException('Invalid operation POP_TRY: no try block to pop')
+                    }
+                    break
+                case Operation.THROW: {
+                    const exception = popStack()
+                    if (!isHogError(exception)) {
+                        throw new HogVMException('Can not throw: value is not of type Error')
+                    }
+                    if (throwStack.length > 0) {
+                        const { callStackLen, stackLen, catchIp } = throwStack.pop()!
+                        stackKeepFirstElements(stackLen)
+                        memUsed -= memStack.splice(stackLen).reduce((acc, val) => acc + val, 0)
+                        callStack.splice(callStackLen)
+                        pushStack(exception)
+                        frame = callStack[callStack.length - 1]
+                        setChunkBytecode()
+                        frame.ip = catchIp
+                        continue // resume the loop without incrementing frame.ip
+                    } else {
+                        throw new UncaughtHogVMException(exception.type, exception.message, exception.payload)
+                    }
+                }
+                default:
+                    throw new HogVMException(
+                        `Unexpected node while running bytecode in chunk "${frame.chunk}": ${chunkBytecode[frame.ip]}`
+                    )
             }
-            case Operation.TRY:
-                throwStack.push({
-                    callStackLen: callStack.length,
-                    stackLen: stack.length,
-                    catchIp: frame.ip + 1 + next(),
-                })
-                break
-            case Operation.POP_TRY:
-                if (throwStack.length > 0) {
-                    throwStack.pop()
-                } else {
-                    throw new HogVMException('Invalid operation POP_TRY: no try block to pop')
-                }
-                break
-            case Operation.THROW: {
-                const exception = popStack()
-                if (!isHogError(exception)) {
-                    throw new HogVMException('Can not throw: value is not of type Error')
-                }
-                if (throwStack.length > 0) {
-                    const { callStackLen, stackLen, catchIp } = throwStack.pop()!
-                    stackKeepFirstElements(stackLen)
-                    memUsed -= memStack.splice(stackLen).reduce((acc, val) => acc + val, 0)
-                    callStack.splice(callStackLen)
-                    pushStack(exception)
-                    frame = callStack[callStack.length - 1]
-                    setChunkBytecode()
-                    frame.ip = catchIp
-                    continue // resume the loop without incrementing frame.ip
-                } else {
-                    throw new UncaughtHogVMException(exception.type, exception.message, exception.payload)
-                }
-            }
-            default:
-                throw new HogVMException(
-                    `Unexpected node while running bytecode in chunk "${frame.chunk}": ${chunkBytecode[frame.ip]}`
-                )
+
+            // use "continue" to skip incrementing frame.ip each iteration
+            frame.ip++
         }
 
-        // use "continue" to skip incrementing frame.ip each iteration
-        frame.ip++
-    }
-
-    if (stack.length > 1) {
-        throw new HogVMException('Invalid bytecode. More than one value left on stack')
+        if (stack.length > 1) {
+            throw new HogVMException('Invalid bytecode. More than one value left on stack')
+        }
+    } catch (e) {
+        return { result: null, finished: false, error: e, state: getVMState() } satisfies ExecResult
     }
 
     if (stack.length === 0) {
-        return { result: null, finished: true, state: getFinishedState() } satisfies ExecResult
+        return {
+            result: null,
+            finished: true,
+            state: { ...getVMState(), bytecode: [], stack: [], callStack: [], upvalues: [] },
+        } satisfies ExecResult
     }
 
-    return { result: popStack() ?? null, finished: true, state: getFinishedState() } satisfies ExecResult
+    return {
+        result: popStack() ?? null,
+        finished: true,
+        state: { ...getVMState(), bytecode: [], stack: [], callStack: [], upvalues: [] },
+    } satisfies ExecResult
 }

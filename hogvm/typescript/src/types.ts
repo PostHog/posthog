@@ -57,7 +57,7 @@ export type Telemetry = [
     /** Current position in chunk */
     number,
     /** Opcode */
-    number,
+    string,
     /** Debug */
     string
 ]
@@ -65,6 +65,7 @@ export type Telemetry = [
 export interface ExecResult {
     result: any
     finished: boolean
+    error?: any
     asyncFunctionName?: string
     asyncFunctionArgs?: any[]
     state?: VMState

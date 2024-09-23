@@ -64,6 +64,9 @@ export const formatInput = (bytecode: any, globals: HogFunctionInvocation['globa
             // NOT ALLOWED
             throw new Error('Input fields must be simple sync values')
         }
+        if (res.error) {
+            throw res.error
+        }
         return convertHogToJS(res.result)
     }
 
@@ -111,15 +114,31 @@ export class HogExecutor {
             if (hogFunction.filters?.bytecode) {
                 const start = performance.now()
                 try {
-                    const filterResult = execHog(hogFunction.filters.bytecode, { globals: filtersGlobals })
+                    const filterResult = execHog(hogFunction.filters.bytecode, {
+                        globals: filtersGlobals,
+                        telemetry: true,
+                    })
                     if (typeof filterResult.result === 'boolean' && filterResult.result) {
                         matchingFunctions.push(hogFunction)
+                        return
+                    }
+                    if (filterResult.error) {
+                        status.error('🦔', `[HogExecutor] Error filtering function`, {
+                            hogFunctionId: hogFunction.id,
+                            hogFunctionName: hogFunction.name,
+                            teamId: hogFunction.team_id,
+                            error: filterResult.error.message,
+                            result: filterResult,
+                        })
+                        hogFunctionFilterErrors.inc()
+                        erroredFunctions.push(hogFunction)
                         return
                     }
                 } catch (error) {
                     status.error('🦔', `[HogExecutor] Error filtering function`, {
                         hogFunctionId: hogFunction.id,
                         hogFunctionName: hogFunction.name,
+                        teamId: hogFunction.team_id,
                         error: error.message,
                     })
                     hogFunctionFilterErrors.inc()
@@ -314,6 +333,9 @@ export class HogExecutor {
                         },
                     },
                 })
+                if (execRes.error) {
+                    throw execRes.error
+                }
             } catch (e) {
                 result.logs.push({
                     level: 'error',
