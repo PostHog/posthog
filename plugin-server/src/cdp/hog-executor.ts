@@ -1,7 +1,7 @@
 import { calculateCost, convertHogToJS, exec, ExecOptions, ExecResult } from '@posthog/hogvm'
 import crypto from 'crypto'
 import { DateTime } from 'luxon'
-import { Counter, Histogram } from 'prom-client'
+import { Histogram } from 'prom-client'
 import RE2 from 're2'
 
 import { status } from '../utils/status'
@@ -33,11 +33,6 @@ const hogFunctionFilterDuration = new Histogram({
     help: 'Processing time for filtering a function',
     // We have a timeout so we don't need to worry about much more than that
     buckets: [0, 10, 20, 50, 100, 200],
-})
-
-const hogFunctionFilterErrors = new Counter({
-    name: 'cdp_hog_function_filter_errors',
-    help: 'Errors encountered while filtering functions',
 })
 
 export function execHog(bytecode: any, options?: ExecOptions): ExecResult {
@@ -122,7 +117,6 @@ export class HogExecutor {
                         hogFunctionName: hogFunction.name,
                         error: error.message,
                     })
-                    hogFunctionFilterErrors.inc()
                     erroredFunctions.push(hogFunction)
                     return
                 } finally {
@@ -135,6 +129,7 @@ export class HogExecutor {
                             hogFunctionName: hogFunction.name,
                             teamId: hogFunction.team_id,
                             duration,
+                            eventId: event.event.uuid,
                         })
                     }
                 }
@@ -227,7 +222,7 @@ export class HogExecutor {
                     status,
                     body: response?.body,
                 })
-                invocation.timings.push(...timings)
+                invocation.timings = invocation.timings.concat(timings)
                 result.logs = [...logs, ...result.logs]
             }
 

@@ -2,7 +2,6 @@ from posthog.hogql_queries.experiment_funnel_query_runner import ExperimentFunne
 from posthog.models.experiment import Experiment
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.schema import (
-    BreakdownFilter,
     EventsNode,
     ExperimentFunnelQuery,
     ExperimentFunnelQueryResponse,
@@ -11,9 +10,12 @@ from posthog.schema import (
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
 from freezegun import freeze_time
 from typing import cast
+from django.utils import timezone
+from datetime import timedelta
 
 
 class TestExperimentFunnelQueryRunner(ClickhouseTestMixin, APIBaseTest):
+    @freeze_time("2020-01-01T12:00:00Z")
     def test_query_runner(self):
         feature_flag = FeatureFlag.objects.create(
             name="Test experiment flag",
@@ -38,10 +40,13 @@ class TestExperimentFunnelQueryRunner(ClickhouseTestMixin, APIBaseTest):
             },
             created_by=self.user,
         )
+
         experiment = Experiment.objects.create(
             name="test-experiment",
             team=self.team,
             feature_flag=feature_flag,
+            start_date=timezone.now(),
+            end_date=timezone.now() + timedelta(days=14),
         )
 
         feature_flag_property = f"$feature/{feature_flag.key}"
@@ -49,7 +54,6 @@ class TestExperimentFunnelQueryRunner(ClickhouseTestMixin, APIBaseTest):
         funnels_query = FunnelsQuery(
             series=[EventsNode(event="$pageview"), EventsNode(event="purchase")],
             dateRange={"date_from": "2020-01-01", "date_to": "2020-01-14"},
-            breakdownFilter=BreakdownFilter(breakdown=feature_flag_property),
         )
         experiment_query = ExperimentFunnelQuery(
             experiment_id=experiment.id,
@@ -60,25 +64,24 @@ class TestExperimentFunnelQueryRunner(ClickhouseTestMixin, APIBaseTest):
         experiment.metrics = [{"type": "primary", "query": experiment_query.model_dump()}]
         experiment.save()
 
-        with freeze_time("2020-01-10 12:00:00"):
-            for variant, purchase_count in [("control", 6), ("test", 8)]:
-                for i in range(10):
-                    _create_person(distinct_ids=[f"user_{variant}_{i}"], team_id=self.team.pk)
+        for variant, purchase_count in [("control", 6), ("test", 8)]:
+            for i in range(10):
+                _create_person(distinct_ids=[f"user_{variant}_{i}"], team_id=self.team.pk)
+                _create_event(
+                    team=self.team,
+                    event="$pageview",
+                    distinct_id=f"user_{variant}_{i}",
+                    timestamp="2020-01-02T12:00:00Z",
+                    properties={feature_flag_property: variant},
+                )
+                if i < purchase_count:
                     _create_event(
                         team=self.team,
-                        event="$pageview",
+                        event="purchase",
                         distinct_id=f"user_{variant}_{i}",
-                        timestamp="2020-01-02T12:00:00Z",
+                        timestamp="2020-01-02T12:01:00Z",
                         properties={feature_flag_property: variant},
                     )
-                    if i < purchase_count:
-                        _create_event(
-                            team=self.team,
-                            event="purchase",
-                            distinct_id=f"user_{variant}_{i}",
-                            timestamp="2020-01-02T12:01:00Z",
-                            properties={feature_flag_property: variant},
-                        )
 
         flush_persons_and_events()
 
