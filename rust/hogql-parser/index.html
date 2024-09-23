@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>HogQL Parser</title>
+</head>
+<body>
+    <h1>HogQL Parser</h1>
+    <pre id="output"></pre>
+    <script type="module">
+        import init, { parse_query } from './pkg/hogql_parser.js';
+
+        async function run() {
+            await init();
+
+            const query = 'SELECT name, age FROM users WHERE age > 30 AND status = \'active\';';
+            const ast = parse_query(query);
+            document.getElementById('output').textContent = JSON.stringify(ast, null, 2);
+        }
+
+        run();
+    </script>
+</body>
+</html>

@@ -16,7 +16,7 @@ members = [
   "cyclotron-core",
   "cyclotron-node",
   "cyclotron-janitor",
-  "cyclotron-fetch",
+  "cyclotron-fetch", "hogql-parser",
 ]
 
 [workspace.lints.rust]
