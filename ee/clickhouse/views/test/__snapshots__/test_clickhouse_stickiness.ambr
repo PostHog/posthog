@@ -8,18 +8,11 @@
     (SELECT e."$group_0" AS aggregation_target,
             countDistinct(toStartOfWeek(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC'), 0)) as num_intervals
      FROM events e
-     INNER JOIN
+     LEFT OUTER JOIN
        (SELECT distinct_id,
                argMax(person_id, version) as person_id
         FROM person_distinct_id2
         WHERE team_id = 2
-          AND distinct_id IN
-            (SELECT distinct_id
-             FROM events
-             WHERE team_id = 2
-               AND event = 'watched movie'
-               AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfWeek(toDateTime('2020-01-01 00:00:00', 'UTC'), 0), 'UTC')
-               AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-02-15 23:59:59', 'UTC') )
         GROUP BY distinct_id
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      WHERE team_id = 2
@@ -41,18 +34,11 @@
     (SELECT e."$group_0" AS aggregation_target,
             countDistinct(toStartOfWeek(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC'), 0)) as num_intervals
      FROM events e
-     INNER JOIN
+     LEFT OUTER JOIN
        (SELECT distinct_id,
                argMax(person_id, version) as person_id
         FROM person_distinct_id2
         WHERE team_id = 2
-          AND distinct_id IN
-            (SELECT distinct_id
-             FROM events
-             WHERE team_id = 2
-               AND event = 'watched movie'
-               AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfWeek(toDateTime('2020-01-01 00:00:00', 'UTC'), 0), 'UTC')
-               AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-02-15 23:59:59', 'UTC') )
         GROUP BY distinct_id
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      WHERE team_id = 2
@@ -75,18 +61,11 @@
     (SELECT e."$group_0" AS aggregation_target,
             countDistinct(toStartOfWeek(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC'), 0)) as num_intervals
      FROM events e
-     INNER JOIN
+     LEFT OUTER JOIN
        (SELECT distinct_id,
                argMax(person_id, version) as person_id
         FROM person_distinct_id2
         WHERE team_id = 2
-          AND distinct_id IN
-            (SELECT distinct_id
-             FROM events
-             WHERE team_id = 2
-               AND event = 'watched movie'
-               AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfWeek(toDateTime('2020-01-01 00:00:00', 'UTC'), 0), 'UTC')
-               AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-02-15 23:59:59', 'UTC') )
         GROUP BY distinct_id
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      WHERE team_id = 2
@@ -109,18 +88,11 @@
     (SELECT e."$group_0" AS aggregation_target,
             countDistinct(toStartOfWeek(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC'), 0)) as num_intervals
      FROM events e
-     INNER JOIN
+     LEFT OUTER JOIN
        (SELECT distinct_id,
                argMax(person_id, version) as person_id
         FROM person_distinct_id2
         WHERE team_id = 2
-          AND distinct_id IN
-            (SELECT distinct_id
-             FROM events
-             WHERE team_id = 2
-               AND event = 'watched movie'
-               AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfWeek(toDateTime('2020-01-01 00:00:00', 'UTC'), 0), 'UTC')
-               AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-02-15 23:59:59', 'UTC') )
         GROUP BY distinct_id
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      WHERE team_id = 2
@@ -141,21 +113,14 @@
   SELECT countDistinct(aggregation_target),
          num_intervals
   FROM
-    (SELECT pdi.person_id AS aggregation_target,
+    (SELECT if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) AS aggregation_target,
             countDistinct(toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC'))) as num_intervals
      FROM events e
-     INNER JOIN
+     LEFT OUTER JOIN
        (SELECT distinct_id,
                argMax(person_id, version) as person_id
         FROM person_distinct_id2
         WHERE team_id = 2
-          AND distinct_id IN
-            (SELECT distinct_id
-             FROM events
-             WHERE team_id = 2
-               AND event = 'watched movie'
-               AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
-               AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') )
         GROUP BY distinct_id
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      WHERE team_id = 2
@@ -174,21 +139,14 @@
   SELECT countDistinct(aggregation_target),
          num_intervals
   FROM
-    (SELECT pdi.person_id AS aggregation_target,
+    (SELECT if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) AS aggregation_target,
             countDistinct(toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC'))) as num_intervals
      FROM events e
-     INNER JOIN
+     LEFT OUTER JOIN
        (SELECT distinct_id,
                argMax(person_id, version) as person_id
         FROM person_distinct_id2
         WHERE team_id = 2
-          AND distinct_id IN
-            (SELECT distinct_id
-             FROM events
-             WHERE team_id = 2
-               AND event = 'watched movie'
-               AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-24 00:00:00', 'UTC')), 'UTC')
-               AND toTimeZone(timestamp, 'UTC') <= toDateTime('2019-12-31 23:59:59', 'UTC') )
         GROUP BY distinct_id
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      WHERE team_id = 2
@@ -207,21 +165,14 @@
   SELECT countDistinct(aggregation_target),
          num_intervals
   FROM
-    (SELECT pdi.person_id AS aggregation_target,
+    (SELECT if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) AS aggregation_target,
             countDistinct(toStartOfWeek(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC'), 0)) as num_intervals
      FROM events e
-     INNER JOIN
+     LEFT OUTER JOIN
        (SELECT distinct_id,
                argMax(person_id, version) as person_id
         FROM person_distinct_id2
         WHERE team_id = 2
-          AND distinct_id IN
-            (SELECT distinct_id
-             FROM events
-             WHERE team_id = 2
-               AND event = 'watched movie'
-               AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfWeek(toDateTime('2020-01-01 00:00:00', 'UTC'), 0), 'UTC')
-               AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-02-15 23:59:59', 'UTC') )
         GROUP BY distinct_id
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      LEFT JOIN
@@ -247,21 +198,14 @@
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT aggregation_target AS actor_id
   FROM
-    (SELECT pdi.person_id AS aggregation_target,
+    (SELECT if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) AS aggregation_target,
             countDistinct(toStartOfWeek(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC'), 0)) as num_intervals
      FROM events e
-     INNER JOIN
+     LEFT OUTER JOIN
        (SELECT distinct_id,
                argMax(person_id, version) as person_id
         FROM person_distinct_id2
         WHERE team_id = 2
-          AND distinct_id IN
-            (SELECT distinct_id
-             FROM events
-             WHERE team_id = 2
-               AND event = 'watched movie'
-               AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfWeek(toDateTime('2020-01-01 00:00:00', 'UTC'), 0), 'UTC')
-               AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-02-15 23:59:59', 'UTC') )
         GROUP BY distinct_id
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      LEFT JOIN
@@ -287,21 +231,14 @@
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT aggregation_target AS actor_id
   FROM
-    (SELECT pdi.person_id AS aggregation_target,
+    (SELECT if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) AS aggregation_target,
             countDistinct(toStartOfWeek(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC'), 0)) as num_intervals
      FROM events e
-     INNER JOIN
+     LEFT OUTER JOIN
        (SELECT distinct_id,
                argMax(person_id, version) as person_id
         FROM person_distinct_id2
         WHERE team_id = 2
-          AND distinct_id IN
-            (SELECT distinct_id
-             FROM events
-             WHERE team_id = 2
-               AND event = 'watched movie'
-               AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfWeek(toDateTime('2020-01-01 00:00:00', 'UTC'), 0), 'UTC')
-               AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-02-15 23:59:59', 'UTC') )
         GROUP BY distinct_id
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      LEFT JOIN
@@ -327,21 +264,14 @@
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT aggregation_target AS actor_id
   FROM
-    (SELECT pdi.person_id AS aggregation_target,
+    (SELECT if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) AS aggregation_target,
             countDistinct(toStartOfWeek(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC'), 0)) as num_intervals
      FROM events e
-     INNER JOIN
+     LEFT OUTER JOIN
        (SELECT distinct_id,
                argMax(person_id, version) as person_id
         FROM person_distinct_id2
         WHERE team_id = 2
-          AND distinct_id IN
-            (SELECT distinct_id
-             FROM events
-             WHERE team_id = 2
-               AND event = 'watched movie'
-               AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfWeek(toDateTime('2020-01-01 00:00:00', 'UTC'), 0), 'UTC')
-               AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-02-15 23:59:59', 'UTC') )
         GROUP BY distinct_id
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      LEFT JOIN
@@ -379,21 +309,14 @@
   SELECT countDistinct(aggregation_target),
          num_intervals
   FROM
-    (SELECT pdi.person_id AS aggregation_target,
+    (SELECT if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) AS aggregation_target,
             countDistinct(toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC'))) as num_intervals
      FROM events e
-     INNER JOIN
+     LEFT OUTER JOIN
        (SELECT distinct_id,
                argMax(person_id, version) as person_id
         FROM person_distinct_id2
         WHERE team_id = 2
-          AND distinct_id IN
-            (SELECT distinct_id
-             FROM events
-             WHERE team_id = 2
-               AND event = 'watched movie'
-               AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
-               AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') )
         GROUP BY distinct_id
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      WHERE team_id = 2
@@ -423,21 +346,14 @@
   SELECT countDistinct(aggregation_target),
          num_intervals
   FROM
-    (SELECT pdi.person_id AS aggregation_target,
+    (SELECT if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) AS aggregation_target,
             countDistinct(toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC'))) as num_intervals
      FROM events e SAMPLE 1.0
-     INNER JOIN
+     LEFT OUTER JOIN
        (SELECT distinct_id,
                argMax(person_id, version) as person_id
         FROM person_distinct_id2
         WHERE team_id = 2
-          AND distinct_id IN
-            (SELECT distinct_id
-             FROM events
-             WHERE team_id = 2
-               AND event = 'watched movie'
-               AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
-               AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') )
         GROUP BY distinct_id
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      WHERE team_id = 2
@@ -456,21 +372,14 @@
   SELECT countDistinct(aggregation_target),
          num_intervals
   FROM
-    (SELECT pdi.person_id AS aggregation_target,
+    (SELECT if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) AS aggregation_target,
             countDistinct(toStartOfHour(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC'))) as num_intervals
      FROM events e
-     INNER JOIN
+     LEFT OUTER JOIN
        (SELECT distinct_id,
                argMax(person_id, version) as person_id
         FROM person_distinct_id2
         WHERE team_id = 2
-          AND distinct_id IN
-            (SELECT distinct_id
-             FROM events
-             WHERE team_id = 2
-               AND event = 'watched movie'
-               AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfHour(toDateTime('2020-01-01 12:00:00', 'UTC')), 'UTC')
-               AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-01 20:00:00', 'UTC') )
         GROUP BY distinct_id
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      WHERE team_id = 2
@@ -488,21 +397,14 @@
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT aggregation_target AS actor_id
   FROM
-    (SELECT pdi.person_id AS aggregation_target,
+    (SELECT if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) AS aggregation_target,
             countDistinct(toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC'))) as num_intervals
      FROM events e
-     INNER JOIN
+     LEFT OUTER JOIN
        (SELECT distinct_id,
                argMax(person_id, version) as person_id
         FROM person_distinct_id2
         WHERE team_id = 2
-          AND distinct_id IN
-            (SELECT distinct_id
-             FROM events
-             WHERE team_id = 2
-               AND ((event = 'watched movie'))
-               AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
-               AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') )
         GROUP BY distinct_id
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      WHERE team_id = 2
@@ -520,21 +422,14 @@
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT aggregation_target AS actor_id
   FROM
-    (SELECT pdi.person_id AS aggregation_target,
+    (SELECT if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) AS aggregation_target,
             countDistinct(toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC'))) as num_intervals
      FROM events e
-     INNER JOIN
+     LEFT OUTER JOIN
        (SELECT distinct_id,
                argMax(person_id, version) as person_id
         FROM person_distinct_id2
         WHERE team_id = 2
-          AND distinct_id IN
-            (SELECT distinct_id
-             FROM events
-             WHERE team_id = 2
-               AND ((event = 'watched movie'))
-               AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
-               AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') )
         GROUP BY distinct_id
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      WHERE team_id = 2
@@ -552,21 +447,14 @@
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT aggregation_target AS actor_id
   FROM
-    (SELECT pdi.person_id AS aggregation_target,
+    (SELECT if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) AS aggregation_target,
             countDistinct(toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC'))) as num_intervals
      FROM events e
-     INNER JOIN
+     LEFT OUTER JOIN
        (SELECT distinct_id,
                argMax(person_id, version) as person_id
         FROM person_distinct_id2
         WHERE team_id = 2
-          AND distinct_id IN
-            (SELECT distinct_id
-             FROM events
-             WHERE team_id = 2
-               AND ((event = 'watched movie'))
-               AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
-               AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') )
         GROUP BY distinct_id
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      WHERE team_id = 2
@@ -621,21 +509,14 @@
   SELECT countDistinct(aggregation_target),
          num_intervals
   FROM
-    (SELECT pdi.person_id AS aggregation_target,
+    (SELECT if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) AS aggregation_target,
             countDistinct(toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC'))) as num_intervals
      FROM events e
-     INNER JOIN
+     LEFT OUTER JOIN
        (SELECT distinct_id,
                argMax(person_id, version) as person_id
         FROM person_distinct_id2
         WHERE team_id = 2
-          AND distinct_id IN
-            (SELECT distinct_id
-             FROM events
-             WHERE team_id = 2
-               AND event = '$pageview'
-               AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2021-05-01 00:00:00', 'UTC')), 'UTC')
-               AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-15 23:59:59', 'UTC') )
         GROUP BY distinct_id
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      WHERE team_id = 2
@@ -654,21 +535,14 @@
   SELECT countDistinct(aggregation_target),
          num_intervals
   FROM
-    (SELECT pdi.person_id AS aggregation_target,
+    (SELECT if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) AS aggregation_target,
             countDistinct(toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'US/Pacific'))) as num_intervals
      FROM events e
-     INNER JOIN
+     LEFT OUTER JOIN
        (SELECT distinct_id,
                argMax(person_id, version) as person_id
         FROM person_distinct_id2
         WHERE team_id = 2
-          AND distinct_id IN
-            (SELECT distinct_id
-             FROM events
-             WHERE team_id = 2
-               AND event = '$pageview'
-               AND toTimeZone(timestamp, 'US/Pacific') >= toDateTime(toStartOfDay(toDateTime('2021-05-01 00:00:00', 'US/Pacific')), 'US/Pacific')
-               AND toTimeZone(timestamp, 'US/Pacific') <= toDateTime('2021-05-15 23:59:59', 'US/Pacific') )
         GROUP BY distinct_id
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      WHERE team_id = 2

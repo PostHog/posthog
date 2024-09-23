@@ -22,20 +22,13 @@
 # name: TestEventQuery.test_account_filters.2
   '''
   SELECT e.timestamp as timestamp,
-         pdi.person_id as person_id
+         if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) as person_id
   FROM events e
-  INNER JOIN
+  LEFT OUTER JOIN
     (SELECT distinct_id,
             argMax(person_id, version) as person_id
      FROM person_distinct_id2
      WHERE team_id = 2
-       AND distinct_id IN
-         (SELECT distinct_id
-          FROM events
-          WHERE team_id = 2
-            AND event = 'event_name'
-            AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2021-01-14 00:00:00', 'UTC')), 'UTC')
-            AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-01-21 23:59:59', 'UTC'))
      GROUP BY distinct_id
      HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
   INNER JOIN
@@ -69,20 +62,13 @@
 # name: TestEventQuery.test_cohort_filter
   '''
   SELECT e.timestamp as timestamp,
-         pdi.person_id as person_id
+         if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) as person_id
   FROM events e
-  INNER JOIN
+  LEFT OUTER JOIN
     (SELECT distinct_id,
             argMax(person_id, version) as person_id
      FROM person_distinct_id2
      WHERE team_id = 2
-       AND distinct_id IN
-         (SELECT distinct_id
-          FROM events
-          WHERE team_id = 2
-            AND event = 'viewed'
-            AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2021-05-01 00:00:00', 'UTC')), 'UTC')
-            AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC'))
      GROUP BY distinct_id
      HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
   INNER JOIN
@@ -95,7 +81,7 @@
     AND event = 'viewed'
     AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2021-05-01 00:00:00', 'UTC')), 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
-    AND (pdi.person_id IN
+    AND (if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) IN
            (SELECT id
             FROM person
             WHERE team_id = 2
@@ -147,20 +133,13 @@
 # name: TestEventQuery.test_entity_filtered_by_cohort
   '''
   SELECT e.timestamp as timestamp,
-         pdi.person_id as person_id
+         if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) as person_id
   FROM events e
-  INNER JOIN
+  LEFT OUTER JOIN
     (SELECT distinct_id,
             argMax(person_id, version) as person_id
      FROM person_distinct_id2
      WHERE team_id = 2
-       AND distinct_id IN
-         (SELECT distinct_id
-          FROM events
-          WHERE team_id = 2
-            AND event = '$pageview'
-            AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2021-05-01 00:00:00', 'UTC')), 'UTC')
-            AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC'))
      GROUP BY distinct_id
      HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
   INNER JOIN
@@ -173,7 +152,7 @@
     AND event = '$pageview'
     AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2021-05-01 00:00:00', 'UTC')), 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
-    AND (pdi.person_id IN
+    AND (if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) IN
            (SELECT id
             FROM person
             WHERE team_id = 2
@@ -284,20 +263,13 @@
 # name: TestEventQuery.test_groups_filters_mixed
   '''
   SELECT e.timestamp as timestamp,
-         pdi.person_id as person_id
+         if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) as person_id
   FROM events e
-  INNER JOIN
+  LEFT OUTER JOIN
     (SELECT distinct_id,
             argMax(person_id, version) as person_id
      FROM person_distinct_id2
      WHERE team_id = 2
-       AND distinct_id IN
-         (SELECT distinct_id
-          FROM events
-          WHERE team_id = 2
-            AND event = '$pageview'
-            AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
-            AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC'))
      GROUP BY distinct_id
      HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
   INNER JOIN
@@ -329,20 +301,13 @@
 # name: TestEventQuery.test_static_cohort_filter
   '''
   SELECT e.timestamp as timestamp,
-         pdi.person_id as person_id
+         if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) as person_id
   FROM events e
-  INNER JOIN
+  LEFT OUTER JOIN
     (SELECT distinct_id,
             argMax(person_id, version) as person_id
      FROM person_distinct_id2
      WHERE team_id = 2
-       AND distinct_id IN
-         (SELECT distinct_id
-          FROM events
-          WHERE team_id = 2
-            AND event = 'viewed'
-            AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2021-05-01 00:00:00', 'UTC')), 'UTC')
-            AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC'))
      GROUP BY distinct_id
      HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
   INNER JOIN
@@ -355,7 +320,7 @@
     AND event = 'viewed'
     AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2021-05-01 00:00:00', 'UTC')), 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
-    AND (pdi.person_id IN
+    AND (if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) IN
            (SELECT person_id as id
             FROM person_static_cohort
             WHERE cohort_id = 2
