@@ -143,10 +143,10 @@ export function personInitialAndUTMProperties(properties: Properties): Propertie
     return propertiesCopy
 }
 
-export function hasSetOrSetOnceInitialCampaignParams(properties: Properties): boolean {
+export function hasSetOrSetOnceInitialEventToPersonProperty(properties: Properties): boolean {
     return (
-        Object.keys(properties.$set || {}).some((key) => initialCampaignParams.has(key)) ||
-        Object.keys(properties.$set_once || {}).some((key) => initialCampaignParams.has(key))
+        Object.keys(properties.$set || {}).some((key) => initialEventToPersonProperties.has(key)) ||
+        Object.keys(properties.$set_once || {}).some((key) => initialEventToPersonProperties.has(key))
     )
 }
 
