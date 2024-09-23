@@ -43,7 +43,6 @@ const SYNC_ONLY_QUERY_KINDS = [
 
 export async function pollForResults(
     queryId: string,
-    showProgress: boolean,
     methodOptions?: ApiMethodOptions,
     onPoll?: (response: QueryStatus) => void
 ): Promise<QueryStatus> {
@@ -55,7 +54,7 @@ export async function pollForResults(
         currentDelay = Math.min(currentDelay * 1.25, QUERY_ASYNC_MAX_INTERVAL_SECONDS * 1000)
 
         try {
-            const statusResponse = (await api.queryStatus.get(queryId, showProgress)).query_status
+            const statusResponse = (await api.queryStatus.get(queryId, true)).query_status
             if (statusResponse.complete) {
                 return statusResponse
             }
@@ -90,7 +89,6 @@ async function executeQuery<N extends DataNode>(
         methodOptions?.async !== false &&
         !SYNC_ONLY_QUERY_KINDS.includes(queryNode.kind) &&
         !!featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.QUERY_ASYNC]
-    const showProgress = !!featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.INSIGHT_LOADING_BAR]
 
     if (!pollOnly) {
         const response = await api.query(queryNode, methodOptions, queryId, refresh, isAsyncQuery, filtersOverride)
@@ -114,7 +112,7 @@ async function executeQuery<N extends DataNode>(
             throw new Error('pollOnly requires a queryId')
         }
     }
-    const statusResponse = await pollForResults(queryId, showProgress, methodOptions, setPollResponse)
+    const statusResponse = await pollForResults(queryId, methodOptions, setPollResponse)
     return statusResponse.results
 }
 
