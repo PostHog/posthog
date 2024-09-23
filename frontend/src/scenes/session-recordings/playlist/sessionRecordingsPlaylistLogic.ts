@@ -308,7 +308,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         summarizeSession: (id: SessionRecordingType['id']) => ({ id }),
         loadNext: true,
         loadPrev: true,
-        setShowOtherRecordings: (show?: boolean) => ({ show }),
+        setShowOtherRecordings: (show: boolean) => ({ show }),
     }),
     propsChanged(({ actions, props }, oldProps) => {
         // If the defined list changes, we need to call the loader to either load the new items or change the list
