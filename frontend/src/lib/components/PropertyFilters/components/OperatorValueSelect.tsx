@@ -29,6 +29,7 @@ export interface OperatorValueSelectProps {
     propertyDefinitions: PropertyDefinition[]
     defaultOpen?: boolean
     addRelativeDateTimeOptions?: boolean
+    restrictFeatureFlagCohortOperators?: boolean
 }
 
 interface OperatorSelectProps extends Omit<LemonSelectProps<any>, 'options'> {
@@ -70,6 +71,7 @@ export function OperatorValueSelect({
     eventNames = [],
     defaultOpen,
     addRelativeDateTimeOptions,
+    restrictFeatureFlagCohortOperators,
 }: OperatorValueSelectProps): JSX.Element {
     const propertyDefinition = propertyDefinitions.find((pd) => pd.name === propertyKey)
 
@@ -103,7 +105,12 @@ export function OperatorValueSelect({
         const operatorMapping: Record<string, string> = chooseOperatorMap(propertyType)
 
         const operators = Object.keys(operatorMapping) as Array<PropertyOperator>
-        setOperators(operators)
+        if (restrictFeatureFlagCohortOperators) {
+            // only allow In operator for feature flags
+            setOperators(operators.filter((op) => op === PropertyOperator.In))
+        } else {
+            setOperators(operators)
+        }
         if ((currentOperator !== operator && operators.includes(startingOperator)) || !propertyDefinition) {
             setCurrentOperator(startingOperator)
         } else if (!operators.includes(currentOperator) && propertyDefinition) {

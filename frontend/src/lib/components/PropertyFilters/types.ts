@@ -50,4 +50,5 @@ export interface PropertyFilterInternalProps {
     metadataSource?: AnyDataNode
     propertyAllowList?: { [key in TaxonomicFilterGroupType]?: string[] }
     allowRelativeDateOptions?: boolean
+    restrictFeatureFlagCohortOperators?: boolean
 }
