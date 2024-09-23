@@ -184,7 +184,7 @@ describe('hogFunctionConfigurationLogic', () => {
                         },
                     },
                 },
-                enabled: false,
+                enabled: true,
             })
         })
 

@@ -58,15 +58,19 @@ export function ActionAttribute({
     return (
         <div key={attribute} className="flex flex-row gap-2 justify-between items-center">
             {automaticActionCreationEnabled && (
-                <LemonSwitch
-                    size="small"
-                    checked={automaticCreationIncludedPropertyKeys.includes(attribute)}
-                    onChange={(checked) =>
-                        checked
-                            ? addAutomaticCreationIncludedPropertyKey(attribute)
-                            : removeAutomaticCreationIncludedPropertyKey(attribute)
-                    }
-                />
+                <>
+                    <LemonSwitch
+                        size="small"
+                        checked={automaticCreationIncludedPropertyKeys.includes(attribute)}
+                        onChange={(checked) =>
+                            checked
+                                ? addAutomaticCreationIncludedPropertyKey(attribute)
+                                : removeAutomaticCreationIncludedPropertyKey(attribute)
+                        }
+                        sliderColorOverrideChecked="primary-3000-light"
+                        sliderColorOverrideUnchecked="muted-3000-light"
+                    />
+                </>
             )}
             <div className="text-muted text-xl">{icon}</div>
             <div className="grow">{text}</div>
