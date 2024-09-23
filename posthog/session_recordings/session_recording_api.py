@@ -154,6 +154,7 @@ class SessionRecordingSerializer(serializers.ModelSerializer):
             "person",
             "storage",
             "snapshot_source",
+            "ongoing",
         ]
 
         read_only_fields = [
@@ -174,6 +175,7 @@ class SessionRecordingSerializer(serializers.ModelSerializer):
             "start_url",
             "storage",
             "snapshot_source",
+            "ongoing",
         ]
 
 

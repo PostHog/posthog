@@ -60,7 +60,10 @@ class SessionRecordingListFromFilters:
             (duration - active_seconds) as inactive_seconds,
             sum(s.console_log_count) as console_log_count,
             sum(s.console_warn_count) as console_warn_count,
-            sum(s.console_error_count) as console_error_count
+            sum(s.console_error_count) as console_error_count,
+            -- Check if the most recent _timestamp is within five minutes of the current time
+            -- proxy for a live session
+            (max(s._timestamp) >= now() - INTERVAL 5 MINUTE) as ongoing
         FROM raw_session_replay_events s
         WHERE {where_predicates}
         GROUP BY session_id
@@ -86,6 +89,7 @@ class SessionRecordingListFromFilters:
             "console_log_count",
             "console_warn_count",
             "console_error_count",
+            "ongoing",
         ]
 
         return [
