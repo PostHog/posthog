@@ -94,6 +94,7 @@ export const billingLogic = kea<billingLogicType>([
         resetUnsubscribeError: true,
         setBillingAlert: (billingAlert: BillingAlertConfig | null) => ({ billingAlert }),
         showPurchaseCreditsModal: (isOpen: boolean) => ({ isOpen }),
+        toggleCreditCTAHeroDismissed: (isDismissed: boolean) => ({ isDismissed }),
         setComputedDiscount: (discount: number) => ({ discount }),
     }),
     connect(() => ({
@@ -187,6 +188,13 @@ export const billingLogic = kea<billingLogicType>([
             false,
             {
                 showPurchaseCreditsModal: (_, { isOpen }) => isOpen,
+            },
+        ],
+        isCreditCTAHeroDismissed: [
+            false,
+            { persist: true },
+            {
+                toggleCreditCTAHeroDismissed: (_, { isDismissed }) => isDismissed,
             },
         ],
         computedDiscount: [
