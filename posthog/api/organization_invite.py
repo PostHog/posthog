@@ -1,5 +1,6 @@
 from typing import Any, Optional, cast
 
+import posthoganalytics
 from rest_framework import (
     exceptions,
     mixins,
@@ -9,11 +10,11 @@ from rest_framework import (
     status,
     viewsets,
 )
-from posthog.api.utils import action
 
 from ee.models.explicit_team_membership import ExplicitTeamMembership
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.api.utils import action
 from posthog.email import is_email_available
 from posthog.event_usage import report_bulk_invited, report_team_member_invited
 from posthog.models import OrganizationInvite, OrganizationMembership
@@ -119,6 +120,8 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
             ).count(),
             is_bulk=self.context.get("bulk_create", False),
             email_available=is_email_available(with_absolute_urls=True),
+            current_url=self.context.get("current_url"),
+            session_id=self.context.get("session_id"),
         )
 
         return invite
@@ -162,6 +165,18 @@ class OrganizationInviteViewSet(
     @action(methods=["POST"], detail=False, required_scopes=["organization_member:write"])
     def bulk(self, request: request.Request, **kwargs) -> response.Response:
         data = cast(Any, request.data)
+        user = cast(User, self.request.user)
+        current_url = request.headers.get("Referer")
+        session_id = request.headers.get("X-Posthog-Session-Id")
+        posthoganalytics.capture(
+            user.distinct_id,
+            "bulk invite attempted",
+            properties={
+                "invitees_count": len(data),
+                "$current_url": current_url,
+                "$session_id": session_id,
+            },
+        )
         if not isinstance(data, list):
             raise exceptions.ValidationError("This endpoint needs an array of data for bulk invite creation.")
         if len(data) > 20:
@@ -173,7 +188,12 @@ class OrganizationInviteViewSet(
         serializer = OrganizationInviteSerializer(
             data=data,
             many=True,
-            context={**self.get_serializer_context(), "bulk_create": True},
+            context={
+                **self.get_serializer_context(),
+                "bulk_create": True,
+                "current_url": current_url,
+                "session_id": session_id,
+            },
         )
         serializer.is_valid(raise_exception=True)
         serializer.save()
@@ -186,6 +206,8 @@ class OrganizationInviteViewSet(
             current_invite_count=organization.active_invites.count(),
             current_member_count=organization.memberships.count(),
             email_available=is_email_available(),
+            current_url=current_url,
+            session_id=session_id,
         )
 
         return response.Response(serializer.data, status=status.HTTP_201_CREATED)

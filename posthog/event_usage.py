@@ -140,6 +140,8 @@ def report_team_member_invited(
     current_member_count: int,
     is_bulk: bool,
     email_available: bool,
+    current_url: Optional[str] = None,
+    session_id: Optional[str] = None,
 ) -> None:
     """
     Triggered after a user creates an **individual** invite for a new team member. See `report_bulk_invited`
@@ -154,11 +156,17 @@ def report_team_member_invited(
         "is_bulk": is_bulk,
     }
 
+    inviting_user_properties = {
+        **properties,
+        "$current_url": current_url,
+        "$session_id": session_id,
+    }
+
     # Report for inviting user
     posthoganalytics.capture(
         inviting_user.distinct_id,
-        "team invite executed",
-        properties=properties,
+        "team member invited",
+        properties=inviting_user_properties,
         groups=groups(inviting_user.current_organization, inviting_user.current_team),
     )
 
@@ -178,6 +186,8 @@ def report_bulk_invited(
     current_invite_count: int,
     current_member_count: int,
     email_available: bool,
+    current_url: str,
+    session_id: str,
 ) -> None:
     """
     Triggered after a user bulk creates invites for another user.
@@ -191,6 +201,8 @@ def report_bulk_invited(
             "current_invite_count": current_invite_count,  # number of invites including this set
             "current_member_count": current_member_count,
             "email_available": email_available,
+            "$current_url": current_url,
+            "$session_id": session_id,
         },
         groups=groups(user.current_organization, user.current_team),
     )
