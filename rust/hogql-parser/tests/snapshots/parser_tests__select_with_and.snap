@@ -1,0 +1,43 @@
+---
+source: hogql-parser/tests/parser_tests.rs
+expression: ast
+---
+{
+  "Select": {
+    "columns": [
+      {
+        "Identifier": "*"
+      }
+    ],
+    "from": {
+      "Identifier": "users"
+    },
+    "where_clause": {
+      "BinaryOp": {
+        "left": {
+          "BinaryOp": {
+            "left": {
+              "Identifier": "active"
+            },
+            "op": "=",
+            "right": {
+              "Identifier": "true"
+            }
+          }
+        },
+        "op": "AND",
+        "right": {
+          "BinaryOp": {
+            "left": {
+              "Identifier": "role"
+            },
+            "op": "=",
+            "right": {
+              "Literal": "admin"
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,43 @@
+---
+source: hogql-parser/tests/parser_tests.rs
+expression: ast
+---
+{
+  "Select": {
+    "columns": [
+      {
+        "Identifier": "id"
+      }
+    ],
+    "from": {
+      "Identifier": "orders"
+    },
+    "where_clause": {
+      "BinaryOp": {
+        "left": {
+          "BinaryOp": {
+            "left": {
+              "Identifier": "status"
+            },
+            "op": "=",
+            "right": {
+              "Literal": "pending"
+            }
+          }
+        },
+        "op": "OR",
+        "right": {
+          "BinaryOp": {
+            "left": {
+              "Identifier": "status"
+            },
+            "op": "=",
+            "right": {
+              "Literal": "processing"
+            }
+          }
+        }
+      }
+    }
+  }
+}
