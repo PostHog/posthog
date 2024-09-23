@@ -43,6 +43,7 @@ export function InsightVizDisplay({
     insightMode,
     context,
     embedded,
+    inSharedMode,
 }: {
     disableHeader?: boolean
     disableTable?: boolean
@@ -53,6 +54,7 @@ export function InsightVizDisplay({
     insightMode?: ItemMode
     context?: QueryContext
     embedded: boolean
+    inSharedMode?: boolean
 }): JSX.Element {
     const { insightProps, canEditInsight } = useValues(insightLogic)
 
@@ -115,19 +117,41 @@ export function InsightVizDisplay({
     function renderActiveView(): JSX.Element | null {
         switch (activeView) {
             case InsightType.TRENDS:
-                return <TrendInsight view={InsightType.TRENDS} context={context} embedded={embedded} />
+                return (
+                    <TrendInsight
+                        view={InsightType.TRENDS}
+                        context={context}
+                        embedded={embedded}
+                        inSharedMode={inSharedMode}
+                    />
+                )
             case InsightType.STICKINESS:
-                return <TrendInsight view={InsightType.STICKINESS} context={context} embedded={embedded} />
+                return (
+                    <TrendInsight
+                        view={InsightType.STICKINESS}
+                        context={context}
+                        embedded={embedded}
+                        inSharedMode={inSharedMode}
+                    />
+                )
             case InsightType.LIFECYCLE:
-                return <TrendInsight view={InsightType.LIFECYCLE} context={context} embedded={embedded} />
+                return (
+                    <TrendInsight
+                        view={InsightType.LIFECYCLE}
+                        context={context}
+                        embedded={embedded}
+                        inSharedMode={inSharedMode}
+                    />
+                )
             case InsightType.FUNNELS:
-                return <Funnel inCardView={embedded} />
+                return <Funnel inCardView={embedded} inSharedMode={inSharedMode} showPersonsModal={!inSharedMode} />
             case InsightType.RETENTION:
                 return (
                     <RetentionContainer
                         context={context}
                         vizSpecificOptions={vizSpecificOptions?.[InsightType.RETENTION]}
                         inCardView={embedded}
+                        inSharedMode={inSharedMode}
                     />
                 )
             case InsightType.PATHS:
