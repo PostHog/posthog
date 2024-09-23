@@ -22,12 +22,6 @@ describe('personInitialAndUTMProperties()', () => {
             $app_name: 'my app',
             $app_namespace: 'com.posthog.myapp',
             $app_version: '1.2.3',
-            $set: {
-                $browser_version: 'manually $set value wins',
-            },
-            $set_once: {
-                $initial_os_version: 'manually $set_once value wins',
-            },
         }
 
         expect(personInitialAndUTMProperties(properties)).toMatchInlineSnapshot(`
@@ -63,7 +57,7 @@ describe('personInitialAndUTMProperties()', () => {
                 "$app_namespace": "com.posthog.myapp",
                 "$app_version": "1.2.3",
                 "$browser": "Chrome",
-                "$browser_version": "manually $set value wins",
+                "$browser_version": "95",
                 "$current_url": "https://test.com",
                 "$os": "Mac OS X",
                 "$os_version": "10.15.7",
@@ -84,7 +78,7 @@ describe('personInitialAndUTMProperties()', () => {
                 "$initial_gclid": "GOOGLE ADS ID",
                 "$initial_msclkid": "BING ADS ID",
                 "$initial_os": "Mac OS X",
-                "$initial_os_version": "manually $set_once value wins",
+                "$initial_os_version": "10.15.7",
                 "$initial_referrer": "https://google.com/?q=posthog",
                 "$initial_referring_domain": "https://google.com",
                 "$initial_utm_medium": "twitter",
@@ -93,6 +87,40 @@ describe('personInitialAndUTMProperties()', () => {
               "gclid": "GOOGLE ADS ID",
               "msclkid": "BING ADS ID",
               "utm_medium": "twitter",
+            }
+        `)
+    })
+
+    it('priorities manual $set values', () => {
+        const properties = {
+            distinct_id: 2,
+            $os_version: '10.15.7',
+            $browser_version: '95',
+            $browser: 'Chrome',
+            $set: {
+                $browser_version: 'manually $set value wins',
+            },
+            $set_once: {
+                $initial_os_version: 'manually $set_once value wins',
+            },
+        }
+
+        expect(personInitialAndUTMProperties(properties)).toMatchInlineSnapshot(`
+            Object {
+              "$browser": "Chrome",
+              "$browser_version": "95",
+              "$os_version": "10.15.7",
+              "$set": Object {
+                "$browser": "Chrome",
+                "$browser_version": "manually $set value wins",
+                "$os_version": "10.15.7",
+              },
+              "$set_once": Object {
+                "$initial_browser": "Chrome",
+                "$initial_browser_version": "95",
+                "$initial_os_version": "manually $set_once value wins",
+              },
+              "distinct_id": 2,
             }
         `)
     })
