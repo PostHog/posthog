@@ -109,6 +109,9 @@ const ProductAnalyticsOnboarding = (): JSX.Element => {
     // not sure if there is a better way to do this
     useValues(newDashboardLogic)
 
+    const showTemplateSteps =
+        featureFlags[FEATURE_FLAGS.ONBOARDING_DASHBOARD_TEMPLATES] == 'test' && window.innerWidth > 1000
+
     const options: ProductConfigOption[] = [
         {
             title: 'Autocapture frontend interactions',
@@ -165,10 +168,12 @@ const ProductAnalyticsOnboarding = (): JSX.Element => {
                 stepKey={OnboardingStepKey.INSTALL}
             />
             <OnboardingProductConfiguration stepKey={OnboardingStepKey.PRODUCT_CONFIGURATION} options={options} />
-            {featureFlags[FEATURE_FLAGS.ONBOARDING_DASHBOARD_TEMPLATES] == 'test' ? (
+
+            {/* this is two conditionals because they need to be direct children of the wrapper */}
+            {showTemplateSteps ? (
                 <OnboardingDashboardTemplateSelectStep stepKey={OnboardingStepKey.DASHBOARD_TEMPLATE} />
             ) : null}
-            {featureFlags[FEATURE_FLAGS.ONBOARDING_DASHBOARD_TEMPLATES] == 'test' ? (
+            {showTemplateSteps ? (
                 <OnboardingDashboardTemplateConfigureStep stepKey={OnboardingStepKey.DASHBOARD_TEMPLATE_CONFIGURE} />
             ) : null}
         </OnboardingWrapper>

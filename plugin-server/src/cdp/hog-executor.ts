@@ -35,11 +35,6 @@ const hogFunctionFilterDuration = new Histogram({
     buckets: [0, 10, 20, 50, 100, 200],
 })
 
-const hogFunctionFilterErrors = new Counter({
-    name: 'cdp_hog_function_filter_errors',
-    help: 'Errors encountered while filtering functions',
-})
-
 export function execHog(bytecode: any, options?: ExecOptions): ExecResult {
     return exec(bytecode, {
         timeout: DEFAULT_TIMEOUT_MS,
@@ -122,7 +117,6 @@ export class HogExecutor {
                         hogFunctionName: hogFunction.name,
                         error: error.message,
                     })
-                    hogFunctionFilterErrors.inc()
                     erroredFunctions.push(hogFunction)
                     return
                 } finally {
@@ -135,6 +129,7 @@ export class HogExecutor {
                             hogFunctionName: hogFunction.name,
                             teamId: hogFunction.team_id,
                             duration,
+                            eventId: event.event.uuid,
                         })
                     }
                 }
@@ -227,7 +222,7 @@ export class HogExecutor {
                     status,
                     body: response?.body,
                 })
-                invocation.timings.push(...timings)
+                invocation.timings = invocation.timings.concat(timings)
                 result.logs = [...logs, ...result.logs]
             }
 

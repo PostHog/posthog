@@ -18,7 +18,7 @@ def backwards(apps, schema_editor):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0476_alter_integration_sensitive_config"),
+        ("posthog", "0477_datawarehouse_salesforce_order"),
     ]
 
     operations = [
