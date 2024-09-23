@@ -108,6 +108,12 @@ jobs:
               with:
                   fetch-depth: 1
 
+            - uses: actions/checkout@v4
+              with:
+                  repository: 'PostHog/posthog-cloud-infra'
+                  path: 'posthog-cloud-infra'
+                  token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
+
             - name: Set up Python
               uses: actions/setup-python@v5
               with:
@@ -146,6 +152,10 @@ jobs:
             - name: Check if "schema.py" is up to date
               run: |
                   npm run schema:build:python && git diff --exit-code
+
+            - name: Assert user_defined_function.xml is deployed to cloud
+              run: |
+                  cmp posthog/user_scripts/latest_user_defined_function.xml posthog-cloud-infra/ansible/us/clickhouse/config/common/user_defined_function.xml
 
     check-migrations:
         needs: changes
