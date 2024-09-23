@@ -11,9 +11,8 @@ import { DB } from '../../utils/db/db'
 import { PostgresUse, TransactionClient } from '../../utils/db/postgres'
 import {
     eventToPersonProperties,
-    initialCampaignParams,
-    initialCampaignParamsDefault,
     initialEventToPersonProperties,
+    stripInitialCampaignParams,
     timeoutGuard,
 } from '../../utils/db/utils'
 import { promiseRetry } from '../../utils/retries'
@@ -269,17 +268,12 @@ export class PersonState {
         const uuid = uuidFromDistinctId(teamId, distinctIds[0].distinctId)
 
         const props = {
-            ...initialCampaignParamsDefault,
             ...propertiesOnce,
             ...properties,
             ...{ $creator_event_uuid: creatorEventUuid },
         }
         const propertiesLastOperation: Record<string, any> = {}
         const propertiesLastUpdatedAt: Record<string, any> = {}
-        initialCampaignParams.forEach((key) => {
-            propertiesLastOperation[key] = PropertyUpdateOperation.SetOnce
-            propertiesLastUpdatedAt[key] = createdAt
-        })
         Object.keys(propertiesOnce).forEach((key) => {
             propertiesLastOperation[key] = PropertyUpdateOperation.SetOnce
             propertiesLastUpdatedAt[key] = createdAt
@@ -368,8 +362,8 @@ export class PersonState {
             return false
         }
 
-        const properties: Properties = this.eventProperties['$set'] || {}
-        const propertiesOnce: Properties = this.eventProperties['$set_once'] || {}
+        const properties: Properties = stripInitialCampaignParams(this.eventProperties['$set'] || {})
+        const propertiesOnce: Properties = stripInitialCampaignParams(this.eventProperties['$set_once'] || {})
         const unsetProps = this.eventProperties['$unset']
         const unsetProperties: Array<string> = Array.isArray(unsetProps)
             ? unsetProps

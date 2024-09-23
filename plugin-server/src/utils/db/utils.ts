@@ -176,6 +176,16 @@ export function hasDifferenceWithProposedNewNormalisationMode(properties: Proper
     return !areMapsEqual(setOnce, filteredSetOnce)
 }
 
+/** Initial campaign params can only be set_once when a person is created, so strip them from person properties when
+ * updating a person. */
+export function stripInitialCampaignParams(properties: Properties): Properties {
+    const propertiesCopy = { ...properties }
+    for (const key of initialCampaignParams) {
+        delete propertiesCopy[key]
+    }
+    return propertiesCopy
+}
+
 export function generateKafkaPersonUpdateMessage(person: InternalPerson, isDeleted = false): ProducerRecord {
     return {
         topic: KAFKA_PERSON,
