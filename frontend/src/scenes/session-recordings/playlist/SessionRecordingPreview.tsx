@@ -156,7 +156,7 @@ function PinnedIndicator(): JSX.Element | null {
 function RecordingOngoingIndicator(): JSX.Element {
     return (
         <Tooltip title="This recording is still ongoing - we received data within the last 5 minutes.">
-            <IconLive className="text-green-500" />
+            <IconLive />
         </Tooltip>
     )
 }
@@ -301,7 +301,7 @@ export function SessionRecordingPreview({
                 >
                     {recording.ongoing ? <RecordingOngoingIndicator /> : null}
                     {pinned ? <PinnedIndicator /> : null}
-                    {recording.viewed ? <UnwatchedIndicator /> : null}
+                    {!recording.viewed ? <UnwatchedIndicator /> : null}
                 </div>
             </div>
         </DraggableToNotebook>
