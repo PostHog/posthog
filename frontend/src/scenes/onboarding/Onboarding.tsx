@@ -135,6 +135,14 @@ const ProductAnalyticsOnboarding = (): JSX.Element => {
             visible: true,
         },
         {
+            title: 'Enable web vitals autocapture',
+            description: `Uses Google's web vitals library to automagically capture performance information.`,
+            teamProperty: 'autocapture_web_vitals_opt_in',
+            value: currentTeam?.autocapture_web_vitals_opt_in ?? true,
+            type: 'toggle',
+            visible: true,
+        },
+        {
             title: 'Enable session recordings',
             description: `Turn on session recordings and watch how users experience your app. We will also turn on console log and network performance recording. You can change these settings any time in the settings panel.`,
             teamProperty: 'session_recording_opt_in',
