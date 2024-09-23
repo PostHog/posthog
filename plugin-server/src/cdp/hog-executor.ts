@@ -1,7 +1,7 @@
 import { calculateCost, convertHogToJS, exec, ExecOptions, ExecResult } from '@posthog/hogvm'
 import crypto from 'crypto'
 import { DateTime } from 'luxon'
-import { Counter, Histogram } from 'prom-client'
+import { Histogram } from 'prom-client'
 import RE2 from 're2'
 
 import { status } from '../utils/status'
