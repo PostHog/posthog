@@ -19,6 +19,12 @@ COHORT_RECALCULATIONS_BACKLOG_GAUGE = Gauge(
     "cohort_recalculations_backlog",
     "Number of cohorts that are waiting to be calculated",
 )
+
+COHORT_STALENESS_HOURS_GAUGE = Gauge(
+    "cohort_staleness_hours",
+    "Cohort's count of hours since last calculation",
+)
+
 logger = structlog.get_logger(__name__)
 
 MAX_AGE_MINUTES = 15
@@ -79,6 +85,8 @@ def calculate_cohort_ch(cohort_id: int, pending_version: int, initiating_user_id
     set_tag("feature", Feature.COHORT.value)
     set_tag("cohort_id", cohort.id)
     set_tag("team_id", cohort.team.id)
+
+    COHORT_STALENESS_HOURS_GAUGE.set((timezone.now() - cohort.last_calculation).total_seconds() / 3600)
 
     cohort.calculate_people_ch(pending_version, initiating_user_id=initiating_user_id)
 
