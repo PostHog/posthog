@@ -158,7 +158,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
                 "console_log_count": 0,
                 "console_warn_count": 0,
                 "console_error_count": 0,
-                "ongoing": 0,
+                "ongoing": 1,
             },
             {
                 "session_id": session_id_one,
@@ -176,7 +176,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
                 "console_log_count": 0,
                 "console_warn_count": 0,
                 "console_error_count": 0,
-                "ongoing": 0,
+                "ongoing": 1,
             },
         ]
 
@@ -270,6 +270,53 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         ]
 
     @snapshot_clickhouse_queries
+    def test_sessions_with_current_data(
+        self,
+    ):
+        user = "test_sessions_with_current_data-user"
+        Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
+
+        session_id_inactive = f"test_sessions_with_current_data-inactive-{str(uuid4())}"
+        session_id_active = f"test_sessions_with_current_data-active-{str(uuid4())}"
+
+        produce_replay_summary(
+            session_id=session_id_inactive,
+            team_id=self.team.pk,
+            first_timestamp=self.an_hour_ago,
+            last_timestamp=self.an_hour_ago + relativedelta(seconds=60),
+            distinct_id=user,
+            first_url="https://example.io/home",
+            click_count=2,
+            keypress_count=2,
+            mouse_activity_count=2,
+            active_milliseconds=59000,
+            kafka_timestamp=(datetime.utcnow() - relativedelta(minutes=6)),
+        )
+
+        produce_replay_summary(
+            session_id=session_id_active,
+            team_id=self.team.pk,
+            first_timestamp=self.an_hour_ago,
+            last_timestamp=self.an_hour_ago + relativedelta(seconds=60),
+            distinct_id=user,
+            first_url="https://a-different-url.com",
+            click_count=2,
+            keypress_count=2,
+            mouse_activity_count=2,
+            active_milliseconds=61000,
+            kafka_timestamp=(datetime.utcnow() - relativedelta(minutes=3)),
+        )
+
+        (session_recordings, _, _) = self._filter_recordings_by({})
+        assert sorted(
+            [(s["session_id"], s["ongoing"]) for s in session_recordings],
+            key=lambda x: x[0],
+        ) == [
+            (session_id_active, 1),
+            (session_id_inactive, 0),
+        ]
+
+    @snapshot_clickhouse_queries
     def test_basic_query_with_paging(self):
         user = "test_basic_query_with_paging-user"
         Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
@@ -340,7 +387,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
                 "console_log_count": 0,
                 "console_warn_count": 0,
                 "console_error_count": 0,
-                "ongoing": 0,
+                "ongoing": 1,
             }
         ]
 
@@ -367,7 +414,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
                 "console_log_count": 0,
                 "console_warn_count": 0,
                 "console_error_count": 0,
-                "ongoing": 0,
+                "ongoing": 1,
             },
         ]
 
@@ -1366,7 +1413,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
                 "console_log_count": 0,
                 "console_warn_count": 0,
                 "console_error_count": 0,
-                "ongoing": 0,
+                "ongoing": 1,
             }
         ]
 
@@ -3925,6 +3972,6 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
                 "session_id": "2",
                 "start_time": ANY,
                 "team_id": self.team.id,
-                "ongoing": 0,
+                "ongoing": 1,
             }
         ]
