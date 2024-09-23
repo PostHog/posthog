@@ -15,7 +15,9 @@ import { PlayerInspectorControls, TabToIcon } from './inspector/PlayerInspectorC
 import { PlayerInspectorList } from './inspector/PlayerInspectorList'
 import { PlayerPersonMeta } from './PlayerPersonMeta'
 import { playerSettingsLogic } from './playerSettingsLogic'
+import { PlayerSidebarDebuggerTab } from './sidebar/PlayerSidebarDebuggerTab'
 import { playerSidebarLogic } from './sidebar/playerSidebarLogic'
+import { PlayerSidebarPersonTab } from './sidebar/PlayerSidebarPersonTab'
 
 export function PlayerSidebar({
     isVerticallyStacked,
@@ -45,7 +47,7 @@ export function PlayerSidebar({
 
     const { desiredSize } = useValues(resizerLogic(resizerLogicProps))
 
-    const sidebarTabs = [SessionRecordingSidebarTab.INSPECTOR]
+    const sidebarTabs = [SessionRecordingSidebarTab.INSPECTOR, SessionRecordingSidebarTab.PERSON]
 
     if (window.IMPERSONATED_SESSION || featureFlags[FEATURE_FLAGS.SESSION_REPLAY_DOCTOR]) {
         sidebarTabs.push(SessionRecordingSidebarTab.DEBUGGER)
@@ -104,13 +106,15 @@ export function PlayerSidebar({
                             />
                         </div>
                     </div>
-                    {activeTab === SessionRecordingSidebarTab.INSPECTOR ? (
+                    {activeTab === SessionRecordingSidebarTab.PERSON ? (
+                        <PlayerSidebarPersonTab />
+                    ) : activeTab === SessionRecordingSidebarTab.INSPECTOR ? (
                         <>
                             <PlayerInspectorControls />
                             <PlayerInspectorList />
                         </>
                     ) : (
-                        <div>Debugger tab</div>
+                        <PlayerSidebarDebuggerTab />
                     )}
                 </>
             ) : (

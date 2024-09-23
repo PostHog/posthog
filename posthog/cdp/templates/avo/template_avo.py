@@ -6,9 +6,10 @@ from posthog.hogql.escape_sql import escape_hogql_string
 template: HogFunctionTemplate = HogFunctionTemplate(
     status="beta",
     id="template-avo",
-    name="Send events to Avo",
+    name="Avo",
     description="Send events to Avo",
     icon_url="/static/services/avo.png",
+    category=["Analytics"],
     hog="""
 if (empty(inputs.apiKey) or empty(inputs.environment)) {
     print('API Key and environment has to be set. Skipping...')
@@ -30,7 +31,7 @@ let avoEvent := {
     'trackingId': '',
     'samplingRate': 1,
     'type': 'event',
-    'eventName': event.name,
+    'eventName': event.event,
     'messageId': event.uuid,
     'eventProperties': []
 }
@@ -157,7 +158,7 @@ class TemplateAvoMigrator(HogFunctionTemplateMigrator):
             event_string = ", ".join(escape_hogql_string(event) for event in events_to_exclude)
             hf["filters"]["events"] = [
                 {
-                    "id": "All events",
+                    "id": None,
                     "name": "All events",
                     "type": "events",
                     "order": 0,

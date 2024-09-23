@@ -1,22 +1,65 @@
 import { LemonSwitch, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+import { PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { getFilterLabel } from 'lib/taxonomy'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
-import { AnyPropertyFilter } from '~/types'
+import { AnyPropertyFilter, type CohortType, PropertyOperator, type TeamPublicType, type TeamType } from '~/types'
 
 import { filterTestAccountsDefaultsLogic } from './filterTestAccountDefaultsLogic'
+
+function createTestAccountFilterWarningLabels(
+    currentTeam: TeamPublicType | TeamType | null,
+    cohortsById: Partial<Record<number | string, CohortType>>
+): string[] | null {
+    if (!currentTeam) {
+        return null
+    }
+    const positiveFilterOperators = [
+        PropertyOperator.Exact,
+        PropertyOperator.IContains,
+        PropertyOperator.Regex,
+        PropertyOperator.IsSet,
+        PropertyOperator.In,
+    ]
+    const positiveFilters = []
+    for (const filter of currentTeam.test_account_filters || []) {
+        if ('operator' in filter && !!filter.operator && positiveFilterOperators.includes(filter.operator)) {
+            positiveFilters.push(filter)
+        }
+    }
+
+    return positiveFilters.map((filter) => {
+        if (!!filter.type && !!filter.key) {
+            // person properties can be checked for a label as if they were event properties
+            // so, we can check each acceptable type and see if it returns a value
+            if (filter.type === 'cohort') {
+                return `Cohort ${cohortsById[filter.value]?.name || filter.value}`
+            }
+            return (
+                getFilterLabel(filter.key, PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[filter.type]) ||
+                filter.key
+            )
+        }
+        return filter.key
+    })
+}
 
 function TestAccountFiltersConfig(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
     const { setTeamDefault } = useActions(filterTestAccountsDefaultsLogic)
     const { reportTestAccountFiltersUpdated } = useActions(eventUsageLogic)
-    const { currentTeam, currentTeamLoading, testAccountFilterWarningLabels, testAccountFilterFrequentMistakes } =
-        useValues(teamLogic)
+    const { currentTeam, currentTeamLoading, testAccountFilterFrequentMistakes } = useValues(teamLogic)
+    const { cohortsById } = useValues(cohortsModel)
+
+    const testAccountFilterWarningLabels = createTestAccountFilterWarningLabels(currentTeam, cohortsById)
+
     const { groupsTaxonomicTypes } = useValues(groupsModel)
 
     const handleChange = (filters: AnyPropertyFilter[]): void => {

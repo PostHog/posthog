@@ -4,6 +4,7 @@ import {
     allOperatorsMapping,
     chooseOperatorMap,
     isMobile,
+    isOperatorCohort,
     isOperatorFlag,
     isOperatorMulti,
     isOperatorRange,
@@ -72,21 +73,35 @@ export function OperatorValueSelect({
 }: OperatorValueSelectProps): JSX.Element {
     const propertyDefinition = propertyDefinitions.find((pd) => pd.name === propertyKey)
 
+    const isCohortProperty = propertyKey === 'id'
+
     // DateTime properties should not default to Exact
     const isDateTimeProperty = propertyDefinition?.property_type == PropertyType.DateTime
-    const startingOperator =
-        isDateTimeProperty && (!operator || operator == PropertyOperator.Exact)
-            ? PropertyOperator.IsDateExact
-            : operator || PropertyOperator.Exact
+
+    const isInitialOperator = !operator || operator == PropertyOperator.Exact
+
+    let startingOperator = operator || PropertyOperator.Exact
+    if (isInitialOperator) {
+        if (isDateTimeProperty) {
+            startingOperator = PropertyOperator.IsDateExact
+        } else if (isCohortProperty) {
+            startingOperator = PropertyOperator.In
+        }
+    }
+
     const [currentOperator, setCurrentOperator] = useState(startingOperator)
     const [validationError, setValidationError] = useState<string | null>(null)
 
     const [operators, setOperators] = useState([] as Array<PropertyOperator>)
     useEffect(() => {
-        const limitedElementProperty = propertyKey === 'selector' || propertyKey === 'tag_name'
-        const operatorMapping: Record<string, string> = chooseOperatorMap(
-            limitedElementProperty ? PropertyType.Selector : propertyDefinition?.property_type
-        )
+        let propertyType = propertyDefinition?.property_type
+        if (propertyKey === 'selector' || propertyKey === 'tag_name') {
+            propertyType = PropertyType.Selector
+        } else if (propertyKey === 'id' && type === PropertyFilterType.Cohort) {
+            propertyType = PropertyType.Cohort
+        }
+        const operatorMapping: Record<string, string> = chooseOperatorMap(propertyType)
+
         const operators = Object.keys(operatorMapping) as Array<PropertyOperator>
         setOperators(operators)
         if ((currentOperator !== operator && operators.includes(startingOperator)) || !propertyDefinition) {
@@ -94,7 +109,13 @@ export function OperatorValueSelect({
         } else if (!operators.includes(currentOperator) && propertyDefinition) {
             // Whenever the property type changes such that the operator is not compatible, we need to reset the operator
             // But, only if the propertyDefinition is available
-            setCurrentOperator(isDateTimeProperty ? PropertyOperator.IsDateExact : PropertyOperator.Exact)
+            let defaultProperty = PropertyOperator.Exact
+            if (isDateTimeProperty) {
+                defaultProperty = PropertyOperator.IsDateExact
+            } else if (propertyType === PropertyType.Cohort) {
+                defaultProperty = PropertyOperator.In
+            }
+            setCurrentOperator(defaultProperty)
         }
     }, [propertyDefinition, propertyKey, operator])
 
@@ -114,7 +135,9 @@ export function OperatorValueSelect({
                         setValidationError(null)
 
                         setCurrentOperator(newOperator)
-                        if (isOperatorFlag(newOperator)) {
+                        if (isOperatorCohort(newOperator)) {
+                            onChange(newOperator, value || null)
+                        } else if (isOperatorFlag(newOperator)) {
                             onChange(newOperator, newOperator)
                         } else if (isOperatorFlag(currentOperator || PropertyOperator.Exact)) {
                             onChange(newOperator, null)

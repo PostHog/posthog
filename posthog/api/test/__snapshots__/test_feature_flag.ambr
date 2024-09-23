@@ -1785,7 +1785,8 @@
          "posthog_experiment"."updated_at",
          "posthog_experiment"."archived",
          "posthog_experiment"."type",
-         "posthog_experiment"."variants"
+         "posthog_experiment"."variants",
+         "posthog_experiment"."metrics"
   FROM "posthog_experiment"
   WHERE "posthog_experiment"."exposure_cohort_id" = 2
   '''

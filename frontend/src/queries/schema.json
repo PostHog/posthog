@@ -129,6 +129,16 @@
                 }
             ]
         },
+        "ActionConversionGoal": {
+            "additionalProperties": false,
+            "properties": {
+                "actionId": {
+                    "type": "integer"
+                }
+            },
+            "required": ["actionId"],
+            "type": "object"
+        },
         "ActionsNode": {
             "additionalProperties": false,
             "properties": {
@@ -540,7 +550,10 @@
                     "$ref": "#/definitions/ErrorTrackingQuery"
                 },
                 {
-                    "$ref": "#/definitions/ExperimentResultQuery"
+                    "$ref": "#/definitions/ExperimentFunnelQuery"
+                },
+                {
+                    "$ref": "#/definitions/ExperimentTrendQuery"
                 }
             ]
         },
@@ -554,6 +567,19 @@
                 },
                 {
                     "$ref": "#/definitions/DataWarehouseNode"
+                }
+            ]
+        },
+        "AnyFilterLike": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/AnyPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/PropertyGroupFilter"
+                },
+                {
+                    "$ref": "#/definitions/PropertyGroupFilterValue"
                 }
             ]
         },
@@ -2624,6 +2650,10 @@
                 "label": {
                     "type": "string"
                 },
+                "operator": {
+                    "$ref": "#/definitions/PropertyOperator",
+                    "default": "in"
+                },
                 "type": {
                     "const": "cohort",
                     "type": "string"
@@ -2632,7 +2662,7 @@
                     "type": "integer"
                 }
             },
-            "required": ["key", "type", "value"],
+            "required": ["key", "operator", "type", "value"],
             "type": "object"
         },
         "CompareFilter": {
@@ -2655,6 +2685,10 @@
                     "type": "array"
                 },
                 "color": {
+                    "type": "string"
+                },
+                "colorMode": {
+                    "enum": ["light", "dark"],
                     "type": "string"
                 },
                 "columnName": {
@@ -2684,6 +2718,16 @@
                 "p99_count_per_actor"
             ],
             "type": "string"
+        },
+        "CustomEventConversionGoal": {
+            "additionalProperties": false,
+            "properties": {
+                "customEventName": {
+                    "type": "string"
+                }
+            },
+            "required": ["customEventName"],
+            "type": "object"
         },
         "DashboardFilter": {
             "additionalProperties": false,
@@ -3299,12 +3343,12 @@
                             "additionalProperties": false,
                             "properties": {
                                 "insight": {
-                                    "const": "TRENDS",
+                                    "const": "FUNNELS",
                                     "type": "string"
                                 },
                                 "results": {
                                     "additionalProperties": {
-                                        "$ref": "#/definitions/ExperimentVariantTrendResult"
+                                        "$ref": "#/definitions/ExperimentVariantFunnelResult"
                                     },
                                     "type": "object"
                                 }
@@ -3316,12 +3360,12 @@
                             "additionalProperties": false,
                             "properties": {
                                 "insight": {
-                                    "const": "FUNNELS",
+                                    "const": "TRENDS",
                                     "type": "string"
                                 },
                                 "results": {
                                     "additionalProperties": {
-                                        "$ref": "#/definitions/ExperimentVariantFunnelResult"
+                                        "$ref": "#/definitions/ExperimentVariantTrendResult"
                                     },
                                     "type": "object"
                                 }
@@ -3444,7 +3488,10 @@
                             "$ref": "#/definitions/ErrorTrackingQuery"
                         },
                         {
-                            "$ref": "#/definitions/ExperimentResultQuery"
+                            "$ref": "#/definitions/ExperimentFunnelQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/ExperimentTrendQuery"
                         }
                     ],
                     "description": "Source of the events"
@@ -4414,7 +4461,7 @@
                 "fixedProperties": {
                     "description": "Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
                     "items": {
-                        "$ref": "#/definitions/AnyPropertyFilter"
+                        "$ref": "#/definitions/AnyFilterLike"
                     },
                     "type": "array"
                 },
@@ -4557,7 +4604,31 @@
             "required": ["columns", "hogql", "results", "types"],
             "type": "object"
         },
-        "ExperimentResultFunnelQueryResponse": {
+        "ExperimentFunnelQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "experiment_id": {
+                    "type": "integer"
+                },
+                "kind": {
+                    "const": "ExperimentFunnelQuery",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "response": {
+                    "$ref": "#/definitions/ExperimentFunnelQueryResponse"
+                },
+                "source": {
+                    "$ref": "#/definitions/FunnelsQuery"
+                }
+            },
+            "required": ["experiment_id", "kind", "source"],
+            "type": "object"
+        },
+        "ExperimentFunnelQueryResponse": {
             "additionalProperties": false,
             "properties": {
                 "insight": {
@@ -4574,11 +4645,20 @@
             "required": ["insight", "results"],
             "type": "object"
         },
-        "ExperimentResultQuery": {
+        "ExperimentTrendQuery": {
             "additionalProperties": false,
             "properties": {
+                "count_source": {
+                    "$ref": "#/definitions/TrendsQuery"
+                },
+                "experiment_id": {
+                    "type": "integer"
+                },
+                "exposure_source": {
+                    "$ref": "#/definitions/TrendsQuery"
+                },
                 "kind": {
-                    "const": "ExperimentResultQuery",
+                    "const": "ExperimentTrendQuery",
                     "type": "string"
                 },
                 "modifiers": {
@@ -4586,39 +4666,13 @@
                     "description": "Modifiers used when performing the query"
                 },
                 "response": {
-                    "$ref": "#/definitions/ExperimentResultQueryResponse"
-                },
-                "source": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/TrendsQuery"
-                        },
-                        {
-                            "$ref": "#/definitions/FunnelsQuery"
-                        }
-                    ]
-                },
-                "variants": {
-                    "items": {
-                        "type": "string"
-                    },
-                    "type": "array"
+                    "$ref": "#/definitions/ExperimentTrendQueryResponse"
                 }
             },
-            "required": ["kind", "source", "variants"],
+            "required": ["count_source", "experiment_id", "exposure_source", "kind"],
             "type": "object"
         },
-        "ExperimentResultQueryResponse": {
-            "anyOf": [
-                {
-                    "$ref": "#/definitions/ExperimentResultTrendQueryResponse"
-                },
-                {
-                    "$ref": "#/definitions/ExperimentResultFunnelQueryResponse"
-                }
-            ]
-        },
-        "ExperimentResultTrendQueryResponse": {
+        "ExperimentTrendQueryResponse": {
             "additionalProperties": false,
             "properties": {
                 "insight": {
@@ -4653,9 +4707,12 @@
             "properties": {
                 "count": {
                     "type": "number"
+                },
+                "exposure": {
+                    "type": "number"
                 }
             },
-            "required": ["count"],
+            "required": ["count", "exposure"],
             "type": "object"
         },
         "ExperimentalAITrendsQuery": {
@@ -6921,7 +6978,6 @@
                 "RecordingsQuery",
                 "SessionAttributionExplorerQuery",
                 "ErrorTrackingQuery",
-                "ExperimentResultQuery",
                 "DataTableNode",
                 "DataVisualizationNode",
                 "SavedInsightNode",
@@ -6940,6 +6996,8 @@
                 "WebStatsTableQuery",
                 "WebExternalClicksTableQuery",
                 "WebGoalsQuery",
+                "ExperimentFunnelQuery",
+                "ExperimentTrendQuery",
                 "DatabaseSchemaQuery"
             ],
             "type": "string"
@@ -7391,7 +7449,9 @@
                 "between",
                 "not_between",
                 "min",
-                "max"
+                "max",
+                "in",
+                "not_in"
             ],
             "type": "string"
         },
@@ -8191,10 +8251,38 @@
                     "type": "object"
                 },
                 {
-                    "$ref": "#/definitions/ExperimentResultTrendQueryResponse"
+                    "additionalProperties": false,
+                    "properties": {
+                        "insight": {
+                            "const": "FUNNELS",
+                            "type": "string"
+                        },
+                        "results": {
+                            "additionalProperties": {
+                                "$ref": "#/definitions/ExperimentVariantFunnelResult"
+                            },
+                            "type": "object"
+                        }
+                    },
+                    "required": ["insight", "results"],
+                    "type": "object"
                 },
                 {
-                    "$ref": "#/definitions/ExperimentResultFunnelQueryResponse"
+                    "additionalProperties": false,
+                    "properties": {
+                        "insight": {
+                            "const": "TRENDS",
+                            "type": "string"
+                        },
+                        "results": {
+                            "additionalProperties": {
+                                "$ref": "#/definitions/ExperimentVariantTrendResult"
+                            },
+                            "type": "object"
+                        }
+                    },
+                    "required": ["insight", "results"],
+                    "type": "object"
                 },
                 {
                     "properties": {},
@@ -8745,12 +8833,12 @@
                     "additionalProperties": false,
                     "properties": {
                         "insight": {
-                            "const": "TRENDS",
+                            "const": "FUNNELS",
                             "type": "string"
                         },
                         "results": {
                             "additionalProperties": {
-                                "$ref": "#/definitions/ExperimentVariantTrendResult"
+                                "$ref": "#/definitions/ExperimentVariantFunnelResult"
                             },
                             "type": "object"
                         }
@@ -8762,12 +8850,12 @@
                     "additionalProperties": false,
                     "properties": {
                         "insight": {
-                            "const": "FUNNELS",
+                            "const": "TRENDS",
                             "type": "string"
                         },
                         "results": {
                             "additionalProperties": {
-                                "$ref": "#/definitions/ExperimentVariantFunnelResult"
+                                "$ref": "#/definitions/ExperimentVariantTrendResult"
                             },
                             "type": "object"
                         }
@@ -9139,7 +9227,10 @@
                     "$ref": "#/definitions/ErrorTrackingQuery"
                 },
                 {
-                    "$ref": "#/definitions/ExperimentResultQuery"
+                    "$ref": "#/definitions/ExperimentFunnelQuery"
+                },
+                {
+                    "$ref": "#/definitions/ExperimentTrendQuery"
                 },
                 {
                     "$ref": "#/definitions/DataVisualizationNode"
@@ -10747,14 +10838,14 @@
             "type": "object"
         },
         "WebAnalyticsConversionGoal": {
-            "additionalProperties": false,
-            "properties": {
-                "actionId": {
-                    "type": "integer"
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/ActionConversionGoal"
+                },
+                {
+                    "$ref": "#/definitions/CustomEventConversionGoal"
                 }
-            },
-            "required": ["actionId"],
-            "type": "object"
+            ]
         },
         "WebAnalyticsPropertyFilter": {
             "anyOf": [
