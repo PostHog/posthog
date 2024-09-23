@@ -362,10 +362,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportProjectCreationSubmitted: (projectCount: number, nameLength: number) => ({ projectCount, nameLength }),
         reportProjectNoticeDismissed: (key: string) => ({ key }),
         reportBulkInviteAttempted: (inviteesCount: number, namesCount: number) => ({ inviteesCount, namesCount }),
-        reportInviteAttempted: (nameProvided: boolean, instanceEmailAvailable: boolean) => ({
-            nameProvided,
-            instanceEmailAvailable,
-        }),
         reportPersonPropertyUpdated: (
             action: 'added' | 'updated' | 'removed',
             totalProperties: number,
@@ -752,13 +748,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             for (let i = 0; i < inviteesCount; i++) {
                 posthog.capture('team member invited')
             }
-        },
-        reportInviteAttempted: async ({ nameProvided, instanceEmailAvailable }) => {
-            posthog.capture('team member invited')
-            posthog.capture('team invite attempted', {
-                name_provided: nameProvided,
-                instance_email_available: instanceEmailAvailable,
-            })
         },
         reportFunnelCalculated: async ({ eventCount, actionCount, interval, funnelVizType, success, error }) => {
             posthog.capture('funnel result calculated', {
