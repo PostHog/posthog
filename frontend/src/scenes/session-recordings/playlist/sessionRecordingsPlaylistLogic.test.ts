@@ -1,5 +1,6 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -115,6 +116,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
             },
         })
         initKeaTests()
+        featureFlagLogic.mount()
     })
 
     describe('global logic', () => {
