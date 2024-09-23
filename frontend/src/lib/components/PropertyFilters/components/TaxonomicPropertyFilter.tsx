@@ -48,6 +48,7 @@ export function TaxonomicPropertyFilter({
     propertyAllowList,
     taxonomicFilterOptionsFromProp,
     allowRelativeDateOptions,
+    exactMatchFeatureFlagCohortOperators,
 }: PropertyFilterInternalProps): JSX.Element {
     const pageKey = useMemo(() => pageKeyInput || `filter-${uniqueMemoizedIndex++}`, [pageKeyInput])
     const groupTypes = taxonomicGroupTypes || [
@@ -89,7 +90,7 @@ export function TaxonomicPropertyFilter({
         filter?.type &&
         filter?.key &&
         !(filter?.type === PropertyFilterType.HogQL) &&
-        !(filter?.type === PropertyFilterType.Cohort && pageKey.includes('feature-flag'))
+        !(filter?.type === PropertyFilterType.Cohort && exactMatchFeatureFlagCohortOperators)
     const placeOperatorValueSelectOnLeft = filter?.type && filter?.key && filter?.type === PropertyFilterType.Cohort
 
     const { propertyDefinitionsByType } = useValues(propertyDefinitionsModel)
