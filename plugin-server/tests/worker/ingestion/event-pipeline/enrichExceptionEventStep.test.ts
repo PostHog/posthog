@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto'
+
 import { ISOTimestamp, PreIngestionEvent } from '../../../../src/types'
 import { cloneObject } from '../../../../src/utils/utils'
 import { enrichExceptionEventStep } from '../../../../src/worker/ingestion/event-pipeline/enrichExceptionEventStep'
@@ -104,5 +106,58 @@ describe('enrichExceptionEvent()', () => {
         const response = await enrichExceptionEventStep(runner, event)
 
         expect(response.properties['$exception_fingerprint']).toBeUndefined()
+    })
+
+    it('generates a hash for the exception', async () => {
+        event.event = '$exception'
+        event.properties['$exception_message'] = 'some-message'
+        event.properties['$exception_stack_trace_raw'] = aStackTrace
+        event.properties['$exception_type'] = 'UnhandledRejection'
+
+        const event2 = cloneObject(event)
+
+        const response = await enrichExceptionEventStep(runner, event)
+
+        expect(response.properties['$exception_hash']).toBe(
+            'e28414be565184223dac022aba1fef779b2579c7c29d0a9982f0e7ef63f7e905'
+        )
+
+        // Ensure the hash is deterministic
+        delete event.properties['$exception_fingerprint']
+        const response2 = await enrichExceptionEventStep(runner, event)
+        expect(response2.properties['$exception_hash']).toBe(response.properties['$exception_hash'])
+
+        // Ensure the hash is different for different exceptions
+        event2.properties['$exception_message'] = 'some-other-message'
+        event2.properties['$exception_type'] = 'SomeOtherException'
+        const response3 = await enrichExceptionEventStep(runner, event2)
+        expect(response3.properties['$exception_hash']).not.toBe(response.properties['$exception_hash'])
+        expect(response3.properties['$exception_hash']).toBe(
+            'b7d5ae00e4add0a01021ba696a080ea0f168676ca28b59b9f9ea1dc4e05f12b4'
+        )
+    })
+
+    it('generates a hash for the exception even if no stack trace', async () => {
+        event.event = '$exception'
+        event.properties['$exception_message'] = 'some-message'
+        event.properties['$exception_stack_trace_raw'] = null
+        event.properties['$exception_type'] = 'UnhandledRejection'
+
+        const response = await enrichExceptionEventStep(runner, event)
+
+        expect(response.properties['$exception_hash']).toBe(
+            '3043eb0703dbd847af3b592ce14ffbc9aecb528b1ba5ae15c1c6838826a96ee7'
+        )
+    })
+
+    it('generates a empty hash for empty exception', async () => {
+        event.event = '$exception'
+        const response = await enrichExceptionEventStep(runner, event)
+
+        expect(response.properties['$exception_hash']).toBe(
+            'd8156bae0c4243d3742fc4e9774d8aceabe0410249d720c855f98afc88ff846c'
+        )
+
+        expect(createHash('sha256').update('--').digest('hex')).toBe(response.properties['$exception_hash'])
     })
 })

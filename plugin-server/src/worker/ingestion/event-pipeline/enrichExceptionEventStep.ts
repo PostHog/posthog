@@ -1,4 +1,5 @@
 import { captureException } from '@sentry/node'
+import { createHash } from 'crypto'
 import { Counter } from 'prom-client'
 
 import { PreIngestionEvent } from '../../../types'
@@ -19,6 +20,11 @@ const COULD_NOT_PREPARE_FOR_FINGERPRINTING_COUNTER = new Counter({
     help: 'Counter for exceptions where the event could not be prepared for fingerprinting',
 })
 
+const COULD_NOT_HASH_COUNTER = new Counter({
+    name: 'enrich_exception_events_could_not_hash',
+    help: 'Counter for exceptions where the event could not be hashed',
+})
+
 const EXCEPTIONS_ENRICHED_COUNTER = new Counter({
     name: 'enrich_exception_events_enriched',
     help: 'Counter for exceptions that have been enriched',
@@ -28,6 +34,7 @@ export function enrichExceptionEventStep(
     _runner: EventPipelineRunner,
     event: PreIngestionEvent
 ): Promise<PreIngestionEvent> {
+    console.log('running enrichExceptionEventStep')
     if (event.event !== '$exception') {
         return Promise.resolve(event)
     }
@@ -37,6 +44,7 @@ export function enrichExceptionEventStep(
     let firstFunction: string | null = null
     let exceptionStack: string | null = null
     let exceptionList: any[] | null = null
+    let exceptionHash: string | null = null
 
     try {
         exceptionStack = event.properties['$exception_stack_trace_raw']
@@ -72,8 +80,27 @@ export function enrichExceptionEventStep(
         COULD_NOT_PARSE_STACK_TRACE_COUNTER.inc()
     }
 
+    try {
+        let stacktrace = ''
+        if (exceptionList && exceptionList.length > 0) {
+            stacktrace = JSON.stringify(exceptionList)
+        } else if (exceptionStack) {
+            stacktrace = exceptionStack
+        }
+
+        console.log('stacktrace', stacktrace, 'type', type, 'message', message, 'firstFunction', firstFunction)
+        const exceptionHashString = `${type || ''}-${message || ''}-${stacktrace}`
+
+        // generate a hash of the exception
+        exceptionHash = createHash('sha256').update(exceptionHashString).digest('hex')
+    } catch (e) {
+        captureException(e)
+        COULD_NOT_HASH_COUNTER.inc()
+    }
+
     const fingerprint = [type, message, firstFunction].filter(Boolean)
     event.properties['$exception_fingerprint'] = fingerprint.length ? fingerprint : undefined
+    event.properties['$exception_hash'] = exceptionHash || undefined
 
     if (event.properties['$exception_fingerprint']) {
         EXCEPTIONS_ENRICHED_COUNTER.inc()
