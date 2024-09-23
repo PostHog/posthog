@@ -138,7 +138,7 @@ export const SiteChooser = (): JSX.Element => {
                                 </p>
                             )}
                             <div className="space-y-2">
-                                {combinedSnippetAndLiveEventsHosts.concat('https://posthog.com').map((host) => (
+                                {combinedSnippetAndLiveEventsHosts.map((host) => (
                                     <LemonButton
                                         key={`snippet-host-button-${host}`}
                                         type="tertiary"
@@ -255,7 +255,7 @@ export const OnboardingDashboardTemplateConfigureStep = ({
                             {browserUrl && iframeBanner?.level != 'error' ? (
                                 <div className="border border-1 border-border-bold rounded h-full w-full flex flex-col">
                                     <UrlInput iframeRef={iframeRef} />
-                                    <div className="m-2 grow rounded ">
+                                    <div className="m-2 grow rounded">
                                         <IframedToolbarBrowser iframeRef={iframeRef} userIntent="add-action" />
                                     </div>
                                 </div>
