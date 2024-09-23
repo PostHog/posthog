@@ -265,7 +265,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 "start_url": "https://not-provided-by-test.com",
                 "storage": "object_storage",
                 "viewed": False,
-                "ongoing": False,
+                "ongoing": True,
             },
         ]
 
