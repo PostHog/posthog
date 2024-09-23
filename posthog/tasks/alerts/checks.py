@@ -23,7 +23,18 @@ from posthog.schema import TrendsQuery, IntervalType, ChartDisplayType, NodeKind
 from posthog.utils import get_from_dict_or_attr
 from posthog.caching.fetch_from_cache import InsightResult
 from posthog.clickhouse.client.limit import limit_concurrency
+from prometheus_client import Gauge
 from django.db.models import Q
+
+HOURLY_ALERTS_BACKLOG_GAUGE = Gauge(
+    "hourly_alerts_backlog",
+    "Number of hourly alerts that are not being checked in the last hour.",
+)
+
+DAILY_ALERTS_BACKLOG_GAUGE = Gauge(
+    "daily_alerts_backlog",
+    "Number of daily alerts that are not being checked in the last 24 hours.",
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -38,7 +49,48 @@ NON_TIME_SERIES_DISPLAY_TYPES = {
 }
 
 
-# TODO: ani task to check and page if alerts recalculations aren't meeting SLAs
+@shared_task(
+    ignore_result=True,
+    expires=60 * 60,
+)
+def hourly_alerts_backlog_task() -> None:
+    """
+    This runs every 5min to check for alerts with hourly check SLA
+    but haven't been checked in the last hour
+    """
+    now = datetime.now(UTC)
+
+    alerts_breaching_sla = AlertConfiguration.objects.filter(
+        Q(
+            enabled=True,
+            calculation_interval=AlertCalculationInterval.HOURLY,
+            last_checked_at__lte=now - relativedelta(hours=1),
+        )
+    ).count()
+
+    HOURLY_ALERTS_BACKLOG_GAUGE.set(alerts_breaching_sla)
+
+
+@shared_task(
+    ignore_result=True,
+    expires=60 * 60,
+)
+def daily_alerts_backlog_task() -> None:
+    """
+    This runs every 15min to check for alerts with hourly check SLA
+    but haven't been checked in the last hour
+    """
+    now = datetime.now(UTC)
+
+    alerts_breaching_sla = AlertConfiguration.objects.filter(
+        Q(
+            enabled=True,
+            calculation_interval=AlertCalculationInterval.HOURLY,
+            last_checked_at__lte=now - relativedelta(days=1),
+        )
+    ).count()
+
+    DAILY_ALERTS_BACKLOG_GAUGE.set(alerts_breaching_sla)
 
 
 @shared_task(
