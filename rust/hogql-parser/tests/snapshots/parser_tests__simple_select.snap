@@ -3,41 +3,52 @@ source: hogql-parser/tests/parser_tests.rs
 expression: ast
 ---
 {
-  "Select": {
-    "columns": [
+  "Program": {
+    "declarations": [
       {
-        "Identifier": "*"
-      }
-    ],
-    "from": {
-      "Identifier": "users"
-    },
-    "where_clause": {
-      "BinaryOp": {
-        "left": {
-          "BinaryOp": {
-            "left": {
-              "Identifier": "active"
-            },
-            "op": "=",
-            "right": {
-              "Identifier": "true"
+        "SelectStmt": {
+          "columns": [
+            {
+              "ColumnExprIdentifier": "a"
             }
-          }
-        },
-        "op": "AND",
-        "right": {
-          "BinaryOp": {
-            "left": {
-              "Identifier": "role"
-            },
-            "op": "=",
-            "right": {
-              "Literal": "admin"
+          ],
+          "distinct": false,
+          "from": {
+            "ColumnExprIdentifier": "users"
+          },
+          "group_by": null,
+          "having": null,
+          "limit": null,
+          "order_by": null,
+          "where_clause": {
+            "ColumnExprBinaryOp": {
+              "left": {
+                "ColumnExprBinaryOp": {
+                  "left": {
+                    "ColumnExprIdentifier": "active"
+                  },
+                  "op": "=",
+                  "right": {
+                    "ColumnExprIdentifier": "true"
+                  }
+                }
+              },
+              "op": "AND",
+              "right": {
+                "ColumnExprBinaryOp": {
+                  "left": {
+                    "ColumnExprIdentifier": "role"
+                  },
+                  "op": "=",
+                  "right": {
+                    "StringLiteral": "admin"
+                  }
+                }
+              }
             }
           }
         }
       }
-    }
+    ]
   }
 }

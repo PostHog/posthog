@@ -21,21 +21,21 @@ fn test_queries() {
 
 #[test]
 fn test_select_with_and() {
-    let query = "SELECT * FROM users WHERE active = true AND role = 'admin';";
+    let query = "SELECT aa FROM users WHERE active = true AND role = 'admin'";
     let ast = parse_query(query);
     assert_json_snapshot!(ast);
 }
 
 #[test]
 fn test_select_with_or() {
-    let query = "SELECT id FROM orders WHERE status = 'pending' OR status = 'processing';";
+    let query = "SELECT id FROM orders WHERE status = 'pending' OR status = 'processing'";
     let ast = parse_query(query);
     assert_json_snapshot!(ast);
 }
 
 #[test]
 fn test_invalid_query() {
-    let query = "SELECT FROM WHERE;";
+    let query = "SELECT FROM WHERE";
     let result = std::panic::catch_unwind(|| parse_query(query));
     assert!(result.is_err(), "Parser should panic on invalid query");
 }

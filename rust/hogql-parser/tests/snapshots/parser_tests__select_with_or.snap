@@ -3,41 +3,52 @@ source: hogql-parser/tests/parser_tests.rs
 expression: ast
 ---
 {
-  "Select": {
-    "columns": [
+  "Program": {
+    "declarations": [
       {
-        "Identifier": "id"
-      }
-    ],
-    "from": {
-      "Identifier": "orders"
-    },
-    "where_clause": {
-      "BinaryOp": {
-        "left": {
-          "BinaryOp": {
-            "left": {
-              "Identifier": "status"
-            },
-            "op": "=",
-            "right": {
-              "Literal": "pending"
+        "SelectStmt": {
+          "columns": [
+            {
+              "ColumnExprIdentifier": "id"
             }
-          }
-        },
-        "op": "OR",
-        "right": {
-          "BinaryOp": {
-            "left": {
-              "Identifier": "status"
-            },
-            "op": "=",
-            "right": {
-              "Literal": "processing"
+          ],
+          "distinct": false,
+          "from": {
+            "ColumnExprIdentifier": "orders"
+          },
+          "group_by": null,
+          "having": null,
+          "limit": null,
+          "order_by": null,
+          "where_clause": {
+            "ColumnExprBinaryOp": {
+              "left": {
+                "ColumnExprBinaryOp": {
+                  "left": {
+                    "ColumnExprIdentifier": "status"
+                  },
+                  "op": "=",
+                  "right": {
+                    "StringLiteral": "pending"
+                  }
+                }
+              },
+              "op": "OR",
+              "right": {
+                "ColumnExprBinaryOp": {
+                  "left": {
+                    "ColumnExprIdentifier": "status"
+                  },
+                  "op": "=",
+                  "right": {
+                    "StringLiteral": "processing"
+                  }
+                }
+              }
             }
           }
         }
       }
-    }
+    ]
   }
 }

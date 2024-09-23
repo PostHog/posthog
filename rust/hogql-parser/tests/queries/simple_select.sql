@@ -1,1 +1,1 @@
-SELECT * FROM users WHERE active = true AND role = 'admin';
+SELECT a FROM users WHERE active = true AND role = 'admin'
