@@ -669,16 +669,13 @@ export class HedgehogActor {
 
         return (
             <div
-                className="border rounded bg-white pointer-events-none"
+                className="border rounded bg-white pointer-events-none fixed z-[1000] origin-top-left"
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{
-                    position: 'fixed',
                     left: x,
                     bottom: y,
                     width: this.followMouse ? Math.sqrt((mouseX - x) ** 2 + (mouseY - y) ** 2) : 0,
                     height: 3,
-                    zIndex: 1000,
-                    transformOrigin: '0 0',
                     transform: `rotate(${Math.atan2(y - mouseY, mouseX - x)}rad)`,
                 }}
             />
@@ -775,7 +772,7 @@ export class HedgehogActor {
                             ref?.(r)
                         }
                     }}
-                    className="HedgehogBuddy"
+                    className="HedgehogBuddy cursor-pointer m-0"
                     data-content={preloadContent}
                     onTouchStart={this.static ? undefined : () => onTouchOrMouseStart()}
                     onMouseDown={this.static ? undefined : () => onTouchOrMouseStart()}
@@ -788,8 +785,6 @@ export class HedgehogActor {
                         left: this.static ? undefined : this.x,
                         bottom: this.static ? undefined : this.y - SHADOW_HEIGHT * 0.5,
                         transition: !(this.isDragging || this.followMouse) ? `all ${1000 / FPS}ms` : undefined,
-                        cursor: 'pointer',
-                        margin: 0,
                     }}
                 >
                     {this.tooltip && !this.isDragging && (
@@ -816,9 +811,9 @@ export class HedgehogActor {
                     >
                         {this.mainAnimation ? (
                             <div
+                                className="image-rendering-pixelated"
                                 // eslint-disable-next-line react/forbid-dom-props
                                 style={{
-                                    imageRendering: 'pixelated',
                                     width: SPRITE_SIZE,
                                     height: SPRITE_SIZE,
                                     backgroundImage: `url(${spriteUrl(
@@ -837,15 +832,10 @@ export class HedgehogActor {
 
                         {this.accessories().map((accessory, index) => (
                             <div
+                                className={`absolute top-0 left-0 w-[${SPRITE_SIZE}px] h-[${SPRITE_SIZE}px] image-rendering-pixelated`}
                                 key={index}
                                 // eslint-disable-next-line react/forbid-dom-props
                                 style={{
-                                    position: 'absolute',
-                                    top: 0,
-                                    left: 0,
-                                    imageRendering: 'pixelated',
-                                    width: SPRITE_SIZE,
-                                    height: SPRITE_SIZE,
                                     backgroundImage: `url(${spriteAccessoryUrl(accessory.img)})`,
                                     transform: accessoryPosition
                                         ? `translate3d(${accessoryPosition[0]}px, ${accessoryPosition[1]}px, 0)`
@@ -856,14 +846,9 @@ export class HedgehogActor {
                         ))}
                         {this.overlayAnimation ? (
                             <div
+                                className={`absolute top-0 left-0 w-[${SPRITE_SIZE}px] h-[${SPRITE_SIZE}px] image-rendering-pixelated`}
                                 // eslint-disable-next-line react/forbid-dom-props
                                 style={{
-                                    position: 'absolute',
-                                    top: 0,
-                                    left: 0,
-                                    imageRendering: 'pixelated',
-                                    width: SPRITE_SIZE,
-                                    height: SPRITE_SIZE,
                                     backgroundImage: `url(${spriteOverlayUrl(this.overlayAnimation.spriteInfo.img)})`,
                                     backgroundPosition: `-${
                                         (this.overlayAnimation.frame % X_FRAMES) * SPRITE_SIZE
@@ -886,11 +871,10 @@ export class HedgehogActor {
                                 return (
                                     <div
                                         key={i}
+                                        className="fixed pointer-events-none"
                                         // eslint-disable-next-line react/forbid-dom-props
                                         style={{
                                             outline: '1px solid red',
-                                            position: 'fixed',
-                                            pointerEvents: 'none',
                                             top: window.innerHeight - box.y - box.height,
                                             left: box.x,
                                             width: box.width,
