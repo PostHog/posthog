@@ -1,0 +1,10 @@
+#!/bin/bash
+
+# Propdefs-rs settings. These make it actually write the defs for all teams, and
+# have to be set, because the defaults cause it to skip everything.
+export SKIP_WRITES="false"
+export SKIP_READS="false"
+export FILTER_MODE="opt-out"
+
+cd rust
+cargo run --bin property-defs-rs
