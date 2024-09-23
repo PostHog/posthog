@@ -29,7 +29,7 @@ jobs:
         steps:
             - name: Automerge
               if: env.IS_POSTHOG_BOT_AVAILABLE == 'true'
-              uses: pascalgn/automerge-action@v0.16.3
+              uses: pascalgn/automerge-action@v0.16.4
               env:
                   GITHUB_TOKEN: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
             - run: echo
