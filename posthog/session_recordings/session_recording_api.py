@@ -133,6 +133,17 @@ class SessionRecordingSerializer(serializers.ModelSerializer):
     recording_duration = serializers.IntegerField(source="duration", read_only=True)
     person = MinimalPersonSerializer(required=False)
 
+    ongoing = serializers.SerializerMethodField()
+    viewed = serializers.SerializerMethodField()
+
+    def get_ongoing(self, obj: SessionRecording) -> bool:
+        # ongoing is a custom field that we add if loading from ClickHouse
+        return getattr(obj, "ongoing", False)
+
+    def get_viewed(self, obj: SessionRecording) -> bool:
+        # viewed is a custom field that we load from PG Sql and merge into the model
+        return getattr(obj, "viewed", False)
+
     class Meta:
         model = SessionRecording
         fields = [

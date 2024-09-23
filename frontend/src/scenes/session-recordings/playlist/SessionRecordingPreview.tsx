@@ -156,7 +156,7 @@ function PinnedIndicator(): JSX.Element | null {
 function RecordingOngoingIndicator(): JSX.Element {
     return (
         <Tooltip title="This recording is still ongoing - we received data within the last 5 minutes.">
-            <IconLive className="text-sm text-green-500 shrink-0" />
+            <IconLive className="text-green-500" />
         </Tooltip>
     )
 }
@@ -292,10 +292,16 @@ export function SessionRecordingPreview({
                     <FirstURL startUrl={recording.start_url} />
                 </div>
 
-                <div className="min-w-6 flex flex-col items-center mt-2">
+                <div
+                    className={clsx(
+                        'min-w-6 flex flex-col gap-0.5 items-center',
+                        // need different margin if the first item is an icon
+                        recording.ongoing || pinned ? 'mt-1' : 'mt-2'
+                    )}
+                >
                     {recording.ongoing ? <RecordingOngoingIndicator /> : null}
-                    {!recording.viewed ? <UnwatchedIndicator /> : null}
                     {pinned ? <PinnedIndicator /> : null}
+                    {recording.viewed ? <UnwatchedIndicator /> : null}
                 </div>
             </div>
         </DraggableToNotebook>
