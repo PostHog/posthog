@@ -125,12 +125,14 @@ describe('processPersonsStep()', () => {
             ...pluginEvent,
             properties: {
                 utm_source: 'foo',
+                $browser: 'Chrome',
             },
         }
         const event2 = {
             ...pluginEvent,
             properties: {
                 utm_medium: 'bar',
+                $browser: 'Chrome',
             },
         }
 
@@ -149,6 +151,8 @@ describe('processPersonsStep()', () => {
                     utm_source: 'foo',
                     utm_medium: 'bar',
                     $initial_utm_source: 'foo',
+                    $initial_browser: 'Chrome',
+                    $browser: 'Chrome',
                 },
                 version: 1,
             })
@@ -164,6 +168,7 @@ describe('processPersonsStep()', () => {
             ...pluginEvent,
             properties: {
                 utm_source: 'foo',
+                $browser: 'Chrome',
             },
         }
         // posthog-js stores initial campaign params for anonymous users, and sends them if the user becomes identified
@@ -172,6 +177,7 @@ describe('processPersonsStep()', () => {
             properties: {
                 utm_source: 'bar',
                 utm_medium: 'baz',
+                $browser: 'Chrome',
                 $set_once: {
                     $initial_utm_source: 'foo',
                 },
@@ -194,6 +200,8 @@ describe('processPersonsStep()', () => {
                     $initial_utm_source: 'foo',
                     utm_source: 'bar',
                     utm_medium: 'baz',
+                    $initial_browser: 'Chrome',
+                    $browser: 'Chrome',
                 },
                 version: 0,
             })
