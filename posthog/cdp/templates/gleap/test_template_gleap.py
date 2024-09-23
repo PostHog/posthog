@@ -24,7 +24,7 @@ class TestTemplateGleap(BaseHogFunctionTemplateTest):
         self.run_function(
             inputs=create_inputs(),
             globals={
-                "event": {"name": "$identify"},
+                "event": {"event": "$identify"},
             },
         )
 

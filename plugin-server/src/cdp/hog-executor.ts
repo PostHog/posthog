@@ -1,7 +1,7 @@
 import { calculateCost, convertHogToJS, exec, ExecOptions, ExecResult } from '@posthog/hogvm'
 import crypto from 'crypto'
 import { DateTime } from 'luxon'
-import { Histogram } from 'prom-client'
+import { Counter, Histogram } from 'prom-client'
 import RE2 from 're2'
 
 import { status } from '../utils/status'
@@ -24,6 +24,13 @@ export const DEFAULT_TIMEOUT_MS = 100
 const hogExecutionDuration = new Histogram({
     name: 'cdp_hog_function_execution_duration_ms',
     help: 'Processing time and success status of internal functions',
+    // We have a timeout so we don't need to worry about much more than that
+    buckets: [0, 10, 20, 50, 100, 200],
+})
+
+const hogFunctionFilterDuration = new Histogram({
+    name: 'cdp_hog_function_filter_duration_ms',
+    help: 'Processing time for filtering a function',
     // We have a timeout so we don't need to worry about much more than that
     buckets: [0, 10, 20, 50, 100, 200],
 })
@@ -85,30 +92,47 @@ export class HogExecutor {
     findMatchingFunctions(event: HogFunctionInvocationGlobals): {
         matchingFunctions: HogFunctionType[]
         nonMatchingFunctions: HogFunctionType[]
+        erroredFunctions: HogFunctionType[]
     } {
         const allFunctionsForTeam = this.hogFunctionManager.getTeamHogFunctions(event.project.id)
         const filtersGlobals = convertToHogFunctionFilterGlobal(event)
 
         const nonMatchingFunctions: HogFunctionType[] = []
         const matchingFunctions: HogFunctionType[] = []
+        const erroredFunctions: HogFunctionType[] = []
 
         // Filter all functions based on the invocation
         allFunctionsForTeam.forEach((hogFunction) => {
-            try {
-                if (hogFunction.filters?.bytecode) {
+            if (hogFunction.filters?.bytecode) {
+                const start = performance.now()
+                try {
                     const filterResult = execHog(hogFunction.filters.bytecode, { globals: filtersGlobals })
                     if (typeof filterResult.result === 'boolean' && filterResult.result) {
                         matchingFunctions.push(hogFunction)
                         return
                     }
+                } catch (error) {
+                    status.error('🦔', `[HogExecutor] Error filtering function`, {
+                        hogFunctionId: hogFunction.id,
+                        hogFunctionName: hogFunction.name,
+                        error: error.message,
+                    })
+                    erroredFunctions.push(hogFunction)
+                    return
+                } finally {
+                    const duration = performance.now() - start
+                    hogFunctionFilterDuration.observe(performance.now() - start)
+
+                    if (duration > DEFAULT_TIMEOUT_MS) {
+                        status.error('🦔', `[HogExecutor] Filter took longer than expected`, {
+                            hogFunctionId: hogFunction.id,
+                            hogFunctionName: hogFunction.name,
+                            teamId: hogFunction.team_id,
+                            duration,
+                            eventId: event.event.uuid,
+                        })
+                    }
                 }
-            } catch (error) {
-                // TODO: This should be reported as a log or metric
-                status.error('🦔', `[HogExecutor] Error filtering function`, {
-                    hogFunctionId: hogFunction.id,
-                    hogFunctionName: hogFunction.name,
-                    error: error.message,
-                })
             }
 
             nonMatchingFunctions.push(hogFunction)
@@ -124,6 +148,7 @@ export class HogExecutor {
         return {
             nonMatchingFunctions,
             matchingFunctions,
+            erroredFunctions,
         }
     }
 
@@ -197,7 +222,7 @@ export class HogExecutor {
                     status,
                     body: response?.body,
                 })
-                invocation.timings.push(...timings)
+                invocation.timings = invocation.timings.concat(timings)
                 result.logs = [...logs, ...result.logs]
             }
 
@@ -388,6 +413,15 @@ export class HogExecutor {
         const builtInputs: Record<string, any> = {}
 
         Object.entries(invocation.hogFunction.inputs ?? {}).forEach(([key, item]) => {
+            builtInputs[key] = item.value
+
+            if (item.bytecode) {
+                // Use the bytecode to compile the field
+                builtInputs[key] = formatInput(item.bytecode, invocation.globals)
+            }
+        })
+
+        Object.entries(invocation.hogFunction.encrypted_inputs ?? {}).forEach(([key, item]) => {
             builtInputs[key] = item.value
 
             if (item.bytecode) {

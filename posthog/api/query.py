@@ -31,13 +31,14 @@ from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql_queries.apply_dashboard_filters import apply_dashboard_filters_to_dict
 from posthog.hogql_queries.query_runner import ExecutionMode, execution_mode_from_refresh
 from posthog.models.user import User
-from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle, PersonalApiKeyRateThrottle
+from posthog.rate_limit import (
+    AIBurstRateThrottle,
+    AISustainedRateThrottle,
+    HogQLQueryThrottle,
+    ClickHouseBurstRateThrottle,
+    ClickHouseSustainedRateThrottle,
+)
 from posthog.schema import QueryRequest, QueryResponseAlternative, QueryStatusResponse
-
-
-class QueryThrottle(PersonalApiKeyRateThrottle):
-    scope = "query"
-    rate = "120/hour"
 
 
 class ServerSentEventRenderer(BaseRenderer):
@@ -59,8 +60,10 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     def get_throttles(self):
         if self.action in ("draft_sql", "chat"):
             return [AIBurstRateThrottle(), AISustainedRateThrottle()]
-        else:
-            return [QueryThrottle()]
+        if query := self.request.data.get("query"):
+            if isinstance(query, dict) and query.get("kind") == "HogQLQuery":
+                return [HogQLQueryThrottle()]
+        return [ClickHouseBurstRateThrottle(), ClickHouseSustainedRateThrottle()]
 
     @extend_schema(
         request=QueryRequest,

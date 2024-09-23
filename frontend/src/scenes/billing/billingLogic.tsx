@@ -463,6 +463,7 @@ export const billingLogic = kea<billingLogicType>([
                 values.computedDiscount * 100,
                     await api.create('api/billing/credits/purchase', {
                         annual_amount_usd: +Math.round(+creditInput - +creditInput * values.creditDiscount),
+                        discount_percent: values.computedDiscount * 100,
                         collection_method: collectionMethod,
                     })
 
@@ -502,8 +503,8 @@ export const billingLogic = kea<billingLogicType>([
             errors: ({ creditInput, collectionMethod }) => ({
                 creditInput: !creditInput
                     ? 'Please enter the amount of credits you want to purchase'
-                    : // This value is used because 6666 - 10% = 6000
-                    +creditInput < 6666
+                    : // This value is used because 6667 - 10% = 6000
+                    +creditInput < 6667
                     ? 'Please enter a credit amount greater than $6,666'
                     : undefined,
                 collectionMethod: !collectionMethod ? 'Please select a collection method' : undefined,

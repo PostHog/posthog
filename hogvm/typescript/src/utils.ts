@@ -43,10 +43,13 @@ export function getNestedValue(obj: any, chain: any[], nullish = false): any {
             if (obj instanceof Map) {
                 obj = obj.get(key) ?? null
             } else if (typeof key === 'number') {
-                if (key <= 0) {
+                if (key == 0) {
                     throw new Error(`Hog arrays start from index 1`)
+                } else if (key > 0) {
+                    obj = obj[key - 1] ?? null
+                } else {
+                    obj = obj[obj.length + key] ?? null
                 }
-                obj = obj[key - 1] ?? null
             } else {
                 obj = obj[key] ?? null
             }

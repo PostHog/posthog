@@ -102,6 +102,7 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
         response_data = response.json()
         response_data.pop("joined_at")
         response_data.pop("updated_at")
+        response_data.pop("last_login")
         self.assertDictEqual(
             response_data,
             {

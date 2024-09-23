@@ -3,7 +3,7 @@ import equal from 'fast-deep-equal'
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
+import { beforeUnload, router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
@@ -52,6 +52,7 @@ export interface HogFunctionConfigurationLogicProps {
 }
 
 export const EVENT_VOLUME_DAILY_WARNING_THRESHOLD = 1000
+const UNSAVED_CONFIGURATION_TTL = 1000 * 60 * 5
 
 const NEW_FUNCTION_TEMPLATE: HogFunctionTemplateType = {
     id: 'new',
@@ -66,10 +67,11 @@ export function sanitizeConfiguration(data: HogFunctionConfigurationType): HogFu
     const sanitizedInputs: Record<string, HogFunctionInputType> = {}
 
     data.inputs_schema?.forEach((input) => {
-        const value = data.inputs?.[input.key]?.value
         const secret = data.inputs?.[input.key]?.secret
+        let value = data.inputs?.[input.key]?.value
 
         if (secret) {
+            // If set this means we haven't changed the value
             sanitizedInputs[input.key] = {
                 value: '********', // Don't send the actual value
                 secret: true,
@@ -79,14 +81,12 @@ export function sanitizeConfiguration(data: HogFunctionConfigurationType): HogFu
 
         if (input.type === 'json' && typeof value === 'string') {
             try {
-                sanitizedInputs[input.key] = {
-                    value: JSON.parse(value),
-                }
+                value = JSON.parse(value)
             } catch (e) {
                 // Ignore
             }
-            return
         }
+
         sanitizedInputs[input.key] = {
             value: value,
         }
@@ -125,7 +125,7 @@ const templateToConfiguration = (
         hog: template.hog,
         icon_url: template.icon_url,
         inputs,
-        enabled: false,
+        enabled: true,
     }
 }
 
@@ -138,26 +138,26 @@ export function convertToHogFunctionInvocationGlobals(
     return {
         project: {
             id: team?.id ?? 0,
+
             name: team?.name ?? 'Default project',
             url: projectUrl,
         },
         event: {
             uuid: event.uuid ?? '',
-            name: event.event, // TODO: rename back to "event"?
+            event: event.event,
             distinct_id: event.distinct_id,
-            // TODO: add back elements_chain?
+            elements_chain: event.elements_chain ?? '',
+            properties: event.properties,
             timestamp: event.timestamp,
+
             url: `${projectUrl}/events/${encodeURIComponent(event.uuid ?? '')}/${encodeURIComponent(event.timestamp)}`,
-            properties: {
-                ...event.properties,
-                ...(event.elements_chain ? { $elements_chain: event.elements_chain } : {}),
-            },
         },
         person: {
-            uuid: person.uuid ?? person.id ?? '', // TODO: rename back to "id"?
+            id: person.id ?? '',
+            properties: person.properties,
+
             name: asDisplay(person),
             url: `${projectUrl}/person/${encodeURIComponent(event.distinct_id)}`,
-            properties: person.properties,
         },
         groups: {},
     }
@@ -183,6 +183,8 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         sparklineQueryChanged: (sparklineQuery: TrendsQuery) => ({ sparklineQuery } as { sparklineQuery: TrendsQuery }),
         setSubTemplateId: (subTemplateId: HogFunctionSubTemplateIdType | null) => ({ subTemplateId }),
         loadSampleGlobals: true,
+        setUnsavedConfiguration: (configuration: HogFunctionConfigurationType | null) => ({ configuration }),
+        persistForUnload: true,
     }),
     reducers({
         showSource: [
@@ -202,6 +204,15 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             null as HogFunctionSubTemplateIdType | null,
             {
                 setSubTemplateId: (_, { subTemplateId }) => subTemplateId,
+            },
+        ],
+
+        unsavedConfiguration: [
+            null as { timestamp: number; configuration: HogFunctionConfigurationType } | null,
+            { persist: true },
+            {
+                setUnsavedConfiguration: (_, { configuration }) =>
+                    configuration ? { timestamp: Date.now(), configuration } : null,
             },
         ],
     }),
@@ -456,6 +467,13 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 return configuration?.enabled && (hogFunction?.status?.state ?? 0) >= 3
             },
         ],
+
+        willChangeEnabledOnSave: [
+            (s) => [s.configuration, s.hogFunction],
+            (configuration, hogFunction) => {
+                return configuration?.enabled !== (hogFunction?.enabled ?? false)
+            },
+        ],
         exampleInvocationGlobals: [
             (s) => [s.configuration, s.currentTeam, s.groupTypes],
             (configuration, currentTeam, groupTypes): HogFunctionInvocationGlobals => {
@@ -466,21 +484,22 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     event: {
                         uuid: eventId,
                         distinct_id: uuid(),
-                        name: '$pageview',
+                        event: '$pageview',
                         timestamp: dayjs().toISOString(),
-                        url: `${window.location.origin}/project/${currentTeam?.id}/events/`,
+                        elements_chain: '',
                         properties: {
                             $current_url: currentUrl,
                             $browser: 'Chrome',
                         },
+                        url: `${window.location.origin}/project/${currentTeam?.id}/events/`,
                     },
                     person: {
-                        uuid: personId,
-                        name: 'Example person',
-                        url: `${window.location.origin}/person/${personId}`,
+                        id: personId,
                         properties: {
                             email: 'example@posthog.com',
                         },
+                        name: 'Example person',
+                        url: `${window.location.origin}/person/${personId}`,
                     },
                     groups: {},
                     project: {
@@ -696,16 +715,29 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             }
 
             const paramsFromUrl = cache.paramsFromUrl ?? {}
-            if (paramsFromUrl.integration_target && paramsFromUrl.integration_id) {
-                config.inputs = config.inputs ?? {}
-                config.inputs[paramsFromUrl.integration_target] = {
-                    value: paramsFromUrl.integration_id,
-                }
-            }
-
-            // TODO: Pull out sub template info
+            const unsavedConfigurationToApply =
+                (values.unsavedConfiguration?.timestamp ?? 0) > Date.now() - UNSAVED_CONFIGURATION_TTL
+                    ? values.unsavedConfiguration?.configuration
+                    : null
 
             actions.resetConfiguration(config)
+
+            if (unsavedConfigurationToApply) {
+                actions.setConfigurationValues(unsavedConfigurationToApply)
+            }
+
+            actions.setUnsavedConfiguration(null)
+
+            if (paramsFromUrl.integration_target && paramsFromUrl.integration_id) {
+                const inputs = values.configuration?.inputs ?? {}
+                inputs[paramsFromUrl.integration_target] = {
+                    value: paramsFromUrl.integration_id,
+                }
+
+                actions.setConfigurationValues({
+                    inputs,
+                })
+            }
         },
 
         duplicate: async () => {
@@ -794,6 +826,10 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         setSubTemplateId: () => {
             actions.resetToTemplate()
         },
+
+        persistForUnload: () => {
+            actions.setUnsavedConfiguration(values.configuration)
+        },
     })),
     afterMount(({ props, actions, cache }) => {
         cache.paramsFromUrl = {
@@ -820,21 +856,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         }
     }),
 
-    subscriptions(({ props, cache, actions }) => ({
-        configuration: (configuration) => {
-            if (!Object.keys(configuration).length) {
-                return
-            }
-
-            if (props.templateId) {
-                // Sync state to the URL bar if new
-                cache.ignoreUrlChange = true
-                router.actions.replace(router.values.location.pathname, router.values.searchParams, {
-                    configuration,
-                })
-            }
-        },
-
+    subscriptions(({ props, actions }) => ({
         hogFunction: (hogFunction) => {
             if (hogFunction && props.templateId) {
                 // Catch all for any scenario where we need to redirect away from the template to the actual hog function
@@ -850,6 +872,14 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
 
         lastEventQuery: () => {
             actions.loadSampleGlobals()
+        },
+    })),
+
+    beforeUnload(({ actions, values }) => ({
+        enabled: () => !values.unsavedConfiguration && values.configurationChanged,
+        message: 'Changes you made will be discarded.',
+        onConfirm: () => {
+            actions.resetForm()
         },
     })),
 ])
