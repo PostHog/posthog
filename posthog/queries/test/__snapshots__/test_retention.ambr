@@ -234,9 +234,9 @@
           NULL as selected_interval,
           returning_event_query as
        (SELECT toStartOfDay(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC')) AS event_date,
-               pdi.person_id as target
+               if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) as target
         FROM events e
-        INNER JOIN
+        LEFT OUTER JOIN
           (SELECT distinct_id,
                   argMax(person_id, version) as person_id
            FROM person_distinct_id2
@@ -258,7 +258,7 @@
                  event_date),
           target_event_query as
        (SELECT DISTINCT toStartOfDay(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC')) AS event_date,
-                        pdi.person_id as target,
+                        if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) as target,
                         [
                           dateDiff(
                               'Day',
@@ -267,7 +267,7 @@
                           )
                       ] as breakdown_values
         FROM events e
-        INNER JOIN
+        LEFT OUTER JOIN
           (SELECT distinct_id,
                   argMax(person_id, version) as person_id
            FROM person_distinct_id2
@@ -321,9 +321,9 @@
           NULL as selected_interval,
           returning_event_query as
        (SELECT toStartOfDay(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC')) AS event_date,
-               pdi.person_id as target
+               if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) as target
         FROM events e
-        INNER JOIN
+        LEFT OUTER JOIN
           (SELECT distinct_id,
                   argMax(person_id, version) as person_id
            FROM person_distinct_id2
@@ -338,7 +338,7 @@
                  event_date),
           target_event_query as
        (SELECT DISTINCT toStartOfDay(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC')) AS event_date,
-                        pdi.person_id as target,
+                        if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) as target,
                         [
                           dateDiff(
                               'Day',
@@ -347,7 +347,7 @@
                           )
                       ] as breakdown_values
         FROM events e
-        INNER JOIN
+        LEFT OUTER JOIN
           (SELECT distinct_id,
                   argMax(person_id, version) as person_id
            FROM person_distinct_id2
@@ -393,9 +393,9 @@
           NULL as selected_interval,
           returning_event_query as
        (SELECT toStartOfDay(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'US/Pacific')) AS event_date,
-               pdi.person_id as target
+               if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) as target
         FROM events e
-        INNER JOIN
+        LEFT OUTER JOIN
           (SELECT distinct_id,
                   argMax(person_id, version) as person_id
            FROM person_distinct_id2
@@ -410,7 +410,7 @@
                  event_date),
           target_event_query as
        (SELECT DISTINCT toStartOfDay(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'US/Pacific')) AS event_date,
-                        pdi.person_id as target,
+                        if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) as target,
                         [
                           dateDiff(
                               'Day',
@@ -419,7 +419,7 @@
                           )
                       ] as breakdown_values
         FROM events e
-        INNER JOIN
+        LEFT OUTER JOIN
           (SELECT distinct_id,
                   argMax(person_id, version) as person_id
            FROM person_distinct_id2
@@ -465,9 +465,9 @@
           NULL as selected_interval,
           returning_event_query as
        (SELECT toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC'), 0) AS event_date,
-               pdi.person_id as target
+               if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) as target
         FROM events e
-        INNER JOIN
+        LEFT OUTER JOIN
           (SELECT distinct_id,
                   argMax(person_id, version) as person_id
            FROM person_distinct_id2
@@ -482,7 +482,7 @@
                  event_date),
           target_event_query as
        (SELECT DISTINCT toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC'), 0) AS event_date,
-                        pdi.person_id as target,
+                        if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) as target,
                         [
                           dateDiff(
                               'Week',
@@ -491,7 +491,7 @@
                           )
                       ] as breakdown_values
         FROM events e
-        INNER JOIN
+        LEFT OUTER JOIN
           (SELECT distinct_id,
                   argMax(person_id, version) as person_id
            FROM person_distinct_id2
@@ -537,9 +537,9 @@
           NULL as selected_interval,
           returning_event_query as
        (SELECT toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC'), 3) AS event_date,
-               pdi.person_id as target
+               if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) as target
         FROM events e
-        INNER JOIN
+        LEFT OUTER JOIN
           (SELECT distinct_id,
                   argMax(person_id, version) as person_id
            FROM person_distinct_id2
@@ -554,7 +554,7 @@
                  event_date),
           target_event_query as
        (SELECT DISTINCT toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC'), 3) AS event_date,
-                        pdi.person_id as target,
+                        if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) as target,
                         [
                           dateDiff(
                               'Week',
@@ -563,7 +563,7 @@
                           )
                       ] as breakdown_values
         FROM events e
-        INNER JOIN
+        LEFT OUTER JOIN
           (SELECT distinct_id,
                   argMax(person_id, version) as person_id
            FROM person_distinct_id2
