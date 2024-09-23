@@ -9,7 +9,13 @@ import { ONE_HOUR } from '../../config/constants'
 import { InternalPerson, Person, PropertyUpdateOperation } from '../../types'
 import { DB } from '../../utils/db/db'
 import { PostgresUse, TransactionClient } from '../../utils/db/postgres'
-import { eventToPersonProperties, initialEventToPersonProperties, timeoutGuard } from '../../utils/db/utils'
+import {
+    eventToPersonProperties,
+    initialCampaignParams,
+    initialCampaignParamsDefault,
+    initialEventToPersonProperties,
+    timeoutGuard,
+} from '../../utils/db/utils'
 import { promiseRetry } from '../../utils/retries'
 import { status } from '../../utils/status'
 import { uuidFromDistinctId } from './person-uuid'
@@ -262,9 +268,18 @@ export class PersonState {
         }
         const uuid = uuidFromDistinctId(teamId, distinctIds[0].distinctId)
 
-        const props = { ...propertiesOnce, ...properties, ...{ $creator_event_uuid: creatorEventUuid } }
+        const props = {
+            ...initialCampaignParamsDefault,
+            ...propertiesOnce,
+            ...properties,
+            ...{ $creator_event_uuid: creatorEventUuid },
+        }
         const propertiesLastOperation: Record<string, any> = {}
         const propertiesLastUpdatedAt: Record<string, any> = {}
+        initialCampaignParams.forEach((key) => {
+            propertiesLastOperation[key] = PropertyUpdateOperation.SetOnce
+            propertiesLastUpdatedAt[key] = createdAt
+        })
         Object.keys(propertiesOnce).forEach((key) => {
             propertiesLastOperation[key] = PropertyUpdateOperation.SetOnce
             propertiesLastUpdatedAt[key] = createdAt
