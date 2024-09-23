@@ -265,6 +265,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 "start_url": "https://not-provided-by-test.com",
                 "storage": "object_storage",
                 "viewed": False,
+                "ongoing": False,
             },
         ]
 
@@ -293,13 +294,14 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         SessionRecordingViewed.objects.create(team=self.team, user=self.user, session_id="1")
         self.produce_replay_summary("u1", "1", base_time)
         self.produce_replay_summary("u1", "2", base_time + relativedelta(seconds=30))
+
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings")
         response_data = response.json()
-        self.assertEqual(len(response_data["results"]), 2)
-        self.assertEqual(response_data["results"][0]["id"], "2")
-        self.assertEqual(response_data["results"][0]["viewed"], False)
-        self.assertEqual(response_data["results"][1]["id"], "1")
-        self.assertEqual(response_data["results"][1]["viewed"], True)
+
+        assert [(r["id"], r["viewed"]) for r in response_data["results"]] == [
+            ("2", False),
+            ("1", True),
+        ]
 
     def test_viewed_state_of_session_recording_version_3(self):
         Person.objects.create(
@@ -424,6 +426,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             },
             "storage": "object_storage",
             "snapshot_source": "web",
+            "ongoing": None,
         }
 
     def test_single_session_recording_doesnt_leak_teams(self):
