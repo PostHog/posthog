@@ -171,6 +171,7 @@ describe('processPersonsStep()', () => {
             ...pluginEvent,
             properties: {
                 utm_source: 'bar',
+                utm_medium: 'baz',
                 $set_once: {
                     $initial_utm_source: 'foo',
                 },
@@ -192,6 +193,7 @@ describe('processPersonsStep()', () => {
                     $creator_event_uuid: expect.any(String),
                     $initial_utm_source: 'foo',
                     utm_source: 'bar',
+                    utm_medium: 'baz',
                 },
                 version: 0,
             })
