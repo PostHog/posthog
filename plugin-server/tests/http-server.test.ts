@@ -2,7 +2,6 @@ import http from 'http'
 
 import { DEFAULT_HTTP_SERVER_PORT } from '../src/config/config'
 import { startPluginsServer } from '../src/main/pluginsServer'
-import { makePiscina } from '../src/worker/piscina'
 import { resetTestDatabase } from './helpers/sql'
 
 jest.mock('../src/utils/status')
@@ -35,7 +34,6 @@ describe('http server', () => {
                 {
                     WORKER_CONCURRENCY: 0,
                 },
-                makePiscina,
                 { http: true }
             )
 
@@ -63,7 +61,6 @@ describe('http server', () => {
                 {
                     WORKER_CONCURRENCY: 0,
                 },
-                makePiscina,
                 { http: true, ingestion: true }
             )
 

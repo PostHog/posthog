@@ -75,10 +75,9 @@ export enum PluginServerMode {
     ingestion_overflow = 'ingestion-overflow',
     ingestion_historical = 'ingestion-historical',
     events_ingestion = 'events-ingestion',
+    admin = 'admin',
     async_onevent = 'async-onevent',
     async_webhooks = 'async-webhooks',
-    jobs = 'jobs',
-    scheduler = 'scheduler',
     analytics_ingestion = 'analytics-ingestion',
     recordings_blob_ingestion = 'recordings-blob-ingestion',
     recordings_blob_ingestion_overflow = 'recordings-blob-ingestion-overflow',
@@ -197,18 +196,6 @@ export interface PluginsServerConfig extends CdpConfig {
     DISABLE_MMDB: boolean // whether to disable fetching MaxMind database for IP location
     DISTINCT_ID_LRU_SIZE: number
     EVENT_PROPERTY_LRU_SIZE: number // size of the event property tracker's LRU cache (keyed by [team.id, event])
-    JOB_QUEUES: string // retry queue engine and fallback queues
-    JOB_QUEUE_GRAPHILE_URL: string // use a different postgres connection in the graphile worker
-    JOB_QUEUE_GRAPHILE_SCHEMA: string // the postgres schema that the graphile worker
-    JOB_QUEUE_GRAPHILE_PREPARED_STATEMENTS: boolean // enable this to increase job queue throughput if not using pgbouncer
-    JOB_QUEUE_GRAPHILE_CONCURRENCY: number // concurrent jobs per pod
-    JOB_QUEUE_S3_AWS_ACCESS_KEY: string
-    JOB_QUEUE_S3_AWS_SECRET_ACCESS_KEY: string
-    JOB_QUEUE_S3_AWS_REGION: string
-    JOB_QUEUE_S3_BUCKET_NAME: string
-    JOB_QUEUE_S3_PREFIX: string // S3 filename prefix for the S3 job queue
-    CRASH_IF_NO_PERSISTENT_JOB_QUEUE: boolean // refuse to start unless there is a properly configured persistent job queue (e.g. graphile)
-    HEALTHCHECK_MAX_STALE_SECONDS: number // maximum number of seconds the plugin server can go without ingesting events before the healthcheck fails
     SITE_URL: string | null
     KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY: number // (advanced) how many kafka partitions the plugin server should consume from concurrently
     PERSON_INFO_CACHE_TTL: number
@@ -224,8 +211,6 @@ export interface PluginsServerConfig extends CdpConfig {
     PLUGIN_LOAD_SEQUENTIALLY: boolean // could help with reducing memory usage spikes on startup
     KAFKAJS_LOG_LEVEL: 'NOTHING' | 'DEBUG' | 'INFO' | 'WARN' | 'ERROR'
     APP_METRICS_GATHERED_FOR_ALL: boolean // whether to gather app metrics for all teams
-    MAX_TEAM_ID_TO_BUFFER_ANONYMOUS_EVENTS_FOR: number
-    USE_KAFKA_FOR_SCHEDULED_TASKS: boolean // distribute scheduled tasks across the scheduler workers
     EVENT_OVERFLOW_BUCKET_CAPACITY: number
     EVENT_OVERFLOW_BUCKET_REPLENISH_RATE: number
     /** Label of the PostHog Cloud environment. Null if not running PostHog Cloud. @example 'US' */
@@ -325,8 +310,6 @@ export interface Hub extends PluginsServerConfig {
     groupTypeManager: GroupTypeManager
     // geoip database, setup in workers
     mmdb?: ReaderModel
-    // functions
-    enqueuePluginJob: (job: EnqueuedPluginJob) => Promise<void>
     // ValueMatchers used for various opt-in/out features
     pluginConfigsToSkipElementsParsing: ValueMatcher<number>
     // lookups
@@ -341,8 +324,6 @@ export interface PluginServerCapabilities {
     ingestionOverflow?: boolean
     ingestionHistorical?: boolean
     eventsIngestionPipelines?: boolean
-    pluginScheduledTasks?: boolean
-    processPluginJobs?: boolean
     processAsyncOnEventHandlers?: boolean
     processAsyncWebhooksHandlers?: boolean
     sessionRecordingBlobIngestion?: boolean
@@ -357,18 +338,12 @@ export interface PluginServerCapabilities {
     syncInlinePlugins?: boolean
 }
 
-export type EnqueuedJob = EnqueuedPluginJob | GraphileWorkerCronScheduleJob
 export interface EnqueuedPluginJob {
     type: string
     payload: Record<string, any>
     timestamp: number
     pluginConfigId: number
     pluginConfigTeam: number
-    jobKey?: string
-}
-
-export interface GraphileWorkerCronScheduleJob {
-    timestamp?: number
     jobKey?: string
 }
 
@@ -435,8 +410,6 @@ export interface Plugin {
 }
 
 export interface PluginCapabilities {
-    jobs?: string[]
-    scheduled_tasks?: string[]
     methods?: string[]
 }
 
@@ -525,19 +498,6 @@ export interface PluginLogEntry {
     instance_id: string
 }
 
-export enum PluginTaskType {
-    Job = 'job',
-    Schedule = 'schedule',
-}
-
-export interface PluginTask {
-    name: string
-    type: PluginTaskType
-    exec: (payload?: Record<string, any>) => Promise<any>
-
-    __ignoreForAppMetrics?: boolean
-}
-
 export type PluginMethods = {
     setupPlugin?: () => Promise<void>
     teardownPlugin?: () => Promise<void>
@@ -576,7 +536,6 @@ export interface Alert {
 export interface PluginConfigVMResponse {
     vm: VM
     methods: PluginMethods
-    tasks: Record<PluginTaskType, Record<string, PluginTask>>
     vmResponseVariable: string
     usedImports: Set<string>
 }
@@ -1056,20 +1015,6 @@ export enum Database {
     ClickHouse = 'clickhouse',
     Postgres = 'postgres',
 }
-
-export interface PluginScheduleControl {
-    stopSchedule: () => Promise<void>
-    reloadSchedule: () => Promise<void>
-}
-
-export interface JobsConsumerControl {
-    stop: () => Promise<void>
-    resume: () => Promise<void>
-}
-
-export type IngestEventResponse =
-    | { success: true; actionMatches: Action[]; preIngestionEvent: PreIngestionEvent | null }
-    | { success: false; error: string }
 
 export interface EventDefinitionType {
     id: string

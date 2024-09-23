@@ -222,14 +222,13 @@ export function createPluginConfigVM(
     `)(asyncGuard)
 
     const vmResponse = vm.run(responseVar)
-    const { methods, tasks } = vmResponse
+    const { methods } = vmResponse
 
     vmSetupMsSummary.labels(String(pluginConfig.plugin?.id)).observe(new Date().getTime() - timer.getTime())
 
     return {
         vm,
         methods,
-        tasks,
         vmResponseVariable: responseVar,
         usedImports,
     }

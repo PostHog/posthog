@@ -1,14 +1,6 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
-import {
-    Hub,
-    PluginConfig,
-    PluginLogEntrySource,
-    PluginLogEntryType,
-    PluginMethods,
-    PluginTask,
-    PluginTaskType,
-} from '../../../types'
+import { Hub, PluginConfig, PluginLogEntrySource, PluginLogEntryType, PluginMethods } from '../../../types'
 import { PluginInstance } from '../lazy'
 
 export class NoopInlinePlugin implements PluginInstance {
@@ -35,14 +27,6 @@ export class NoopInlinePlugin implements PluginInstance {
 
     public getTeardown(): Promise<PluginMethods['teardownPlugin'] | null> {
         return Promise.resolve(null)
-    }
-
-    public getTask(_name: string, _type: PluginTaskType): Promise<PluginTask | null> {
-        return Promise.resolve(null)
-    }
-
-    public getScheduledTasks(): Promise<Record<string, PluginTask>> {
-        return Promise.resolve({})
     }
 
     public getPluginMethod<T extends keyof PluginMethods>(method_name: T): Promise<PluginMethods[T] | null> {

@@ -43,9 +43,3 @@ export const kafkaConsumerEventRequestPendingMsSummary = new Summary({
     help: 'Pending duration of Kafka consumer event requests',
     percentiles: [0.5, 0.9, 0.95, 0.99],
 })
-
-export const scheduledTaskCounter = new Counter({
-    name: 'scheduled_task',
-    help: 'Scheduled task status change',
-    labelNames: ['status', 'task'],
-})
