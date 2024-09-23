@@ -677,11 +677,11 @@ export const KNOWN_LIB_VALUES = new Set([
 ])
 
 export const getKnownLibValueOrSentinel = (lib: string): string => {
-    if (lib === null) {
-        return '$nil'
-    }
     if (lib === '') {
         return '$empty'
+    }
+    if (!lib) {
+        return '$nil'
     }
     if (KNOWN_LIB_VALUES.has(lib)) {
         return lib
