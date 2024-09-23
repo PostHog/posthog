@@ -5,12 +5,12 @@ import { Counter } from 'prom-client'
 import { setUsageInNonPersonEventsCounter } from '../main/ingestion-queues/metrics'
 import { ClickHouseEvent, HookPayload, PipelineEvent, PostIngestionEvent, RawClickHouseEvent } from '../types'
 import { chainToElements } from './db/elements-chain'
-import { personInitialAndUTMProperties, sanitizeString } from './db/utils'
+import { hasSetOrSetOnceInitialCampaignParams, personInitialAndUTMProperties, sanitizeString } from './db/utils'
 import {
     clickHouseTimestampSecondPrecisionToISO,
     clickHouseTimestampToDateTime,
     clickHouseTimestampToISO,
-    KNOWN_LIB_VALUES,
+    getKnownLibValueOrSentinel,
 } from './utils'
 
 const PERSON_EVENTS = new Set(['$set', '$identify', '$create_alias', '$merge_dangerously', '$groupidentify'])
@@ -205,16 +205,11 @@ export function normalizeEvent<T extends PipelineEvent | PluginEvent>(event: T):
     // For safety while PluginEvent still has an `ip` field
     event.ip = null
 
-    RAW_INITIAL_CAMPAIGN_PARAM_COUNTER.inc({
-        library:
-            properties.$lib == null
-                ? '$nil'
-                : !properties.$lib
-                ? '$empty'
-                : KNOWN_LIB_VALUES.has(properties.$lib)
-                ? properties.$lib
-                : '$other',
-    })
+    if (hasSetOrSetOnceInitialCampaignParams(properties)) {
+        RAW_INITIAL_CAMPAIGN_PARAM_COUNTER.inc({
+            library: getKnownLibValueOrSentinel(properties['$lib']),
+        })
+    }
 
     if (!['$snapshot', '$performance_event'].includes(event.event)) {
         properties = personInitialAndUTMProperties(properties)
