@@ -11,11 +11,7 @@ python manage.py run_autoreload_celery --type=worker &
 python manage.py run_autoreload_celery --type=beat &
 
 if [[ "$PLUGIN_SERVER_IDLE" != "1" && "$PLUGIN_SERVER_IDLE" != "true" ]]; then
-  ./bin/plugin-server &
-fi
-
-if [[ "$NO_PROPDEFS" != "1" && "$NO_PROPDEFS" != "true" ]]; then
-  ./bin/propdefs &
+  ./bin/plugin-server
 fi
 
 wait

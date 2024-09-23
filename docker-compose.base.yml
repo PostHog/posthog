@@ -181,6 +181,19 @@ services:
             REDIS_URL: 'redis://redis:6379/'
             CAPTURE_MODE: recordings
 
+    property-defs-rs:
+        image: ghcr.io/posthog/posthog/property-defs-rs:master
+        build:
+            context: rust/
+            args:
+                BIN: property-defs-rs
+        restart: on-failure
+        environment:
+            KAFKA_HOSTS: 'kafka:9092'
+            SKIP_WRITES: 'false'
+            SKIP_READS: 'false'
+            FILTER_MODE: 'opt-out'
+
     plugins:
         command: ./bin/plugin-server --no-restart-loop
         restart: on-failure
