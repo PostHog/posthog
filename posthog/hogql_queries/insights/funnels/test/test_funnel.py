@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 from typing import cast
-from unittest.mock import patch, Mock
+from unittest.mock import Mock, patch
 
 from django.test import override_settings
 from freezegun import freeze_time
@@ -4102,6 +4102,30 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
             self.assertEqual(results[0]["count"], 3)
+            self.assertEqual(results[1]["count"], 1)
+
+        def test_funnel_personless_events_are_supported(self):
+            # person 1
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="user_1",
+                timestamp="2024-03-22T13:00:00Z",
+            )
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="user_1",
+                timestamp="2024-03-22T14:00:00Z",
+            )
+
+            query = FunnelsQuery(
+                series=[EventsNode(event="$pageview"), EventsNode(event="sign up")],
+                dateRange=InsightDateRange(date_from="2024-03-22", date_to="2024-03-22"),
+            )
+            results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+
+            self.assertEqual(results[0]["count"], 1)
             self.assertEqual(results[1]["count"], 1)
 
     return TestGetFunnel

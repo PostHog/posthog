@@ -17,12 +17,12 @@ from posthog.models.property.util import parse_prop_grouped_clauses
 from posthog.models.team import Team
 from posthog.queries.column_optimizer.column_optimizer import ColumnOptimizer
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
+from posthog.queries.person_on_events_v2_sql import PERSON_DISTINCT_ID_OVERRIDES_JOIN_SQL
 from posthog.queries.person_query import PersonQuery
 from posthog.queries.query_date_range import QueryDateRange
+from posthog.queries.util import PersonPropertiesMode, alias_poe_mode_for_legacy
 from posthog.schema import PersonsOnEventsMode
 from posthog.session_recordings.queries.session_query import SessionQuery
-from posthog.queries.util import PersonPropertiesMode, alias_poe_mode_for_legacy
-from posthog.queries.person_on_events_v2_sql import PERSON_DISTINCT_ID_OVERRIDES_JOIN_SQL
 
 
 class EventQuery(metaclass=ABCMeta):
@@ -139,7 +139,7 @@ class EventQuery(metaclass=ABCMeta):
         elif person_on_events_mode == PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS:
             return f"{self.EVENT_TABLE_ALIAS}.person_id"
 
-        return f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id"
+        return f"if(not(empty({self.DISTINCT_ID_TABLE_ALIAS}.distinct_id)), {self.DISTINCT_ID_TABLE_ALIAS}.person_id, {self.EVENT_TABLE_ALIAS}.person_id)"
 
     def _get_person_ids_query(self, *, relevant_events_conditions: str = "") -> str:
         if not self._should_join_distinct_ids:
@@ -152,8 +152,8 @@ class EventQuery(metaclass=ABCMeta):
             )
 
         return f"""
-            INNER JOIN (
-                {get_team_distinct_ids_query(self._team_id, relevant_events_conditions=relevant_events_conditions)}
+            LEFT OUTER JOIN (
+                {get_team_distinct_ids_query(self._team_id)}
             ) AS {self.DISTINCT_ID_TABLE_ALIAS}
             ON {self.EVENT_TABLE_ALIAS}.distinct_id = {self.DISTINCT_ID_TABLE_ALIAS}.distinct_id
         """
