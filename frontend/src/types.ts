@@ -4438,6 +4438,8 @@ export interface HogFunctionFiltersType {
     bytecode_error?: string
 }
 
+export type HogFunctionTriggerType = 'event' | 'activity_log' | 'alert'
+
 export type HogFunctionType = {
     id: string
     icon_url?: string
@@ -4448,6 +4450,7 @@ export type HogFunctionType = {
     updated_at: string
     enabled: boolean
     hog: string
+    trigger?: HogFunctionTriggerType
 
     inputs_schema?: HogFunctionInputSchemaType[]
     inputs?: Record<string, HogFunctionInputType> | null
