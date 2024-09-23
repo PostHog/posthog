@@ -95,7 +95,7 @@ export class EventPipelineRunner {
         )
 
         if (heatmapKafkaAcks.length > 0) {
-            kafkaAcks.push(...heatmapKafkaAcks)
+            heatmapKafkaAcks.forEach((ack) => kafkaAcks.push(ack))
         }
 
         return this.registerLastStep('extractHeatmapDataStep', [preparedEventWithoutHeatmaps], kafkaAcks)
@@ -248,7 +248,7 @@ export class EventPipelineRunner {
         )
 
         if (heatmapKafkaAcks.length > 0) {
-            kafkaAcks.push(...heatmapKafkaAcks)
+            heatmapKafkaAcks.forEach((ack) => kafkaAcks.push(ack))
         }
 
         const enrichedIfErrorEvent = await this.runStep(
