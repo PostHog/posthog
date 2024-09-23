@@ -119,4 +119,86 @@ describe('processPersonsStep()', () => {
         const persons = await fetchPostgresPersons(runner.hub.db, teamId)
         expect(persons).toEqual([resPerson])
     })
+
+    it('only updates initial campaign params set in the first event', async () => {
+        const event1 = {
+            ...pluginEvent,
+            properties: {
+                utm_source: 'foo',
+            },
+        }
+        const event2 = {
+            ...pluginEvent,
+            properties: {
+                utm_medium: 'bar',
+            },
+        }
+
+        const processPerson = true
+        const [normalizedEvent1, timestamp1] = await normalizeEventStep(event1, processPerson)
+        await processPersonsStep(runner, normalizedEvent1, timestamp1, processPerson)
+        const [normalizedEvent2, timestamp2] = await normalizeEventStep(event2, processPerson)
+        const [_, resPerson2] = await processPersonsStep(runner, normalizedEvent2, timestamp2, processPerson)
+
+        expect(resPerson2).toEqual(
+            expect.objectContaining({
+                id: expect.any(Number),
+                uuid: expect.any(String),
+                properties: {
+                    $creator_event_uuid: expect.any(String),
+                    utm_source: 'foo',
+                    utm_medium: 'bar',
+                    $initial_utm_source: 'foo',
+                },
+                version: 1,
+            })
+        )
+
+        // Check PG state
+        const persons = await fetchPostgresPersons(runner.hub.db, teamId)
+        expect(persons).toEqual([resPerson2])
+    })
+
+    it('sets initial campaign params when upgrading user from anonymous to identified', async () => {
+        const event1 = {
+            ...pluginEvent,
+            properties: {
+                utm_source: 'foo',
+            },
+        }
+        // posthog-js stores initial campaign params for anonymous users, and sends them if the user becomes identified
+        const event2 = {
+            ...pluginEvent,
+            properties: {
+                utm_source: 'bar',
+                $set_once: {
+                    $initial_utm_source: 'foo',
+                },
+            },
+        }
+
+        const processPerson1 = false
+        const [normalizedEvent1, timestamp1] = await normalizeEventStep(event1, processPerson1)
+        await processPersonsStep(runner, normalizedEvent1, timestamp1, processPerson1)
+        const processPerson2 = true
+        const [normalizedEvent2, timestamp2] = await normalizeEventStep(event2, processPerson2)
+        const [_, resPerson2] = await processPersonsStep(runner, normalizedEvent2, timestamp2, processPerson2)
+
+        expect(resPerson2).toEqual(
+            expect.objectContaining({
+                id: expect.any(Number),
+                uuid: expect.any(String),
+                properties: {
+                    $creator_event_uuid: expect.any(String),
+                    $initial_utm_source: 'foo',
+                    utm_source: 'bar',
+                },
+                version: 0,
+            })
+        )
+
+        // Check PG state
+        const persons = await fetchPostgresPersons(runner.hub.db, teamId)
+        expect(persons).toEqual([resPerson2])
+    })
 })
