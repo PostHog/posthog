@@ -65,9 +65,9 @@ export const Textfit = ({ min, max, children }: TextfitProps): JSX.Element => {
     return (
         <div
             ref={parentRef}
-            className="w-full h-full flex items-center justify-center"
+            className="w-full h-full flex items-center justify-center leading-none"
             // eslint-disable-next-line react/forbid-dom-props
-            style={{ lineHeight: 1, fontSize: fontSizeRef.current }}
+            style={{ fontSize: fontSizeRef.current }}
         >
             <div ref={childRef} className="whitespace-nowrap">
                 {children}
