@@ -1,5 +1,6 @@
 import { PluginEvent, PostHogEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 import { Message } from 'node-rdkafka'
+import { Counter } from 'prom-client'
 
 import { setUsageInNonPersonEventsCounter } from '../main/ingestion-queues/metrics'
 import { ClickHouseEvent, HookPayload, PipelineEvent, PostIngestionEvent, RawClickHouseEvent } from '../types'
@@ -9,6 +10,7 @@ import {
     clickHouseTimestampSecondPrecisionToISO,
     clickHouseTimestampToDateTime,
     clickHouseTimestampToISO,
+    KNOWN_LIB_VALUES,
 } from './utils'
 
 const PERSON_EVENTS = new Set(['$set', '$identify', '$create_alias', '$merge_dangerously', '$groupidentify'])
@@ -18,6 +20,11 @@ const KNOWN_SET_EVENTS = new Set([
     'survey dismissed',
     'survey sent',
 ])
+
+const RAW_INITIAL_CAMPAIGN_PARAM_COUNTER = new Counter({
+    name: 'raw_set_once_initial_campaign_param',
+    help: 'Counter for events that have a $set_once.$initial_X property where X is a campaign parameter',
+})
 
 export function convertToOnEventPayload(event: PostIngestionEvent): ProcessedPluginEvent {
     return {
@@ -197,6 +204,17 @@ export function normalizeEvent<T extends PipelineEvent | PluginEvent>(event: T):
     }
     // For safety while PluginEvent still has an `ip` field
     event.ip = null
+
+    RAW_INITIAL_CAMPAIGN_PARAM_COUNTER.inc({
+        library:
+            properties.$lib == null
+                ? '$nil'
+                : !properties.$lib
+                ? '$empty'
+                : KNOWN_LIB_VALUES.has(properties.$lib)
+                ? properties.$lib
+                : '$other',
+    })
 
     if (!['$snapshot', '$performance_event'].includes(event.event)) {
         properties = personInitialAndUTMProperties(properties)
