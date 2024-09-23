@@ -227,7 +227,7 @@ export class HogExecutor {
                     status,
                     body: response?.body,
                 })
-                invocation.timings.push(...timings)
+                invocation.timings = invocation.timings.concat(timings)
                 result.logs = [...logs, ...result.logs]
             }
 
