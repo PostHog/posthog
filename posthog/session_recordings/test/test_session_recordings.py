@@ -284,45 +284,27 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
         assert [r["person"]["id"] for r in response_data["results"]] == [p.pk, p.pk]
 
-    def test_viewed_state_of_session_recording_version_1(self):
+    def test_viewed_state_of_session_recording_version(self):
         Person.objects.create(
             team=self.team,
             distinct_ids=["u1"],
             properties={"$some_prop": "something", "email": "bob@bob.com"},
         )
         base_time = (now() - timedelta(days=1)).replace(microsecond=0)
-        SessionRecordingViewed.objects.create(team=self.team, user=self.user, session_id="1")
-        self.produce_replay_summary("u1", "1", base_time)
-        self.produce_replay_summary("u1", "2", base_time + relativedelta(seconds=30))
-
-        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings")
-        response_data = response.json()
-
-        assert [(r["id"], r["viewed"]) for r in response_data["results"]] == [
-            ("2", False),
-            ("1", True),
-        ]
-
-    def test_viewed_state_of_session_recording_version_3(self):
-        Person.objects.create(
-            team=self.team,
-            distinct_ids=["u1"],
-            properties={"$some_prop": "something", "email": "bob@bob.com"},
+        SessionRecordingViewed.objects.create(
+            team=self.team, user=self.user, session_id="test_viewed_state_of_session_recording_version-1"
         )
-        base_time = (now() - timedelta(days=1)).replace(microsecond=0)
-        session_id_one = "1"
-        session_id_two = "2"
-
-        SessionRecordingViewed.objects.create(team=self.team, user=self.user, session_id=session_id_one)
-        self.produce_replay_summary("u1", session_id_one, base_time)
-        self.produce_replay_summary("u1", session_id_two, base_time + relativedelta(seconds=30))
+        self.produce_replay_summary("u1", "test_viewed_state_of_session_recording_version-1", base_time)
+        self.produce_replay_summary(
+            "u1", "test_viewed_state_of_session_recording_version-2", base_time + relativedelta(seconds=30)
+        )
 
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings")
         response_data = response.json()
 
         assert [(r["id"], r["viewed"]) for r in response_data["results"]] == [
-            (session_id_two, False),
-            (session_id_one, True),
+            ("test_viewed_state_of_session_recording_version-2", False),
+            ("test_viewed_state_of_session_recording_version-1", True),
         ]
 
     def test_setting_viewed_state_of_session_recording(self):
