@@ -146,6 +146,13 @@ export function hasDifferenceWithProposedNewNormalisationMode(properties: Proper
     // this functions checks if there would be a difference in the properties if we strip the initial campaign params
     // when any $set_once initial eventToPersonProperties are present. This will often return true for events from
     // posthog-js, but it is unknown if this will be the case for other SDKs.
+    if (
+        !properties.$set_once ||
+        !Object.keys(properties.$set_once).some((key) => initialEventToPersonProperties.has(key))
+    ) {
+        return false
+    }
+
     const propertiesForPerson: [string, any][] = Object.entries(properties).filter(([key]) =>
         eventToPersonProperties.has(key)
     )
@@ -161,8 +168,10 @@ export function hasDifferenceWithProposedNewNormalisationMode(properties: Proper
 
     const filteredMayBeSetOnce = maybeSetOnce.filter(([key]) => !initialCampaignParams.has(key))
 
-    const setOnce = new Map({ ...Object.fromEntries(maybeSetOnce), ...(properties.$set_once || {}) })
-    const filteredSetOnce = new Map({ ...Object.fromEntries(filteredMayBeSetOnce), ...(properties.$set_once || {}) })
+    const setOnce = new Map(Object.entries({ ...Object.fromEntries(maybeSetOnce), ...(properties.$set_once || {}) }))
+    const filteredSetOnce = new Map(
+        Object.entries({ ...Object.fromEntries(filteredMayBeSetOnce), ...(properties.$set_once || {}) })
+    )
 
     return !areMapsEqual(setOnce, filteredSetOnce)
 }
