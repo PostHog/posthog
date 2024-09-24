@@ -12,7 +12,7 @@ from xml import etree
 # 3. Copy the `user_defined_function.xml` file in the newly created version folder (e.g. `user_scripts/v4/user_defined_function.xml`) to the `posthog-cloud-infra` repo and deploy it
 # 4. After that deploy goes out, it is safe to land and deploy the changes to the `posthog` repo
 # If deploys aren't seamless, look into moving the action that copies the `user_scripts` folder to the clickhouse cluster earlier in the deploy process
-UDF_VERSION = 0  # Last modified by: @aspicer, 2024-09-20
+UDF_VERSION = 1  # Last modified by: @aspicer, 2024-09-23
 
 CLICKHOUSE_XML_FILENAME = "user_defined_function.xml"
 ACTIVE_XML_CONFIG = "../../docker/clickhouse/user_defined_function.xml"
