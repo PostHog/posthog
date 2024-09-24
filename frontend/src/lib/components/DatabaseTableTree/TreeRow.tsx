@@ -1,5 +1,6 @@
 import { IconChevronDown, IconClock, IconEllipsis } from '@posthog/icons'
 import { LemonButton, Spinner, Tooltip } from '@posthog/lemon-ui'
+import clsx from 'clsx'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { useCallback, useState } from 'react'
@@ -98,6 +99,18 @@ export function TreeFolderRow({ item, depth, onClick, selectedRow, dropdownOverl
         return ''
     }
 
+    const getIconColor = (): 'text-primary' | 'text-danger' | 'text-success' => {
+        if (item.table?.type === 'materialized_view') {
+            if (item.table.status === 'Running') {
+                return 'text-primary'
+            }
+            if (item.table.status === 'Failed') {
+                return 'text-danger'
+            }
+        }
+        return 'text-success'
+    }
+
     return (
         <li className="overflow-hidden">
             <LemonButton
@@ -123,7 +136,7 @@ export function TreeFolderRow({ item, depth, onClick, selectedRow, dropdownOverl
                     <span className="truncate">{name}</span>
                     {item.table?.type === 'materialized_view' && (
                         <Tooltip title={getTooltipLabel()}>
-                            <IconClock className="text-muted text-xs" />
+                            <IconClock className={clsx(getIconColor())} />
                         </Tooltip>
                     )}
                 </div>

@@ -4,6 +4,8 @@ import { clsx } from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { DatabaseTableTree, TreeItem } from 'lib/components/DatabaseTableTree/DatabaseTableTree'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { useState } from 'react'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
@@ -61,6 +63,7 @@ export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): 
         databaseLoading,
         nonMaterializedViews,
         materializedViews,
+        views,
         selectedRow,
         schemaModalIsOpen,
         dataWarehouseSavedQueriesLoading,
@@ -71,6 +74,7 @@ export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): 
     const { toggleJoinTableModal, selectSourceTable } = useActions(viewLinkLogic)
     const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false)
     const { runDataWarehouseSavedQuery } = useActions(dataWarehouseViewsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const deleteButton = (table: DatabaseSchemaTable | null): JSX.Element => {
         if (!table) {
@@ -142,7 +146,7 @@ export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): 
                     Edit view definition
                 </LemonButton>
             )}
-            {table.type === 'view' && (
+            {featureFlags[FEATURE_FLAGS.DATA_MODELING] && table.type === 'view' && (
                 <LemonButton
                     onClick={() => {
                         runDataWarehouseSavedQuery(table.id)
@@ -194,7 +198,7 @@ export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): 
                 },
                 {
                     name: 'Views',
-                    items: nonMaterializedViews.map((table) => ({
+                    items: (featureFlags[FEATURE_FLAGS.DATA_MODELING] ? nonMaterializedViews : views).map((table) => ({
                         name: table.name,
                         table: table,
                         dropdownOverlay: dropdownOverlay(table),
@@ -207,21 +211,25 @@ export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): 
                     emptyLabel: <span className="text-muted">No views found</span>,
                     isLoading: databaseLoading || dataWarehouseSavedQueriesLoading,
                 },
-                {
-                    name: 'Materialized views',
-                    items: materializedViews.map((table) => ({
-                        name: table.name,
-                        table: table,
-                        dropdownOverlay: dropdownOverlay(table),
-                        items: Object.values(table.fields).map((column) => ({
-                            name: column.name,
-                            type: column.type,
-                            icon: <IconDatabase />,
-                        })),
-                    })),
-                    emptyLabel: <span className="text-muted">No materialized views found</span>,
-                    isLoading: databaseLoading || dataWarehouseSavedQueriesLoading,
-                },
+                ...(featureFlags[FEATURE_FLAGS.DATA_MODELING]
+                    ? [
+                          {
+                              name: 'Materialized views',
+                              items: materializedViews.map((table) => ({
+                                  name: table.name,
+                                  table: table,
+                                  dropdownOverlay: dropdownOverlay(table),
+                                  items: Object.values(table.fields).map((column) => ({
+                                      name: column.name,
+                                      type: column.type,
+                                      icon: <IconDatabase />,
+                                  })),
+                              })),
+                              emptyLabel: <span className="text-muted">No materialized views found</span>,
+                              isLoading: databaseLoading || dataWarehouseSavedQueriesLoading,
+                          },
+                      ]
+                    : []),
             ]
 
             return items
@@ -257,15 +265,19 @@ export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): 
                 emptyLabel: <span className="text-muted">No views found</span>,
                 isLoading: databaseLoading || dataWarehouseSavedQueriesLoading,
             },
-            {
-                name: 'Materialized views',
-                items: materializedViews.map((table) => ({
-                    table: table,
-                    icon: <IconBrackets />,
-                })),
-                emptyLabel: <span className="text-muted">No materialized views found</span>,
-                isLoading: databaseLoading || dataWarehouseSavedQueriesLoading,
-            },
+            ...(featureFlags[FEATURE_FLAGS.DATA_MODELING]
+                ? [
+                      {
+                          name: 'Materialized views',
+                          items: materializedViews.map((table) => ({
+                              table: table,
+                              icon: <IconBrackets />,
+                          })),
+                          emptyLabel: <span className="text-muted">No materialized views found</span>,
+                          isLoading: databaseLoading || dataWarehouseSavedQueriesLoading,
+                      },
+                  ]
+                : []),
         ]
 
         return items
