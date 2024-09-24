@@ -24,6 +24,7 @@ const KNOWN_SET_EVENTS = new Set([
 const RAW_INITIAL_EVENT_TO_PERSON_PROPERTY_COUNTER = new Counter({
     name: 'raw_set_once_initial_event_to_person_property',
     help: 'Counter for events that have a $set_once.$initial_X property where X is an event-to-person property',
+    labelNames: ['library'],
 })
 
 export function convertToOnEventPayload(event: PostIngestionEvent): ProcessedPluginEvent {
