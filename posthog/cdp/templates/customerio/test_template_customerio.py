@@ -120,7 +120,7 @@ class TestTemplateCustomerio(BaseHogFunctionTemplateTest):
         )
 
     def test_function_errors_on_bad_status(self):
-        self.mock_fetch_response = lambda *args: {"status": 400, "body": {"error": "error"}}  # noqa
+        self.mock_fetch_response = lambda *args: {"status": 400, "body": {"error": "error"}}  # type: ignore
         with pytest.raises(UncaughtHogVMException) as e:
             self.run_function(inputs=create_inputs())
         assert e.value.message == "Error from customer.io api: 400: {'error': 'error'}"
