@@ -1824,6 +1824,13 @@
                                     argMax(person_id, version) as person_id
                              FROM person_distinct_id2
                              WHERE team_id = 2
+                               AND distinct_id IN
+                                 (SELECT distinct_id
+                                  FROM events
+                                  WHERE team_id = 2
+                                    AND event IN ['buy', 'play movie', 'sign up']
+                                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') )
                              GROUP BY distinct_id
                              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                           LEFT JOIN
@@ -1960,6 +1967,13 @@
                                     argMax(person_id, version) as person_id
                              FROM person_distinct_id2
                              WHERE team_id = 2
+                               AND distinct_id IN
+                                 (SELECT distinct_id
+                                  FROM events
+                                  WHERE team_id = 2
+                                    AND event IN ['buy', 'play movie', 'sign up']
+                                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') )
                              GROUP BY distinct_id
                              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                           LEFT JOIN
@@ -2096,6 +2110,13 @@
                                     argMax(person_id, version) as person_id
                              FROM person_distinct_id2
                              WHERE team_id = 2
+                               AND distinct_id IN
+                                 (SELECT distinct_id
+                                  FROM events
+                                  WHERE team_id = 2
+                                    AND event IN ['buy', 'play movie', 'sign up']
+                                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') )
                              GROUP BY distinct_id
                              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                           LEFT JOIN
@@ -2232,6 +2253,13 @@
                                     argMax(person_id, version) as person_id
                              FROM person_distinct_id2
                              WHERE team_id = 2
+                               AND distinct_id IN
+                                 (SELECT distinct_id
+                                  FROM events
+                                  WHERE team_id = 2
+                                    AND event IN ['buy', 'play movie', 'sign up']
+                                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') )
                              GROUP BY distinct_id
                              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                           LEFT JOIN
