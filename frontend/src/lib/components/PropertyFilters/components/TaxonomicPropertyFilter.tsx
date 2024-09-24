@@ -90,6 +90,9 @@ export function TaxonomicPropertyFilter({
         filter?.type &&
         filter?.key &&
         !(filter?.type === PropertyFilterType.HogQL) &&
+        // If we're in a feature flag, we don't want to show operators for cohorts because
+        // we don't support any cohort matching operators other than "in"
+        // See https://github.com/PostHog/posthog/pull/25149/
         !(filter?.type === PropertyFilterType.Cohort && exactMatchFeatureFlagCohortOperators)
     const placeOperatorValueSelectOnLeft = filter?.type && filter?.key && filter?.type === PropertyFilterType.Cohort
 
