@@ -688,18 +688,11 @@
            UNION ALL SELECT count(DISTINCT pdi.person_id) AS total,
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
            FROM events e
-           INNER JOIN
+           LEFT OUTER JOIN
              (SELECT distinct_id,
                      argMax(person_id, version) as person_id
               FROM person_distinct_id2
               WHERE team_id = 2
-                AND distinct_id IN
-                  (SELECT distinct_id
-                   FROM events
-                   WHERE team_id = 2
-                     AND event = 'session start'
-                     AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
-                     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC'))
               GROUP BY distinct_id
               HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
            WHERE team_id = 2

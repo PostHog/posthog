@@ -44,22 +44,15 @@
          count() AS actor_value
   FROM
     (SELECT e.timestamp as timestamp,
-            pdi.person_id as person_id,
+            if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) as person_id,
             e.distinct_id as distinct_id,
             e.team_id as team_id
      FROM events e
-     INNER JOIN
+     LEFT OUTER JOIN
        (SELECT distinct_id,
                argMax(person_id, version) as person_id
         FROM person_distinct_id2
         WHERE team_id = 2
-          AND distinct_id IN
-            (SELECT distinct_id
-             FROM events
-             WHERE team_id = 2
-               AND event = 'pageview'
-               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-01-21 00:00:00', 'UTC')
-               AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-01-21 23:59:59', 'UTC'))
         GROUP BY distinct_id
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      WHERE team_id = 2
