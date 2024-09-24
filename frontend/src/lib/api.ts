@@ -2474,7 +2474,11 @@ async function handleFetch(url: string, method: string, fetcher: () => Promise<R
     if (!response.ok) {
         const duration = new Date().getTime() - startTime
         const pathname = new URL(url, location.origin).pathname
-        posthog.capture('client_request_failure', { pathname, method, duration, status: response.status })
+        // when used inside the posthog toolbar, `posthog.capture` isn't loaded
+        // check if the function is available before calling it.
+        if (posthog.capture) {
+            posthog.capture('client_request_failure', { pathname, method, duration, status: response.status })
+        }
 
         const data = await getJSONOrNull(response)
         throw new ApiError('Non-OK response', response.status, data)
