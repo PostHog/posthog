@@ -200,6 +200,8 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
 
                     let changelogNotification: ChangelogFlagPayload | null = null
                     const flagPayload = posthog.getFeatureFlagPayload('changelog-notification')
+                    // `getFeatureFlagPayload` ostensibly returns a JsonType, but in practice it's a stringified JSON object,
+                    // so we need to parse it before checking for the presence of the required fields.
                     if (typeof flagPayload === 'string') {
                         try {
                             const parsedPayload = JSON.parse(flagPayload)
