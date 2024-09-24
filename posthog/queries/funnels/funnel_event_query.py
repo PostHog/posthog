@@ -111,7 +111,7 @@ class FunnelEventQuery(EventQuery):
             SELECT {all_fields}
             FROM events {self.EVENT_TABLE_ALIAS}
             {sample_clause}
-            {self._get_person_ids_query()}
+            {self._get_person_ids_query(relevant_events_conditions=f"{entity_query} {date_query} {prop_query}")}
             {person_query}
             {groups_query}
             {{extra_join}}
