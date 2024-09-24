@@ -22,7 +22,10 @@ export function RetentionContainer({
     return (
         <div className="RetentionContainer">
             {hideLineGraph ? (
-                <RetentionTable inCardView={inCardView} />
+                <>
+                    <RetentionTable inSharedMode={inSharedMode} />
+                    {!inSharedMode ? <RetentionModal /> : null}
+                </>
             ) : (
                 <>
                     <div className="RetentionContainer__graph">
@@ -30,9 +33,9 @@ export function RetentionContainer({
                     </div>
                     <LemonDivider />
                     <div className="RetentionContainer__table overflow-x-auto">
-                        <RetentionTable inCardView={inCardView} />
+                        <RetentionTable inSharedMode={inSharedMode} />
                     </div>
-                    <RetentionModal />
+                    {!inSharedMode ? <RetentionModal /> : null}
                 </>
             )}
         </div>

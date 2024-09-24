@@ -427,17 +427,16 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
         )
 
         // For the cyclotron ones we simply create the jobs
-        await Promise.all(
-            cyclotronInvocations.map((item) =>
-                this.cyclotronManager?.createJob({
-                    teamId: item.globals.project.id,
-                    functionId: item.hogFunction.id,
-                    queueName: 'hog',
-                    priority: item.priority,
-                    vmState: serializeHogFunctionInvocation(item),
-                })
-            )
-        )
+        const cyclotronJobs = cyclotronInvocations.map((item) => {
+            return {
+                teamId: item.globals.project.id,
+                functionId: item.hogFunction.id,
+                queueName: 'hog',
+                priority: item.priority,
+                vmState: serializeHogFunctionInvocation(item),
+            }
+        })
+        await this.cyclotronManager?.bulkCreateJobs(cyclotronJobs)
 
         if (kafkaInvocations.length) {
             // As we don't want to over-produce to kafka we invoke the hog functions and then queue the results

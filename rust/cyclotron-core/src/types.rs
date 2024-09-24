@@ -4,8 +4,6 @@ use sqlx::postgres::{PgHasArrayType, PgTypeInfo};
 use std::str::FromStr;
 use uuid::Uuid;
 
-use crate::QueueError;
-
 pub type Bytes = Vec<u8>;
 
 #[derive(Debug, Deserialize, Serialize, sqlx::Type)]
@@ -117,32 +115,6 @@ impl JobUpdate {
             blob: None,
             last_heartbeat: Some(Utc::now()), // Dequeueing a job always touches the heartbeat
         }
-    }
-}
-
-// Bulk inserts across multiple shards can partially succeed, so we need to track failures
-// and hand back failed job inits to the caller.
-pub struct BulkInsertResult {
-    pub failures: Vec<(QueueError, Vec<JobInit>)>,
-}
-
-impl BulkInsertResult {
-    pub fn new() -> Self {
-        Self { failures: vec![] }
-    }
-
-    pub fn add_failure(&mut self, err: QueueError, jobs: Vec<JobInit>) {
-        self.failures.push((err, jobs));
-    }
-
-    pub fn all_succeeded(&self) -> bool {
-        self.failures.is_empty()
-    }
-}
-
-impl Default for BulkInsertResult {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
