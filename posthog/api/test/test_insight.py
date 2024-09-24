@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 from typing import Any, Optional
 from unittest import mock
 from unittest.case import skip
-from unittest.mock import patch
+from unittest.mock import ANY, patch
 from zoneinfo import ZoneInfo
 
 from django.test import override_settings
@@ -91,7 +91,8 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         self.assertEqual(len(response["results"]), 1)
 
-    def test_created_updated_and_last_modified(self) -> None:
+    @patch("posthoganalytics.capture")
+    def test_created_updated_and_last_modified(self, mock_capture: mock.Mock) -> None:
         alt_user = User.objects.create_and_join(self.organization, "team2@posthog.com", None)
         self_user_basic_serialized = {
             "id": self.user.id,
@@ -117,7 +118,11 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         # Newly created insight should have created_at being the current time, and same last_modified_at
         # Fields created_by and last_modified_by should be set to the current user
         with freeze_time("2021-08-23T12:00:00Z"):
-            response_1 = self.client.post(f"/api/projects/{self.team.id}/insights/")
+            response_1 = self.client.post(
+                f"/api/projects/{self.team.id}/insights/",
+                {"name": "test"},
+                headers={"Referer": "https://posthog.com/my-referer", "X-Posthog-Session-Id": "my-session-id"},
+            )
             self.assertEqual(response_1.status_code, status.HTTP_201_CREATED)
             self.assertDictContainsSubset(
                 {
@@ -129,6 +134,17 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 },
                 response_1.json(),
             )
+            mock_capture.assert_called_once_with(
+                self.user.distinct_id,
+                "insight created",
+                {
+                    "insight_id": response_1.json()["short_id"],
+                    "$current_url": "https://posthog.com/my-referer",
+                    "$session_id": "my-session-id",
+                },
+                groups=ANY,
+            )
+            mock_capture.reset_mock()
 
         insight_id = response_1.json()["id"]
 
@@ -138,6 +154,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             response_2 = self.client.patch(
                 f"/api/projects/{self.team.id}/insights/{insight_id}",
                 {"favorited": True},
+                headers={"Referer": "https://posthog.com/my-referer", "X-Posthog-Session-Id": "my-session-id"},
             )
             self.assertEqual(response_2.status_code, status.HTTP_200_OK)
             self.assertDictContainsSubset(
@@ -150,6 +167,18 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 },
                 response_2.json(),
             )
+            insight_short_id = response_2.json()["short_id"]
+            mock_capture.assert_called_once_with(
+                self.user.distinct_id,
+                "insight updated",
+                {
+                    "insight_id": insight_short_id,
+                    "$current_url": "https://posthog.com/my-referer",
+                    "$session_id": "my-session-id",
+                },
+                groups=ANY,
+            )
+            mock_capture.reset_mock()
 
         # Updating fields that DO change the substance of the insight should affect updated_at
         # AND last_modified_at plus last_modified_by

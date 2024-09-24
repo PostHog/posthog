@@ -124,7 +124,7 @@ INSIGHT_REFRESH_INITIATED_COUNTER = Counter(
 )
 
 
-def log_insight_activity(
+def log_and_report_insight_activity(
     *,
     activity: str,
     insight: Insight,
@@ -142,7 +142,6 @@ def log_insight_activity(
 
     The experiments feature creates insights without a name, this does not log those
     """
-
     insight_name: Optional[str] = insight.name if insight.name else insight.derived_name
     if insight_name:
         log_activity(
@@ -162,8 +161,8 @@ def log_insight_activity(
         if not was_impersonated:
             posthoganalytics.capture(
                 user.distinct_id,
-                "insight activity",
-                {"activity": activity, "insight_id": insight_id, **properties},
+                f"insight {activity}",
+                {"insight_id": insight_short_id, **properties},
                 groups=(groups(organization, team) if team_id else groups(organization)),
             )
 
@@ -299,7 +298,6 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
     query_status = serializers.SerializerMethodField()
     hogql = serializers.SerializerMethodField()
     types = serializers.SerializerMethodField()
-    user_action_context = serializers.SerializerMethodField()
 
     class Meta:
         model = Insight
@@ -337,7 +335,6 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
             "query_status",
             "hogql",
             "types",
-            "user_action_context",
         ]
         read_only_fields = (
             "created_at",
@@ -354,15 +351,13 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
             "is_cached",
         )
 
-    def get_user_action_context(self, obj):
-        return None
-
     @monitor(feature=Feature.INSIGHT, endpoint="insight", method="POST")
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Insight:
-        user_action_context = self.context["request"].data.get("user_action_context")
         request = self.context["request"]
         tags = validated_data.pop("tags", None)  # tags are created separately as global tag relationships
         team_id = self.context["team_id"]
+        current_url = request.headers.get("Referer")
+        session_id = request.headers.get("X-Posthog-Session-Id")
 
         created_by = validated_data.pop("created_by", request.user)
         dashboards = validated_data.pop("dashboards", None)
@@ -385,9 +380,10 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
         self._attempt_set_tags(tags, insight)
 
         properties = {}
-        properties["creation_context"] = user_action_context
+        properties["$current_url"] = current_url
+        properties["$session_id"] = session_id
 
-        log_insight_activity(
+        log_and_report_insight_activity(
             activity="created",
             insight=insight,
             insight_id=insight.id,
@@ -404,7 +400,8 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
     @transaction.atomic()
     @monitor(feature=Feature.INSIGHT, endpoint="insight", method="PATCH")
     def update(self, instance: Insight, validated_data: dict, **kwargs) -> Insight:
-        user_action_context = self.context["request"].data.get("user_action_context")
+        current_url = self.context["request"].headers.get("Referer")
+        session_id = self.context["request"].headers.get("X-Posthog-Session-Id")
         dashboards_before_change: list[Union[str, dict]] = []
         try:
             # since it is possible to be undeleting a soft deleted insight
@@ -439,13 +436,20 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
         if not are_alerts_supported_for_insight(updated_insight):
             instance.alertconfiguration_set.all().delete()
 
-        self._log_insight_update(before_update, dashboards_before_change, updated_insight, user_action_context)
+        self._log_insight_update(before_update, dashboards_before_change, updated_insight, current_url, session_id)
 
         self.user_permissions.reset_insights_dashboard_cached_results()
 
         return updated_insight
 
-    def _log_insight_update(self, before_update, dashboards_before_change, updated_insight, user_action_context):
+    def _log_insight_update(
+        self,
+        before_update,
+        dashboards_before_change,
+        updated_insight,
+        current_url,
+        session_id,
+    ):
         """
         KLUDGE: Automatic detection of insight dashboard updates is flaky
         This removes any detected update from the auto-detected changes
@@ -460,9 +464,10 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
         changes = detected_changes + synthetic_dashboard_changes
 
         properties = {}
-        properties["creation_context"] = user_action_context
+        properties["$current_url"] = current_url
+        properties["$session_id"] = session_id
 
-        log_insight_activity(
+        log_and_report_insight_activity(
             activity="updated",
             insight=updated_insight,
             insight_id=updated_insight.id,
