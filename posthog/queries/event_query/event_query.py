@@ -153,7 +153,7 @@ class EventQuery(metaclass=ABCMeta):
 
         return f"""
             LEFT OUTER JOIN (
-                {get_team_distinct_ids_query(self._team_id)}
+                {get_team_distinct_ids_query(self._team_id, relevant_events_conditions=relevant_events_conditions)}
             ) AS {self.DISTINCT_ID_TABLE_ALIAS}
             ON {self.EVENT_TABLE_ALIAS}.distinct_id = {self.DISTINCT_ID_TABLE_ALIAS}.distinct_id
         """
