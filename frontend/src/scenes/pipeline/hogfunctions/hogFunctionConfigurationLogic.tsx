@@ -856,10 +856,12 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         }
     }),
 
-    subscriptions(({ props, actions }) => ({
+    subscriptions(({ props, actions, cache }) => ({
         hogFunction: (hogFunction) => {
             if (hogFunction && props.templateId) {
                 // Catch all for any scenario where we need to redirect away from the template to the actual hog function
+
+                cache.disabledBeforeUnload = true
                 router.actions.replace(
                     urls.pipelineNode(PipelineStage.Destination, `hog-${hogFunction.id}`, PipelineNodeTab.Configuration)
                 )
@@ -875,11 +877,11 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         },
     })),
 
-    beforeUnload(({ actions, values }) => ({
-        enabled: () => !values.unsavedConfiguration && values.configurationChanged,
+    beforeUnload(({ actions, values, cache }) => ({
+        enabled: () => !cache.disabledBeforeUnload && !values.unsavedConfiguration && values.configurationChanged,
         message: 'Changes you made will be discarded.',
         onConfirm: () => {
-            actions.resetForm()
+            cache.disabledBeforeUnload = true
         },
     })),
 ])
