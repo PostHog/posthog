@@ -87,7 +87,7 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
     for (const upvalue of sortedUpValues) {
         upvaluesById[upvalue.id] = upvalue
     }
-    const stack: any[] = vmState ? vmState.stack.map(convertJSToHog) : []
+    const stack: any[] = vmState ? vmState.stack.map((v) => convertJSToHog(v)) : []
     const memStack: number[] = stack.map((s) => calculateCost(s))
     const callStack: CallFrame[] = vmState
         ? vmState.callStack.map((v) => ({ ...v, closure: convertJSToHog(v.closure) }))
@@ -407,9 +407,8 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                     for (let i = 0; i < count; i++) {
                         chain.push(popStack())
                     }
-
                     if (options?.globals && chain[0] in options.globals && Object.hasOwn(options.globals, chain[0])) {
-                        pushStack(convertJSToHog(getNestedValue(options.globals, chain)))
+                        pushStack(convertJSToHog(getNestedValue(options.globals, chain, true)))
                     } else if (
                         options?.asyncFunctions &&
                         chain.length == 1 &&

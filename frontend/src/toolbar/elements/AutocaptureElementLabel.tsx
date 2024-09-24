@@ -32,9 +32,9 @@ export function AutocaptureElementLabel({
 
     return (
         <div
+            className="absolute"
             // eslint-disable-next-line react/forbid-dom-props
             style={{
-                position: 'absolute',
                 top: `${inBounds(
                     window.pageYOffset - 1,
                     rect.top - 7 + window.pageYOffset,

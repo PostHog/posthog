@@ -1823,6 +1823,15 @@ describe('hogvm execute', () => {
         expect(globals.globalEvent).toEqual({ event: '$pageview', properties: { $browser: 'Chrome' } })
     })
 
+    test('uses nullish access for globals', () => {
+        const globals = { globalVar: { a: { d: 1 } } }
+        expect(
+            exec(['_H', 1, 32, 'c', 32, 'b', 32, 'a', 32, 'globalVar', 1, 4, 38], {
+                globals,
+            }).result
+        ).toEqual(null)
+    })
+
     test('ternary', () => {
         const values: any[] = []
         const functions = {
