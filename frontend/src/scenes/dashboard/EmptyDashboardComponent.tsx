@@ -29,9 +29,7 @@ function SkeletonCardOne({ active }: { active: boolean }): JSX.Element {
                 {[100, 66, 33].map((height) => (
                     <div
                         key={height}
-                        className="border border-border-light rounded overflow-hidden flex flex-col justify-end"
-                        // eslint-disable-next-line react/forbid-dom-props
-                        style={{ width: '15%', height: '80%' }}
+                        className="border border-border-light rounded overflow-hidden flex flex-col justify-end w-[15%] h-[80%]"
                     >
                         {/* eslint-disable-next-line react/forbid-dom-props */}
                         <div style={{ height: `${height}%` }}>
@@ -54,10 +52,10 @@ function SkeletonBarsRaw({ active }: { active: boolean }): JSX.Element {
                     return (
                         <div
                             key={index}
+                            className="w-[12.5%]"
                             // eslint-disable-next-line react/forbid-dom-props
                             style={{
                                 height: `${height}%`,
-                                width: '12.5%',
                             }}
                         >
                             <LemonSkeleton active={active} className="h-full w-full" />
@@ -102,14 +100,12 @@ export function EmptyDashboardComponent({ loading, canEdit }: { loading: boolean
                     </div>
                 </div>
             )}
-            {/*  eslint-disable-next-line react/forbid-dom-props */}
-            <div className="flex items-center gap-2" style={{ height: '30rem' }}>
+            <div className="flex items-center gap-2 h-[30rem]">
                 <SkeletonCardOne active={loading} />
                 <SkeletonCardTwo active={loading} />
             </div>
             <div className="EmptyDashboard__fade">
-                {/*  eslint-disable-next-line react/forbid-dom-props */}
-                <div className="flex items-center gap-2" style={{ height: '30rem' }}>
+                <div className="flex items-center gap-2 h-[30rem]">
                     <SkeletonCardOne active={loading} />
                     <SkeletonCardTwo active={loading} />
                 </div>

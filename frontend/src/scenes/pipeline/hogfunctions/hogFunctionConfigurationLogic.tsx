@@ -3,7 +3,7 @@ import equal from 'fast-deep-equal'
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
+import { beforeUnload, router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
@@ -18,7 +18,7 @@ import { userLogic } from 'scenes/userLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { performQuery } from '~/queries/query'
 import { EventsNode, EventsQuery, NodeKind, TrendsQuery } from '~/queries/schema'
-import { hogql } from '~/queries/utils'
+import { escapePropertyAsHogQlIdentifier, hogql } from '~/queries/utils'
 import {
     AnyPropertyFilter,
     AvailableFeature,
@@ -52,6 +52,7 @@ export interface HogFunctionConfigurationLogicProps {
 }
 
 export const EVENT_VOLUME_DAILY_WARNING_THRESHOLD = 1000
+const UNSAVED_CONFIGURATION_TTL = 1000 * 60 * 5
 
 const NEW_FUNCTION_TEMPLATE: HogFunctionTemplateType = {
     id: 'new',
@@ -124,7 +125,7 @@ const templateToConfiguration = (
         hog: template.hog,
         icon_url: template.icon_url,
         inputs,
-        enabled: false,
+        enabled: true,
     }
 }
 
@@ -149,12 +150,10 @@ export function convertToHogFunctionInvocationGlobals(
             properties: event.properties,
             timestamp: event.timestamp,
 
-            name: event.event,
             url: `${projectUrl}/events/${encodeURIComponent(event.uuid ?? '')}/${encodeURIComponent(event.timestamp)}`,
         },
         person: {
-            id: person.uuid ?? person.id ?? '',
-            uuid: person.uuid ?? person.id ?? '', // TODO: remove
+            id: person.id ?? '',
             properties: person.properties,
 
             name: asDisplay(person),
@@ -184,6 +183,8 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         sparklineQueryChanged: (sparklineQuery: TrendsQuery) => ({ sparklineQuery } as { sparklineQuery: TrendsQuery }),
         setSubTemplateId: (subTemplateId: HogFunctionSubTemplateIdType | null) => ({ subTemplateId }),
         loadSampleGlobals: true,
+        setUnsavedConfiguration: (configuration: HogFunctionConfigurationType | null) => ({ configuration }),
+        persistForUnload: true,
     }),
     reducers({
         showSource: [
@@ -203,6 +204,15 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             null as HogFunctionSubTemplateIdType | null,
             {
                 setSubTemplateId: (_, { subTemplateId }) => subTemplateId,
+            },
+        ],
+
+        unsavedConfiguration: [
+            null as { timestamp: number; configuration: HogFunctionConfigurationType } | null,
+            { persist: true },
+            {
+                setUnsavedConfiguration: (_, { configuration }) =>
+                    configuration ? { timestamp: Date.now(), configuration } : null,
             },
         ],
     }),
@@ -457,6 +467,13 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 return configuration?.enabled && (hogFunction?.status?.state ?? 0) >= 3
             },
         ],
+
+        willChangeEnabledOnSave: [
+            (s) => [s.configuration, s.hogFunction],
+            (configuration, hogFunction) => {
+                return configuration?.enabled !== (hogFunction?.enabled ?? false)
+            },
+        ],
         exampleInvocationGlobals: [
             (s) => [s.configuration, s.currentTeam, s.groupTypes],
             (configuration, currentTeam, groupTypes): HogFunctionInvocationGlobals => {
@@ -474,12 +491,10 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                             $current_url: currentUrl,
                             $browser: 'Chrome',
                         },
-                        name: '$pageview',
                         url: `${window.location.origin}/project/${currentTeam?.id}/events/`,
                     },
                     person: {
                         id: personId,
-                        uuid: personId, // TODO: remove
                         properties: {
                             email: 'example@posthog.com',
                         },
@@ -627,7 +642,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     orderBy: ['timestamp DESC'],
                 }
                 groupTypes.forEach((groupType) => {
-                    const name = groupType.group_type
+                    const name = escapePropertyAsHogQlIdentifier(groupType.group_type)
                     query.select.push(
                         `tuple(${name}.created_at, ${name}.index, ${name}.key, ${name}.properties, ${name}.updated_at)`
                     )
@@ -700,16 +715,29 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             }
 
             const paramsFromUrl = cache.paramsFromUrl ?? {}
-            if (paramsFromUrl.integration_target && paramsFromUrl.integration_id) {
-                config.inputs = config.inputs ?? {}
-                config.inputs[paramsFromUrl.integration_target] = {
-                    value: paramsFromUrl.integration_id,
-                }
-            }
-
-            // TODO: Pull out sub template info
+            const unsavedConfigurationToApply =
+                (values.unsavedConfiguration?.timestamp ?? 0) > Date.now() - UNSAVED_CONFIGURATION_TTL
+                    ? values.unsavedConfiguration?.configuration
+                    : null
 
             actions.resetConfiguration(config)
+
+            if (unsavedConfigurationToApply) {
+                actions.setConfigurationValues(unsavedConfigurationToApply)
+            }
+
+            actions.setUnsavedConfiguration(null)
+
+            if (paramsFromUrl.integration_target && paramsFromUrl.integration_id) {
+                const inputs = values.configuration?.inputs ?? {}
+                inputs[paramsFromUrl.integration_target] = {
+                    value: paramsFromUrl.integration_id,
+                }
+
+                actions.setConfigurationValues({
+                    inputs,
+                })
+            }
         },
 
         duplicate: async () => {
@@ -798,6 +826,10 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         setSubTemplateId: () => {
             actions.resetToTemplate()
         },
+
+        persistForUnload: () => {
+            actions.setUnsavedConfiguration(values.configuration)
+        },
     })),
     afterMount(({ props, actions, cache }) => {
         cache.paramsFromUrl = {
@@ -824,21 +856,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         }
     }),
 
-    subscriptions(({ props, cache, actions }) => ({
-        configuration: (configuration) => {
-            if (!Object.keys(configuration).length) {
-                return
-            }
-
-            if (props.templateId) {
-                // Sync state to the URL bar if new
-                cache.ignoreUrlChange = true
-                router.actions.replace(router.values.location.pathname, router.values.searchParams, {
-                    configuration,
-                })
-            }
-        },
-
+    subscriptions(({ props, actions }) => ({
         hogFunction: (hogFunction) => {
             if (hogFunction && props.templateId) {
                 // Catch all for any scenario where we need to redirect away from the template to the actual hog function
@@ -854,6 +872,14 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
 
         lastEventQuery: () => {
             actions.loadSampleGlobals()
+        },
+    })),
+
+    beforeUnload(({ actions, values }) => ({
+        enabled: () => !values.unsavedConfiguration && values.configurationChanged,
+        message: 'Changes you made will be discarded.',
+        onConfirm: () => {
+            actions.resetForm()
         },
     })),
 ])

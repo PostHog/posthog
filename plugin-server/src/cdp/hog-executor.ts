@@ -1,9 +1,11 @@
 import { calculateCost, convertHogToJS, exec, ExecOptions, ExecResult } from '@posthog/hogvm'
 import crypto from 'crypto'
 import { DateTime } from 'luxon'
-import { Counter, Histogram } from 'prom-client'
+import { Histogram } from 'prom-client'
 import RE2 from 're2'
 
+import { buildIntegerMatcher } from '../config/config'
+import { Hub, ValueMatcher } from '../types'
 import { status } from '../utils/status'
 import { HogFunctionManager } from './hog-function-manager'
 import {
@@ -35,9 +37,10 @@ const hogFunctionFilterDuration = new Histogram({
     buckets: [0, 10, 20, 50, 100, 200],
 })
 
-const hogFunctionFilterErrors = new Counter({
-    name: 'cdp_hog_function_filter_errors',
-    help: 'Errors encountered while filtering functions',
+const hogFunctionStateMemory = new Histogram({
+    name: 'cdp_hog_function_execution_state_memory_kb',
+    help: 'The amount of memory in kb used by a hog function',
+    buckets: [0, 50, 100, 250, 500, 1000, 2000, 3000, 5000, Infinity],
 })
 
 export function execHog(bytecode: any, options?: ExecOptions): ExecResult {
@@ -63,6 +66,9 @@ export const formatInput = (bytecode: any, globals: HogFunctionInvocation['globa
         if (!res.finished) {
             // NOT ALLOWED
             throw new Error('Input fields must be simple sync values')
+        }
+        if (res.error) {
+            throw res.error
         }
         return convertHogToJS(res.result)
     }
@@ -92,7 +98,11 @@ const sanitizeLogMessage = (args: any[], sensitiveValues?: string[]): string => 
 }
 
 export class HogExecutor {
-    constructor(private hogFunctionManager: HogFunctionManager) {}
+    private telemetryMatcher: ValueMatcher<number>
+
+    constructor(private hub: Hub, private hogFunctionManager: HogFunctionManager) {
+        this.telemetryMatcher = buildIntegerMatcher(this.hub.CDP_HOG_FILTERS_TELEMETRY_TEAMS, true)
+    }
 
     findMatchingFunctions(event: HogFunctionInvocationGlobals): {
         matchingFunctions: HogFunctionType[]
@@ -111,18 +121,32 @@ export class HogExecutor {
             if (hogFunction.filters?.bytecode) {
                 const start = performance.now()
                 try {
-                    const filterResult = execHog(hogFunction.filters.bytecode, { globals: filtersGlobals })
+                    const filterResult = execHog(hogFunction.filters.bytecode, {
+                        globals: filtersGlobals,
+                        telemetry: this.telemetryMatcher(hogFunction.team_id),
+                    })
                     if (typeof filterResult.result === 'boolean' && filterResult.result) {
                         matchingFunctions.push(hogFunction)
+                        return
+                    }
+                    if (filterResult.error) {
+                        status.error('🦔', `[HogExecutor] Error filtering function`, {
+                            hogFunctionId: hogFunction.id,
+                            hogFunctionName: hogFunction.name,
+                            teamId: hogFunction.team_id,
+                            error: filterResult.error.message,
+                            result: filterResult,
+                        })
+                        erroredFunctions.push(hogFunction)
                         return
                     }
                 } catch (error) {
                     status.error('🦔', `[HogExecutor] Error filtering function`, {
                         hogFunctionId: hogFunction.id,
                         hogFunctionName: hogFunction.name,
+                        teamId: hogFunction.team_id,
                         error: error.message,
                     })
-                    hogFunctionFilterErrors.inc()
                     erroredFunctions.push(hogFunction)
                     return
                 } finally {
@@ -135,6 +159,7 @@ export class HogExecutor {
                             hogFunctionName: hogFunction.name,
                             teamId: hogFunction.team_id,
                             duration,
+                            eventId: event.event.uuid,
                         })
                     }
                 }
@@ -227,7 +252,7 @@ export class HogExecutor {
                     status,
                     body: response?.body,
                 })
-                invocation.timings.push(...timings)
+                invocation.timings = invocation.timings.concat(timings)
                 result.logs = [...logs, ...result.logs]
             }
 
@@ -314,6 +339,9 @@ export class HogExecutor {
                         },
                     },
                 })
+                if (execRes.error) {
+                    throw execRes.error
+                }
             } catch (e) {
                 result.logs.push({
                     level: 'error',
@@ -394,6 +422,19 @@ export class HogExecutor {
                     messages.push(`Sync: ${execRes.state.syncDuration}ms.`)
                     messages.push(`Mem: ${execRes.state.maxMemUsed} bytes.`)
                     messages.push(`Ops: ${execRes.state.ops}.`)
+
+                    hogFunctionStateMemory.observe(execRes.state.maxMemUsed / 1024)
+
+                    if (execRes.state.maxMemUsed > 1024 * 1024) {
+                        // If the memory used is more than a MB then we should log it
+                        status.warn('🦔', `[HogExecutor] Function used more than 1MB of memory`, {
+                            hogFunctionId: invocation.hogFunction.id,
+                            hogFunctionName: invocation.hogFunction.name,
+                            teamId: invocation.teamId,
+                            eventId: invocation.globals.event.uuid,
+                            memoryUsedKb: execRes.state.maxMemUsed / 1024,
+                        })
+                    }
                 }
                 result.logs.push({
                     level: 'debug',

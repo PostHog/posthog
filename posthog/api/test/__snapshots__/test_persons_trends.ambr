@@ -12,12 +12,12 @@
             e."properties" as "properties",
             e."$window_id" as $window_id,
             e."$session_id" as $session_id,
-            pdi.person_id as person_id,
+            if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
             e.distinct_id as distinct_id,
             e.team_id as team_id,
             e.uuid as uuid
      FROM events e
-     INNER JOIN
+     LEFT OUTER JOIN
        (SELECT distinct_id,
                argMax(person_id, version) as person_id
         FROM person_distinct_id2
@@ -67,12 +67,12 @@
             e."properties" as "properties",
             e."$window_id" as $window_id,
             e."$session_id" as $session_id,
-            pdi.person_id as person_id,
+            if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
             e.distinct_id as distinct_id,
             e.team_id as team_id,
             e.uuid as uuid
      FROM events e
-     INNER JOIN
+     LEFT OUTER JOIN
        (SELECT distinct_id,
                argMax(person_id, version) as person_id
         FROM person_distinct_id2
@@ -132,12 +132,12 @@
             e."properties" as "properties",
             e."$window_id" as $window_id,
             e."$session_id" as $session_id,
-            pdi.person_id as person_id,
+            if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
             e.distinct_id as distinct_id,
             e.team_id as team_id,
             e.uuid as uuid
      FROM events e
-     INNER JOIN
+     LEFT OUTER JOIN
        (SELECT distinct_id,
                argMax(person_id, version) as person_id
         FROM person_distinct_id2
