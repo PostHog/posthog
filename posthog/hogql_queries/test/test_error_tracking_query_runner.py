@@ -143,6 +143,37 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
     @snapshot_clickhouse_queries
+    def test_search_query(self):
+        _create_event(
+            distinct_id=self.distinct_id_one,
+            event="$exception",
+            team=self.team,
+            properties={
+                "$exception_fingerprint": ["DatabaseNotFound"],
+                "$exception_type": "DatabaseNotFound",
+                "$exception_message": "this is the same error message",
+            },
+        )
+        flush_persons_and_events()
+
+        runner = ErrorTrackingQueryRunner(
+            team=self.team,
+            query=ErrorTrackingQuery(
+                kind="ErrorTrackingQuery",
+                fingerprint=None,
+                dateRange=DateRange(),
+                filterTestAccounts=True,
+                searchQuery="DatabaseNotFound",
+            ),
+        )
+
+        results = self._calculate(runner)["results"]
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["fingerprint"], ["DatabaseNotFound"])
+        self.assertEqual(results[0]["occurrences"], 2)
+
+    @snapshot_clickhouse_queries
     def test_fingerprints(self):
         runner = ErrorTrackingQueryRunner(
             team=self.team,

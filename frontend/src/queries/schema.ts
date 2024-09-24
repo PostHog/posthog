@@ -1523,6 +1523,7 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
     assignee?: integer | null
     filterGroup?: PropertyGroupFilter
     filterTestAccounts?: boolean
+    searchQuery?: string
     limit?: integer
 }
 

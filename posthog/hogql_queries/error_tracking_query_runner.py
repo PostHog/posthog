@@ -126,6 +126,58 @@ class ErrorTrackingQueryRunner(QueryRunner):
                 ),
             )
 
+        if self.query.searchQuery:
+            exprs.append(
+                ast.Or(
+                    exprs=[
+                        ast.CompareOperation(
+                            op=ast.CompareOperationOp.Gt,
+                            left=ast.Call(
+                                name="position",
+                                args=[
+                                    ast.Field(chain=["properties", "$exception_list"]),
+                                    ast.Constant(value=self.query.searchQuery),
+                                ],
+                            ),
+                            right=ast.Constant(value=0),
+                        ),
+                        ast.CompareOperation(
+                            op=ast.CompareOperationOp.Gt,
+                            left=ast.Call(
+                                name="position",
+                                args=[
+                                    ast.Field(chain=["properties", "$exception_stack_trace_raw"]),
+                                    ast.Constant(value=self.query.searchQuery),
+                                ],
+                            ),
+                            right=ast.Constant(value=0),
+                        ),
+                        ast.CompareOperation(
+                            op=ast.CompareOperationOp.Gt,
+                            left=ast.Call(
+                                name="position",
+                                args=[
+                                    ast.Field(chain=["properties", "$exception_message"]),
+                                    ast.Constant(value=self.query.searchQuery),
+                                ],
+                            ),
+                            right=ast.Constant(value=0),
+                        ),
+                        ast.CompareOperation(
+                            op=ast.CompareOperationOp.Gt,
+                            left=ast.Call(
+                                name="position",
+                                args=[
+                                    ast.Field(chain=["properties", "$exception_type"]),
+                                    ast.Constant(value=self.query.searchQuery),
+                                ],
+                            ),
+                            right=ast.Constant(value=0),
+                        ),
+                    ]
+                )
+            )
+
         return ast.And(exprs=exprs)
 
     def group_by(self):
