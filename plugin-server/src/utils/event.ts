@@ -5,7 +5,11 @@ import { Counter } from 'prom-client'
 import { setUsageInNonPersonEventsCounter } from '../main/ingestion-queues/metrics'
 import { ClickHouseEvent, HookPayload, PipelineEvent, PostIngestionEvent, RawClickHouseEvent } from '../types'
 import { chainToElements } from './db/elements-chain'
-import { hasSetOrSetOnceInitialEventToPersonProperty, personInitialAndUTMProperties, sanitizeString } from './db/utils'
+import {
+    hasDifferenceWithProposedNewNormalisationMode,
+    personInitialAndUTMProperties,
+    sanitizeString,
+} from './db/utils'
 import {
     clickHouseTimestampSecondPrecisionToISO,
     clickHouseTimestampToDateTime,
@@ -21,9 +25,9 @@ const KNOWN_SET_EVENTS = new Set([
     'survey sent',
 ])
 
-const RAW_INITIAL_EVENT_TO_PERSON_PROPERTY_COUNTER = new Counter({
-    name: 'raw_set_once_initial_event_to_person_property',
-    help: 'Counter for events that have a $set_once.$initial_X property where X is an event-to-person property',
+const DIFFERENCE_WITH_PROPOSED_NORMALISATION_MODE_COUNTER = new Counter({
+    name: 'difference_with_proposed_normalisation_mode',
+    help: 'Counter for events that would give a different result with the new proposed normalisation mode',
     labelNames: ['library'],
 })
 
@@ -206,8 +210,8 @@ export function normalizeEvent<T extends PipelineEvent | PluginEvent>(event: T):
     // For safety while PluginEvent still has an `ip` field
     event.ip = null
 
-    if (hasSetOrSetOnceInitialEventToPersonProperty(properties)) {
-        RAW_INITIAL_EVENT_TO_PERSON_PROPERTY_COUNTER.labels({
+    if (hasDifferenceWithProposedNewNormalisationMode(properties)) {
+        DIFFERENCE_WITH_PROPOSED_NORMALISATION_MODE_COUNTER.labels({
             library: getKnownLibValueOrSentinel(properties['$lib']),
         }).inc()
     }
