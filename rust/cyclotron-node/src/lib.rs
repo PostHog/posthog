@@ -3,6 +3,7 @@ use chrono::{DateTime, Utc};
 use cyclotron_core::{
     Job, JobInit, JobState, ManagerConfig, PoolConfig, QueueManager, Worker, WorkerConfig,
 };
+use metrics_interop::{NodeInteropMetricsRecorder, RecorderConfig};
 use neon::{
     handle::Handle,
     object::Object,
@@ -25,6 +26,7 @@ mod metrics_interop;
 static WORKER: OnceCell<Worker> = OnceCell::new();
 static MANAGER: OnceCell<QueueManager> = OnceCell::new();
 static RUNTIME: OnceCell<Runtime> = OnceCell::new();
+static RECORDER: OnceCell<NodeInteropMetricsRecorder> = OnceCell::new();
 
 fn runtime<'a, C: Context<'a>>(cx: &mut C) -> NeonResult<&'static Runtime> {
     RUNTIME
@@ -726,6 +728,45 @@ impl JsJob {
     }
 }
 
+fn init_metrics(mut cx: FunctionContext) -> JsResult<JsNull> {
+    let arg1 = cx.argument::<JsString>(0)?;
+    let config: RecorderConfig = from_json_string(&mut cx, arg1)?;
+    let recorder = NodeInteropMetricsRecorder::init(config);
+
+    // Calling this multiple times is an error, and it's better to bubble that up to the user than to silently ignore it.
+    let Ok(()) = RECORDER.set(recorder) else {
+        return cx.throw_error("initMetrics called multiple times");
+    };
+
+    RECORDER
+        .get()
+        .unwrap()
+        .register()
+        .or_else(|_| cx.throw_error("initMetrics called multiple times"))?;
+
+    Ok(cx.null())
+}
+
+fn get_metrics_report(mut cx: FunctionContext) -> JsResult<JsValue> {
+    let Some(recorder) = RECORDER.get() else {
+        // As far as I can tell, this is the only way to return string | null from a function
+        return Ok(cx.null().upcast());
+    };
+
+    let report = recorder.get_report();
+
+    let report = to_json_string(&mut cx, report)?;
+    Ok(cx.string(report).upcast())
+}
+
+// Only really exists for testing reasons
+fn emit_fake_metrics(mut cx: FunctionContext) -> JsResult<JsNull> {
+    metrics::counter!("some_counter", "tag" => "test value").increment(1);
+    metrics::gauge!("some_gauge", "tag" => "test value").set(42.0);
+    metrics::histogram!("some_histogram", "tag" => "test value").record(42.0);
+    Ok(cx.null())
+}
+
 #[neon::main]
 fn main(mut cx: ModuleContext) -> NeonResult<()> {
     cx.export_function("hello", hello)?;
@@ -747,6 +788,9 @@ fn main(mut cx: ModuleContext) -> NeonResult<()> {
     cx.export_function("setMetadata", set_metadata)?;
     cx.export_function("setParameters", set_parameters)?;
     cx.export_function("setBlob", set_blob)?;
+    cx.export_function("initMetrics", init_metrics)?;
+    cx.export_function("getMetricsReport", get_metrics_report)?;
+    cx.export_function("emitFakeMetrics", emit_fake_metrics)?;
 
     Ok(())
 }

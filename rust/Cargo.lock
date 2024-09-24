@@ -626,7 +626,7 @@ dependencies = [
  "futures",
  "governor",
  "health",
- "metrics",
+ "metrics 0.22.0",
  "metrics-exporter-prometheus",
  "once_cell",
  "opentelemetry",
@@ -741,7 +741,7 @@ name = "common-metrics"
 version = "0.1.0"
 dependencies = [
  "axum 0.7.5",
- "metrics",
+ "metrics 0.22.0",
  "metrics-exporter-prometheus",
  "tokio",
  "uuid",
@@ -872,7 +872,7 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "futures",
- "metrics",
+ "metrics 0.22.0",
  "serde",
  "sqlx",
  "thiserror",
@@ -941,7 +941,8 @@ dependencies = [
  "ahash",
  "chrono",
  "cyclotron-core",
- "metrics",
+ "metrics 0.22.0",
+ "metrics-util 0.17.0",
  "neon",
  "once_cell",
  "serde",
@@ -1049,6 +1050,12 @@ checksum = "7268b386296a025e474d5140678f75d6de9493ae55a5d709eeb9dd08149945e1"
 dependencies = [
  "cfg-if",
 ]
+
+[[package]]
+name = "endian-type"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c34f04666d835ff5d62e058c3995147c06f42fe86ff053337632bca83e42702d"
 
 [[package]]
 name = "envconfig"
@@ -1613,7 +1620,7 @@ dependencies = [
  "eyre",
  "hook-common",
  "http-body-util",
- "metrics",
+ "metrics 0.22.0",
  "serde",
  "serde_derive",
  "serde_json",
@@ -1657,7 +1664,7 @@ dependencies = [
  "futures",
  "health",
  "hook-common",
- "metrics",
+ "metrics 0.22.0",
  "rdkafka",
  "serde",
  "serde_json",
@@ -1685,7 +1692,7 @@ dependencies = [
  "hook-common",
  "http 1.1.0",
  "httpmock",
- "metrics",
+ "metrics 0.22.0",
  "rdkafka",
  "reqwest 0.12.3",
  "serde_json",
@@ -2227,6 +2234,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "metrics"
+version = "0.23.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "884adb57038347dfbaf2d5065887b6cf4312330dc8e94bc30a1a839bd79d3261"
+dependencies = [
+ "ahash",
+ "portable-atomic",
+]
+
+[[package]]
 name = "metrics-exporter-prometheus"
 version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2239,8 +2256,8 @@ dependencies = [
  "hyper-util",
  "indexmap 2.2.2",
  "ipnet",
- "metrics",
- "metrics-util",
+ "metrics 0.22.0",
+ "metrics-util 0.16.0",
  "quanta 0.12.2",
  "thiserror",
  "tokio",
@@ -2256,9 +2273,28 @@ dependencies = [
  "crossbeam-epoch",
  "crossbeam-utils",
  "hashbrown 0.13.1",
- "metrics",
+ "metrics 0.22.0",
  "num_cpus",
  "quanta 0.12.2",
+ "sketches-ddsketch",
+]
+
+[[package]]
+name = "metrics-util"
+version = "0.17.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4259040465c955f9f2f1a4a8a16dc46726169bca0f88e8fb2dbeced487c3e828"
+dependencies = [
+ "aho-corasick",
+ "crossbeam-epoch",
+ "crossbeam-utils",
+ "hashbrown 0.14.3",
+ "indexmap 2.2.2",
+ "metrics 0.23.0",
+ "num_cpus",
+ "ordered-float",
+ "quanta 0.12.2",
+ "radix_trie",
  "sketches-ddsketch",
 ]
 
@@ -2353,6 +2389,15 @@ name = "new_debug_unreachable"
 version = "1.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "650eef8c711430f1a879fdd01d4745a7deea475becfb90269c06775983bbf086"
+
+[[package]]
+name = "nibble_vec"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "77a5d83df9f36fe23f0c3648c6bbb8b0298bb5f1939c8f2704431371f4b84d43"
+dependencies = [
+ "smallvec",
+]
 
 [[package]]
 name = "nix"
@@ -2876,7 +2921,7 @@ dependencies = [
  "envconfig",
  "futures",
  "health",
- "metrics",
+ "metrics 0.22.0",
  "quick_cache",
  "rdkafka",
  "serde",
@@ -2962,6 +3007,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "291ec9ab5efd934aaf503a6466c5d5251535d108ee747472c3977cc5acc868ef"
 dependencies = [
  "proc-macro2",
+]
+
+[[package]]
+name = "radix_trie"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c069c179fcdc6a2fe24d8d18305cf085fdbd4f922c041943e203685d6a1c58fd"
+dependencies = [
+ "endian-type",
+ "nibble_vec",
 ]
 
 [[package]]

@@ -1,20 +1,179 @@
 use std::sync::{
     atomic::{AtomicU64, Ordering},
-    Arc, RwLock, Weak,
+    Arc, Mutex, RwLock,
 };
 
-use ahash::AHashMap;
+use ahash::{AHashMap, HashMap};
 use metrics::{
-    Counter, CounterFn, Gauge, GaugeFn, Histogram, Key, KeyName, Metadata, Recorder, SharedString,
-    Unit,
+    Counter, CounterFn, Gauge, GaugeFn, HistogramFn, Key, KeyName, Metadata, Recorder,
+    SharedString, Unit,
 };
+use neon::types::Finalize;
+use serde::{Deserialize, Serialize};
 
-pub struct NodeRegistry {
-    inner: NodeRegistryInner,
+// ----------------- Interop metrics recorder -----------------
+pub struct NodeInteropMetricsRecorder {
+    handle: RecorderHandle,
+    histograms: Mutex<AHashMap<Key, metrics_util::Histogram>>,
+    histogram_bounds: Vec<f64>,
+
+    // We also add a set of default labels to all reported metrics
+    default_labels: HashMap<String, String>,
 }
 
-// So many Arc's you should call me noah
-impl Recorder for NodeRegistry {
+#[derive(Clone, Default)]
+struct RecorderHandle {
+    inner: Arc<RecorderInner>,
+}
+
+#[derive(Default)]
+struct RecorderInner {
+    // Guages and counters are both just atomic values, so they're fairly straightforward
+    counters: RwLock<AHashMap<Key, Arc<CounterImpl>>>,
+    gauges: RwLock<AHashMap<Key, Arc<GaugeImpl>>>,
+
+    // Histograms are more complicated - we use an atomic bucket to allow lock-free recording
+    // and then hold a set of Histograms in the outer, which we then drain the atomic buckets into
+    // during metrics reporting (this is very similar to how the prometheus exporter works)
+    histogram_buckets: RwLock<AHashMap<Key, Arc<HistogramImpl>>>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RecorderConfig {
+    #[serde(alias = "defaultLabels")]
+    default_labels: HashMap<String, String>,
+    #[serde(alias = "histogramBounds")]
+    histogram_bounds: Vec<f64>,
+}
+
+impl NodeInteropMetricsRecorder {
+    pub fn new() -> Self {
+        Self {
+            handle: Default::default(),
+            histograms: Mutex::new(AHashMap::new()),
+            histogram_bounds: vec![],
+            default_labels: Default::default(),
+        }
+    }
+
+    pub fn init(config: RecorderConfig) -> Self {
+        let mut new = Self::new();
+        new.default_labels = config.default_labels;
+        new.histogram_bounds = config.histogram_bounds;
+        new
+    }
+
+    pub fn register(&self) -> Result<(), ()> {
+        metrics::set_global_recorder(self.handle.clone()).map_err(|_| ())
+    }
+
+    pub fn get_report(&self) -> MetricsReport {
+        let mut measurements = vec![];
+
+        let counters = self.handle.inner.counters.read().unwrap();
+        for (key, counter) in counters.iter() {
+            let name = key.name().to_string();
+            let labels = self.get_labels(key);
+            let value = MeasurementValue::Counter(counter.0.load(Ordering::Relaxed));
+            measurements.push(Measurement {
+                name,
+                labels,
+                value,
+            });
+        }
+        drop(counters);
+
+        let gauges = self.handle.inner.gauges.read().unwrap();
+        for (key, gauge) in gauges.iter() {
+            let name = key.name().to_string();
+            let labels = self.get_labels(key);
+            let value = MeasurementValue::Gauge(gauge.0.load(Ordering::Relaxed));
+            measurements.push(Measurement {
+                name,
+                labels,
+                value,
+            });
+        }
+        drop(gauges);
+
+        let buckets = self.handle.inner.histogram_buckets.read().unwrap();
+        let mut histograms = self.histograms.lock().unwrap();
+        for (key, bucket) in buckets.iter() {
+            let histogram = histograms.get_mut(key);
+            let histogram = match histogram {
+                Some(h) => h,
+                None => {
+                    let Some(hist) = metrics_util::Histogram::new(&self.histogram_bounds) else {
+                        // If we have no histogram bounds set, even if we have histograms registered, we can't
+                        // generate a report of them, so we just clear the bucket and move on
+                        bucket.0.clear();
+                        continue;
+                    };
+                    histograms.insert(key.clone(), hist);
+                    histograms.get_mut(key).unwrap()
+                }
+            };
+
+            let name = key.name().to_string();
+            let labels = self.get_labels(key);
+
+            bucket.0.clear_with(|chunk| {
+                histogram.record_many(chunk);
+            });
+
+            let value = MeasurementValue::Histogram(histogram.buckets());
+            measurements.push(Measurement {
+                name,
+                labels,
+                value,
+            });
+        }
+        drop(buckets);
+        drop(histograms);
+
+        MetricsReport { measurements }
+    }
+
+    // Produce a label set for a given key, including any default labels
+    fn get_labels(&self, key: &Key) -> HashMap<String, String> {
+        key.labels()
+            .map(|l| (l.key().to_string(), l.value().to_string()))
+            .chain(
+                self.default_labels
+                    .iter()
+                    .map(|(k, v)| (k.to_string(), v.to_string())),
+            )
+            .collect()
+    }
+}
+
+#[derive(Debug, Serialize)]
+pub struct MetricsReport {
+    pub measurements: Vec<Measurement>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct Measurement {
+    pub name: String,
+    pub labels: HashMap<String, String>,
+    #[serde(flatten)]
+    pub value: MeasurementValue,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(tag = "type", content = "value")]
+pub enum MeasurementValue {
+    #[serde(rename = "counter")]
+    Counter(u64),
+    #[serde(rename = "gauge")]
+    Gauge(f64),
+    #[serde(rename = "histogram")]
+    Histogram(Vec<(f64, u64)>),
+}
+
+// ----------------- Metrics recorder impl -----------------
+// Extremely simple, ignores metadata, and doesn't support describes (so doesn't support setting units or descriptions), at least for now
+impl Recorder for RecorderHandle {
     fn describe_counter(&self, _key: KeyName, _unit: Option<Unit>, _description: SharedString) {}
 
     fn describe_gauge(&self, _key: KeyName, _unit: Option<Unit>, _description: SharedString) {}
@@ -22,78 +181,85 @@ impl Recorder for NodeRegistry {
     fn describe_histogram(&self, _key: KeyName, _unit: Option<Unit>, _description: SharedString) {}
 
     fn register_counter(&self, key: &Key, _metadata: &Metadata<'_>) -> Counter {
-        let counter = Arc::new(AtomicU64::new(0));
-        self.inner
-            .counters
-            .write()
-            .unwrap()
-            .insert(key.clone(), counter.clone());
+        if let Some(counter) = self.inner.counters.read().unwrap().get(key) {
+            return Counter::from_arc(counter.clone());
+        }
 
-        let counter_fn = Arc::new(CounterFnImpl(Arc::downgrade(&counter)));
-        Counter::from_arc(counter_fn)
+        let mut counters = self.inner.counters.write().unwrap();
+        if let Some(counter) = counters.get(key) {
+            return Counter::from_arc(counter.clone());
+        }
+        let counter = Arc::new(CounterImpl(AtomicU64::new(0)));
+        counters.insert(key.clone(), counter.clone());
+        Counter::from_arc(counter)
     }
 
     fn register_gauge(&self, key: &Key, _metadata: &Metadata<'_>) -> Gauge {
-        let gauge = Arc::new(AtomicF64::new(0.0));
-        self.inner
-            .gauges
-            .write()
-            .unwrap()
-            .insert(key.clone(), gauge.clone());
-
-        let gauge_fn = Arc::new(GaugeFnImpl(Arc::downgrade(&gauge)));
-        Gauge::from_arc(gauge_fn)
-    }
-
-    fn register_histogram(&self, _key: &Key, _metadata: &Metadata<'_>) -> metrics::Histogram {
-        // This doesn't use `todo()` or `unimplemented!()` because, because in the context
-        // we're better off dropping rust-side metrics than panicking a node process just
-        // because I forgot to implement this.
-        Histogram::noop()
-    }
-}
-
-struct NodeRegistryInner {
-    pub counters: RwLock<AHashMap<Key, Arc<AtomicU64>>>,
-    pub gauges: RwLock<AHashMap<Key, Arc<AtomicF64>>>,
-}
-
-struct CounterFnImpl(Weak<AtomicU64>);
-impl CounterFn for CounterFnImpl {
-    fn increment(&self, value: u64) {
-        if let Some(counter) = self.0.upgrade() {
-            counter.fetch_add(value, Ordering::Relaxed);
+        if let Some(gauge) = self.inner.gauges.read().unwrap().get(key) {
+            return Gauge::from_arc(gauge.clone());
         }
+
+        let mut gauges = self.inner.gauges.write().unwrap();
+        if let Some(gauge) = gauges.get(key) {
+            return Gauge::from_arc(gauge.clone());
+        }
+        let gauge = Arc::new(GaugeImpl(AtomicF64::new(0.0)));
+        gauges.insert(key.clone(), gauge.clone());
+        Gauge::from_arc(gauge)
+    }
+
+    fn register_histogram(&self, key: &Key, _metadata: &Metadata<'_>) -> metrics::Histogram {
+        if let Some(bucket) = self.inner.histogram_buckets.read().unwrap().get(key) {
+            return metrics::Histogram::from_arc(bucket.clone());
+        }
+
+        let mut buckets = self.inner.histogram_buckets.write().unwrap();
+        if let Some(bucket) = buckets.get(key) {
+            return metrics::Histogram::from_arc(bucket.clone());
+        }
+        let hist = Arc::new(HistogramImpl(Default::default()));
+        buckets.insert(key.clone(), hist.clone());
+        metrics::Histogram::from_arc(hist)
+    }
+}
+
+// ----------------- Metrics function impls -----------------
+// This are mostly very simple wrappers around a Weak<T>, for whatever T is relevant for the
+// type of metric
+struct CounterImpl(AtomicU64);
+impl CounterFn for CounterImpl {
+    fn increment(&self, value: u64) {
+        self.0.fetch_add(value, Ordering::Relaxed);
     }
 
     fn absolute(&self, value: u64) {
-        if let Some(counter) = self.0.upgrade() {
-            counter.store(value, Ordering::Relaxed);
-        }
+        self.0.store(value, Ordering::Relaxed);
     }
 }
 
-struct GaugeFnImpl(Weak<AtomicF64>);
-impl GaugeFn for GaugeFnImpl {
+struct GaugeImpl(AtomicF64);
+impl GaugeFn for GaugeImpl {
     fn increment(&self, value: f64) {
-        if let Some(gauge) = self.0.upgrade() {
-            gauge.add(value, Ordering::Relaxed, Ordering::Relaxed);
-        }
+        self.0.add(value, Ordering::Relaxed, Ordering::Relaxed);
     }
 
     fn decrement(&self, value: f64) {
-        if let Some(gauge) = self.0.upgrade() {
-            gauge.add(-value, Ordering::Relaxed, Ordering::Relaxed);
-        }
+        self.0.add(-value, Ordering::Relaxed, Ordering::Relaxed);
     }
 
     fn set(&self, value: f64) {
-        if let Some(gauge) = self.0.upgrade() {
-            gauge.store(value, Ordering::Relaxed);
-        }
+        self.0.store(value, Ordering::Relaxed);
     }
 }
 
+struct HistogramImpl(metrics_util::AtomicBucket<f64>);
+impl HistogramFn for HistogramImpl {
+    fn record(&self, value: f64) {
+        self.0.push(value);
+    }
+}
+
+// ----------------- Helper types -----------------
 // Rust doesn't have one of these for very sane reasons that we don't care about (unlike ints,
 // most platforms don't have native atomic operations for floats, like add or sub).
 #[derive(Debug)]
@@ -133,3 +299,6 @@ impl AtomicF64 {
         }
     }
 }
+
+// Quite cool to get GC hooks here, actually, even if we don't use them
+impl Finalize for MetricsReport {}

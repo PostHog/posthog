@@ -91,3 +91,4 @@ uuid = { version = "1.6.1", features = ["v7", "serde"] }
 neon = "1"
 quick_cache = "0.6.5"
 ahash = "0.8.11"
+metrics-util = "0.17.0"

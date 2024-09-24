@@ -22,3 +22,4 @@ uuid = { workspace = true }
 chrono = { workspace = true }
 metrics = { workspace = true }
 ahash = { workspace = true }
+metrics-util = { workspace = true }
