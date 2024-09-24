@@ -116,7 +116,7 @@ class HogFunction(UUIDModel):
                 final_inputs[schema["key"]] = value
             else:
                 # We either store the incoming value if given or the encrypted value
-                final_encrypted_inputs[schema["key"]] = encrypted_value or value
+                final_encrypted_inputs[schema["key"]] = value or encrypted_value
 
         self.inputs = final_inputs
         self.encrypted_inputs = final_encrypted_inputs
