@@ -222,7 +222,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
             label: 'Permissions',
             key: FeatureFlagsTab.PERMISSIONS,
             content: (
-                <PayGateMini feature={AvailableFeature.ROLE_BASED_ACCESS}>
+                <PayGateMini feature={true}>
                     <ResourcePermission
                         resourceType={Resource.FEATURE_FLAGS}
                         onChange={(roleIds) => setRolesToAdd(roleIds)}
