@@ -4,6 +4,8 @@ import { DateTime } from 'luxon'
 import { Histogram } from 'prom-client'
 import RE2 from 're2'
 
+import { buildIntegerMatcher } from '../config/config'
+import { Hub, ValueMatcher } from '../types'
 import { status } from '../utils/status'
 import { HogFunctionManager } from './hog-function-manager'
 import {
@@ -90,7 +92,11 @@ const sanitizeLogMessage = (args: any[], sensitiveValues?: string[]): string => 
 }
 
 export class HogExecutor {
-    constructor(private hogFunctionManager: HogFunctionManager) {}
+    private telemetryMatcher: ValueMatcher<number>
+
+    constructor(private hub: Hub, private hogFunctionManager: HogFunctionManager) {
+        this.telemetryMatcher = buildIntegerMatcher(this.hub.CDP_CYCLOTRON_ENABLED_TEAMS, true)
+    }
 
     findMatchingFunctions(event: HogFunctionInvocationGlobals): {
         matchingFunctions: HogFunctionType[]
@@ -111,7 +117,7 @@ export class HogExecutor {
                 try {
                     const filterResult = execHog(hogFunction.filters.bytecode, {
                         globals: filtersGlobals,
-                        telemetry: true,
+                        telemetry: this.telemetryMatcher(hogFunction.team_id),
                     })
                     if (typeof filterResult.result === 'boolean' && filterResult.result) {
                         matchingFunctions.push(hogFunction)

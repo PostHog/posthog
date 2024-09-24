@@ -3,6 +3,7 @@ import { DateTime } from 'luxon'
 import { HogExecutor } from '../../src/cdp/hog-executor'
 import { HogFunctionManager } from '../../src/cdp/hog-function-manager'
 import { HogFunctionInvocation, HogFunctionType } from '../../src/cdp/types'
+import { createHub } from '../../src/utils/db/hub'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from './examples'
 import { createHogExecutionGlobals, createHogFunction, createInvocation } from './fixtures'
 
@@ -32,10 +33,11 @@ describe('Hog Executor', () => {
         getTeamHogFunction: jest.fn(),
     }
 
-    beforeEach(() => {
+    beforeEach(async () => {
         jest.useFakeTimers()
         jest.setSystemTime(new Date('2024-06-07T12:00:00.000Z').getTime())
-        executor = new HogExecutor(mockFunctionManager as any as HogFunctionManager)
+        const hub = await createHub()
+        executor = new HogExecutor(hub, mockFunctionManager as any as HogFunctionManager)
     })
 
     describe('general event processing', () => {
