@@ -18,6 +18,7 @@ export function WebExperimentVariant({ variant }: WebExperimentVariantProps): JS
         <div className="flex flex-col">
             <LemonCollapse
                 size="small"
+                activeKey={0}
                 panels={experimentForm.variants![variant].transforms.map((transform, tIndex) => {
                     return {
                         key: tIndex,
