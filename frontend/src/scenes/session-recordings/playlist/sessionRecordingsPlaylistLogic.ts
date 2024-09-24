@@ -425,11 +425,8 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         ],
     })),
     reducers(({ props, values }) => ({
-        orderBy: [
-            (values.featureFlags[FEATURE_FLAGS.REPLAY_DEFAULT_SORT_ORDER_EXPERIMENT] === 'control' ||
-            !values.featureFlags[FEATURE_FLAGS.REPLAY_DEFAULT_SORT_ORDER_EXPERIMENT]
-                ? 'start_time'
-                : values.featureFlags[FEATURE_FLAGS.REPLAY_DEFAULT_SORT_ORDER_EXPERIMENT]) as RecordingsQuery['order'],
+        selectedOrderBy: [
+            undefined,
             { persist: true, prefix: 'orderByExperiment' },
             {
                 setOrderBy: (_, { orderBy }) => orderBy,
@@ -731,6 +728,25 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             (s) => [s.pinnedRecordings, s.otherRecordings, s.showOtherRecordings],
             (pinnedRecordings, otherRecordings, showOtherRecordings): number => {
                 return showOtherRecordings ? otherRecordings.length + pinnedRecordings.length : pinnedRecordings.length
+            },
+        ],
+        orderByExperimentFeatureFlag: [
+            (s) => [s.featureFlags],
+            (featureFlags) =>
+                typeof featureFlags[FEATURE_FLAGS.REPLAY_DEFAULT_SORT_ORDER_EXPERIMENT] === 'string'
+                    ? (featureFlags[FEATURE_FLAGS.REPLAY_DEFAULT_SORT_ORDER_EXPERIMENT] as RecordingsQuery['order'])
+                    : null,
+        ],
+        orderBy: [
+            (s) => [s.selectedOrderBy, s.orderByExperimentFeatureFlag],
+            (selectedOrderBy, orderByExperimentFeatureFlag): RecordingsQuery['order'] => {
+                if (selectedOrderBy) {
+                    return selectedOrderBy
+                }
+
+                return !orderByExperimentFeatureFlag || orderByExperimentFeatureFlag === 'control'
+                    ? 'start_time'
+                    : orderByExperimentFeatureFlag
             },
         ],
     }),
