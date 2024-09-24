@@ -1946,7 +1946,7 @@ export interface AlertCheck {
 
 export interface TrendsAlertConfig {
     type: 'TrendsAlertConfig'
-    series_index: number
+    series_index: integer
 }
 
 export type AlertConfig = TrendsAlertConfig

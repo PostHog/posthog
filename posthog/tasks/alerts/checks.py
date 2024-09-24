@@ -19,7 +19,15 @@ from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager impor
 from posthog.models import AlertConfiguration, Team
 from posthog.models.alert import AlertCheck
 from posthog.tasks.utils import CeleryQueue
-from posthog.schema import TrendsQuery, IntervalType, ChartDisplayType, NodeKind, AlertCalculationInterval, AlertState
+from posthog.schema import (
+    TrendsQuery,
+    IntervalType,
+    ChartDisplayType,
+    NodeKind,
+    AlertCalculationInterval,
+    AlertState,
+    TrendsAlertConfig,
+)
 from posthog.utils import get_from_dict_or_attr
 from posthog.caching.fetch_from_cache import InsightResult
 from posthog.clickhouse.client.limit import limit_concurrency
@@ -105,7 +113,7 @@ def hourly_alerts_task() -> None:
     now = datetime.now(UTC)
     # alerts with 5min left for recalculation
     last_checked_at_before = now - relativedelta(minutes=55)
-    check_all_alerts(AlertCalculationInterval.HOURLY, last_checked_at_before)
+    check_alerts(AlertCalculationInterval.HOURLY, last_checked_at_before)
 
 
 @shared_task(
@@ -119,7 +127,7 @@ def daily_alerts_task() -> None:
     now = datetime.now(UTC)
     # alerts with 1h left for recalculation
     last_checked_at_before = now - relativedelta(hours=23)
-    check_all_alerts(AlertCalculationInterval.DAILY, last_checked_at_before)
+    check_alerts(AlertCalculationInterval.DAILY, last_checked_at_before)
 
 
 @shared_task(
@@ -141,7 +149,7 @@ def checks_cleanup_task() -> None:
     AlertCheck.clean_up_old_checks()
 
 
-def check_all_alerts(interval: AlertCalculationInterval, last_checked_at_before: datetime) -> None:
+def check_alerts(interval: AlertCalculationInterval, last_checked_at_before: datetime) -> None:
     # Use a fixed expiration time since tasks in the chain are executed sequentially
     expire_after = datetime.now(UTC) + timedelta(minutes=30)
 
@@ -173,6 +181,7 @@ def check_alert(alert_id: str) -> None:
         return
 
     insight = alert.insight
+    aggregated_value: Optional[float] = None
     error: Optional[dict] = None
 
     try:
@@ -186,6 +195,7 @@ def check_alert(alert_id: str) -> None:
 
             if kind == "TrendsQuery":
                 query = TrendsQuery.model_validate(query)
+                alert.config = TrendsAlertConfig.model_validate(alert.config)
 
                 filters_override = _calculate_date_range_override_for_alert(query)
 
@@ -251,13 +261,16 @@ def _calculate_date_range_override_for_alert(query: TrendsQuery) -> Optional[dic
 
 
 def _aggregate_insight_result_value(alert: AlertConfiguration, query: TrendsQuery, results: InsightResult) -> float:
-    series_index = alert.config.series_index
-    result = results.result[series_index]
+    if alert.config.type == "TrendsAlertConfig":
+        series_index = alert.config.series_index
+        result = results.result[series_index]
 
-    if query.trendsFilter and query.trendsFilter.display in NON_TIME_SERIES_DISPLAY_TYPES:
-        return result["aggregated_value"]
+        if query.trendsFilter and query.trendsFilter.display in NON_TIME_SERIES_DISPLAY_TYPES:
+            return result["aggregated_value"]
 
-    return result["data"][-1]
+        return result["data"][-1]
+
+    raise ValueError(f"Unsupported alert config type: {alert.config.type}")
 
 
 def _send_notifications_for_breaches(alert: AlertConfiguration, breaches: list[str]) -> None:

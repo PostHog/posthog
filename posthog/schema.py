@@ -1343,7 +1343,7 @@ class TrendsAlertConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    series_index: float
+    series_index: int
     type: Literal["TrendsAlertConfig"] = "TrendsAlertConfig"
 
 

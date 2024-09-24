@@ -158,14 +158,16 @@ class AlertConfiguration(CreatedMetaFields, UUIDModel):
                     "message": f"Error checking alert condition {str(err)}",
                 }
 
-        # If the alert is not already errored, notify user
-        if error and self.state != AlertState.ERRORED:
-            self.state = AlertState.ERRORED
-            notify = True
-        # If the alert is not already firing, notify user
-        elif breaches and self.state != AlertState.FIRING:
-            self.state = AlertState.FIRING
-            notify = True
+        if error:
+            # If the alert is not already errored, notify user
+            if self.state != AlertState.ERRORED:
+                self.state = AlertState.ERRORED
+                notify = True
+        elif breaches:
+            # If the alert is not already firing, notify user
+            if self.state != AlertState.FIRING:
+                self.state = AlertState.FIRING
+                notify = True
         else:
             self.state = AlertState.NOT_FIRING  # Set the Alert to not firing if the threshold is no longer met
             # TODO: Optionally send a resolved notification when alert goes from firing to not_firing?
