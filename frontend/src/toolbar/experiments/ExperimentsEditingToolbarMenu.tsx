@@ -72,7 +72,12 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
                                             return {
                                                 key: variant,
                                                 header: <WebExperimentVariantHeader variant={variant} />,
-                                                content: <WebExperimentVariant variant={variant} />,
+                                                content:
+                                                    variant == 'control' ? (
+                                                        'control variants do not modify the page'
+                                                    ) : (
+                                                        <WebExperimentVariant variant={variant} />
+                                                    ),
                                             }
                                         })}
                                 />
