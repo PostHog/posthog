@@ -208,6 +208,9 @@ dependencies:
   heatmap.js:
     specifier: ^2.0.5
     version: 2.0.5(patch_hash=gydrxrztd4ruyhouu6tu7zh43e)
+  hls.js:
+    specifier: ^1.5.15
+    version: 1.5.15
   husky:
     specifier: ^7.0.4
     version: 7.0.4
@@ -13537,6 +13540,10 @@ packages:
     dependencies:
       '@babel/runtime': 7.24.0
     dev: true
+
+  /hls.js@1.5.15:
+    resolution: {integrity: sha512-6cD7xN6bycBHaXz2WyPIaHn/iXFizE5au2yvY5q9aC4wfihxAr16C9fUy4nxh2a3wOw0fEgLRa9dN6wsYjlpNg==}
+    dev: false
 
   /hogan.js@3.0.2:
     resolution: {integrity: sha512-RqGs4wavGYJWE07t35JQccByczmNUXQT0E12ZYV1VKYu5UiAU9lsos/yBAcf840+zrUQQxgVduCR5/B8nNtibg==}

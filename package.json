@@ -140,6 +140,7 @@
         "kea-test-utils": "^0.2.4",
         "kea-waitfor": "^0.2.1",
         "kea-window-values": "^3.0.0",
+        "hls.js": "^1.5.15",
         "lodash.merge": "^4.6.2",
         "maplibre-gl": "^3.5.1",
         "md5": "^2.3.0",
