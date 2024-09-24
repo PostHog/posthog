@@ -80,14 +80,14 @@ export function Alerts({ alertId }: AlertsProps): JSX.Element {
     // TODO: add info here to sign up for alerts early access
     return (
         <>
-            {alertId !== null ? (
+            {alertId && (
                 <EditAlertModal
                     onClose={() => push(urls.alerts())}
                     isOpen
                     alertId={alertId}
                     onEditSuccess={loadAlerts}
                 />
-            ) : null}
+            )}
 
             <LemonTable
                 loading={alertsLoading}

@@ -162,7 +162,7 @@ function EditAlertForm({ alert, onClose, onEditSuccess, alertState }: EditAlertF
             </LemonModal.Header>
 
             <LemonModal.Content>
-                <div className="space-y-2">
+                <div className="space-y-4">
                     {alert.created_by ? (
                         <UserActivityIndicator
                             at={alert.created_at}

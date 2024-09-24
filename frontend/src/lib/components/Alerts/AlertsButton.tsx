@@ -29,7 +29,7 @@ export function AlertsButton({ insight }: AlertsButtonProps): JSX.Element {
             fullWidth
             disabledReason={
                 !areAlertsSupportedForInsight(insight.query)
-                    ? 'Insights are only available for trends represented as a number. Change the insight representation to add alerts.'
+                    ? 'Insights are only available for trends. Change the insight representation to add alerts.'
                     : undefined
             }
         >

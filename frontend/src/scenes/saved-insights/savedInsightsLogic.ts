@@ -352,7 +352,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
             { alert_id, ...searchParams }, // search params,
             hashParams
         ) => {
-            if (alert_id !== undefined && alert_id !== null) {
+            if (alert_id) {
                 actions.openAlertModal(alert_id)
             } else {
                 actions.closeAlertModal()
