@@ -67,7 +67,7 @@
            AND (has(['x'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$bool_prop'), '^"|"$', ''))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
         WHERE team_id = 2
           AND ((event = 'sign up'
-                AND (if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) IN
+                AND (if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) IN
                        (SELECT DISTINCT person_id
                         FROM cohortpeople
                         WHERE team_id = 2
@@ -2814,7 +2814,7 @@
          count() AS actor_value
   FROM
     (SELECT e.timestamp as timestamp,
-            if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) as person_id,
+            if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
             e.distinct_id as distinct_id,
             e.team_id as team_id
      FROM events e
@@ -2902,7 +2902,7 @@
          count() AS actor_value
   FROM
     (SELECT e.timestamp as timestamp,
-            if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) as person_id,
+            if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
             e.distinct_id as distinct_id,
             e.team_id as team_id
      FROM events e
@@ -2990,7 +2990,7 @@
          count() AS actor_value
   FROM
     (SELECT e.timestamp as timestamp,
-            if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) as person_id,
+            if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
             e.distinct_id as distinct_id,
             e.team_id as team_id
      FROM events e

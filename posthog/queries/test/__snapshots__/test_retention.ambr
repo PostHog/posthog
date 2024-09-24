@@ -234,7 +234,7 @@
           NULL as selected_interval,
           returning_event_query as
        (SELECT toStartOfDay(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC')) AS event_date,
-               if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) as target
+               if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as target
         FROM events e
         LEFT OUTER JOIN
           (SELECT distinct_id,
@@ -258,7 +258,7 @@
                  event_date),
           target_event_query as
        (SELECT DISTINCT toStartOfDay(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC')) AS event_date,
-                        if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) as target,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as target,
                         [
                           dateDiff(
                               'Day',
@@ -321,7 +321,7 @@
           NULL as selected_interval,
           returning_event_query as
        (SELECT toStartOfDay(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC')) AS event_date,
-               if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) as target
+               if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as target
         FROM events e
         LEFT OUTER JOIN
           (SELECT distinct_id,
@@ -338,7 +338,7 @@
                  event_date),
           target_event_query as
        (SELECT DISTINCT toStartOfDay(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC')) AS event_date,
-                        if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) as target,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as target,
                         [
                           dateDiff(
                               'Day',
@@ -393,7 +393,7 @@
           NULL as selected_interval,
           returning_event_query as
        (SELECT toStartOfDay(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'US/Pacific')) AS event_date,
-               if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) as target
+               if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as target
         FROM events e
         LEFT OUTER JOIN
           (SELECT distinct_id,
@@ -410,7 +410,7 @@
                  event_date),
           target_event_query as
        (SELECT DISTINCT toStartOfDay(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'US/Pacific')) AS event_date,
-                        if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) as target,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as target,
                         [
                           dateDiff(
                               'Day',
@@ -465,7 +465,7 @@
           NULL as selected_interval,
           returning_event_query as
        (SELECT toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC'), 0) AS event_date,
-               if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) as target
+               if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as target
         FROM events e
         LEFT OUTER JOIN
           (SELECT distinct_id,
@@ -482,7 +482,7 @@
                  event_date),
           target_event_query as
        (SELECT DISTINCT toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC'), 0) AS event_date,
-                        if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) as target,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as target,
                         [
                           dateDiff(
                               'Week',
@@ -537,7 +537,7 @@
           NULL as selected_interval,
           returning_event_query as
        (SELECT toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC'), 3) AS event_date,
-               if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) as target
+               if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as target
         FROM events e
         LEFT OUTER JOIN
           (SELECT distinct_id,
@@ -554,7 +554,7 @@
                  event_date),
           target_event_query as
        (SELECT DISTINCT toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC'), 3) AS event_date,
-                        if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) as target,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as target,
                         [
                           dateDiff(
                               'Week',
