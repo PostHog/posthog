@@ -248,17 +248,16 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
             toolbarLogic.actions.setVisibleMenu('experiments')
         },
         inspectElementSelected: ({ element, variant, index }) => {
-            if (values.experimentForm) {
-                for (const eVariant in values.experimentForm.variants) {
-                    if (eVariant === variant) {
-                        if (index && values.experimentForm.variants[eVariant].transforms.length <= index) {
-                            const transform = values.experimentForm.variants[eVariant].transforms[index - 1]
-                            transform.selector = element.id ? `#${element.id}` : elementToQuery(element, [])
-                            if (element.textContent) {
-                                transform.text = element.textContent
-                            }
-                            actions.setExperimentFormValue('variants', values.experimentForm.variants)
+            if (values.experimentForm && values.experimentForm.variants) {
+                const eVariant = values.experimentForm.variants[variant]
+                if (eVariant) {
+                    if (index !== null && eVariant.transforms.length > index) {
+                        const transform = eVariant.transforms[index]
+                        transform.selector = element.id ? `#${element.id}` : elementToQuery(element, [])
+                        if (element.textContent) {
+                            transform.text = element.textContent
                         }
+                        actions.setExperimentFormValue('variants', values.experimentForm.variants)
                     }
                 }
                 actions.incrementVariantCounter()
@@ -344,7 +343,7 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
 
                     actions.setExperimentFormValue('variants', values.experimentForm.variants)
                     actions.selectVariant(variant)
-                    actions.inspectForElementWithIndex(variant, webVariant.transforms.length)
+                    actions.inspectForElementWithIndex(variant, webVariant.transforms.length - 1)
                 }
             }
         },

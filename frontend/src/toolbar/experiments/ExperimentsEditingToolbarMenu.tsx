@@ -11,7 +11,7 @@ import { experimentsTabLogic } from '~/toolbar/experiments/experimentsTabLogic'
 import { WebExperimentTransformField } from '~/toolbar/experiments/WebExperimentTransformField'
 
 export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
-    const { selectedExperimentId, inspectingElement, experimentForm } = useValues(experimentsTabLogic)
+    const { selectedExperimentId, inspectingElement, experimentForm, selectedVariant } = useValues(experimentsTabLogic)
     const {
         setExperimentFormValue,
         selectExperiment,
@@ -49,7 +49,7 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
                                     value={experimentForm.name}
                                 />
                             ) : (
-                                <h4>{experimentForm.name}</h4>
+                                <h4 className="col-span-2">{experimentForm.name}</h4>
                             )}
                             <LemonButton
                                 type="secondary"
@@ -71,7 +71,7 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
                                                 {selectedExperimentId === 'new' && variant !== 'control' ? (
                                                     <EditableField
                                                         onSave={(newName) => {
-                                                            if (experimentForm.variants) {
+                                                            if (experimentForm.variants && newName !== variant) {
                                                                 const webVariant = experimentForm.variants[variant]
                                                                 if (webVariant) {
                                                                     experimentForm.variants[newName] = webVariant
@@ -84,12 +84,15 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
                                                             }
                                                             variant = newName
                                                         }}
+                                                        compactButtons="xsmall"
                                                         name="item-name-small"
+                                                        className="col-span-3"
                                                         value={variant}
                                                     />
                                                 ) : (
-                                                    <h2 className="col-span-1">{variant}</h2>
+                                                    <h2 className="col-span-1 ml-2">{variant}</h2>
                                                 )}
+
                                                 <div className="col-span-1">
                                                     <LemonBadge
                                                         className="p-2"
@@ -132,6 +135,7 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
                                                     Remove
                                                 </LemonButton>
                                             </div>
+
                                             <LemonDivider dashed={true} />
                                             <div className="grid grid-cols-3 gap-2 m-1">
                                                 <span className="col-span-1">Elements</span>
@@ -162,7 +166,8 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
                                                             size="small"
                                                             className="col-span-1"
                                                             type={
-                                                                inspectingElement === tIndex + 1
+                                                                inspectingElement === tIndex &&
+                                                                selectedVariant === variant
                                                                     ? 'primary'
                                                                     : 'secondary'
                                                             }
@@ -171,7 +176,7 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
                                                                 selectVariant(variant)
                                                                 inspectForElementWithIndex(
                                                                     variant,
-                                                                    inspectingElement === tIndex + 1 ? null : tIndex + 1
+                                                                    inspectingElement === tIndex ? null : tIndex
                                                                 )
                                                             }}
                                                             icon={<IconRecord />}

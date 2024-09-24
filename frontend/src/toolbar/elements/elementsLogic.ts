@@ -122,7 +122,7 @@ export const elementsLogic = kea<elementsLogicType>([
                 return (
                     inspectEnabledRaw ||
                     (actionsButtonActionsVisible && actionsInspectingElement !== null) ||
-                    experimentsInspectingElement
+                    experimentsInspectingElement !== null
                 )
             },
         ],
