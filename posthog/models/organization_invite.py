@@ -35,6 +35,11 @@ def validate_private_project_access(value):
             raise exceptions.ValidationError('The "level" field must be either "member" or "admin".')
 
 
+class InviteExpiredException(exceptions.ValidationError):
+    def __init__(self, message="This invite has expired. Please ask your admin for a new one."):
+        super().__init__(message, code="expired")
+
+
 class OrganizationInvite(UUIDModel):
     organization = models.ForeignKey(
         "posthog.Organization",
@@ -85,10 +90,7 @@ class OrganizationInvite(UUIDModel):
             )
 
         if self.is_expired():
-            raise exceptions.ValidationError(
-                "This invite has expired. Please ask your admin for a new one.",
-                code="expired",
-            )
+            raise InviteExpiredException()
 
         if user is None and User.objects.filter(email=invite_email).exists():
             raise exceptions.ValidationError(f"/login?next={request_path}", code="account_exists")

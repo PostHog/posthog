@@ -590,7 +590,7 @@ export interface ElementType {
     text?: string
 }
 
-export type ToolbarUserIntent = 'add-action' | 'edit-action' | 'heatmaps'
+export type ToolbarUserIntent = 'add-action' | 'edit-action' | 'heatmaps' | 'add-experiment' | 'edit-experiment'
 export type ToolbarSource = 'url' | 'localstorage'
 export type ToolbarVersion = 'toolbar'
 
@@ -3899,6 +3899,8 @@ export interface DataWarehouseSavedQuery {
     name: string
     query: HogQLQuery
     columns: DatabaseSchemaField[]
+    last_run_at?: string
+    status?: string
 }
 
 export interface DataWarehouseViewLink {
