@@ -1,4 +1,6 @@
 from inline_snapshot import snapshot
+import pytest
+from hogvm.python.utils import UncaughtHogVMException
 from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
 from posthog.cdp.templates.customerio.template_customerio import (
     TemplateCustomerioMigrator,
@@ -116,6 +118,12 @@ class TestTemplateCustomerio(BaseHogFunctionTemplateTest):
         assert self.get_mock_print_calls() == snapshot(
             [("No identifier set. Skipping as at least 1 identifier is needed.",)]
         )
+
+    def test_function_errors_on_bad_status(self):
+        self.mock_fetch_response = lambda *args: {"status": 400, "body": {"error": "error"}}  # noqa
+        with pytest.raises(UncaughtHogVMException) as e:
+            self.run_function(inputs=create_inputs())
+        assert e.value.message == "Error from customer.io api: 400: {'error': 'error'}"
 
 
 class TestTemplateMigration(BaseTest):
