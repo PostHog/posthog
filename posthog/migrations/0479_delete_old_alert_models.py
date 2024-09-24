@@ -5,7 +5,7 @@ from django.db import migrations
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0477_datawarehouse_salesforce_order"),
+        ("posthog", "0478_migrate_encrypted_fields"),
     ]
 
     operations = [

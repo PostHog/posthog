@@ -10,7 +10,7 @@ import posthog.schema
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0478_delete_old_alert_models"),
+        ("posthog", "0479_delete_old_alert_models"),
     ]
 
     operations = [
