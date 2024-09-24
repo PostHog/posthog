@@ -21,12 +21,18 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
     actions({
         runDataWarehouseSavedQuery: (viewId: string) => ({ viewId }),
     }),
-    loaders(({ values }) => ({
+    loaders(({ values, cache, actions }) => ({
         dataWarehouseSavedQueries: [
             [] as DataWarehouseSavedQuery[],
             {
                 loadDataWarehouseSavedQueries: async () => {
                     const savedQueries = await api.dataWarehouseSavedQueries.list()
+
+                    if (router.values.location.pathname.includes(urls.dataModel()) && !cache.pollingInterval) {
+                        cache.pollingInterval = setInterval(actions.loadDataWarehouseSavedQueries, 5000)
+                    } else {
+                        clearInterval(cache.pollingInterval)
+                    }
                     return savedQueries.results
                 },
                 createDataWarehouseSavedQuery: async (view: Partial<DatabaseSchemaViewTable>) => {
@@ -85,9 +91,6 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
     events(({ actions, cache }) => ({
         afterMount: () => {
             actions.loadDataWarehouseSavedQueries()
-            if (!cache.pollingInterval) {
-                cache.pollingInterval = setInterval(actions.loadDataWarehouseSavedQueries, 5000)
-            }
         },
         beforeUnmount: () => {
             clearInterval(cache.pollingInterval)

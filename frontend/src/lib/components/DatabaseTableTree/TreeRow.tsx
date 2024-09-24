@@ -1,5 +1,6 @@
-import { IconChevronDown, IconEllipsis } from '@posthog/icons'
-import { LemonButton, Spinner } from '@posthog/lemon-ui'
+import { IconChevronDown, IconClock, IconEllipsis } from '@posthog/icons'
+import { LemonButton, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { humanFriendlyDetailedTime } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { useCallback, useState } from 'react'
 
@@ -82,6 +83,21 @@ export function TreeFolderRow({ item, depth, onClick, selectedRow, dropdownOverl
         setCollapsed(!collapsed)
     }, [collapsed])
 
+    const getTooltipLabel = (): string => {
+        if (item.table?.type === 'materialized_view') {
+            if (item.table.status === 'Running') {
+                return `Materialization running`
+            }
+            if (item.table.status === 'Failed') {
+                return `Materialization failed`
+            }
+            if (item.table.status === 'Completed') {
+                return `Last materialized ${humanFriendlyDetailedTime(item.table.last_run_at)}`
+            }
+        }
+        return ''
+    }
+
     return (
         <li className="overflow-hidden">
             <LemonButton
@@ -103,10 +119,17 @@ export function TreeFolderRow({ item, depth, onClick, selectedRow, dropdownOverl
                 icon={<IconChevronDown className={collapsed ? 'rotate-270' : undefined} />}
                 tooltip={name}
             >
-                {name}
+                <div className="flex flex-row w-full justify-between">
+                    <span className="truncate">{name}</span>
+                    {item.table?.type === 'materialized_view' && (
+                        <Tooltip title={getTooltipLabel()}>
+                            <IconClock className="text-muted text-xs" />
+                        </Tooltip>
+                    )}
+                </div>
             </LemonButton>
             {!collapsed &&
-                (items.length > 0 ? (
+                (items.length > 0 && !item.isLoading ? (
                     <DatabaseTableTree
                         items={items}
                         depth={depth + 1}

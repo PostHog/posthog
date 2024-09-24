@@ -15,6 +15,7 @@ import { DatabaseSchemaTable } from '~/queries/schema'
 import { ExternalDataSourceType, InsightLogicProps } from '~/types'
 
 import { SOURCE_DETAILS } from '../new/sourceWizardLogic'
+import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import { dataWarehouseSceneLogic } from '../settings/dataWarehouseSceneLogic'
 import { viewLinkLogic } from '../viewLinkLogic'
 import { ViewLinkModal } from '../ViewLinkModal'
@@ -54,13 +55,22 @@ interface DatabaseTableTreeProps {
 }
 
 export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): JSX.Element => {
-    const { dataWarehouseTablesBySourceType, posthogTables, databaseLoading, views, selectedRow, schemaModalIsOpen } =
-        useValues(dataWarehouseSceneLogic)
+    const {
+        dataWarehouseTablesBySourceType,
+        posthogTables,
+        databaseLoading,
+        nonMaterializedViews,
+        materializedViews,
+        selectedRow,
+        schemaModalIsOpen,
+        dataWarehouseSavedQueriesLoading,
+    } = useValues(dataWarehouseSceneLogic)
     const { selectRow, deleteDataWarehouseSavedQuery, deleteDataWarehouseTable, toggleSchemaModal } =
         useActions(dataWarehouseSceneLogic)
     const [collapsed, setCollapsed] = useState(false)
     const { toggleJoinTableModal, selectSourceTable } = useActions(viewLinkLogic)
     const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false)
+    const { runDataWarehouseSavedQuery } = useActions(dataWarehouseViewsLogic)
 
     const deleteButton = (table: DatabaseSchemaTable | null): JSX.Element => {
         if (!table) {
@@ -132,6 +142,17 @@ export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): 
                     Edit view definition
                 </LemonButton>
             )}
+            {table.type === 'view' && (
+                <LemonButton
+                    onClick={() => {
+                        runDataWarehouseSavedQuery(table.id)
+                    }}
+                    data-attr="schema-list-item-materialize"
+                    fullWidth
+                >
+                    Materialize
+                </LemonButton>
+            )}
             {deleteButton(table)}
         </>
     )
@@ -173,7 +194,7 @@ export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): 
                 },
                 {
                     name: 'Views',
-                    items: views.map((table) => ({
+                    items: nonMaterializedViews.map((table) => ({
                         name: table.name,
                         table: table,
                         dropdownOverlay: dropdownOverlay(table),
@@ -184,7 +205,22 @@ export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): 
                         })),
                     })),
                     emptyLabel: <span className="text-muted">No views found</span>,
-                    isLoading: databaseLoading,
+                    isLoading: databaseLoading || dataWarehouseSavedQueriesLoading,
+                },
+                {
+                    name: 'Materialized views',
+                    items: materializedViews.map((table) => ({
+                        name: table.name,
+                        table: table,
+                        dropdownOverlay: dropdownOverlay(table),
+                        items: Object.values(table.fields).map((column) => ({
+                            name: column.name,
+                            type: column.type,
+                            icon: <IconDatabase />,
+                        })),
+                    })),
+                    emptyLabel: <span className="text-muted">No materialized views found</span>,
+                    isLoading: databaseLoading || dataWarehouseSavedQueriesLoading,
                 },
             ]
 
@@ -214,12 +250,21 @@ export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): 
             },
             {
                 name: 'Views',
-                items: views.map((table) => ({
+                items: nonMaterializedViews.map((table) => ({
                     table: table,
                     icon: <IconBrackets />,
                 })),
                 emptyLabel: <span className="text-muted">No views found</span>,
-                isLoading: databaseLoading,
+                isLoading: databaseLoading || dataWarehouseSavedQueriesLoading,
+            },
+            {
+                name: 'Materialized views',
+                items: materializedViews.map((table) => ({
+                    table: table,
+                    icon: <IconBrackets />,
+                })),
+                emptyLabel: <span className="text-muted">No materialized views found</span>,
+                isLoading: databaseLoading || dataWarehouseSavedQueriesLoading,
             },
         ]
 
