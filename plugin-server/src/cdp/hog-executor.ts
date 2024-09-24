@@ -35,6 +35,12 @@ const hogFunctionFilterDuration = new Histogram({
     buckets: [0, 10, 20, 50, 100, 200],
 })
 
+const hogFunctionStateMemory = new Histogram({
+    name: 'cdp_hog_function_execution_state_memory_kb',
+    help: 'The amount of memory in kb used by a hog function',
+    buckets: [0, 50, 100, 250, 500, 1000, 2000, 3000, 5000, Infinity],
+})
+
 export function execHog(bytecode: any, options?: ExecOptions): ExecResult {
     return exec(bytecode, {
         timeout: DEFAULT_TIMEOUT_MS,
@@ -389,6 +395,19 @@ export class HogExecutor {
                     messages.push(`Sync: ${execRes.state.syncDuration}ms.`)
                     messages.push(`Mem: ${execRes.state.maxMemUsed} bytes.`)
                     messages.push(`Ops: ${execRes.state.ops}.`)
+
+                    hogFunctionStateMemory.observe(execRes.state.maxMemUsed / 1024)
+
+                    if (execRes.state.maxMemUsed > 1024 * 1024) {
+                        // If the memory used is more than a MB then we should log it
+                        status.warn('🦔', `[HogExecutor] Function used more than 1MB of memory`, {
+                            hogFunctionId: invocation.hogFunction.id,
+                            hogFunctionName: invocation.hogFunction.name,
+                            teamId: invocation.teamId,
+                            eventId: invocation.globals.event.uuid,
+                            memoryUsedKb: execRes.state.maxMemUsed / 1024,
+                        })
+                    }
                 }
                 result.logs.push({
                     level: 'debug',
