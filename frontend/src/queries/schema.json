@@ -4618,13 +4618,13 @@
         "ExperimentTrendQuery": {
             "additionalProperties": false,
             "properties": {
-                "count_source": {
+                "count_query": {
                     "$ref": "#/definitions/TrendsQuery"
                 },
                 "experiment_id": {
                     "type": "integer"
                 },
-                "exposure_source": {
+                "exposure_query": {
                     "$ref": "#/definitions/TrendsQuery"
                 },
                 "kind": {
@@ -4639,7 +4639,7 @@
                     "$ref": "#/definitions/ExperimentTrendQueryResponse"
                 }
             },
-            "required": ["count_source", "experiment_id", "exposure_source", "kind"],
+            "required": ["count_query", "experiment_id", "kind"],
             "type": "object"
         },
         "ExperimentTrendQueryResponse": {

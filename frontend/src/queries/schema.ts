@@ -1588,8 +1588,8 @@ export interface ExperimentFunnelQuery extends DataNode<ExperimentFunnelQueryRes
 
 export interface ExperimentTrendQuery extends DataNode<ExperimentTrendQueryResponse> {
     kind: NodeKind.ExperimentTrendQuery
-    count_source: TrendsQuery
-    exposure_source: TrendsQuery
+    count_query: TrendsQuery
+    exposure_query?: TrendsQuery // Defaults to $feature_flag_called if not specified
     experiment_id: integer
 }
 
