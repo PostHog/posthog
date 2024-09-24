@@ -594,3 +594,84 @@ export function getPropertyValueByPath(properties: Properties, [firstKey, ...nes
 export async function sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms))
 }
+
+// Values of the $lib property that have been seen in the wild
+export const KNOWN_LIB_VALUES = new Set([
+    'web',
+    'posthog-python',
+    '',
+    'js',
+    'posthog-node',
+    'posthog-react-native',
+    'posthog-ruby',
+    'posthog-ios',
+    'posthog-android',
+    'Segment',
+    'posthog-go',
+    'analytics-node',
+    'RudderLabs JavaScript SDK',
+    'mobile',
+    'posthog-php',
+    'zapier',
+    'Webflow',
+    'posthog-flutter',
+    'com.rudderstack.android.sdk.core',
+    'rudder-analytics-python',
+    'rudder-ios-library',
+    'rudder-analytics-php',
+    'macos',
+    'service_data',
+    'flow',
+    'PROD',
+    'unknown',
+    'api',
+    'unbounce',
+    'backend',
+    'analytics-python',
+    'windows',
+    'cf-analytics-go',
+    'server',
+    'core',
+    'Marketing',
+    'Product',
+    'com.rudderstack.android.sdk',
+    'net-gibraltar',
+    'posthog-java',
+    'rudderanalytics-ruby',
+    'GSHEETS_AIRBYTE',
+    'posthog-plugin-server',
+    'DotPostHog',
+    'analytics-go',
+    'serverless',
+    'wordpress',
+    'hog_function',
+    'http',
+    'desktop',
+    'elixir',
+    'DEV',
+    'RudderAnalytics.NET',
+    'PR',
+    'railway',
+    'HTTP',
+    'extension',
+    'cyclotron-testing',
+    'RudderStack Shopify Cloud',
+    'GSHEETS_MONITOR',
+    'Rudder',
+    'API',
+    'rudder-sdk-ruby-sync',
+    'curl',
+])
+
+export const getKnownLibValueOrSentinel = (lib: string): string => {
+    if (lib === '') {
+        return '$empty'
+    }
+    if (!lib) {
+        return '$nil'
+    }
+    if (KNOWN_LIB_VALUES.has(lib)) {
+        return lib
+    }
+    return '$other'
+}

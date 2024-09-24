@@ -2,22 +2,23 @@ import time
 from typing import Optional
 from uuid import UUID
 
+import requests
 from celery import shared_task
 from django.conf import settings
 from django.db import connection
 from django.utils import timezone
 from prometheus_client import Gauge
 from redis import Redis
-import requests
 from structlog import get_logger
 
-from posthog.clickhouse.client.limit import limit_concurrency, CeleryConcurrencyLimitExceeded
+from posthog.clickhouse.client.limit import CeleryConcurrencyLimitExceeded, limit_concurrency
 from posthog.cloud_utils import is_cloud
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.hogql.constants import LimitContext
 from posthog.metrics import pushed_metrics_registry
 from posthog.ph_client import get_ph_client
 from posthog.redis import get_client
+from posthog.settings import CLICKHOUSE_CLUSTER
 from posthog.tasks.utils import CeleryQueue
 
 logger = get_logger(__name__)
@@ -408,11 +409,14 @@ def clickhouse_errors_count() -> None:
             name,
             value as errors,
             dateDiff('minute', last_error_time, now()) minutes_ago
-        from clusterAllReplicas('posthog', system, errors)
+        from clusterAllReplicas(%(cluster)s, system, errors)
         where code in (999, 225, 242)
         order by minutes_ago
     """
-    rows = sync_execute(QUERY)
+    params = {
+        "cluster": CLICKHOUSE_CLUSTER,
+    }
+    rows = sync_execute(QUERY, params)
     with pushed_metrics_registry("celery_clickhouse_errors") as registry:
         errors_gauge = Gauge(
             "posthog_celery_clickhouse_errors",
@@ -577,10 +581,10 @@ def monitoring_check_clickhouse_schema_drift() -> None:
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.LONG_RUNNING.value)
-def calculate_cohort() -> None:
+def calculate_cohort(parallel_count: int) -> None:
     from posthog.tasks.calculate_cohort import calculate_cohorts
 
-    calculate_cohorts()
+    calculate_cohorts(parallel_count)
 
 
 class Polling:

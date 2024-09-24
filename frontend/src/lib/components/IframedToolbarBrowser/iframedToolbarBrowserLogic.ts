@@ -9,6 +9,7 @@ import {
 import { LemonBannerProps } from 'lib/lemon-ui/LemonBanner'
 import posthog from 'posthog-js'
 import { RefObject } from 'react'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { ToolbarUserIntent } from '~/types'
 
@@ -18,6 +19,7 @@ export type IframedToolbarBrowserLogicProps = {
     iframeRef: RefObject<HTMLIFrameElement | null>
     clearBrowserUrlOnUnmount?: boolean
     userIntent?: ToolbarUserIntent
+    automaticallyAuthorizeBrowserUrl?: boolean
 }
 
 export interface IFrameBanner {
@@ -35,17 +37,28 @@ export const UserIntentVerb: {
 
 export const iframedToolbarBrowserLogic = kea<iframedToolbarBrowserLogicType>([
     path(['lib', 'components', 'iframedToolbarBrowser', 'iframedToolbarBrowserLogic']),
-    props({} as IframedToolbarBrowserLogicProps),
+    props({
+        automaticallyAuthorizeBrowserUrl: false,
+    } as IframedToolbarBrowserLogicProps),
 
     connect({
         values: [
             authorizedUrlListLogic({ actionId: null, type: AuthorizedUrlListType.TOOLBAR_URLS }),
             ['urlsKeyed', 'checkUrlIsAuthorized'],
+            teamLogic,
+            ['currentTeam'],
+        ],
+        actions: [
+            authorizedUrlListLogic({ actionId: null, type: AuthorizedUrlListType.TOOLBAR_URLS }),
+            ['addUrl'],
+            teamLogic,
+            ['updateCurrentTeamSuccess'],
         ],
     }),
 
     actions({
         setBrowserUrl: (url: string | null) => ({ url }),
+        setProposedBrowserUrl: (url: string | null) => ({ url }),
         onIframeLoad: true,
         sendToolbarMessage: (type: PostHogAppToolbarEvent, payload?: Record<string, any>) => ({
             type,
@@ -140,6 +153,12 @@ export const iframedToolbarBrowserLogic = kea<iframedToolbarBrowserLogicType>([
                 setIframeBanner: (_, { banner }) => banner,
             },
         ],
+        proposedBrowserUrl: [
+            null as string | null,
+            {
+                setProposedBrowserUrl: (_, { url }) => url,
+            },
+        ],
     })),
 
     selectors({
@@ -150,6 +169,15 @@ export const iframedToolbarBrowserLogic = kea<iframedToolbarBrowserLogicType>([
                     return false
                 }
                 return checkUrlIsAuthorized(browserUrl)
+            },
+        ],
+        isProposedBrowserUrlAuthorized: [
+            (s) => [s.proposedBrowserUrl, s.checkUrlIsAuthorized],
+            (proposedBrowserUrl, checkUrlIsAuthorized) => {
+                if (!proposedBrowserUrl) {
+                    return false
+                }
+                return checkUrlIsAuthorized(proposedBrowserUrl)
             },
         ],
 
@@ -179,6 +207,15 @@ export const iframedToolbarBrowserLogic = kea<iframedToolbarBrowserLogicType>([
                 },
                 '*'
             )
+        },
+        setProposedBrowserUrl: ({ url }) => {
+            if (url) {
+                if (props.automaticallyAuthorizeBrowserUrl && !values.isProposedBrowserUrlAuthorized) {
+                    actions.addUrl(url)
+                } else {
+                    actions.setBrowserUrl(url)
+                }
+            }
         },
         // heatmaps
         patchHeatmapFilters: ({ filters }) => {
@@ -333,6 +370,16 @@ export const iframedToolbarBrowserLogic = kea<iframedToolbarBrowserLogicType>([
                 level: banner?.level,
                 message: banner?.message,
             })
+        },
+        updateCurrentTeamSuccess: () => {
+            if (
+                props.automaticallyAuthorizeBrowserUrl &&
+                values.proposedBrowserUrl &&
+                values.currentTeam?.app_urls?.includes(values.proposedBrowserUrl)
+            ) {
+                actions.setBrowserUrl(values.proposedBrowserUrl)
+                actions.setProposedBrowserUrl(null)
+            }
         },
     })),
 

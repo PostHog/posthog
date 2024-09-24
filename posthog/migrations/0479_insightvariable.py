@@ -8,7 +8,7 @@ import posthog.models.utils
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0475_alter_externaldatasource_source_type"),
+        ("posthog", "0478_migrate_encrypted_fields"),
     ]
 
     operations = [
