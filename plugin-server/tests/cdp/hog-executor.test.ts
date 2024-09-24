@@ -1,11 +1,24 @@
+import { truth } from 'kea-test-utils'
 import { DateTime } from 'luxon'
 
 import { HogExecutor } from '../../src/cdp/hog-executor'
 import { HogFunctionManager } from '../../src/cdp/hog-function-manager'
 import { HogFunctionInvocation, HogFunctionType } from '../../src/cdp/types'
+import { Hub } from '../../src/types'
 import { createHub } from '../../src/utils/db/hub'
+import { status } from '../../src/utils/status'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from './examples'
 import { createHogExecutionGlobals, createHogFunction, createInvocation } from './fixtures'
+
+jest.mock('../../src/utils/status', () => ({
+    status: {
+        error: jest.fn(),
+        info: jest.fn(),
+        warn: jest.fn(),
+        debug: jest.fn(),
+        updatePrompt: jest.fn(),
+    },
+}))
 
 const setupFetchResponse = (invocation: HogFunctionInvocation, options?: { status?: number; body?: string }): void => {
     invocation.queue = 'hog'
@@ -26,6 +39,7 @@ const setupFetchResponse = (invocation: HogFunctionInvocation, options?: { statu
 describe('Hog Executor', () => {
     jest.setTimeout(1000)
     let executor: HogExecutor
+    let hub: Hub
 
     const mockFunctionManager = {
         reloadAllHogFunctions: jest.fn(),
@@ -36,7 +50,7 @@ describe('Hog Executor', () => {
     beforeEach(async () => {
         jest.useFakeTimers()
         jest.setSystemTime(new Date('2024-06-07T12:00:00.000Z').getTime())
-        const hub = await createHub()
+        hub = await createHub()
         executor = new HogExecutor(hub, mockFunctionManager as any as HogFunctionManager)
     })
 
@@ -228,6 +242,40 @@ describe('Hog Executor', () => {
             )
             expect(resultsShouldMatch.matchingFunctions).toHaveLength(1)
             expect(resultsShouldMatch.nonMatchingFunctions).toHaveLength(0)
+        })
+
+        it('logs telemetry', async () => {
+            hub = await createHub({ CDP_HOG_FILTERS_TELEMETRY_TEAMS: '*' })
+            executor = new HogExecutor(hub, mockFunctionManager as any as HogFunctionManager)
+
+            const fn = createHogFunction({
+                ...HOG_EXAMPLES.simple_fetch,
+                ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                ...HOG_FILTERS_EXAMPLES.broken_filters,
+            })
+            mockFunctionManager.getTeamHogFunctions.mockReturnValue([fn])
+            const resultsShouldMatch = executor.findMatchingFunctions(
+                createHogExecutionGlobals({
+                    groups: {},
+                    event: {
+                        event: '$pageview',
+                        properties: {
+                            $current_url: 'https://posthog.com',
+                        },
+                    } as any,
+                })
+            )
+            expect(resultsShouldMatch.erroredFunctions).toHaveLength(1)
+            expect(status.error).toHaveBeenCalledWith(
+                '🦔',
+                expect.stringContaining('Error filtering function'),
+                truth(
+                    (obj) =>
+                        'telemetry' in obj.result.state &&
+                        Array.isArray(obj.result.state.telemetry) &&
+                        obj.result.state.telemetry[0][3] === 'START'
+                )
+            )
         })
 
         it('can use elements_chain_texts', () => {
@@ -491,6 +539,25 @@ describe('Hog Executor', () => {
             expect(result?.logs[1].message).toMatchInlineSnapshot(
                 `"postHogCapture was called from an event that already executed this function. To prevent infinite loops, the event was not captured."`
             )
+        })
+    })
+
+    describe('telemetry', () => {
+        it('logs telemetry', () => {
+            const fn = createHogFunction({
+                ...HOG_EXAMPLES.telemetry,
+                ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                ...HOG_FILTERS_EXAMPLES.no_filters,
+            })
+
+            const result = executor.execute(createInvocation(fn))
+            expect(result.logs.map((log) => log.message)).toMatchInlineSnapshot(`
+                Array [
+                  "Executing function",
+                  "Function completed in 0ms. Sync: 0ms. Mem: 169 bytes. Ops: 28.",
+                  "Telemetry: {\\"event\\":\\"test\\",\\"properties\\":{\\"$lib_version\\":\\"1.2.3\\"}}",
+                ]
+            `)
         })
     })
 })

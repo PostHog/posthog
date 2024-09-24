@@ -95,7 +95,7 @@ export class HogExecutor {
     private telemetryMatcher: ValueMatcher<number>
 
     constructor(private hub: Hub, private hogFunctionManager: HogFunctionManager) {
-        this.telemetryMatcher = buildIntegerMatcher(this.hub.CDP_CYCLOTRON_ENABLED_TEAMS, true)
+        this.telemetryMatcher = buildIntegerMatcher(this.hub.CDP_HOG_FILTERS_TELEMETRY_TEAMS, true)
     }
 
     findMatchingFunctions(event: HogFunctionInvocationGlobals): {
