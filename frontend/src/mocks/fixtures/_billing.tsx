@@ -991,7 +991,7 @@ export const billingJson: BillingType = {
                         },
                         {
                             key: 'session_replay_sampling',
-                            name: 'Sample recorded sessions',
+                            name: 'Control recorded sessions',
                             description: 'Restrict the percentage of sessions that will be recorded.',
                             unit: null,
                             limit: null,
@@ -1135,7 +1135,7 @@ export const billingJson: BillingType = {
                         },
                         {
                             key: 'session_replay_sampling',
-                            name: 'Sample recorded sessions',
+                            name: 'Control recorded sessions',
                             description: 'Restrict the percentage of sessions that will be recorded.',
                             unit: null,
                             limit: null,
@@ -1351,7 +1351,7 @@ export const billingJson: BillingType = {
                 },
                 {
                     key: 'session_replay_sampling',
-                    name: 'Sample recorded sessions',
+                    name: 'Control recorded sessions',
                     description: 'Restrict the percentage of sessions that will be recorded.',
                     images: null,
                     icon_key: 'IconSampling',
