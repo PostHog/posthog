@@ -159,15 +159,7 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
                             experimentToSave
                         )
                     }
-                    breakpoint()
-                } catch (e) {
-                    const apiError = e as ApiError
-                    if (apiError) {
-                        lemonToast.error(`Experiment save failed: ${apiError.data.detail}`)
-                    }
-                }
 
-                if (response) {
                     experimentsLogic.actions.updateExperiment({ experiment: response })
                     actions.selectExperiment(null)
 
@@ -177,6 +169,12 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
                             action: () => window.open(`${apiURL}${urls.experiment(response.id)}`, '_blank'),
                         },
                     })
+                    breakpoint()
+                } catch (e) {
+                    const apiError = e as ApiError
+                    if (apiError) {
+                        lemonToast.error(`Experiment save failed: ${apiError.data.detail}`)
+                    }
                 }
             },
 
