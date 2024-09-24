@@ -1,59 +1,63 @@
+import json
 import os
 import time
-from contextlib import contextmanager
-from datetime import datetime, timedelta, UTC
-from prometheus_client import Histogram
-import json
-from typing import Any, cast
 from collections.abc import Generator
-
-from django.conf import settings
+from contextlib import contextmanager
+from datetime import UTC, datetime, timedelta
+from typing import Any, cast
 
 import posthoganalytics
 import requests
+from django.conf import settings
 from django.contrib.auth.models import AnonymousUser
 from django.core.cache import cache
-from django.http import JsonResponse, HttpResponse
+from django.http import HttpResponse, JsonResponse
 from drf_spectacular.utils import extend_schema
 from loginas.utils import is_impersonated_session
+from prometheus_client import Counter, Histogram
 from rest_framework import exceptions, request, serializers, viewsets
-from posthog.api.utils import action
 from rest_framework.renderers import JSONRenderer
 from rest_framework.response import Response
 from rest_framework.utils.encoders import JSONEncoder
 
+from ee.session_recordings.ai.error_clustering import error_clustering
+from ee.session_recordings.ai.similar_recordings import similar_recordings
+from ee.session_recordings.session_summary.summarize_session import summarize_recording
 from posthog.api.person import MinimalPersonSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.utils import safe_clickhouse_string
-from posthog.auth import SharingAccessTokenAuthentication
+from posthog.api.utils import action, safe_clickhouse_string
+from posthog.auth import PersonalAPIKeyAuthentication, SharingAccessTokenAuthentication
 from posthog.cloud_utils import is_cloud
 from posthog.constants import SESSION_RECORDINGS_FILTER_IDS
-from posthog.models import User, Team
+from posthog.models import Team, User
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.person.person import PersonDistinctId
-from posthog.schema import QueryTiming, HogQLQueryModifiers
+from posthog.rate_limit import (
+    ClickHouseBurstRateThrottle,
+    ClickHouseSustainedRateThrottle,
+    PersonalApiKeyRateThrottle,
+)
+from posthog.schema import HogQLQueryModifiers, QueryTiming
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.models.session_recording_event import (
     SessionRecordingViewed,
 )
-
 from posthog.session_recordings.queries.session_recording_list_from_filters import (
-    SessionRecordingListFromFilters,
     ReplayFiltersEventsSubQuery,
+    SessionRecordingListFromFilters,
 )
 from posthog.session_recordings.queries.session_recording_properties import (
     SessionRecordingProperties,
 )
-from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle, PersonalApiKeyRateThrottle
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
-from posthog.session_recordings.realtime_snapshots import get_realtime_snapshots, publish_subscription
-from ee.session_recordings.session_summary.summarize_session import summarize_recording
-from ee.session_recordings.ai.similar_recordings import similar_recordings
-from ee.session_recordings.ai.error_clustering import error_clustering
-from posthog.session_recordings.snapshots.convert_legacy_snapshots import convert_original_version_lts_recording
+from posthog.session_recordings.realtime_snapshots import (
+    get_realtime_snapshots,
+    publish_subscription,
+)
+from posthog.session_recordings.snapshots.convert_legacy_snapshots import (
+    convert_original_version_lts_recording,
+)
 from posthog.storage import object_storage
-from prometheus_client import Counter
-from posthog.auth import PersonalAPIKeyAuthentication
 
 SNAPSHOTS_BY_PERSONAL_API_KEY_COUNTER = Counter(
     "snapshots_personal_api_key_counter",
@@ -290,6 +294,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         filter = SessionRecordingsFilter(request=request, team=self.team)
+        self._maybe_report_recording_list_filters_changed(request)
         return list_recordings_response(filter, request, self.get_serializer_context())
 
     @extend_schema(
@@ -432,6 +437,31 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return self._stream_blob_to_client(recording, request, event_properties)
         else:
             raise exceptions.ValidationError("Invalid source must be one of [realtime, blob]")
+
+    def _maybe_report_recording_list_filters_changed(self, request: request.Request):
+        """
+        If the applied filters were modified by the user, capture only the partial filters
+        applied (not the full filters object, since that's harder to search through in event props).
+        Take each key from the filter and change it to `partial_filter_chosen_{key}`
+        """
+        user_modified_filters = request.GET.get("user_modified_filters")
+        if user_modified_filters:
+            user_modified_filters_obj = json.loads(user_modified_filters)
+            partial_filters = {
+                f"partial_filter_chosen_{key}": value for key, value in user_modified_filters_obj.items()
+            }
+            current_url = request.headers.get("Referer")
+            session_id = request.headers.get("X-POSTHOG-SESSION-ID")
+
+            posthoganalytics.capture(
+                str(cast(User, request.user).distinct_id),
+                "recording list filters changed",
+                {
+                    "$current_url": current_url,
+                    "$session_id": session_id,
+                    **partial_filters,
+                },
+            )
 
     def _gather_session_recording_sources(self, recording: SessionRecording) -> Response:
         might_have_realtime = True

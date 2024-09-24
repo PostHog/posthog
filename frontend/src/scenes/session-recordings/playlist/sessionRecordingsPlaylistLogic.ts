@@ -15,7 +15,6 @@ import {
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectClean } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import posthog from 'posthog-js'
 
 import { NodeKind, RecordingsQuery, RecordingsQueryResponse } from '~/queries/schema'
 import {
@@ -93,19 +92,6 @@ const DEFAULT_PERSON_RECORDING_FILTERS: RecordingUniversalFilters = {
 
 export const getDefaultFilters = (personUUID?: PersonUUID): RecordingUniversalFilters => {
     return personUUID ? DEFAULT_PERSON_RECORDING_FILTERS : DEFAULT_RECORDING_FILTERS
-}
-
-const capturePartialFilters = (filters: Partial<RecordingUniversalFilters>): void => {
-    // capture only the partial filters applied (not the full filters object)
-    // take each key from the filter and change it to `partial_filter_chosen_${key}`
-    const partialFilters = Object.keys(filters).reduce((acc, key) => {
-        acc[`partial_filter_chosen_${key}`] = filters[key]
-        return acc
-    }, {})
-
-    posthog.capture('recording list filters changed', {
-        ...partialFilters,
-    })
 }
 
 export function convertUniversalFiltersToRecordingsQuery(universalFilters: RecordingUniversalFilters): RecordingsQuery {
@@ -303,7 +289,10 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         }),
         loadAllRecordings: true,
         loadPinnedRecordings: true,
-        loadSessionRecordings: (direction?: 'newer' | 'older') => ({ direction }),
+        loadSessionRecordings: (direction?: 'newer' | 'older', userModifiedFilters?: Record<string, any>) => ({
+            direction,
+            userModifiedFilters,
+        }),
         maybeLoadSessionRecordings: (direction?: 'newer' | 'older') => ({ direction }),
         summarizeSession: (id: SessionRecordingType['id']) => ({ id }),
         loadNext: true,
@@ -355,12 +344,16 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 order: 'start_time',
             } as RecordingsQueryResponse & { order: RecordingsQuery['order'] },
             {
-                loadSessionRecordings: async ({ direction }, breakpoint) => {
+                loadSessionRecordings: async ({ direction, userModifiedFilters }, breakpoint) => {
                     const params: RecordingsQuery = {
                         ...convertUniversalFiltersToRecordingsQuery(values.filters),
                         person_uuid: props.personUUID ?? '',
                         order: values.orderBy,
                         limit: RECORDINGS_LIMIT,
+                    }
+
+                    if (userModifiedFilters) {
+                        params.user_modified_filters = userModifiedFilters
                     }
 
                     if (direction === 'older') {
@@ -560,9 +553,8 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             actions.loadPinnedRecordings()
         },
         setFilters: ({ filters }) => {
-            actions.loadSessionRecordings()
+            actions.loadSessionRecordings(undefined, filters)
             props.onFiltersChange?.(values.filters)
-            capturePartialFilters(filters)
             actions.loadEventsHaveSessionId()
         },
 
