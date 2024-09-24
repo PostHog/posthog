@@ -281,13 +281,9 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
         for value in payloads.values():
             try:
                 if isinstance(value, str):
-                    # If it's a string, try to parse it as JSON
                     json_value = json.loads(value)
                 else:
-                    # If it's not a string, assume it's already a valid JSON object
                     json_value = value
-
-                # Validate that the parsed/original value is JSON serializable
                 json.dumps(json_value)
 
             except json.JSONDecodeError:
