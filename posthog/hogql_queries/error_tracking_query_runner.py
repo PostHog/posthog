@@ -131,48 +131,24 @@ class ErrorTrackingQueryRunner(QueryRunner):
                 ast.Or(
                     exprs=[
                         ast.CompareOperation(
-                            op=ast.CompareOperationOp.Gt,
-                            left=ast.Call(
-                                name="position",
-                                args=[
-                                    ast.Field(chain=["properties", "$exception_list"]),
-                                    ast.Constant(value=self.query.searchQuery),
-                                ],
-                            ),
-                            right=ast.Constant(value=0),
+                            op=ast.CompareOperationOp.ILike,
+                            left=ast.Field(chain=["properties", "$exception_list"]),
+                            right=ast.Constant(value=self.query.searchQuery),
                         ),
                         ast.CompareOperation(
-                            op=ast.CompareOperationOp.Gt,
-                            left=ast.Call(
-                                name="position",
-                                args=[
-                                    ast.Field(chain=["properties", "$exception_stack_trace_raw"]),
-                                    ast.Constant(value=self.query.searchQuery),
-                                ],
-                            ),
-                            right=ast.Constant(value=0),
+                            op=ast.CompareOperationOp.ILike,
+                            left=ast.Field(chain=["properties", "$exception_stack_trace_raw"]),
+                            right=ast.Constant(value=self.query.searchQuery),
                         ),
                         ast.CompareOperation(
-                            op=ast.CompareOperationOp.Gt,
-                            left=ast.Call(
-                                name="position",
-                                args=[
-                                    ast.Field(chain=["properties", "$exception_message"]),
-                                    ast.Constant(value=self.query.searchQuery),
-                                ],
-                            ),
-                            right=ast.Constant(value=0),
+                            op=ast.CompareOperationOp.ILike,
+                            left=ast.Field(chain=["properties", "$exception_message"]),
+                            right=ast.Constant(value=self.query.searchQuery),
                         ),
                         ast.CompareOperation(
-                            op=ast.CompareOperationOp.Gt,
-                            left=ast.Call(
-                                name="position",
-                                args=[
-                                    ast.Field(chain=["properties", "$exception_type"]),
-                                    ast.Constant(value=self.query.searchQuery),
-                                ],
-                            ),
-                            right=ast.Constant(value=0),
+                            op=ast.CompareOperationOp.ILike,
+                            left=ast.Field(chain=["properties", "$exception_type"]),
+                            right=ast.Constant(value=self.query.searchQuery),
                         ),
                     ]
                 )
