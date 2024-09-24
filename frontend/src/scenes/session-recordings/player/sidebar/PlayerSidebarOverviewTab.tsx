@@ -3,7 +3,6 @@ import { useValues } from 'kea'
 import { PropertyIcon } from 'lib/components/PropertyIcon'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { getCoreFilterDefinition } from 'lib/taxonomy'
-import { ReactNode } from 'react'
 import { countryCodeToName } from 'scenes/insights/views/WorldMap'
 
 import { SessionRecordingType } from '~/types'
@@ -12,8 +11,10 @@ import { playerMetaLogic } from '../playerMetaLogic'
 import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 
 interface OverviewItem {
+    property: string
     label: string
-    value: ReactNode
+    value: string
+    type: 'text' | 'icon'
     tooltipTitle?: string
 }
 
@@ -28,7 +29,9 @@ function sessionPlayerMetaDataToOverviewItems(sessionPlayerMetaData: SessionReco
         if (sessionPlayerMetaData?.[property]) {
             items.push({
                 label: getCoreFilterDefinition(property, TaxonomicFilterGroupType.Replay)?.label ?? property,
-                value: sessionPlayerMetaData[property],
+                value: `${sessionPlayerMetaData[property]}`,
+                type: 'text',
+                property,
             })
         }
     })
@@ -49,8 +52,10 @@ function sessionPlayerMetaDataToOverviewItems(sessionPlayerMetaData: SessionReco
 
             items.push({
                 label: getCoreFilterDefinition(property, TaxonomicFilterGroupType.PersonProperties)?.label ?? property,
-                value: <PropertyIcon property={property} value={value} />,
+                value,
                 tooltipTitle,
+                type: 'icon',
+                property,
             })
         }
     })
@@ -63,7 +68,9 @@ function OverviewCard({ item }: { item: OverviewItem }): JSX.Element {
         <Tooltip title={item.tooltipTitle}>
             <div className="flex-1 p-2 text-center">
                 <div className="text-sm">{item.label}</div>
-                <div className="text-lg font-semibold">{item.value}</div>
+                <div className="text-lg font-semibold">
+                    {item.type === 'icon' ? <PropertyIcon property={item.property} value={item.value} /> : item.value}
+                </div>
             </div>
         </Tooltip>
     )
