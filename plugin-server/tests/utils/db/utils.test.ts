@@ -161,6 +161,62 @@ describe('personInitialAndUTMProperties()', () => {
         })
     })
 
+    it('add initial campaign properties unless set_once initial properties are set', () => {
+        // baseline, ensure they are added
+        const properties1 = {
+            utm_medium: 'foo',
+        }
+        expect(personInitialAndUTMProperties(properties1)).toMatchInlineSnapshot(`
+            Object {
+              "$set": Object {
+                "utm_medium": "foo",
+              },
+              "$set_once": Object {
+                "$initial_utm_medium": "foo",
+              },
+              "utm_medium": "foo",
+            }
+        `)
+
+        // not add if set_once initial campaign properties are set
+        const properties2 = {
+            utm_medium: 'foo',
+            $set_once: {
+                $initial_utm_source: 'bar',
+            },
+        }
+        expect(personInitialAndUTMProperties(properties2)).toMatchInlineSnapshot(`
+            Object {
+              "$set": Object {
+                "utm_medium": "foo",
+              },
+              "$set_once": Object {
+                "$initial_utm_source": "bar",
+              },
+              "utm_medium": "foo",
+            }
+        `)
+
+        // not add if set_once initial campaign properties are set
+        const properties3 = {
+            utm_medium: 'foo',
+            $set_once: {
+                $initial_referring_domain: 'example.com',
+            },
+        }
+        expect(personInitialAndUTMProperties(properties3)).toMatchInlineSnapshot(`
+            Object {
+              "$set": Object {
+                "utm_medium": "foo",
+              },
+              "$set_once": Object {
+                "$initial_referring_domain": "example.com",
+              },
+              "utm_medium": "foo",
+            }
+        `)
+    })
+
     it('handles a real anonymous event from posthog.com', () => {
         // I trimmed the feature flag properties as there were tons of them and they don't add anything to the test
         const properties = {
