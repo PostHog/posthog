@@ -30,6 +30,8 @@ export type CyclotronWorkerConfig = {
     pollDelayMs?: number
     /** Heartbeat timeout. After this time without response from the worker loop the worker will be considered unhealthy. Default 30000 */
     heartbeatTimeoutMs?: number
+    /** Include empty batches - useful if you want to track them. Default: false */
+    includeEmptyBatches?: boolean
 }
 
 export class CyclotronWorker {
@@ -93,6 +95,9 @@ export class CyclotronWorker {
                 if (!jobs.length) {
                     // Wait a bit before polling again
                     await new Promise((resolve) => setTimeout(resolve, pollDelayMs))
+                    if (!this.config.includeEmptyBatches) {
+                        await processBatch(jobs)
+                    }
                     continue
                 }
 
