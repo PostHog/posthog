@@ -1,8 +1,9 @@
 // NOTE: PostIngestionEvent is our context event - it should never be sent directly to an output, but rather transformed into a lightweight schema
 
-import { CyclotronJob, CyclotronJobUpdate } from '@posthog/cyclotron'
+import { CyclotronJob, CyclotronJobUpdate, getMetricsReport } from '@posthog/cyclotron'
 import { captureException } from '@sentry/node'
 import { DateTime } from 'luxon'
+import { Counter, exponentialBuckets, Gauge, Histogram } from 'prom-client'
 import RE2 from 're2'
 import { gunzip, gzip } from 'zlib'
 
@@ -376,5 +377,68 @@ export function cyclotronJobToInvocation(job: CyclotronJob, hogFunction: HogFunc
         queueParameters: params,
         vmState: parsedState.vmState,
         timings: parsedState.timings,
+    }
+}
+
+const CYCLOTRON_GAUGES: Map<string, Gauge> = new Map()
+const CYCLOTRON_COUNTERS: Map<string, Counter> = new Map()
+const CYCLOTRON_HISTOGRAMS: Map<string, Histogram> = new Map()
+const CYCLOTRON_HISTOGRAM_BOUNDS: number[] = exponentialBuckets(0.5, 2, 11) // 0.5 -> 512
+
+export function emitCyclotronMetrics() {
+    const report = getMetricsReport()
+    for (const measurement of report.measurements) {
+        const name = measurement.name
+        const type = measurement.type
+
+        // The TS library seem to demand you declare labels up-front (for some reason?),
+        // but we have know good way of knowing the set of labels used up-front, so
+        // idk what to do here really - recreate the metric each time? That seems...
+        // not good, maybe not feasible for histograms. Ingoring this problem for now,
+        // will return to it later (maybe get some help)
+        // let labels = measurement.labels
+
+        if (type === 'counter') {
+            const value = measurement.value as number
+            let counter = CYCLOTRON_COUNTERS.get(name)
+            if (!counter) {
+                counter = new Counter({
+                    name,
+                    help: name,
+                })
+                CYCLOTRON_COUNTERS.set(name, counter)
+            }
+            counter.reset()
+            counter.inc(value)
+        }
+
+        if (type === 'gauge') {
+            const value = measurement.value as number
+            let gauge = CYCLOTRON_GAUGES.get(name)
+            if (!gauge) {
+                gauge = new Gauge({
+                    name,
+                    help: name,
+                })
+                CYCLOTRON_GAUGES.set(name, gauge)
+            }
+            gauge.set(value)
+        }
+
+        if (type === 'histogram') {
+            const value = measurement.value as number[]
+            let histogram = CYCLOTRON_HISTOGRAMS.get(name)
+            if (!histogram) {
+                histogram = new Histogram({
+                    name,
+                    help: name,
+                    buckets: CYCLOTRON_HISTOGRAM_BOUNDS,
+                })
+                CYCLOTRON_HISTOGRAMS.set(name, histogram)
+            }
+            for (let i = 0; i < value.length; i++) {
+                histogram.observe(value[i])
+            }
+        }
     }
 }

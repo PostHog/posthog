@@ -1,6 +1,6 @@
 use std::sync::{
     atomic::{AtomicU64, Ordering},
-    Arc, Mutex, RwLock,
+    Arc, RwLock,
 };
 
 use ahash::{AHashMap, HashMap};
@@ -14,8 +14,6 @@ use serde::{Deserialize, Serialize};
 // ----------------- Interop metrics recorder -----------------
 pub struct NodeInteropMetricsRecorder {
     handle: RecorderHandle,
-    histograms: Mutex<AHashMap<Key, metrics_util::Histogram>>,
-    histogram_bounds: Vec<f64>,
 
     // We also add a set of default labels to all reported metrics
     default_labels: HashMap<String, String>,
@@ -33,25 +31,23 @@ struct RecorderInner {
     gauges: RwLock<AHashMap<Key, Arc<GaugeImpl>>>,
 
     // Histograms are more complicated - we use an atomic bucket to allow lock-free recording
-    // and then hold a set of Histograms in the outer, which we then drain the atomic buckets into
-    // during metrics reporting (this is very similar to how the prometheus exporter works)
-    histogram_buckets: RwLock<AHashMap<Key, Arc<HistogramImpl>>>,
+    // and then return all the observations in the report, so whatever is consuming the report
+    // can do it's own aggregation. This is roughly how the prometheus recorder works too,
+    // except of course it also tracks the aggregated histogram values, and we don't here, because
+    // the node side is in charge of that.
+    histogram_observations: RwLock<AHashMap<Key, Arc<HistogramImpl>>>,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct RecorderConfig {
     #[serde(alias = "defaultLabels")]
     default_labels: HashMap<String, String>,
-    #[serde(alias = "histogramBounds")]
-    histogram_bounds: Vec<f64>,
 }
 
 impl NodeInteropMetricsRecorder {
     pub fn new() -> Self {
         Self {
             handle: Default::default(),
-            histograms: Mutex::new(AHashMap::new()),
-            histogram_bounds: vec![],
             default_labels: Default::default(),
         }
     }
@@ -59,7 +55,6 @@ impl NodeInteropMetricsRecorder {
     pub fn init(config: RecorderConfig) -> Self {
         let mut new = Self::new();
         new.default_labels = config.default_labels;
-        new.histogram_bounds = config.histogram_bounds;
         new
     }
 
@@ -96,32 +91,17 @@ impl NodeInteropMetricsRecorder {
         }
         drop(gauges);
 
-        let buckets = self.handle.inner.histogram_buckets.read().unwrap();
-        let mut histograms = self.histograms.lock().unwrap();
+        let buckets = self.handle.inner.histogram_observations.read().unwrap();
         for (key, bucket) in buckets.iter() {
-            let histogram = histograms.get_mut(key);
-            let histogram = match histogram {
-                Some(h) => h,
-                None => {
-                    let Some(hist) = metrics_util::Histogram::new(&self.histogram_bounds) else {
-                        // If we have no histogram bounds set, even if we have histograms registered, we can't
-                        // generate a report of them, so we just clear the bucket and move on
-                        bucket.0.clear();
-                        continue;
-                    };
-                    histograms.insert(key.clone(), hist);
-                    histograms.get_mut(key).unwrap()
-                }
-            };
-
+            let mut observations = Vec::with_capacity(500);
             let name = key.name().to_string();
             let labels = self.get_labels(key);
 
             bucket.0.clear_with(|chunk| {
-                histogram.record_many(chunk);
+                observations.extend(chunk.iter());
             });
 
-            let value = MeasurementValue::Histogram(histogram.buckets());
+            let value = MeasurementValue::Histogram(observations);
             measurements.push(Measurement {
                 name,
                 labels,
@@ -129,7 +109,6 @@ impl NodeInteropMetricsRecorder {
             });
         }
         drop(buckets);
-        drop(histograms);
 
         MetricsReport { measurements }
     }
@@ -168,7 +147,7 @@ pub enum MeasurementValue {
     #[serde(rename = "gauge")]
     Gauge(f64),
     #[serde(rename = "histogram")]
-    Histogram(Vec<(f64, u64)>),
+    Histogram(Vec<f64>),
 }
 
 // ----------------- Metrics recorder impl -----------------
@@ -209,11 +188,11 @@ impl Recorder for RecorderHandle {
     }
 
     fn register_histogram(&self, key: &Key, _metadata: &Metadata<'_>) -> metrics::Histogram {
-        if let Some(bucket) = self.inner.histogram_buckets.read().unwrap().get(key) {
+        if let Some(bucket) = self.inner.histogram_observations.read().unwrap().get(key) {
             return metrics::Histogram::from_arc(bucket.clone());
         }
 
-        let mut buckets = self.inner.histogram_buckets.write().unwrap();
+        let mut buckets = self.inner.histogram_observations.write().unwrap();
         if let Some(bucket) = buckets.get(key) {
             return metrics::Histogram::from_arc(bucket.clone());
         }
@@ -261,7 +240,8 @@ impl HistogramFn for HistogramImpl {
 
 // ----------------- Helper types -----------------
 // Rust doesn't have one of these for very sane reasons that we don't care about (unlike ints,
-// most platforms don't have native atomic operations for floats, like add or sub).
+// most platforms don't have native atomic operations for floats, like add or sub), so we fake
+// it a bit with bit casts.
 #[derive(Debug)]
 pub struct AtomicF64 {
     storage: AtomicU64,

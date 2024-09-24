@@ -762,6 +762,7 @@ fn get_metrics_report(mut cx: FunctionContext) -> JsResult<JsValue> {
 // Only really exists for testing reasons
 fn emit_fake_metrics(mut cx: FunctionContext) -> JsResult<JsNull> {
     metrics::counter!("some_counter", "tag" => "test value").increment(1);
+    metrics::counter!("some_counter", "tag" => "test value 2").increment(1);
     metrics::gauge!("some_gauge", "tag" => "test value").set(42.0);
     metrics::histogram!("some_histogram", "tag" => "test value").record(42.0);
     Ok(cx.null())

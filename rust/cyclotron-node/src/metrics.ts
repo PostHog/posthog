@@ -2,7 +2,7 @@
 const cyclotron = require('../index.node')
 
 export type CyclotronMetricsConfig = {
-    defaultLabels: Record<string, string>,
+    defaultLabels: Map<string, string>,
     histogramBounds: number[],
 }
 
@@ -12,8 +12,8 @@ export type CyclotronMetricsReport = {
 
 export type CyclotronMetricsMeasurement = {
     name: string,
-    labels: Record<string, string>,
-    value: number | [number, number][],
+    labels: Map<string, string>,
+    value: number | number[],
     type: 'counter' | 'gauge' | 'histogram',
 }
 
@@ -22,7 +22,6 @@ export function initCyclotronMetrics(config: CyclotronMetricsConfig): void {
 }
 
 export function getMetricsReport(): CyclotronMetricsReport {
-    // I have no idea how the type checking here works.
     return JSON.parse(cyclotron.getMetricsReport()) as CyclotronMetricsReport
 }
 
