@@ -4105,17 +4105,19 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self.assertEqual(results[1]["count"], 1)
 
         def test_funnel_personless_events_are_supported(self):
-            # person 1
+            user_id = uuid.uuid4()
             _create_event(
                 team=self.team,
                 event="$pageview",
-                distinct_id="user_1",
+                distinct_id=user_id,
+                person_id=user_id,
                 timestamp="2024-03-22T13:00:00Z",
             )
             _create_event(
                 team=self.team,
                 event="sign up",
-                distinct_id="user_1",
+                distinct_id=user_id,
+                person_id=user_id,
                 timestamp="2024-03-22T14:00:00Z",
             )
 
