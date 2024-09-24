@@ -364,8 +364,9 @@ const AutosizeInput = React.forwardRef<HTMLInputElement, AutosizeInputProps>(fun
                 maxLength={maxLength}
                 autoFocus={autoFocus}
                 ref={mergedRefs}
+                className="box-content"
                 /* eslint-disable-next-line react/forbid-dom-props */
-                style={{ boxSizing: 'content-box', width: `${inputWidth}px` }}
+                style={{ width: `${inputWidth}px` }}
             />
             <div ref={sizerRef} className="EditableField__autosize__sizer">
                 {value}

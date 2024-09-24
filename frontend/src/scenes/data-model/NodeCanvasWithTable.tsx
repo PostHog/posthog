@@ -354,9 +354,9 @@ const NodeCanvasWithTable = ({
                 return (
                     <div
                         key={nodeId}
+                        className="absolute"
                         // eslint-disable-next-line react/forbid-dom-props
                         style={{
-                            position: 'absolute',
                             left: `${position.x + offset.x}px`,
                             top: `${position.y + offset.y}px`,
                         }}
@@ -374,9 +374,9 @@ const NodeCanvasWithTable = ({
             })}
 
             <div
+                className="absolute"
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{
-                    position: 'absolute',
                     left: `${tablePosition.x + offset.x}px`,
                     top: `${tablePosition.y + offset.y}px`,
                 }}

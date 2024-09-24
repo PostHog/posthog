@@ -41,6 +41,7 @@ export type PlaylistProps<T> = {
     // Optionally select the first item in the list. Only works in controlled mode
     selectInitialItem?: boolean
     onSelect?: (item: T) => void
+    onChangeSections?: (activeKeys: string[]) => void
     'data-attr'?: string
     activeItemId?: string
 }
@@ -67,6 +68,7 @@ export function Playlist<
     listEmptyState,
     selectInitialItem,
     onSelect,
+    onChangeSections,
     'data-attr': dataAttr,
 }: PlaylistProps<T>): JSX.Element {
     const [controlledActiveItemId, setControlledActiveItemId] = useState<T['id'] | null>(
@@ -111,6 +113,7 @@ export function Playlist<
                         onClickCollapse={() => setListCollapsed(true)}
                         activeItemId={activeItemId}
                         setActiveItemId={onChangeActiveItem}
+                        onChangeSections={onChangeSections}
                         emptyState={listEmptyState}
                     />
                 )}
@@ -146,6 +149,7 @@ function List<
     setActiveItemId,
     headerActions = [],
     sections,
+    onChangeSections,
     activeItemId,
     onScrollListEdge,
     loading,
@@ -158,6 +162,7 @@ function List<
     setActiveItemId: (item: T) => void
     headerActions: PlaylistProps<T>['headerActions']
     sections: PlaylistProps<T>['sections']
+    onChangeSections?: (activeKeys: string[]) => void
     onScrollListEdge: PlaylistProps<T>['onScrollListEdge']
     loading: PlaylistProps<T>['loading']
     emptyState: PlaylistProps<T>['listEmptyState']
@@ -254,6 +259,7 @@ function List<
                                     ),
                                     className: 'p-0',
                                 }))}
+                                onChange={onChangeSections}
                                 multiple
                                 embedded
                                 size="small"
