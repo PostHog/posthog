@@ -1,6 +1,7 @@
 import posthogEE from '@posthog/ee/exports'
-import { customEvent, EventType, eventWithTime, fullSnapshotEvent } from '@rrweb/types'
+import { customEvent, EventType, eventWithTime, fullSnapshotEvent, IncrementalSource } from '@rrweb/types'
 import { captureException, captureMessage } from '@sentry/react'
+import { gunzipSync, strFromU8, strToU8 } from 'fflate'
 import {
     actions,
     afterMount,
@@ -49,6 +50,7 @@ import {
     SnapshotSourceType,
 } from '~/types'
 
+import { compressedEventWithTime } from '../../../../../.yalc/posthog-js/lib/src/extensions/replay/sessionrecording'
 import { PostHogEE } from '../../../../@posthog/ee/types'
 import { ExportedSessionRecordingFileV2 } from '../file-playback/types'
 import type { sessionRecordingDataLogicType } from './sessionRecordingDataLogicType'
@@ -112,6 +114,60 @@ function hasAnyWireframes(snapshotData: Record<string, any>[]): boolean {
     })
 }
 
+function isCompressedEvent(ev: unknown): ev is compressedEventWithTime {
+    return typeof ev === 'object' && ev !== null && 'cv' in ev
+}
+
+function unzip(compressedStr: string): any {
+    return JSON.parse(strFromU8(gunzipSync(strToU8(compressedStr, true))))
+}
+
+function decompressEvent(ev: eventWithTime | compressedEventWithTime): eventWithTime {
+    if (isCompressedEvent(ev)) {
+        if (ev.cv === '2024-10') {
+            if (ev.type === EventType.FullSnapshot) {
+                return {
+                    ...ev,
+                    data: unzip(ev.data),
+                }
+            } else if (ev.type === EventType.IncrementalSnapshot) {
+                if (ev.data.source === IncrementalSource.StyleSheetRule) {
+                    return {
+                        ...ev,
+                        data: {
+                            ...ev.data,
+                            source: IncrementalSource.StyleSheetRule,
+                            adds: unzip(ev.data.adds),
+                            removes: unzip(ev.data.removes),
+                        },
+                    }
+                } else if (ev.data.source === IncrementalSource.Mutation) {
+                    return {
+                        ...ev,
+                        data: {
+                            ...ev.data,
+                            source: IncrementalSource.Mutation,
+                            adds: unzip(ev.data.adds),
+                            removes: unzip(ev.data.removes),
+                            texts: unzip(ev.data.texts),
+                            attributes: unzip(ev.data.attributes),
+                        },
+                    }
+                }
+            }
+        } else {
+            posthog.captureException(new Error('Unknown compressed event version'), {
+                feature: 'session-recording-compressed-event-decompression',
+                compressedEvent: ev,
+                compressionVersion: ev.cv,
+            })
+            // probably unplayable but we don't know how to decompress it
+            return ev as eventWithTime
+        }
+    }
+    return ev as eventWithTime
+}
+
 export const parseEncodedSnapshots = async (
     items: (RecordingSnapshot | EncodedRecordingSnapshot | string)[],
     sessionId: string,
@@ -140,9 +196,11 @@ export const parseEncodedSnapshots = async (
             }
 
             return snapshotData.map((d: unknown) => {
-                const snap = withMobileTransformer
-                    ? postHogEEModule?.mobileReplay?.transformEventToWeb(d) || (d as eventWithTime)
-                    : (d as eventWithTime)
+                const snap = decompressEvent(
+                    withMobileTransformer
+                        ? postHogEEModule?.mobileReplay?.transformEventToWeb(d) || (d as eventWithTime)
+                        : (d as eventWithTime)
+                )
                 return {
                     // this handles parsing data that was loaded from blob storage "window_id"
                     // and data that was exported from the front-end "windowId"
