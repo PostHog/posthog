@@ -17,7 +17,7 @@
          count() AS actor_value
   FROM
     (SELECT e.timestamp as timestamp,
-            if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) as person_id,
+            if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
             e.distinct_id as distinct_id,
             e.team_id as team_id
      FROM events e
@@ -79,7 +79,7 @@
          count() AS actor_value
   FROM
     (SELECT e.timestamp as timestamp,
-            if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) as person_id,
+            if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
             e.distinct_id as distinct_id,
             e.team_id as team_id
      FROM events e
@@ -136,7 +136,7 @@
   FROM
     (SELECT e.timestamp as timestamp,
             e."properties" as "properties",
-            if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) as person_id,
+            if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
             e.distinct_id as distinct_id,
             e.team_id as team_id
      FROM events e
@@ -192,7 +192,7 @@
          count() AS actor_value
   FROM
     (SELECT e.timestamp as timestamp,
-            if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) as person_id,
+            if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
             e.distinct_id as distinct_id,
             e.team_id as team_id
      FROM events e
@@ -298,7 +298,7 @@
   FROM
     (SELECT e.timestamp as timestamp,
             e."properties" as "properties",
-            if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) as person_id,
+            if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
             e.distinct_id as distinct_id,
             e.team_id as team_id
      FROM events e
@@ -365,7 +365,7 @@
          count() AS actor_value
   FROM
     (SELECT e.timestamp as timestamp,
-            if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) as person_id,
+            if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
             e.distinct_id as distinct_id,
             e.team_id as team_id
      FROM events e
@@ -456,7 +456,7 @@
   FROM
     (SELECT e.timestamp as timestamp,
             e."properties" as "properties",
-            if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) as person_id,
+            if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
             e.distinct_id as distinct_id,
             e.team_id as team_id
      FROM events e
@@ -613,7 +613,7 @@
   FROM
     (SELECT e.timestamp as timestamp,
             e."properties" as "properties",
-            if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) as person_id,
+            if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
             e.distinct_id as distinct_id,
             e.team_id as team_id
      FROM events e
@@ -867,7 +867,7 @@
   FROM
     (SELECT e.timestamp as timestamp,
             e."$session_id" as "$session_id",
-            if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) as person_id,
+            if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
             e.distinct_id as distinct_id,
             e.team_id as team_id
      FROM events e

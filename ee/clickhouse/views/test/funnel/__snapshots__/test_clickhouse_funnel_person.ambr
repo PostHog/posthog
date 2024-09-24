@@ -54,7 +54,7 @@
                     FROM
                       (SELECT e.timestamp as timestamp,
                               e."$group_0" as aggregation_target,
-                              if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) as person_id,
+                              if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                               person.person_props as person_props,
                               if(event = 'step one', 1, 0) as step_0,
                               if(step_0 = 1, timestamp, null) as latest_0,
