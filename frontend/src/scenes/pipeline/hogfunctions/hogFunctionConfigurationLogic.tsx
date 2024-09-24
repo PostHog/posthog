@@ -553,6 +553,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         matchingFilters: [
             (s) => [s.configuration],
             (configuration): PropertyGroupFilter => {
+                // TODO: This only really applies to events triggers
                 const seriesProperties: PropertyGroupFilterValue = {
                     type: FilterLogicalOperator.Or,
                     values: [],
@@ -799,10 +800,15 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 lemonToast.success('Template updates applied but not saved.')
             }
         },
-        setConfigurationValue: () => {
+        setConfigurationValue: ({ name }) => {
             if (values.hasHadSubmissionErrors) {
                 // Clear the manually set errors otherwise the submission won't work
                 actions.setConfigurationManualErrors({})
+            }
+
+            if (Array.isArray(name) ? name[0] === 'trigger' : name === 'trigger') {
+                // Clear filters whenever we change trigger
+                actions.setConfigurationValues({ filters: {} })
             }
         },
 
