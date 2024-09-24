@@ -48,6 +48,7 @@ export function TaxonomicPropertyFilter({
     propertyAllowList,
     taxonomicFilterOptionsFromProp,
     allowRelativeDateOptions,
+    exactMatchFeatureFlagCohortOperators,
 }: PropertyFilterInternalProps): JSX.Element {
     const pageKey = useMemo(() => pageKeyInput || `filter-${uniqueMemoizedIndex++}`, [pageKeyInput])
     const groupTypes = taxonomicGroupTypes || [
@@ -85,7 +86,14 @@ export function TaxonomicPropertyFilter({
     const showInitialSearchInline =
         !disablePopover &&
         ((!filter?.type && (!filter || !(filter as any)?.key)) || filter?.type === PropertyFilterType.HogQL)
-    const showOperatorValueSelect = filter?.type && filter?.key && filter?.type !== PropertyFilterType.HogQL
+    const showOperatorValueSelect =
+        filter?.type &&
+        filter?.key &&
+        !(filter?.type === PropertyFilterType.HogQL) &&
+        // If we're in a feature flag, we don't want to show operators for cohorts because
+        // we don't support any cohort matching operators other than "in"
+        // See https://github.com/PostHog/posthog/pull/25149/
+        !(filter?.type === PropertyFilterType.Cohort && exactMatchFeatureFlagCohortOperators)
     const placeOperatorValueSelectOnLeft = filter?.type && filter?.key && filter?.type === PropertyFilterType.Cohort
 
     const { propertyDefinitionsByType } = useValues(propertyDefinitionsModel)
