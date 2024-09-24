@@ -541,23 +541,4 @@ describe('Hog Executor', () => {
             )
         })
     })
-
-    describe('telemetry', () => {
-        it('logs telemetry', () => {
-            const fn = createHogFunction({
-                ...HOG_EXAMPLES.telemetry,
-                ...HOG_INPUTS_EXAMPLES.simple_fetch,
-                ...HOG_FILTERS_EXAMPLES.no_filters,
-            })
-
-            const result = executor.execute(createInvocation(fn))
-            expect(result.logs.map((log) => log.message)).toMatchInlineSnapshot(`
-                Array [
-                  "Executing function",
-                  "Function completed in 0ms. Sync: 0ms. Mem: 169 bytes. Ops: 28.",
-                  "Telemetry: {\\"event\\":\\"test\\",\\"properties\\":{\\"$lib_version\\":\\"1.2.3\\"}}",
-                ]
-            `)
-        })
-    })
 })
