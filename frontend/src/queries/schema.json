@@ -10065,10 +10065,6 @@
                     "description": "count of all mouse activity in the recording, not just clicks",
                     "type": "number"
                 },
-                "ongoing": {
-                    "description": "whether we have received data for this recording in the last 5 minutes (assumes the recording was loaded from ClickHouse)\n*",
-                    "type": "boolean"
-                },
                 "person": {
                     "$ref": "#/definitions/PersonType"
                 },

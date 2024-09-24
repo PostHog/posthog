@@ -1,4 +1,4 @@
-import { IconBug, IconCursorClick, IconKeyboard, IconLive, IconMagicWand, IconPinFilled } from '@posthog/icons'
+import { IconBug, IconCursorClick, IconKeyboard, IconMagicWand, IconPinFilled } from '@posthog/icons'
 import clsx from 'clsx'
 import { useValues } from 'kea'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
@@ -153,15 +153,7 @@ function PinnedIndicator(): JSX.Element | null {
     )
 }
 
-function RecordingOngoingIndicator(): JSX.Element {
-    return (
-        <Tooltip title="This recording is still ongoing - we received data within the last 5 minutes.">
-            <IconLive className="animate-[pulse_1s_ease-out_infinite] text-primary-3000" />
-        </Tooltip>
-    )
-}
-
-function UnwatchedIndicator(): JSX.Element {
+function ViewedIndicator(): JSX.Element {
     return (
         <Tooltip title="Indicates the recording has not been watched yet">
             <div className="w-2 h-2 rounded-full bg-primary-3000" aria-label="unwatched-recording-label" />
@@ -292,16 +284,9 @@ export function SessionRecordingPreview({
                     <FirstURL startUrl={recording.start_url} />
                 </div>
 
-                <div
-                    className={clsx(
-                        'min-w-6 flex flex-col gap-0.5 items-center',
-                        // need different margin if the first item is an icon
-                        recording.ongoing || pinned ? 'mt-1' : 'mt-2'
-                    )}
-                >
-                    {recording.ongoing ? <RecordingOngoingIndicator /> : null}
+                <div className="min-w-6 flex flex-col items-center mt-2">
+                    {!recording.viewed ? <ViewedIndicator /> : null}
                     {pinned ? <PinnedIndicator /> : null}
-                    {!recording.viewed ? <UnwatchedIndicator /> : null}
                 </div>
             </div>
         </DraggableToNotebook>

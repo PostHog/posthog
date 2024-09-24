@@ -1391,10 +1391,6 @@ export interface SessionRecordingType {
     storage?: 'object_storage_lts' | 'object_storage'
     summary?: string
     snapshot_source: 'web' | 'mobile' | 'unknown'
-    /** whether we have received data for this recording in the last 5 minutes
-     * (assumes the recording was loaded from ClickHouse)
-     * **/
-    ongoing?: boolean
 }
 
 export interface SessionRecordingPropertiesType {

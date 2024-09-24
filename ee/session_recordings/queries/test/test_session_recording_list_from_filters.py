@@ -1,4 +1,3 @@
-import re
 from itertools import product
 from uuid import uuid4
 
@@ -152,15 +151,12 @@ class TestClickhouseSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBas
                 assert "ifNull(equals(nullIf(nullIf(mat_pp_rgInternal, ''), 'null')" in printed_query
             else:
                 # We get the person property value from the persons JOIN
-                assert re.search(
-                    r"argMax\(replaceRegexpAll\(nullIf\(nullIf\(JSONExtractRaw\(person\.properties, %\(hogql_val_\d+\)s\), ''\), 'null'\), '^\"|\"\$', ''\), person\.version\) AS properties___rgInternal",
-                    printed_query,
+                assert (
+                    "argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_6)s), ''), 'null'), '^\"|\"$', ''), person.version) AS properties___rgInternal"
+                    in printed_query
                 )
                 # Then we actually filter on that property value
-                assert re.search(
-                    r"ifNull\(equals\(events__person\.properties___rgInternal, %\(hogql_val_\d+\)s\), 0\)",
-                    printed_query,
-                )
+                assert "ifNull(equals(events__person.properties___rgInternal, %(hogql_val_14)s), 0)" in printed_query
             self.assertQueryMatchesSnapshot(printed_query)
 
     def _assert_is_pdi_filter(self, person_filtering_expr: list[Expr]) -> None:

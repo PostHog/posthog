@@ -15,8 +15,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2023-01-03 23:55:00.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2022-12-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2022-12-28 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2023-01-04 00:00:00.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT events.`$session_id` AS session_id
@@ -53,8 +52,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2023-01-03 23:55:00.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2022-12-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2022-12-28 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2023-01-04 00:00:00.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT events.`$session_id` AS session_id
@@ -91,8 +89,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2023-01-03 23:55:00.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2022-12-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2022-12-28 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2023-01-04 00:00:00.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT events.`$session_id` AS session_id
@@ -129,8 +126,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2023-01-03 23:55:00.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2022-12-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2022-12-28 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2023-01-04 00:00:00.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT events.`$session_id` AS session_id
@@ -167,8 +163,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-01 13:41:23.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                    (SELECT DISTINCT events.`$session_id` AS `$session_id`
@@ -214,8 +209,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-21 19:55:00.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT events.`$session_id` AS session_id
@@ -252,8 +246,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-21 19:55:00.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT events.`$session_id` AS session_id
@@ -290,8 +283,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-21 19:55:00.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT events.`$session_id` AS session_id
@@ -328,8 +320,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-21 19:55:00.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT events.`$session_id` AS session_id
@@ -366,8 +357,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-21 19:55:00.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT events.`$session_id` AS session_id
@@ -404,8 +394,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-21 19:55:00.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT events.`$session_id` AS session_id
@@ -442,8 +431,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-01 13:41:23.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0))
   GROUP BY s.session_id
@@ -475,8 +463,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-01 13:41:23.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0))
   GROUP BY s.session_id
@@ -508,8 +495,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-01 13:41:23.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0))
   GROUP BY s.session_id
@@ -541,8 +527,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-01 13:41:23.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0))
   GROUP BY s.session_id
@@ -574,8 +559,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-01 13:41:23.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0))
   GROUP BY s.session_id
@@ -607,8 +591,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-01 13:41:23.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0))
   GROUP BY s.session_id
@@ -640,8 +623,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-01 13:41:23.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0))
   GROUP BY s.session_id
@@ -673,8 +655,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-01 13:41:23.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0))
   GROUP BY s.session_id
@@ -706,8 +687,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-01 13:41:23.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0))
   GROUP BY s.session_id
@@ -739,8 +719,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-01 13:41:23.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0))
   GROUP BY s.session_id
@@ -772,8 +751,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-01 13:41:23.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0))
   GROUP BY s.session_id
@@ -805,8 +783,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-01 13:41:23.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-30 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0))
   GROUP BY s.session_id
@@ -838,8 +815,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-01 12:41:00.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 12:46:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-12 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 12:46:00.000000', 6, 'UTC')), 0))
   GROUP BY s.session_id
@@ -871,8 +847,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-01 12:41:00.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 12:46:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 12:46:00.000000', 6, 'UTC')), 0))
   GROUP BY s.session_id
@@ -904,8 +879,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-01 12:41:00.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 12:46:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-10 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 12:46:00.000000', 6, 'UTC')), 0))
   GROUP BY s.session_id
@@ -937,8 +911,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-01 13:41:23.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-28 23:59:59.999999', 6, 'UTC')), 0))
   GROUP BY s.session_id
@@ -970,8 +943,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-01 13:41:23.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-29 23:59:59.999999', 6, 'UTC')), 0))
   GROUP BY s.session_id
@@ -1003,8 +975,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-01 13:41:23.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0))
   GROUP BY s.session_id
@@ -1036,8 +1007,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-01 13:41:23.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0))
   GROUP BY s.session_id
@@ -1069,8 +1039,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-01 13:41:23.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT events.`$session_id` AS session_id
@@ -1107,8 +1076,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-01 13:41:23.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT events.`$session_id` AS session_id
@@ -1145,8 +1113,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-01 13:41:23.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT events.`$session_id` AS session_id
@@ -1183,8 +1150,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-01 13:41:23.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0))
   GROUP BY s.session_id
@@ -1216,8 +1182,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-01 13:41:23.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT events.`$session_id` AS session_id
@@ -1254,8 +1219,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-01 13:41:23.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT events.`$session_id` AS session_id
@@ -1292,8 +1256,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-21 19:55:00.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT events.`$session_id` AS session_id
@@ -1335,8 +1298,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-21 19:55:00.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT events.`$session_id` AS session_id
@@ -1378,8 +1340,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-21 19:55:00.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT events.`$session_id` AS session_id
@@ -1421,8 +1382,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-21 19:55:00.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT events.`$session_id` AS session_id
@@ -1459,8 +1419,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-21 19:55:00.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT events.`$session_id` AS session_id
@@ -1512,8 +1471,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-21 19:55:00.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT events.`$session_id` AS session_id
@@ -1565,8 +1523,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-21 19:55:00.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT events.`$session_id` AS session_id
@@ -1603,8 +1560,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-21 19:55:00.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT events.`$session_id` AS session_id
@@ -1656,8 +1612,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-21 19:55:00.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT events.`$session_id` AS session_id
@@ -1709,8 +1664,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-01 13:41:23.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT events.`$session_id` AS session_id
@@ -1762,8 +1716,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-01 13:41:23.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT events.`$session_id` AS session_id
@@ -1815,8 +1768,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-01 13:41:23.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT events.`$session_id` AS session_id
@@ -1853,8 +1805,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-01 13:41:23.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT events.`$session_id` AS session_id
@@ -1891,8 +1842,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-01 13:41:23.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT events.`$session_id` AS session_id
@@ -1929,8 +1879,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-01 13:41:23.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT events.`$session_id` AS session_id
@@ -1967,8 +1916,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-01 13:41:23.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT events.`$session_id` AS session_id
@@ -2005,8 +1953,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-01 13:41:23.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT events.`$session_id` AS session_id
@@ -2043,8 +1990,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-01 13:41:23.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT events.`$session_id` AS session_id
@@ -2081,8 +2027,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-01 13:41:23.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT events.`$session_id` AS session_id
@@ -2119,8 +2064,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-01 13:41:23.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT events.`$session_id` AS session_id
@@ -2157,8 +2101,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-01 13:41:23.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT events.`$session_id` AS session_id
@@ -2195,8 +2138,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-01 13:41:23.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT events.`$session_id` AS session_id
@@ -2233,8 +2175,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-01 13:41:23.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT events.`$session_id` AS session_id
@@ -2271,8 +2212,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-01 13:41:23.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT events.`$session_id` AS session_id
@@ -2309,8 +2249,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-01 13:41:23.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT events.`$session_id` AS session_id
@@ -2347,8 +2286,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-21 19:55:00.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT events.`$session_id` AS session_id
@@ -2400,8 +2338,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-21 19:55:00.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT events.`$session_id` AS session_id
@@ -2438,8 +2375,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-21 19:55:00.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT events.`$session_id` AS session_id
@@ -2491,8 +2427,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-21 19:55:00.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT events.`$session_id` AS session_id
@@ -2529,8 +2464,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-21 19:55:00.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT events.`$session_id` AS session_id
@@ -2567,8 +2501,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-21 19:55:00.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT console_logs_log_entries.log_source_id AS log_source_id
@@ -2606,8 +2539,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-21 19:55:00.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT console_logs_log_entries.log_source_id AS log_source_id
@@ -2645,8 +2577,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-21 19:55:00.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT console_logs_log_entries.log_source_id AS log_source_id
@@ -2684,8 +2615,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-01 13:41:23.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0))
   GROUP BY s.session_id
@@ -2717,8 +2647,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-01 13:41:23.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0))
   GROUP BY s.session_id
@@ -2750,8 +2679,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-21 19:55:00.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT console_logs_log_entries.log_source_id AS log_source_id
@@ -2789,8 +2717,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-21 19:55:00.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT console_logs_log_entries.log_source_id AS log_source_id
@@ -2828,8 +2755,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-21 19:55:00.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT console_logs_log_entries.log_source_id AS log_source_id
@@ -2867,8 +2793,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-21 19:55:00.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT console_logs_log_entries.log_source_id AS log_source_id
@@ -2906,8 +2831,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-21 19:55:00.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT console_logs_log_entries.log_source_id AS log_source_id
@@ -2945,8 +2869,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-21 19:55:00.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT console_logs_log_entries.log_source_id AS log_source_id
@@ -2984,8 +2907,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-21 19:55:00.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT console_logs_log_entries.log_source_id AS log_source_id
@@ -3023,8 +2945,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-21 19:55:00.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT console_logs_log_entries.log_source_id AS log_source_id
@@ -3062,8 +2983,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-01 13:41:23.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2),
             ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0),
@@ -3100,8 +3020,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-01 13:41:23.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2),
             ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0),
@@ -3158,8 +3077,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-08-21 19:55:00.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   INNER JOIN
     (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
@@ -3221,8 +3139,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-08-21 19:55:00.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   INNER JOIN
     (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
@@ -3269,8 +3186,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-08-21 19:55:00.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   INNER JOIN
     (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
@@ -3317,8 +3233,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-01 13:41:23.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT events.`$session_id` AS session_id
@@ -3370,8 +3285,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-01 13:41:23.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT events.`$session_id` AS session_id
@@ -3423,8 +3337,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-01 13:41:23.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT events.`$session_id` AS session_id
@@ -3461,8 +3374,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-01 13:41:23.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT events.`$session_id` AS session_id
@@ -3499,8 +3411,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-01 13:41:23.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT events.`$session_id` AS session_id
@@ -3537,8 +3448,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-01 13:41:23.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT events.`$session_id` AS session_id
@@ -3575,8 +3485,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-01 13:41:23.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT events.`$session_id` AS session_id
@@ -3613,8 +3522,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-01 13:41:23.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT events.`$session_id` AS session_id
@@ -3651,8 +3559,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-01 13:41:23.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT events.`$session_id` AS session_id
@@ -3689,8 +3596,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-01 13:41:23.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT events.`$session_id` AS session_id
@@ -3727,8 +3633,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-01 13:41:23.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT console_logs_log_entries.log_source_id AS log_source_id
@@ -3766,8 +3671,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-01 13:41:23.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT console_logs_log_entries.log_source_id AS log_source_id
@@ -3805,8 +3709,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-01 13:41:23.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                    (SELECT DISTINCT events.`$session_id` AS `$session_id`
@@ -3852,8 +3755,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-01 13:41:23.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                    (SELECT DISTINCT events.`$session_id` AS `$session_id`
@@ -3899,8 +3801,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-01 13:41:23.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), in(s.session_id, ['session_id_one']), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                                                               (SELECT events.`$session_id` AS session_id
@@ -3937,8 +3838,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-01 13:41:23.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), in(s.session_id, ['session_id_two']), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                                                               (SELECT events.`$session_id` AS session_id
@@ -3975,8 +3875,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-01 13:41:23.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT events.`$session_id` AS session_id
@@ -4028,8 +3927,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-01 13:41:23.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT events.`$session_id` AS session_id
@@ -4081,8 +3979,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-21 19:55:00.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0))
   GROUP BY s.session_id
@@ -4114,8 +4011,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-21 19:55:00.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0))
   GROUP BY s.session_id
@@ -4147,8 +4043,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-01 13:41:23.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                    (SELECT DISTINCT events.`$session_id` AS `$session_id`
@@ -4160,39 +4055,6 @@
                                                                                                                                                                        GROUP BY person_distinct_id_overrides.distinct_id
                                                                                                                                                                        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
                                                                                                                                                                     WHERE and(equals(events.team_id, 2), ifNull(equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), '00000000-0000-0000-0000-000000000000'), 0), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), notEmpty(events.`$session_id`)))), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0))
-  GROUP BY s.session_id
-  HAVING 1
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60,
-                    allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
-                    max_ast_elements=4000000,
-                    max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
-  '''
-# ---
-# name: TestSessionRecordingsListFromFilters.test_sessions_with_current_data
-  '''
-  SELECT s.session_id AS session_id,
-         any(s.team_id),
-         any(s.distinct_id),
-         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
-         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
-         dateDiff('SECOND', start_time, end_time) AS duration,
-         argMinMerge(s.first_url) AS first_url,
-         sum(s.click_count) AS click_count,
-         sum(s.keypress_count) AS keypress_count,
-         sum(s.mouse_activity_count) AS mouse_activity_count,
-         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
-         minus(duration, active_seconds) AS inactive_seconds,
-         sum(s.console_log_count) AS console_log_count,
-         sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-01 13:41:23.000000', 6, 'UTC')), 0) AS ongoing
-  FROM session_replay_events AS s
-  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0))
   GROUP BY s.session_id
   HAVING 1
   ORDER BY start_time DESC
@@ -4222,8 +4084,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-21 19:55:00.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT events.`$session_id` AS session_id
@@ -4260,8 +4121,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-21 19:55:00.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT events.`$session_id` AS session_id
@@ -4298,8 +4158,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-21 19:55:00.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT events.`$session_id` AS session_id
@@ -4336,8 +4195,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-21 19:55:00.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT events.`$session_id` AS session_id
@@ -4374,8 +4232,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-21 19:55:00.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT events.`$session_id` AS session_id
@@ -4412,8 +4269,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-21 19:55:00.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT events.`$session_id` AS session_id
@@ -4450,8 +4306,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-21 19:55:00.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT events.`$session_id` AS session_id
@@ -4488,8 +4343,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-21 19:55:00.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT events.`$session_id` AS session_id
@@ -4526,8 +4380,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-21 19:55:00.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT events.`$session_id` AS session_id
@@ -4564,8 +4417,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-21 19:55:00.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT events.`$session_id` AS session_id
@@ -4602,8 +4454,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-21 19:55:00.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT events.`$session_id` AS session_id
@@ -4640,8 +4491,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-21 19:55:00.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT events.`$session_id` AS session_id
@@ -4678,8 +4528,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-21 19:55:00.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT events.`$session_id` AS session_id
@@ -4716,8 +4565,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-21 19:55:00.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT events.`$session_id` AS session_id
@@ -4754,8 +4602,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-21 19:55:00.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT events.`$session_id` AS session_id
@@ -4792,8 +4639,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-21 19:55:00.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT events.`$session_id` AS session_id
@@ -4830,8 +4676,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-21 19:55:00.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT events.`$session_id` AS session_id
@@ -4868,8 +4713,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-21 19:55:00.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT events.`$session_id` AS session_id
@@ -4921,8 +4765,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-21 19:55:00.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT events.`$session_id` AS session_id
@@ -4959,8 +4802,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-21 19:55:00.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT events.`$session_id` AS session_id
@@ -5012,8 +4854,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-21 19:55:00.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT events.`$session_id` AS session_id
@@ -5050,8 +4891,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-21 19:55:00.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT events.`$session_id` AS session_id
@@ -5103,8 +4943,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-21 19:55:00.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT events.`$session_id` AS session_id
@@ -5141,8 +4980,7 @@
          minus(duration, active_seconds) AS inactive_seconds,
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
-         sum(s.console_error_count) AS console_error_count,
-         ifNull(greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2021-01-21 19:55:00.000000', 6, 'UTC')), 0) AS ongoing
+         sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), in(s.session_id,
                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT events.`$session_id` AS session_id

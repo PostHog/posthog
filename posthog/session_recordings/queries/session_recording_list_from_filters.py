@@ -60,8 +60,7 @@ class SessionRecordingListFromFilters:
             (duration - active_seconds) as inactive_seconds,
             sum(s.console_log_count) as console_log_count,
             sum(s.console_warn_count) as console_warn_count,
-            sum(s.console_error_count) as console_error_count,
-            {ongoing_selection}
+            sum(s.console_error_count) as console_error_count
         FROM raw_session_replay_events s
         WHERE {where_predicates}
         GROUP BY session_id
@@ -87,7 +86,6 @@ class SessionRecordingListFromFilters:
             "console_log_count",
             "console_warn_count",
             "console_error_count",
-            "ongoing",
         ]
 
         return [
@@ -136,19 +134,6 @@ class SessionRecordingListFromFilters:
         return parse_select(
             self.BASE_QUERY,
             {
-                # Check if the most recent _timestamp is within five minutes of the current time
-                # proxy for a live session
-                "ongoing_selection": ast.Alias(
-                    alias="ongoing",
-                    expr=ast.CompareOperation(
-                        left=ast.Call(name="max", args=[ast.Field(chain=["s", "_timestamp"])]),
-                        right=ast.Constant(
-                            # provided in a placeholder, so we can pass now from python to make tests easier 🙈
-                            value=datetime.utcnow() - timedelta(minutes=5),
-                        ),
-                        op=ast.CompareOperationOp.GtEq,
-                    ),
-                ),
                 "order_by": self._order_by_clause(),
                 "where_predicates": self._where_predicates(),
                 "having_predicates": self._having_predicates(),
@@ -163,7 +148,7 @@ class SessionRecordingListFromFilters:
             ast.CompareOperation(
                 op=ast.CompareOperationOp.GtEq,
                 left=ast.Field(chain=["s", "min_first_timestamp"]),
-                right=ast.Constant(value=datetime.utcnow() - timedelta(days=self.ttl_days)),
+                right=ast.Constant(value=datetime.now() - timedelta(days=self.ttl_days)),
             )
         ]
 
@@ -367,7 +352,7 @@ class PersonsIdCompareOperation:
             return None
 
         # anchor to python now so that tests can freeze time
-        now = datetime.utcnow()
+        now = datetime.now()
 
         if poe_is_active(self._team):
             return parse_select(

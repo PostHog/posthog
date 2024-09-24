@@ -213,7 +213,6 @@ class RawSessionReplayEventsTable(Table):
         "min_first_timestamp": DateTimeDatabaseField(name="min_first_timestamp"),
         "max_last_timestamp": DateTimeDatabaseField(name="max_last_timestamp"),
         "first_url": DatabaseField(name="first_url"),
-        "_timestamp": DateTimeDatabaseField(name="_timestamp"),
     }
 
     def avoid_asterisk_fields(self) -> list[str]:
