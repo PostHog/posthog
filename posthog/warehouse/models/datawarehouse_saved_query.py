@@ -187,6 +187,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
                 access_secret=self.credential.access_secret,
                 fields=fields,
                 structure=", ".join(structure),
+                query=self.query["query"],
             )
         else:
             return SavedQuery(

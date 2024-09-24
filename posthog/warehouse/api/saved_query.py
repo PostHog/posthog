@@ -76,12 +76,6 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
         except Exception as err:
             raise serializers.ValidationError(str(err))
 
-        view.credential = get_or_create_datawarehouse_credential(
-            team_id=view.team_id,
-            access_key=settings.AIRBYTE_BUCKET_KEY,
-            access_secret=settings.AIRBYTE_BUCKET_SECRET,
-        )
-
         with transaction.atomic():
             view.save()
 
@@ -107,12 +101,6 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
 
             except Exception as err:
                 raise serializers.ValidationError(str(err))
-
-            view.credential = get_or_create_datawarehouse_credential(
-                team_id=view.team_id,
-                access_key=settings.AIRBYTE_BUCKET_KEY,
-                access_secret=settings.AIRBYTE_BUCKET_SECRET,
-            )
 
             view.save()
 
@@ -189,6 +177,13 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
         )
         workflow_id = f"data-modeling-run-{saved_query.id.hex}"
         saved_query.status = DataWarehouseSavedQuery.Status.RUNNING
+
+        saved_query.credential = get_or_create_datawarehouse_credential(
+            team_id=saved_query.team_id,
+            access_key=settings.AIRBYTE_BUCKET_KEY,
+            access_secret=settings.AIRBYTE_BUCKET_SECRET,
+        )
+
         saved_query.save()
 
         async_to_sync(temporal.start_workflow)(  # type: ignore
