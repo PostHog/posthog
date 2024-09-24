@@ -400,10 +400,16 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         defaultFormState: [
             (s) => [s.template, s.hogFunction, s.subTemplate],
             (template, hogFunction, subTemplate): HogFunctionConfigurationType | null => {
-                if (template) {
-                    return templateToConfiguration(template, subTemplate)
+                const state = template ? templateToConfiguration(template, subTemplate) : hogFunction
+
+                if (state) {
+                    return {
+                        // Apply some defaults that may have been added later
+                        trigger: 'event',
+                        ...state,
+                    }
                 }
-                return hogFunction ?? null
+                return null
             },
         ],
 
