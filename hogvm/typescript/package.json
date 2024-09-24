@@ -1,6 +1,6 @@
 {
     "name": "@posthog/hogvm",
-    "version": "1.0.50",
+    "version": "1.0.52",
     "description": "PostHog Hog Virtual Machine",
     "types": "dist/index.d.ts",
     "source": "src/index.ts",

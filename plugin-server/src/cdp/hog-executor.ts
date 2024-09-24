@@ -4,6 +4,8 @@ import { DateTime } from 'luxon'
 import { Histogram } from 'prom-client'
 import RE2 from 're2'
 
+import { buildIntegerMatcher } from '../config/config'
+import { Hub, ValueMatcher } from '../types'
 import { status } from '../utils/status'
 import { HogFunctionManager } from './hog-function-manager'
 import {
@@ -65,6 +67,9 @@ export const formatInput = (bytecode: any, globals: HogFunctionInvocation['globa
             // NOT ALLOWED
             throw new Error('Input fields must be simple sync values')
         }
+        if (res.error) {
+            throw res.error
+        }
         return convertHogToJS(res.result)
     }
 
@@ -93,7 +98,11 @@ const sanitizeLogMessage = (args: any[], sensitiveValues?: string[]): string => 
 }
 
 export class HogExecutor {
-    constructor(private hogFunctionManager: HogFunctionManager) {}
+    private telemetryMatcher: ValueMatcher<number>
+
+    constructor(private hub: Hub, private hogFunctionManager: HogFunctionManager) {
+        this.telemetryMatcher = buildIntegerMatcher(this.hub.CDP_HOG_FILTERS_TELEMETRY_TEAMS, true)
+    }
 
     findMatchingFunctions(event: HogFunctionInvocationGlobals): {
         matchingFunctions: HogFunctionType[]
@@ -112,15 +121,30 @@ export class HogExecutor {
             if (hogFunction.filters?.bytecode) {
                 const start = performance.now()
                 try {
-                    const filterResult = execHog(hogFunction.filters.bytecode, { globals: filtersGlobals })
+                    const filterResult = execHog(hogFunction.filters.bytecode, {
+                        globals: filtersGlobals,
+                        telemetry: this.telemetryMatcher(hogFunction.team_id),
+                    })
                     if (typeof filterResult.result === 'boolean' && filterResult.result) {
                         matchingFunctions.push(hogFunction)
+                        return
+                    }
+                    if (filterResult.error) {
+                        status.error('🦔', `[HogExecutor] Error filtering function`, {
+                            hogFunctionId: hogFunction.id,
+                            hogFunctionName: hogFunction.name,
+                            teamId: hogFunction.team_id,
+                            error: filterResult.error.message,
+                            result: filterResult,
+                        })
+                        erroredFunctions.push(hogFunction)
                         return
                     }
                 } catch (error) {
                     status.error('🦔', `[HogExecutor] Error filtering function`, {
                         hogFunctionId: hogFunction.id,
                         hogFunctionName: hogFunction.name,
+                        teamId: hogFunction.team_id,
                         error: error.message,
                     })
                     erroredFunctions.push(hogFunction)
@@ -315,6 +339,9 @@ export class HogExecutor {
                         },
                     },
                 })
+                if (execRes.error) {
+                    throw execRes.error
+                }
             } catch (e) {
                 result.logs.push({
                     level: 'error',

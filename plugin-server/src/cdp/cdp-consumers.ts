@@ -121,7 +121,7 @@ abstract class CdpConsumerBase {
             void this.captureInternalPostHogEvent(id, 'hog function state changed', { state })
         })
         this.hogMasker = new HogMasker(this.redis)
-        this.hogExecutor = new HogExecutor(this.hogFunctionManager)
+        this.hogExecutor = new HogExecutor(this.hub, this.hogFunctionManager)
         const rustyHook = this.hub?.rustyHook ?? new RustyHook(this.hub)
         this.fetchExecutor = new FetchExecutor(this.hub, rustyHook)
         this.groupsManager = new GroupsManager(this.hub)
