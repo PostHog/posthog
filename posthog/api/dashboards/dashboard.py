@@ -514,8 +514,8 @@ class DashboardsViewSet(
         parser_classes=[DashboardTemplateCreationJSONSchemaParser],
     )
     def create_from_template_json(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        current_url = self.context["request"].headers.get("Referer")
-        session_id = self.context["request"].headers.get("X-Posthog-Session-Id")
+        current_url = request.headers.get("Referer")
+        session_id = request.headers.get("X-Posthog-Session-Id")
         dashboard = Dashboard.objects.create(
             team_id=self.team_id,
             created_by=cast(User, request.user),

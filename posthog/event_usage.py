@@ -186,8 +186,8 @@ def report_bulk_invited(
     current_invite_count: int,
     current_member_count: int,
     email_available: bool,
-    current_url: str,
-    session_id: str,
+    current_url: Optional[str] = None,
+    session_id: Optional[str] = None,
 ) -> None:
     """
     Triggered after a user bulk creates invites for another user.

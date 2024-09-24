@@ -135,7 +135,7 @@ def log_and_report_insight_activity(
     user: User,
     was_impersonated: bool,
     changes: Optional[list[Change]] = None,
-    properties: Optional[dict[str, any]] = None,
+    properties: Optional[dict[str, Any]] = None,
 ) -> None:
     """
     Insight id and short_id are passed separately as some activities (like delete) alter the Insight instance
@@ -158,7 +158,7 @@ def log_and_report_insight_activity(
             properties = {}
         organization = Organization.objects.get(id=organization_id)
         team = Team.objects.get(id=team_id)
-        if not was_impersonated:
+        if not was_impersonated and user.distinct_id:
             posthoganalytics.capture(
                 user.distinct_id,
                 f"insight {activity}",

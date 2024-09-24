@@ -168,15 +168,16 @@ class OrganizationInviteViewSet(
         user = cast(User, self.request.user)
         current_url = request.headers.get("Referer")
         session_id = request.headers.get("X-Posthog-Session-Id")
-        posthoganalytics.capture(
-            user.distinct_id,
-            "bulk invite attempted",
-            properties={
-                "invitees_count": len(data),
-                "$current_url": current_url,
-                "$session_id": session_id,
-            },
-        )
+        if user.distinct_id:
+            posthoganalytics.capture(
+                user.distinct_id,
+                "bulk invite attempted",
+                properties={
+                    "invitees_count": len(data),
+                    "$current_url": current_url,
+                    "$session_id": session_id,
+                },
+            )
         if not isinstance(data, list):
             raise exceptions.ValidationError("This endpoint needs an array of data for bulk invite creation.")
         if len(data) > 20:
