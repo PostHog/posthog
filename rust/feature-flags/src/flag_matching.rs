@@ -419,20 +419,24 @@ impl FeatureFlagMatcher {
         // Evaluate any super conditions first
         if let Some(super_groups) = &flag.filters.super_groups {
             if !super_groups.is_empty() {
-                let (super_match, super_reason) = self
+                let (
+                    matches_super_condition,
+                    is_super_condition_match,
+                    super_condition_match_reason,
+                ) = self
                     .is_super_condition_match(flag, property_overrides.clone())
                     .await?;
 
-                if super_match {
+                if matches_super_condition {
                     let payload = self.get_matching_payload(None, flag);
                     return Ok(FeatureFlagMatch {
-                        matches: super_match,
+                        matches: is_super_condition_match,
                         variant: None,
-                        reason: super_reason,
+                        reason: super_condition_match_reason,
                         condition_index: Some(0),
                         payload,
                     });
-                }
+                } // if no match, continue to normal conditions
             }
         }
 
@@ -606,25 +610,41 @@ impl FeatureFlagMatcher {
         &mut self,
         feature_flag: &FeatureFlag,
         property_overrides: Option<HashMap<String, Value>>,
-    ) -> Result<(bool, FeatureFlagMatchReason), FlagError> {
-        if let Some(super_conditions) = &feature_flag.filters.super_groups {
-            if let Some(first_condition) = super_conditions.first() {
-                // TODO: we should only have one super group, but eventually we can support more?
-                let (is_match, evaluation_reason) = self
-                    .is_condition_match(feature_flag, first_condition, property_overrides)
-                    .await?;
+    ) -> Result<(bool, bool, FeatureFlagMatchReason), FlagError> {
+        if let Some(first_condition) = feature_flag
+            .filters
+            .super_groups
+            .as_ref()
+            .and_then(|sc| sc.first())
+        {
+            // Need to fetch person properties to check super conditions.  If these properties are already locally computable,
+            // we don't need to fetch from the database, but if they aren't we need to fetch from the database and then we'll cache them.
+            let person_properties = self
+                .get_person_properties(
+                    property_overrides,
+                    first_condition.properties.as_deref().unwrap_or(&[]),
+                )
+                .await?;
 
-                let reason = if evaluation_reason == FeatureFlagMatchReason::ConditionMatch {
-                    FeatureFlagMatchReason::SuperConditionValue
-                } else {
-                    evaluation_reason
-                };
+            let has_relevant_super_condition_properties =
+                first_condition.properties.as_ref().map_or(false, |props| {
+                    props
+                        .iter()
+                        .any(|prop| person_properties.contains_key(&prop.key))
+                });
 
-                return Ok((is_match, reason));
+            let (is_match, _) = self
+                .is_condition_match(feature_flag, first_condition, Some(person_properties))
+                .await?;
+
+            if has_relevant_super_condition_properties {
+                return Ok((true, is_match, FeatureFlagMatchReason::SuperConditionValue));
+                // If there is a super condition evaluation, return early with those results.
+                // The reason is super condition value because we're not evaluating the rest of the conditions.
             }
         }
 
-        Ok((false, FeatureFlagMatchReason::NoConditionMatch))
+        Ok((false, false, FeatureFlagMatchReason::NoConditionMatch))
     }
 
     /// Get group properties from cache or database.
@@ -636,6 +656,7 @@ impl FeatureFlagMatcher {
         &mut self,
         group_type_index: GroupTypeIndex,
     ) -> Result<HashMap<String, Value>, FlagError> {
+        // check if the properties are already cached, if so return them
         if let Some(properties) = self
             .properties_cache
             .group_properties
@@ -651,6 +672,7 @@ impl FeatureFlagMatcher {
         let db_properties =
             fetch_group_properties_from_db(database_client, team_id, group_type_index).await?;
 
+        // once the properties are fetched, cache them so we don't need to fetch again in a given request
         self.properties_cache
             .group_properties
             .insert(group_type_index, db_properties.clone());
@@ -666,6 +688,7 @@ impl FeatureFlagMatcher {
     async fn get_person_properties_from_cache_or_db(
         &mut self,
     ) -> Result<HashMap<String, Value>, FlagError> {
+        // check if the properties are already cached, if so return them
         if let Some(properties) = &self.properties_cache.person_properties {
             let mut result = HashMap::new();
             result.clone_from(properties);
@@ -678,6 +701,7 @@ impl FeatureFlagMatcher {
         let db_properties =
             fetch_person_properties_from_db(database_client, distinct_id, team_id).await?;
 
+        // once the properties are fetched, cache them so we don't need to fetch again in a given request
         self.properties_cache.person_properties = Some(db_properties.clone());
 
         Ok(db_properties)
@@ -2484,14 +2508,10 @@ mod tests {
         let result_example_id = matcher_example_id.get_match(&flag, None).await.unwrap();
         let result_another_id = matcher_another_id.get_match(&flag, None).await.unwrap();
 
-        println!("result_test_id: {:?}", result_test_id);
-        println!("result_example_id: {:?}", result_example_id);
-        println!("result_another_id: {:?}", result_another_id);
-
         assert!(!result_test_id.matches);
         assert_eq!(
             result_test_id.reason,
-            FeatureFlagMatchReason::NoConditionMatch // TODO why should this be a super condition value match if there's no match??
+            FeatureFlagMatchReason::SuperConditionValue
         );
         assert_eq!(result_test_id.condition_index, Some(0));
 
