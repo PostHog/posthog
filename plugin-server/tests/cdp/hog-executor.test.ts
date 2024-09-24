@@ -1,4 +1,3 @@
-import { truth } from 'kea-test-utils'
 import { DateTime } from 'luxon'
 
 import { HogExecutor } from '../../src/cdp/hog-executor'
@@ -7,6 +6,7 @@ import { HogFunctionInvocation, HogFunctionType } from '../../src/cdp/types'
 import { Hub } from '../../src/types'
 import { createHub } from '../../src/utils/db/hub'
 import { status } from '../../src/utils/status'
+import { truth } from '../helpers/truth'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from './examples'
 import { createHogExecutionGlobals, createHogFunction, createInvocation } from './fixtures'
 
