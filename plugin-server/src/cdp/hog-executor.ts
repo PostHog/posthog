@@ -1,7 +1,7 @@
 import { calculateCost, convertHogToJS, exec, ExecOptions, ExecResult } from '@posthog/hogvm'
 import crypto from 'crypto'
 import { DateTime } from 'luxon'
-import { Counter, Histogram } from 'prom-client'
+import { Histogram } from 'prom-client'
 import RE2 from 're2'
 
 import { status } from '../utils/status'
@@ -35,11 +35,6 @@ const hogFunctionFilterDuration = new Histogram({
     buckets: [0, 10, 20, 50, 100, 200],
 })
 
-const hogFunctionFilterErrors = new Counter({
-    name: 'cdp_hog_function_filter_errors',
-    help: 'Errors encountered while filtering functions',
-})
-
 export function execHog(bytecode: any, options?: ExecOptions): ExecResult {
     return exec(bytecode, {
         timeout: DEFAULT_TIMEOUT_MS,
@@ -63,6 +58,9 @@ export const formatInput = (bytecode: any, globals: HogFunctionInvocation['globa
         if (!res.finished) {
             // NOT ALLOWED
             throw new Error('Input fields must be simple sync values')
+        }
+        if (res.error) {
+            throw res.error
         }
         return convertHogToJS(res.result)
     }
@@ -111,18 +109,32 @@ export class HogExecutor {
             if (hogFunction.filters?.bytecode) {
                 const start = performance.now()
                 try {
-                    const filterResult = execHog(hogFunction.filters.bytecode, { globals: filtersGlobals })
+                    const filterResult = execHog(hogFunction.filters.bytecode, {
+                        globals: filtersGlobals,
+                        telemetry: true,
+                    })
                     if (typeof filterResult.result === 'boolean' && filterResult.result) {
                         matchingFunctions.push(hogFunction)
+                        return
+                    }
+                    if (filterResult.error) {
+                        status.error('🦔', `[HogExecutor] Error filtering function`, {
+                            hogFunctionId: hogFunction.id,
+                            hogFunctionName: hogFunction.name,
+                            teamId: hogFunction.team_id,
+                            error: filterResult.error.message,
+                            result: filterResult,
+                        })
+                        erroredFunctions.push(hogFunction)
                         return
                     }
                 } catch (error) {
                     status.error('🦔', `[HogExecutor] Error filtering function`, {
                         hogFunctionId: hogFunction.id,
                         hogFunctionName: hogFunction.name,
+                        teamId: hogFunction.team_id,
                         error: error.message,
                     })
-                    hogFunctionFilterErrors.inc()
                     erroredFunctions.push(hogFunction)
                     return
                 } finally {
@@ -135,6 +147,7 @@ export class HogExecutor {
                             hogFunctionName: hogFunction.name,
                             teamId: hogFunction.team_id,
                             duration,
+                            eventId: event.event.uuid,
                         })
                     }
                 }
@@ -227,7 +240,7 @@ export class HogExecutor {
                     status,
                     body: response?.body,
                 })
-                invocation.timings.push(...timings)
+                invocation.timings = invocation.timings.concat(timings)
                 result.logs = [...logs, ...result.logs]
             }
 
@@ -314,6 +327,9 @@ export class HogExecutor {
                         },
                     },
                 })
+                if (execRes.error) {
+                    throw execRes.error
+                }
             } catch (e) {
                 result.logs.push({
                     level: 'error',

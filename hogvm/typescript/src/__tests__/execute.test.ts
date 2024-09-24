@@ -636,6 +636,7 @@ describe('hogvm execute', () => {
                 ops: 3,
                 stack: [],
                 upvalues: [],
+                telemetry: undefined,
                 throwStack: [],
                 syncDuration: expect.any(Number),
             },
@@ -677,9 +678,14 @@ describe('hogvm execute', () => {
         ).toEqual(map({ key: map({ otherKey: 'value' }) }))
 
         // // return {key: 'value'};
-        expect(
-            () => exec(['_h', op.STRING, 'key', op.GET_GLOBAL, 1, op.STRING, 'value', op.DICT, 1, op.RETURN]).result
+        expect(() =>
+            execSync(['_h', op.STRING, 'key', op.GET_GLOBAL, 1, op.STRING, 'value', op.DICT, 1, op.RETURN])
         ).toThrow('Global variable not found: key')
+
+        // // return {key: 'value'};
+        expect(
+            exec(['_h', op.STRING, 'key', op.GET_GLOBAL, 1, op.STRING, 'value', op.DICT, 1, op.RETURN]).error.message
+        ).toEqual('Global variable not found: key')
 
         // var key := 3; return {key: 'value'};
         expect(
@@ -1817,6 +1823,15 @@ describe('hogvm execute', () => {
         expect(globals.globalEvent).toEqual({ event: '$pageview', properties: { $browser: 'Chrome' } })
     })
 
+    test('uses nullish access for globals', () => {
+        const globals = { globalVar: { a: { d: 1 } } }
+        expect(
+            exec(['_H', 1, 32, 'c', 32, 'b', 32, 'a', 32, 'globalVar', 1, 4, 38], {
+                globals,
+            }).result
+        ).toEqual(null)
+    })
+
     test('ternary', () => {
         const values: any[] = []
         const functions = {
@@ -2096,7 +2111,8 @@ describe('hogvm execute', () => {
             finished: true,
             state: {
                 bytecode: [],
-                stack: [],
+                stack: expect.any(Array),
+                telemetry: undefined,
                 upvalues: [],
                 callStack: [],
                 throwStack: [],
@@ -2434,7 +2450,7 @@ describe('hogvm execute', () => {
             finished: true,
             state: {
                 bytecode: [],
-                stack: [],
+                stack: expect.any(Array),
                 upvalues: [],
                 callStack: [],
                 throwStack: [],
@@ -2465,10 +2481,38 @@ describe('hogvm execute', () => {
                 syncDuration: expect.any(Number),
                 maxMemUsed: 16,
                 telemetry: [
-                    [expect.any(Number), 'root', 1, 33],
-                    [expect.any(Number), 'root', 3, 33],
-                    [expect.any(Number), 'root', 5, 6],
-                    [expect.any(Number), 'root', 6, 38],
+                    [expect.any(Number), 'root', 0, 'START', ''],
+                    [expect.any(Number), '', 1, '33/INTEGER', '1'],
+                    [expect.any(Number), '', 3, '33/INTEGER', '2'],
+                    [expect.any(Number), '', 5, '6/PLUS', ''],
+                    [expect.any(Number), '', 6, '38/RETURN', ''],
+                ],
+            },
+        })
+    })
+
+    test('logs telemetry for calls', () => {
+        const bytecode = ['_h', op.FALSE, op.TRUE, op.CALL_GLOBAL, 'concat', 2]
+        const result = exec(bytecode, { telemetry: true })
+        expect(result).toEqual({
+            result: 'truefalse',
+            finished: true,
+            state: {
+                bytecode: [],
+                stack: [],
+                upvalues: [],
+                callStack: [],
+                throwStack: [],
+                declaredFunctions: {},
+                ops: 3,
+                asyncSteps: 0,
+                syncDuration: expect.any(Number),
+                maxMemUsed: 17,
+                telemetry: [
+                    [expect.any(Number), 'root', 0, 'START', ''],
+                    [expect.any(Number), '', 1, '30/FALSE', ''],
+                    [expect.any(Number), '', 2, '29/TRUE', ''],
+                    [expect.any(Number), '', 3, '2/CALL_GLOBAL', 'concat'],
                 ],
             },
         })
