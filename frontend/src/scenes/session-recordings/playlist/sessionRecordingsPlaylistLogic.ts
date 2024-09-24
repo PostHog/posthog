@@ -297,7 +297,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         setFilters: (filters: Partial<RecordingUniversalFilters>) => ({ filters }),
         setShowFilters: (showFilters: boolean) => ({ showFilters }),
         setShowSettings: (showSettings: boolean) => ({ showSettings }),
-        setOrderBy: (orderBy: RecordingsQuery['order']) => ({ orderBy }),
+        setOrderBy: (orderBy: RecordingsQuery['order'] | null) => ({ orderBy }),
         resetFilters: true,
         setSelectedRecordingId: (id: SessionRecordingType['id'] | null) => ({
             id,
@@ -424,9 +424,9 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             },
         ],
     })),
-    reducers(({ props, values }) => ({
+    reducers(({ props }) => ({
         selectedOrderBy: [
-            undefined,
+            null as RecordingsQuery['order'] | null,
             { persist: true, prefix: 'orderByExperiment' },
             {
                 setOrderBy: (_, { orderBy }) => orderBy,
@@ -732,9 +732,11 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         ],
         orderByExperimentFeatureFlag: [
             (s) => [s.featureFlags],
-            (featureFlags) =>
+            (featureFlags): RecordingsQuery['order'] | 'control' | null =>
                 typeof featureFlags[FEATURE_FLAGS.REPLAY_DEFAULT_SORT_ORDER_EXPERIMENT] === 'string'
-                    ? (featureFlags[FEATURE_FLAGS.REPLAY_DEFAULT_SORT_ORDER_EXPERIMENT] as RecordingsQuery['order'])
+                    ? (featureFlags[FEATURE_FLAGS.REPLAY_DEFAULT_SORT_ORDER_EXPERIMENT] as
+                          | RecordingsQuery['order']
+                          | 'control')
                     : null,
         ],
         orderBy: [
@@ -744,9 +746,11 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     return selectedOrderBy
                 }
 
-                return !orderByExperimentFeatureFlag || orderByExperimentFeatureFlag === 'control'
-                    ? 'start_time'
-                    : orderByExperimentFeatureFlag
+                if (orderByExperimentFeatureFlag === 'control' || !orderByExperimentFeatureFlag) {
+                    return 'start_time'
+                }
+
+                return orderByExperimentFeatureFlag
             },
         ],
     }),
