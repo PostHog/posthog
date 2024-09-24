@@ -154,7 +154,7 @@ export const HLSPlayerPlugin: ReplayPlugin = {
                 }
                 // HLS not supported natively but can play in Safari
                 else if (videoEl.canPlayType('application/vnd.apple.mpegurl')) {
-                    videoEl.src = 'https://devunstuck.com/videos/earthlings2/earthlings.m3u8'
+                    videoEl.src = hlsSrc
                 }
             }
         }
