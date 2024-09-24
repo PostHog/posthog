@@ -200,11 +200,20 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
 
                     let changelogNotification: ChangelogFlagPayload | null = null
                     const flagPayload = posthog.getFeatureFlagPayload('changelog-notification')
-                    if (flagPayload) {
-                        changelogNotification = {
-                            markdown: flagPayload['markdown'],
-                            notificationDate: dayjs(flagPayload['notificationDate']),
-                        } as ChangelogFlagPayload
+                    // `getFeatureFlagPayload` ostensibly returns a JsonType, but in practice it's a stringified JSON object,
+                    // so we need to parse it before checking for the presence of the required fields.
+                    if (typeof flagPayload === 'string') {
+                        try {
+                            const parsedPayload = JSON.parse(flagPayload)
+                            if (parsedPayload.markdown && parsedPayload.notificationDate) {
+                                changelogNotification = {
+                                    markdown: parsedPayload.markdown,
+                                    notificationDate: dayjs(parsedPayload.notificationDate),
+                                } as ChangelogFlagPayload
+                            }
+                        } catch (e) {
+                            console.error('Failed to parse changelog notification payload', e)
+                        }
                     }
 
                     if (changelogNotification) {
@@ -228,9 +237,8 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
                                 return 1
                             } else if (a.created_at.isAfter(b.created_at)) {
                                 return -1
-                            } else {
-                                return 0
                             }
+                            return 0
                         })
                         return notifications
                     }
