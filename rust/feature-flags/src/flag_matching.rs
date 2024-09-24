@@ -18,6 +18,13 @@ type TeamId = i32;
 type DatabaseClientArc = Arc<dyn DatabaseClient + Send + Sync>;
 type GroupTypeIndex = i32;
 
+#[derive(Debug)]
+struct SuperConditionEvaluation {
+    should_evaluate: bool,
+    is_match: bool,
+    reason: FeatureFlagMatchReason,
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub struct FeatureFlagMatch {
     pub matches: bool,
@@ -419,20 +426,16 @@ impl FeatureFlagMatcher {
         // Evaluate any super conditions first
         if let Some(super_groups) = &flag.filters.super_groups {
             if !super_groups.is_empty() {
-                let (
-                    matches_super_condition,
-                    is_super_condition_match,
-                    super_condition_match_reason,
-                ) = self
+                let super_condition_evaluation = self
                     .is_super_condition_match(flag, property_overrides.clone())
                     .await?;
 
-                if matches_super_condition {
+                if super_condition_evaluation.should_evaluate {
                     let payload = self.get_matching_payload(None, flag);
                     return Ok(FeatureFlagMatch {
-                        matches: is_super_condition_match,
+                        matches: super_condition_evaluation.is_match,
                         variant: None,
-                        reason: super_condition_match_reason,
+                        reason: super_condition_evaluation.reason,
                         condition_index: Some(0),
                         payload,
                     });
@@ -605,12 +608,13 @@ impl FeatureFlagMatcher {
     ///
     /// This function evaluates the super conditions of a feature flag to determine if any of them should be enabled.
     /// It first checks if there are any super conditions. If so, it evaluates the first condition.
-    /// The function returns a tuple indicating whether the super condition matched and the reason for the match.
+    /// The function returns a struct indicating whether a super condition should be evaluated,
+    /// whether it matches if evaluated, and the reason for the match.
     async fn is_super_condition_match(
         &mut self,
         feature_flag: &FeatureFlag,
         property_overrides: Option<HashMap<String, Value>>,
-    ) -> Result<(bool, bool, FeatureFlagMatchReason), FlagError> {
+    ) -> Result<SuperConditionEvaluation, FlagError> {
         if let Some(first_condition) = feature_flag
             .filters
             .super_groups
@@ -638,13 +642,21 @@ impl FeatureFlagMatcher {
                 .await?;
 
             if has_relevant_super_condition_properties {
-                return Ok((true, is_match, FeatureFlagMatchReason::SuperConditionValue));
+                return Ok(SuperConditionEvaluation {
+                    should_evaluate: true,
+                    is_match,
+                    reason: FeatureFlagMatchReason::SuperConditionValue,
+                });
                 // If there is a super condition evaluation, return early with those results.
                 // The reason is super condition value because we're not evaluating the rest of the conditions.
             }
         }
 
-        Ok((false, false, FeatureFlagMatchReason::NoConditionMatch))
+        Ok(SuperConditionEvaluation {
+            should_evaluate: false,
+            is_match: false,
+            reason: FeatureFlagMatchReason::NoConditionMatch,
+        })
     }
 
     /// Get group properties from cache or database.
