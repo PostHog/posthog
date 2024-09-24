@@ -23,11 +23,11 @@ export type HogWatcherFunctionState = {
 }
 
 export class HogWatcher {
-    constructor(
-        private hub: Hub,
-        private redis: CdpRedis,
-        private onStateChange: (id: HogFunctionType['id'], state: HogWatcherState) => void
-    ) {}
+    constructor(private hub: Hub, private redis: CdpRedis) {}
+
+    private async onStateChange(id: HogFunctionType['id'], state: HogWatcherState) {
+        await this.hub.db.celeryApplyAsync('posthog.tasks.hog_function_state_transition', [id, state])
+    }
 
     private rateLimitArgs(id: HogFunctionType['id'], cost: number) {
         const nowSeconds = Math.round(now() / 1000)
@@ -117,7 +117,7 @@ export class HogWatcher {
             }
         })
 
-        this.onStateChange(id, state)
+        await this.onStateChange(id, state)
     }
 
     public async observeResults(results: HogFunctionInvocationResult[]): Promise<void> {
@@ -208,15 +208,13 @@ export class HogWatcher {
             }
 
             // Finally track the results
-            functionsToDisablePermanently.forEach((id) => {
-                this.onStateChange(id, HogWatcherState.disabledIndefinitely)
-            })
+            for (const id of disabledFunctionIds) {
+                await this.onStateChange(id, HogWatcherState.disabledForPeriod)
+            }
 
-            functionsTempDisabled.forEach((id) => {
-                if (!functionsToDisablePermanently.includes(id)) {
-                    this.onStateChange(id, HogWatcherState.disabledForPeriod)
-                }
-            })
+            for (const id of functionsToDisablePermanently) {
+                await this.onStateChange(id, HogWatcherState.disabledIndefinitely)
+            }
         }
     }
 }
