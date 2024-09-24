@@ -3,6 +3,7 @@ from typing import Any, Optional
 
 from django.core.exceptions import ValidationError
 from django.db import models
+from django.conf import settings
 
 from posthog.hogql import ast
 from posthog.hogql.database.database import Database
@@ -10,12 +11,15 @@ from posthog.hogql.database.models import FieldOrTable, SavedQuery
 from posthog.models.team import Team
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UUIDModel
 from posthog.schema import HogQLQueryModifiers
+from posthog.warehouse.models.table import DataWarehouseTable
 from posthog.warehouse.models.util import (
     CLICKHOUSE_HOGQL_MAPPING,
     STR_TO_HOGQL_MAPPING,
     clean_type,
     remove_named_tuples,
 )
+from .credential import DataWarehouseCredential
+from posthog.hogql.database.s3_table import S3Table
 
 
 def validate_saved_query_name(value):
@@ -63,6 +67,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
         null=True,
         help_text="The timestamp of this SavedQuery's last run (if any).",
     )
+    credential = models.ForeignKey(DataWarehouseCredential, on_delete=models.CASCADE, null=True, blank=True)
 
     class Meta:
         constraints = [
@@ -127,6 +132,12 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
 
         return list(table_collector.tables)
 
+    @property
+    def url_pattern(self):
+        return (
+            f"https://{settings.AIRBYTE_BUCKET_DOMAIN}/dlt/team_{self.team.pk}_model_{self.id.hex}/modeling/{self.name}"
+        )
+
     def hogql_definition(self, modifiers: Optional[HogQLQueryModifiers] = None) -> SavedQuery:
         from posthog.warehouse.models.table import CLICKHOUSE_HOGQL_MAPPING
 
@@ -165,9 +176,22 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
 
             fields[column] = hogql_type(name=column)
 
-        return SavedQuery(
-            id=str(self.id),
-            name=self.name,
-            query=self.query["query"],
-            fields=fields,
-        )
+        if self.credential is not None and (
+            self.status == DataWarehouseSavedQuery.Status.COMPLETED or self.last_run_at is not None
+        ):
+            return S3Table(
+                name=self.name,
+                url=self.url_pattern,
+                format=DataWarehouseTable.TableFormat.Delta,
+                access_key=self.credential.access_key,
+                access_secret=self.credential.access_secret,
+                fields=fields,
+                structure=", ".join(structure),
+            )
+        else:
+            return SavedQuery(
+                id=str(self.id),
+                name=self.name,
+                query=self.query["query"],
+                fields=fields,
+            )

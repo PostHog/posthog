@@ -1,8 +1,8 @@
 from typing import Any
+from django.conf import settings
 
 import structlog
 from asgiref.sync import async_to_sync
-from django.conf import settings
 from django.db import transaction
 from rest_framework import exceptions, filters, request, response, serializers, status, viewsets
 from rest_framework.decorators import action
@@ -16,6 +16,9 @@ from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.metadata import is_valid_view
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast
+from posthog.warehouse.models import (
+    get_or_create_datawarehouse_credential,
+)
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.data_modeling.run_workflow import RunWorkflowInputs, Selector
 from posthog.warehouse.models import DataWarehouseJoin, DataWarehouseModelPath, DataWarehouseSavedQuery
@@ -73,6 +76,12 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
         except Exception as err:
             raise serializers.ValidationError(str(err))
 
+        view.credential = get_or_create_datawarehouse_credential(
+            team_id=view.team_id,
+            access_key=settings.AIRBYTE_BUCKET_KEY,
+            access_secret=settings.AIRBYTE_BUCKET_SECRET,
+        )
+
         with transaction.atomic():
             view.save()
 
@@ -98,6 +107,12 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
 
             except Exception as err:
                 raise serializers.ValidationError(str(err))
+
+            view.credential = get_or_create_datawarehouse_credential(
+                team_id=view.team_id,
+                access_key=settings.AIRBYTE_BUCKET_KEY,
+                access_secret=settings.AIRBYTE_BUCKET_SECRET,
+            )
 
             view.save()
 
