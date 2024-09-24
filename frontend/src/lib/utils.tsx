@@ -529,7 +529,7 @@ export function humanFriendlyDiff(from: dayjs.Dayjs | string, to: dayjs.Dayjs | 
 }
 
 export function humanFriendlyDetailedTime(
-    date: dayjs.Dayjs | string | null,
+    date: dayjs.Dayjs | string | null | undefined,
     formatDate = 'MMMM DD, YYYY',
     formatTime = 'h:mm:ss A'
 ): string {

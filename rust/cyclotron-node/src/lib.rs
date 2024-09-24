@@ -10,7 +10,7 @@ use neon::{
     result::{JsResult, NeonResult},
     types::{
         buffer::TypedArray, JsArray, JsArrayBuffer, JsNull, JsNumber, JsObject, JsPromise,
-        JsString, JsUint8Array, JsUndefined, JsValue,
+        JsString, JsUint32Array, JsUint8Array, JsUndefined, JsValue,
     },
 };
 use once_cell::sync::OnceCell;
@@ -174,7 +174,7 @@ fn create_job(mut cx: FunctionContext) -> JsResult<JsPromise> {
         None
     } else {
         Some(
-            blob.downcast_or_throw::<JsArrayBuffer, _>(&mut cx)?
+            blob.downcast_or_throw::<JsUint8Array, _>(&mut cx)?
                 .as_slice(&cx)
                 .to_vec(),
         )
@@ -182,17 +182,7 @@ fn create_job(mut cx: FunctionContext) -> JsResult<JsPromise> {
 
     let js_job: JsJob = from_json_string(&mut cx, arg1)?;
 
-    let job = JobInit {
-        team_id: js_job.team_id,
-        queue_name: js_job.queue_name,
-        priority: js_job.priority,
-        scheduled: js_job.scheduled,
-        function_id: js_job.function_id,
-        vm_state: js_job.vm_state.map(|s| s.into_bytes()),
-        parameters: js_job.parameters.map(|s| s.into_bytes()),
-        metadata: js_job.metadata.map(|s| s.into_bytes()),
-        blob,
-    };
+    let job = js_job.to_job_init(blob);
 
     let (deferred, promise) = cx.promise();
     let channel = cx.channel();
@@ -211,6 +201,79 @@ fn create_job(mut cx: FunctionContext) -> JsResult<JsPromise> {
         let job = manager.create_job(job).await;
         deferred.settle_with(&channel, move |mut cx| {
             job.or_else(|e| cx.throw_error(format!("{}", e)))?;
+            Ok(cx.null())
+        });
+    };
+
+    runtime.spawn(fut);
+
+    Ok(promise)
+}
+
+fn bulk_create_jobs(mut cx: FunctionContext) -> JsResult<JsPromise> {
+    let jobs = cx.argument::<JsString>(0)?;
+    let jobs: Vec<JsJob> = from_json_string(&mut cx, jobs)?;
+
+    let blobs = cx.argument::<JsValue>(1)?;
+    let blob_lengths = cx.argument::<JsValue>(2)?;
+
+    let blobs = blobs
+        .downcast_or_throw::<JsUint8Array, _>(&mut cx)?
+        .as_slice(&cx)
+        .to_vec();
+
+    let blob_lengths: Vec<usize> = blob_lengths
+        .downcast_or_throw::<JsUint32Array, _>(&mut cx)?
+        .as_slice(&cx)
+        .iter()
+        .map(|&v| v as usize)
+        .collect();
+
+    if jobs.len() != blob_lengths.len() {
+        return cx.throw_error("jobs and blob_lengths must have the same length");
+    }
+
+    if blobs.len() != blob_lengths.iter().sum::<usize>() {
+        return cx.throw_error("blob_lengths must sum to the length of blobs");
+    }
+
+    let mut blob_offset: usize = 0;
+    let blobs: Vec<Option<Vec<u8>>> = blob_lengths
+        .iter()
+        .map(|&len| {
+            if len == 0 {
+                return None;
+            }
+            let blob = blobs[blob_offset..blob_offset + len].to_vec();
+            blob_offset += len;
+            Some(blob)
+        })
+        .collect();
+
+    let jobs: Vec<JobInit> = jobs
+        .into_iter()
+        .zip(blobs)
+        .map(|(job, blob)| job.to_job_init(blob))
+        .collect();
+
+    let (deferred, promise) = cx.promise();
+    let channel = cx.channel();
+    let runtime = runtime(&mut cx)?;
+
+    let fut = async move {
+        let manager = match MANAGER.get() {
+            Some(manager) => manager,
+            None => {
+                deferred.settle_with(&channel, |mut cx| {
+                    throw_null_err(&mut cx, "manager not initialized")
+                });
+                return;
+            }
+        };
+
+        let res = manager.bulk_create_jobs(jobs).await;
+        deferred.settle_with(&channel, move |mut cx| {
+            res.or_else(|e| cx.throw_error(format!("{}", e)))?;
             Ok(cx.null())
         });
     };
@@ -645,6 +708,22 @@ fn jobs_to_js_array<'a>(cx: &mut TaskContext<'a>, jobs: Vec<Job>) -> JsResult<'a
     Ok(js_array)
 }
 
+impl JsJob {
+    fn to_job_init(&self, blob: Option<Vec<u8>>) -> JobInit {
+        JobInit {
+            team_id: self.team_id,
+            queue_name: self.queue_name.clone(),
+            priority: self.priority,
+            scheduled: self.scheduled,
+            function_id: self.function_id,
+            vm_state: self.vm_state.as_ref().map(|s| s.as_bytes().to_vec()),
+            parameters: self.parameters.as_ref().map(|s| s.as_bytes().to_vec()),
+            metadata: self.metadata.as_ref().map(|s| s.as_bytes().to_vec()),
+            blob,
+        }
+    }
+}
+
 #[neon::main]
 fn main(mut cx: ModuleContext) -> NeonResult<()> {
     cx.export_function("hello", hello)?;
@@ -653,6 +732,7 @@ fn main(mut cx: ModuleContext) -> NeonResult<()> {
     cx.export_function("maybeInitWorker", maybe_init_worker)?;
     cx.export_function("maybeInitManager", maybe_init_manager)?;
     cx.export_function("createJob", create_job)?;
+    cx.export_function("bulkCreateJobs", bulk_create_jobs)?;
     cx.export_function("dequeueJobs", dequeue_jobs)?;
     cx.export_function("dequeueJobsWithVmState", dequeue_with_vm_state)?;
     cx.export_function("releaseJob", release_job)?;

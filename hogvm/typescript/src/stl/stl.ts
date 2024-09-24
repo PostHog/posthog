@@ -49,10 +49,10 @@ export const STL: Record<string, STLFunction> = {
         minArgs: 2,
         maxArgs: 2,
     },
-    like: { fn: ([str, pattern]) => like(str, pattern, false), minArgs: 2, maxArgs: 2 },
-    ilike: { fn: ([str, pattern]) => like(str, pattern, true), minArgs: 2, maxArgs: 2 },
-    notLike: { fn: ([str, pattern]) => !like(str, pattern, false), minArgs: 2, maxArgs: 2 },
-    notILike: { fn: ([str, pattern]) => !like(str, pattern, true), minArgs: 2, maxArgs: 2 },
+    like: { fn: ([str, pattern], _name, options) => like(str, pattern, false, options?.external?.regex?.match), minArgs: 2, maxArgs: 2 },
+    ilike: { fn: ([str, pattern], _name, options) => like(str, pattern, true, options?.external?.regex?.match), minArgs: 2, maxArgs: 2 },
+    notLike: { fn: ([str, pattern], _name, options) => !like(str, pattern, false, options?.external?.regex?.match), minArgs: 2, maxArgs: 2 },
+    notILike: { fn: ([str, pattern], _name, options) => !like(str, pattern, true, options?.external?.regex?.match), minArgs: 2, maxArgs: 2 },
     toString: { fn: STLToString, minArgs: 1, maxArgs: 1 },
     toUUID: {
         fn: (args) => {

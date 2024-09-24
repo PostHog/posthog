@@ -51,8 +51,8 @@
                                                                                                  ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
                     FROM
                       (SELECT e.timestamp as timestamp,
-                              pdi.person_id as aggregation_target,
-                              pdi.person_id as person_id,
+                              if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                              if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                               if(event = 'step one', 1, 0) as step_0,
                               if(step_0 = 1, timestamp, null) as latest_0,
                               if(event = 'step two', 1, 0) as step_1,
@@ -60,7 +60,7 @@
                               if(event = 'step three', 1, 0) as step_2,
                               if(step_2 = 1, timestamp, null) as latest_2
                        FROM events e
-                       INNER JOIN
+                       LEFT OUTER JOIN
                          (SELECT distinct_id,
                                  argMax(person_id, version) as person_id
                           FROM person_distinct_id2
@@ -417,8 +417,8 @@
                                                                                            ORDER BY timestamp DESC ROWS BETWEEN 2 PRECEDING AND 2 PRECEDING) latest_2
               FROM
                 (SELECT e.timestamp as timestamp,
-                        pdi.person_id as aggregation_target,
-                        pdi.person_id as person_id,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                         if(event = 'step one', 1, 0) as step_0,
                         if(step_0 = 1, timestamp, null) as latest_0,
                         if(event = 'step two', 1, 0) as step_1,
@@ -426,7 +426,7 @@
                         if(event = 'step three', 1, 0) as step_2,
                         if(step_2 = 1, timestamp, null) as latest_2
                  FROM events e
-                 INNER JOIN
+                 LEFT OUTER JOIN
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
@@ -523,8 +523,8 @@
                                                                                            ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
               FROM
                 (SELECT e.timestamp as timestamp,
-                        pdi.person_id as aggregation_target,
-                        pdi.person_id as person_id,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                         if(event = 'step one', 1, 0) as step_0,
                         if(step_0 = 1, timestamp, null) as latest_0,
                         if(event = 'step two', 1, 0) as step_1,
@@ -532,7 +532,7 @@
                         if(event = 'step three', 1, 0) as step_2,
                         if(step_2 = 1, timestamp, null) as latest_2
                  FROM events e
-                 INNER JOIN
+                 LEFT OUTER JOIN
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
@@ -573,8 +573,8 @@
                                                                                            ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
               FROM
                 (SELECT e.timestamp as timestamp,
-                        pdi.person_id as aggregation_target,
-                        pdi.person_id as person_id,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                         if(event = 'step two', 1, 0) as step_0,
                         if(step_0 = 1, timestamp, null) as latest_0,
                         if(event = 'step three', 1, 0) as step_1,
@@ -582,7 +582,7 @@
                         if(event = 'step one', 1, 0) as step_2,
                         if(step_2 = 1, timestamp, null) as latest_2
                  FROM events e
-                 INNER JOIN
+                 LEFT OUTER JOIN
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
@@ -623,8 +623,8 @@
                                                                                            ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
               FROM
                 (SELECT e.timestamp as timestamp,
-                        pdi.person_id as aggregation_target,
-                        pdi.person_id as person_id,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                         if(event = 'step three', 1, 0) as step_0,
                         if(step_0 = 1, timestamp, null) as latest_0,
                         if(event = 'step one', 1, 0) as step_1,
@@ -632,7 +632,7 @@
                         if(event = 'step two', 1, 0) as step_2,
                         if(step_2 = 1, timestamp, null) as latest_2
                  FROM events e
-                 INNER JOIN
+                 LEFT OUTER JOIN
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2

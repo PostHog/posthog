@@ -1392,6 +1392,10 @@ export interface SessionRecordingType {
     storage?: 'object_storage_lts' | 'object_storage'
     summary?: string
     snapshot_source: 'web' | 'mobile' | 'unknown'
+    /** whether we have received data for this recording in the last 5 minutes
+     * (assumes the recording was loaded from ClickHouse)
+     * **/
+    ongoing?: boolean
 }
 
 export interface SessionRecordingPropertiesType {
@@ -3896,6 +3900,8 @@ export interface DataWarehouseSavedQuery {
     name: string
     query: HogQLQuery
     columns: DatabaseSchemaField[]
+    last_run_at?: string
+    status?: string
 }
 
 export interface DataWarehouseViewLink {
