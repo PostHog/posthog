@@ -66,9 +66,9 @@
                                                                                                                                                                       ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) "$window_id_1"
                  FROM
                    (SELECT e.timestamp as timestamp,
-                           if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) as aggregation_target,
+                           if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
                            e.uuid AS uuid,
-                           if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) as person_id,
+                           if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                            if(event = '$pageview', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(step_0 = 1, "uuid", null) as "uuid_0",
@@ -269,9 +269,9 @@
                                                                                                                                                                                                                                                                                           ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) "$window_id_2"
                        FROM
                          (SELECT e.timestamp as timestamp,
-                                 if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) as aggregation_target,
+                                 if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
                                  e.uuid AS uuid,
-                                 if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) as person_id,
+                                 if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                                  if(event = '$pageview', 1, 0) as step_0,
                                  if(step_0 = 1, timestamp, null) as latest_0,
                                  if(step_0 = 1, "uuid", null) as "uuid_0",
@@ -416,9 +416,9 @@
                                                                                                                                                                       ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) "$window_id_1"
                  FROM
                    (SELECT e.timestamp as timestamp,
-                           if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) as aggregation_target,
+                           if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
                            e.uuid AS uuid,
-                           if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) as person_id,
+                           if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                            if(event = '$pageview', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(step_0 = 1, "uuid", null) as "uuid_0",
@@ -551,9 +551,9 @@
                                                                                                                                                  ORDER BY timestamp DESC ROWS BETWEEN 1 PRECEDING AND 1 PRECEDING) "$window_id_1"
                  FROM
                    (SELECT e.timestamp as timestamp,
-                           if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) as aggregation_target,
+                           if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
                            e.uuid AS uuid,
-                           if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) as person_id,
+                           if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                            if(event = '$pageview', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(step_0 = 1, "uuid", null) as "uuid_0",
@@ -684,9 +684,9 @@
                                                                                                                                                  ORDER BY timestamp DESC ROWS BETWEEN 1 PRECEDING AND 1 PRECEDING) "$window_id_1"
                  FROM
                    (SELECT e.timestamp as timestamp,
-                           if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) as aggregation_target,
+                           if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
                            e.uuid AS uuid,
-                           if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) as person_id,
+                           if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                            if(event = '$pageview', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(step_0 = 1, "uuid", null) as "uuid_0",

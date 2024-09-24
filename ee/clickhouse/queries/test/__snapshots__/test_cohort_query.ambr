@@ -73,7 +73,7 @@
                                                                   min(event_1_latest_1) over (PARTITION by person_id
                                                                                               ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) event_1_latest_1
         FROM
-          (SELECT if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) AS person_id,
+          (SELECT if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS person_id,
                   event,
                   properties,
                   distinct_id, timestamp, if(event = '$pageview'
@@ -221,7 +221,7 @@
                                        min(event_0_latest_1) over (PARTITION by person_id
                                                                    ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) event_0_latest_1
         FROM
-          (SELECT if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) AS person_id,
+          (SELECT if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS person_id,
                   event,
                   properties,
                   distinct_id, timestamp, if(event = '$pageview'
@@ -269,7 +269,7 @@
                                        min(event_0_latest_1) over (PARTITION by person_id
                                                                    ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) event_0_latest_1
         FROM
-          (SELECT if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) AS person_id,
+          (SELECT if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS person_id,
                   event,
                   properties,
                   distinct_id, timestamp, if(event = '$pageview'
@@ -318,7 +318,7 @@
                                        min(event_0_latest_1) over (PARTITION by person_id
                                                                    ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) event_0_latest_1
         FROM
-          (SELECT if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) AS person_id,
+          (SELECT if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS person_id,
                   event,
                   properties,
                   distinct_id, timestamp, if(event = '$pageview'

@@ -380,8 +380,8 @@
                               prop_vals as prop
                        FROM
                          (SELECT e.timestamp as timestamp,
-                                 if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) as aggregation_target,
-                                 if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) as person_id,
+                                 if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                                 if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                                  if(event = 'sign up', 1, 0) as step_0,
                                  if(step_0 = 1, timestamp, null) as latest_0,
                                  if(event = 'play movie', 1, 0) as step_1,
@@ -511,8 +511,8 @@
                               prop_vals as prop
                        FROM
                          (SELECT e.timestamp as timestamp,
-                                 if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) as aggregation_target,
-                                 if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) as person_id,
+                                 if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                                 if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                                  if(event = 'sign up', 1, 0) as step_0,
                                  if(step_0 = 1, timestamp, null) as latest_0,
                                  if(event = 'play movie', 1, 0) as step_1,
@@ -647,8 +647,8 @@
                               prop_vals as prop
                        FROM
                          (SELECT e.timestamp as timestamp,
-                                 if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) as aggregation_target,
-                                 if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) as person_id,
+                                 if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                                 if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                                  if(event = 'sign up', 1, 0) as step_0,
                                  if(step_0 = 1, timestamp, null) as latest_0,
                                  if(event = 'play movie', 1, 0) as step_1,
@@ -783,8 +783,8 @@
                               prop_vals as prop
                        FROM
                          (SELECT e.timestamp as timestamp,
-                                 if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) as aggregation_target,
-                                 if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) as person_id,
+                                 if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                                 if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                                  if(event = 'sign up', 1, 0) as step_0,
                                  if(step_0 = 1, timestamp, null) as latest_0,
                                  if(event = 'play movie', 1, 0) as step_1,
@@ -919,8 +919,8 @@
                               prop_vals as prop
                        FROM
                          (SELECT e.timestamp as timestamp,
-                                 if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) as aggregation_target,
-                                 if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) as person_id,
+                                 if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                                 if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                                  if(event = 'sign up', 1, 0) as step_0,
                                  if(step_0 = 1, timestamp, null) as latest_0,
                                  if(event = 'play movie', 1, 0) as step_1,
@@ -1346,8 +1346,8 @@
                               prop_vals as prop
                        FROM
                          (SELECT e.timestamp as timestamp,
-                                 if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) as aggregation_target,
-                                 if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) as person_id,
+                                 if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                                 if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                                  if(event = 'sign up', 1, 0) as step_0,
                                  if(step_0 = 1, timestamp, null) as latest_0,
                                  if(event = 'play movie', 1, 0) as step_1,
@@ -1458,8 +1458,8 @@
                         prop_vals as prop
                  FROM
                    (SELECT e.timestamp as timestamp,
-                           if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) as aggregation_target,
-                           if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) as person_id,
+                           if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                           if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                            if(event = 'sign up', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'play movie', 1, 0) as step_1,
@@ -1572,8 +1572,8 @@
                         prop_vals as prop
                  FROM
                    (SELECT e.timestamp as timestamp,
-                           if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) as aggregation_target,
-                           if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) as person_id,
+                           if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                           if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                            if(event = 'sign up', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'play movie', 1, 0) as step_1,
@@ -1686,8 +1686,8 @@
                         prop_vals as prop
                  FROM
                    (SELECT e.timestamp as timestamp,
-                           if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) as aggregation_target,
-                           if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) as person_id,
+                           if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                           if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                            if(event = 'sign up', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'play movie', 1, 0) as step_1,
@@ -1800,8 +1800,8 @@
                         prop_vals as prop
                  FROM
                    (SELECT e.timestamp as timestamp,
-                           if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) as aggregation_target,
-                           if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) as person_id,
+                           if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                           if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                            if(event = 'sign up', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'play movie', 1, 0) as step_1,
@@ -2224,8 +2224,8 @@
                               prop_vals as prop
                        FROM
                          (SELECT e.timestamp as timestamp,
-                                 if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) as aggregation_target,
-                                 if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) as person_id,
+                                 if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                                 if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                                  if(event = 'sign up', 1, 0) as step_0,
                                  if(step_0 = 1, timestamp, null) as latest_0,
                                  if(event = 'play movie', 1, 0) as step_1,
@@ -2380,8 +2380,8 @@
                         prop_vals as prop
                  FROM
                    (SELECT e.timestamp as timestamp,
-                           if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) as aggregation_target,
-                           if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) as person_id,
+                           if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                           if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                            if(event = 'sign up', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'play movie', 1, 0) as step_1,
@@ -2439,8 +2439,8 @@
                         prop_vals as prop
                  FROM
                    (SELECT e.timestamp as timestamp,
-                           if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) as aggregation_target,
-                           if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) as person_id,
+                           if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                           if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                            if(event = 'play movie', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'buy', 1, 0) as step_1,
@@ -2498,8 +2498,8 @@
                         prop_vals as prop
                  FROM
                    (SELECT e.timestamp as timestamp,
-                           if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) as aggregation_target,
-                           if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) as person_id,
+                           if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                           if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                            if(event = 'buy', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'sign up', 1, 0) as step_1,
@@ -2659,8 +2659,8 @@
                         prop_vals as prop
                  FROM
                    (SELECT e.timestamp as timestamp,
-                           if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) as aggregation_target,
-                           if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) as person_id,
+                           if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                           if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                            if(event = 'sign up', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'play movie', 1, 0) as step_1,
@@ -2718,8 +2718,8 @@
                         prop_vals as prop
                  FROM
                    (SELECT e.timestamp as timestamp,
-                           if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) as aggregation_target,
-                           if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) as person_id,
+                           if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                           if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                            if(event = 'play movie', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'buy', 1, 0) as step_1,
@@ -2777,8 +2777,8 @@
                         prop_vals as prop
                  FROM
                    (SELECT e.timestamp as timestamp,
-                           if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) as aggregation_target,
-                           if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) as person_id,
+                           if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                           if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                            if(event = 'buy', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'sign up', 1, 0) as step_1,
@@ -2938,8 +2938,8 @@
                         prop_vals as prop
                  FROM
                    (SELECT e.timestamp as timestamp,
-                           if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) as aggregation_target,
-                           if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) as person_id,
+                           if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                           if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                            if(event = 'sign up', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'play movie', 1, 0) as step_1,
@@ -2997,8 +2997,8 @@
                         prop_vals as prop
                  FROM
                    (SELECT e.timestamp as timestamp,
-                           if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) as aggregation_target,
-                           if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) as person_id,
+                           if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                           if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                            if(event = 'play movie', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'buy', 1, 0) as step_1,
@@ -3056,8 +3056,8 @@
                         prop_vals as prop
                  FROM
                    (SELECT e.timestamp as timestamp,
-                           if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) as aggregation_target,
-                           if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) as person_id,
+                           if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                           if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                            if(event = 'buy', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'sign up', 1, 0) as step_1,
@@ -3217,8 +3217,8 @@
                         prop_vals as prop
                  FROM
                    (SELECT e.timestamp as timestamp,
-                           if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) as aggregation_target,
-                           if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) as person_id,
+                           if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                           if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                            if(event = 'sign up', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'play movie', 1, 0) as step_1,
@@ -3276,8 +3276,8 @@
                         prop_vals as prop
                  FROM
                    (SELECT e.timestamp as timestamp,
-                           if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) as aggregation_target,
-                           if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) as person_id,
+                           if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                           if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                            if(event = 'play movie', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'buy', 1, 0) as step_1,
@@ -3335,8 +3335,8 @@
                         prop_vals as prop
                  FROM
                    (SELECT e.timestamp as timestamp,
-                           if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) as aggregation_target,
-                           if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) as person_id,
+                           if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                           if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                            if(event = 'buy', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'sign up', 1, 0) as step_1,
