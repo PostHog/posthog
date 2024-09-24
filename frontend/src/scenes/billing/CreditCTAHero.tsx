@@ -27,7 +27,7 @@ export const CreditCTAHero = (): JSX.Element | null => {
         return (
             <div className="absolute top-0 right-0 z-10">
                 <div
-                    className="cursor-pointer bg-mark rounded-lg border border-border pr-2 pl-3 py-1 hover:bg-mark-light transition-colors group"
+                    className="cursor-pointer bg-mark rounded-lg pr-2 pl-3 py-1 hover:bg-mark-light transition-colors group"
                     onClick={() => toggleCreditCTAHeroDismissed(false)}
                 >
                     <span className="flex items-center gap-1.5">
@@ -126,7 +126,7 @@ export const CreditCTAHero = (): JSX.Element | null => {
             </div>
             {width && width > 500 && (
                 <div className="shrink-0 relative w-50 pt-4 overflow-hidden">
-                    <SurprisedHog className="w-50 h-50 -my-5" />
+                    <SurprisedHog className="w-50 h-50 -my-5 scale-x-[-1]" />
                 </div>
             )}
             {isPurchaseCreditsModalOpen && <PurchaseCreditsModal />}
