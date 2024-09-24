@@ -351,6 +351,9 @@
             "additionalProperties": false,
             "type": "object"
         },
+        "AlertConfig": {
+            "$ref": "#/definitions/TrendsAlertConfig"
+        },
         "AlertState": {
             "enum": ["Firing", "Not firing", "Errored"],
             "type": "string"
@@ -369,6 +372,9 @@
                 },
                 "condition": {
                     "$ref": "#/definitions/AlertCondition"
+                },
+                "config": {
+                    "$ref": "#/definitions/AlertConfig"
                 },
                 "created_at": {
                     "type": "string"
@@ -397,9 +403,6 @@
                 "name": {
                     "type": "string"
                 },
-                "series_index": {
-                    "type": "number"
-                },
                 "state": {
                     "$ref": "#/definitions/AlertState"
                 },
@@ -424,6 +427,7 @@
                 "calculation_interval",
                 "checks",
                 "condition",
+                "config",
                 "created_at",
                 "created_by",
                 "enabled",
@@ -433,7 +437,6 @@
                 "last_checked_at",
                 "last_notified_at",
                 "name",
-                "series_index",
                 "state",
                 "subscribed_users",
                 "threshold"
@@ -445,6 +448,9 @@
             "properties": {
                 "condition": {
                     "$ref": "#/definitions/AlertCondition"
+                },
+                "config": {
+                    "$ref": "#/definitions/AlertConfig"
                 },
                 "enabled": {
                     "type": "boolean"
@@ -459,7 +465,7 @@
                     "type": "string"
                 }
             },
-            "required": ["name", "condition", "enabled", "insight", "insight_short_id"],
+            "required": ["name", "condition", "enabled", "insight", "insight_short_id", "config"],
             "type": "object"
         },
         "AlertTypeWrite": {
@@ -467,6 +473,9 @@
             "properties": {
                 "condition": {
                     "$ref": "#/definitions/AlertCondition"
+                },
+                "config": {
+                    "$ref": "#/definitions/AlertConfig"
                 },
                 "enabled": {
                     "type": "boolean"
@@ -487,7 +496,7 @@
                     "type": "array"
                 }
             },
-            "required": ["condition", "enabled", "insight", "insight_short_id", "name", "subscribed_users"],
+            "required": ["condition", "config", "enabled", "insight", "insight_short_id", "name", "subscribed_users"],
             "type": "object"
         },
         "AnyDataNode": {
@@ -10534,6 +10543,20 @@
                 }
             },
             "required": ["events"],
+            "type": "object"
+        },
+        "TrendsAlertConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "series_index": {
+                    "type": "number"
+                },
+                "type": {
+                    "const": "TrendsAlertConfig",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "series_index"],
             "type": "object"
         },
         "TrendsFilter": {

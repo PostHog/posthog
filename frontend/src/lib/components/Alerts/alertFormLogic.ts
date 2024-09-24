@@ -9,7 +9,15 @@ import type { alertFormLogicType } from './alertFormLogicType'
 
 export type AlertFormType = Pick<
     AlertType,
-    'name' | 'enabled' | 'created_at' | 'threshold' | 'subscribed_users' | 'checks' | 'insight' | 'insight_short_id'
+    | 'name'
+    | 'enabled'
+    | 'created_at'
+    | 'threshold'
+    | 'subscribed_users'
+    | 'checks'
+    | 'insight'
+    | 'insight_short_id'
+    | 'config'
 > & {
     id?: AlertType['id']
     created_by: AlertType['created_by'] | null

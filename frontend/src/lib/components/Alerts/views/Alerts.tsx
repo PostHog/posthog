@@ -40,7 +40,7 @@ export function Alerts({ alertId }: AlertsProps): JSX.Element {
                             className={alert.enabled ? '' : 'text-muted'}
                             title={
                                 <>
-                                    {alert.enabled ? <AlertStateIndicator alert={alert} /> : null}
+                                    <div>{alert.enabled ? <AlertStateIndicator alert={alert} /> : null}</div>
                                     {name}
                                 </>
                             }

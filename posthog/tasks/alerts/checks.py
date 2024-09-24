@@ -201,7 +201,7 @@ def check_alert(alert_id: str) -> None:
         if not calculation_result.result:
             raise RuntimeError(f"No results for alert {alert.id}")
 
-        aggregated_value = _aggregate_insight_result_value(alert, query, filters_override, calculation_result)
+        aggregated_value = _aggregate_insight_result_value(alert, query, calculation_result)
     except CHQueryErrorTooManySimultaneousQueries:
         # error on our side, need to make sure to retry the alert check
         raise
@@ -216,7 +216,7 @@ def check_alert(alert_id: str) -> None:
 
     # Lock alert to prevent concurrent state changes
     alert = AlertConfiguration.objects.select_for_update().get(id=alert_id, enabled=True)
-    check, breaches, notify = alert.add_check(aggregated_value=aggregated_value, error=error)
+    check, breaches, error, notify = alert.add_check(aggregated_value=aggregated_value, error=error)
 
     if not notify:
         # no need to notify users
@@ -226,13 +226,14 @@ def check_alert(alert_id: str) -> None:
         case AlertState.NOT_FIRING:
             logger.info("Check state is %s", check.state, alert_id=alert.id)
         case AlertState.ERRORED:
-            _send_notifications_for_errors(alert, error)
+            if error:
+                _send_notifications_for_errors(alert, error)
         case AlertState.FIRING:
             _send_notifications_for_breaches(alert, breaches)
 
 
 def _calculate_date_range_override_for_alert(query: TrendsQuery) -> Optional[dict]:
-    if query.trendsFilter.display in NON_TIME_SERIES_DISPLAY_TYPES:
+    if query.trendsFilter and query.trendsFilter.display in NON_TIME_SERIES_DISPLAY_TYPES:
         # for single value insights, need to recompute with full time range
         return None
 
@@ -249,13 +250,11 @@ def _calculate_date_range_override_for_alert(query: TrendsQuery) -> Optional[dic
     return {"date_from": date_from}
 
 
-def _aggregate_insight_result_value(
-    alert: AlertConfiguration, query: TrendsQuery, filters_override: dict, results: InsightResult
-) -> float:
-    series_index = alert.series_index
+def _aggregate_insight_result_value(alert: AlertConfiguration, query: TrendsQuery, results: InsightResult) -> float:
+    series_index = alert.config.series_index
     result = results.result[series_index]
 
-    if query.trendsFilter.display in NON_TIME_SERIES_DISPLAY_TYPES:
+    if query.trendsFilter and query.trendsFilter.display in NON_TIME_SERIES_DISPLAY_TYPES:
         return result["aggregated_value"]
 
     return result["data"][-1]
@@ -288,7 +287,7 @@ def _send_notifications_for_breaches(alert: AlertConfiguration, breaches: list[s
     message.send()
 
 
-def _send_notifications_for_errors(alert: AlertConfiguration, error: list[str]) -> None:
+def _send_notifications_for_errors(alert: AlertConfiguration, error: dict) -> None:
     subject = f"PostHog alert {alert.name} check failed to evaluate"
     campaign_key = f"alert-firing-notification-{alert.id}-{timezone.now().timestamp()}"
     insight_url = f"/project/{alert.team.pk}/insights/{alert.insight.short_id}"

@@ -88,8 +88,8 @@ class AlertConfiguration(CreatedMetaFields, UUIDModel):
         related_name="alert_configurations",
     )
 
-    # The series from the insight to evaluate the alert against.
-    series_index = models.IntegerField()
+    # insight specific config for the alert
+    config = models.JSONField()
 
     # how often to recalculate the alert
     CALCULATION_INTERVAL_CHOICES = [
@@ -121,8 +121,8 @@ class AlertConfiguration(CreatedMetaFields, UUIDModel):
 
     def save(self, *args, **kwargs):
         if not self.enabled:
-            # When disabling an alert, set the state to inactive
-            self.state = "inactive"
+            # When disabling an alert, set the state to not firing
+            self.state = AlertState.NOT_FIRING
             if "update_fields" in kwargs:
                 kwargs["update_fields"].append("state")
 
@@ -136,7 +136,7 @@ class AlertConfiguration(CreatedMetaFields, UUIDModel):
 
     def add_check(
         self, *, aggregated_value: Optional[float], error: Optional[dict] = None
-    ) -> tuple["AlertCheck", list[str]]:
+    ) -> tuple["AlertCheck", list[str], Optional[dict], bool]:
         """
         Add a new AlertCheck, managing state transitions and cool down.
 
@@ -145,7 +145,7 @@ class AlertConfiguration(CreatedMetaFields, UUIDModel):
             error: any error raised while calculating insight value, if present then set state as errored
         """
 
-        targets_notified = {}
+        targets_notified: dict[str, list[str]] = {}
         breaches = []
         notify = False
 
@@ -154,7 +154,9 @@ class AlertConfiguration(CreatedMetaFields, UUIDModel):
                 breaches = self.evaluate_condition(aggregated_value) if aggregated_value is not None else []
             except Exception as err:
                 # error checking the condition
-                error = f"Error checking alert condition {str(err)}"
+                error = {
+                    "message": f"Error checking alert condition {str(err)}",
+                }
 
         # If the alert is not already errored, notify user
         if error and self.state != AlertState.ERRORED:
@@ -168,6 +170,13 @@ class AlertConfiguration(CreatedMetaFields, UUIDModel):
             self.state = AlertState.NOT_FIRING  # Set the Alert to not firing if the threshold is no longer met
             # TODO: Optionally send a resolved notification when alert goes from firing to not_firing?
 
+        now = datetime.now(UTC)
+        self.last_checked_at = datetime.now(UTC)
+
+        if notify:
+            self.last_notified_at = now
+            targets_notified = {"users": list(self.subscribed_users.all().values_list("email", flat=True))}
+
         alert_check = AlertCheck.objects.create(
             alert_configuration=self,
             calculated_value=aggregated_value,
@@ -177,15 +186,8 @@ class AlertConfiguration(CreatedMetaFields, UUIDModel):
             error=error,
         )
 
-        now = datetime.now(UTC)
-        self.last_checked_at = datetime.now(UTC)
-
-        if notify:
-            self.last_notified_at = now
-            targets_notified = {"users": list(self.subscribed_users.all().values_list("email", flat=True))}
-
         self.save()
-        return alert_check, breaches, notify
+        return alert_check, breaches, error, notify
 
 
 class AlertSubscription(CreatedMetaFields, UUIDModel):

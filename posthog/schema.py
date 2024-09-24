@@ -1339,6 +1339,14 @@ class TimelineEntry(BaseModel):
     sessionId: Optional[str] = Field(default=None, description="Session ID. None means out-of-session events")
 
 
+class TrendsAlertConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    series_index: float
+    type: Literal["TrendsAlertConfig"] = "TrendsAlertConfig"
+
+
 class YAxisScaleType(StrEnum):
     LOG10 = "log10"
     LINEAR = "linear"
@@ -1679,6 +1687,7 @@ class AlertTypeBase(BaseModel):
         extra="forbid",
     )
     condition: AlertCondition
+    config: TrendsAlertConfig
     enabled: bool
     insight: float
     insight_short_id: str
@@ -1690,6 +1699,7 @@ class AlertTypeWrite(BaseModel):
         extra="forbid",
     )
     condition: AlertCondition
+    config: TrendsAlertConfig
     enabled: bool
     insight: float
     insight_short_id: str
@@ -3877,6 +3887,7 @@ class AlertType(BaseModel):
     calculation_interval: AlertCalculationInterval
     checks: list[AlertCheck]
     condition: AlertCondition
+    config: TrendsAlertConfig
     created_at: str
     created_by: UserBasicType
     enabled: bool
@@ -3886,7 +3897,6 @@ class AlertType(BaseModel):
     last_checked_at: str
     last_notified_at: str
     name: str
-    series_index: float
     state: AlertState
     subscribed_users: list[UserBasicType]
     threshold: Threshold

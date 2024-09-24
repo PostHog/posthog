@@ -1,4 +1,4 @@
-import { LemonCheckbox, LemonInput, LemonSelect, SpinnerOverlay } from '@posthog/lemon-ui'
+import { LemonBanner, LemonCheckbox, LemonInput, LemonSelect, SpinnerOverlay } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form, Group } from 'kea-forms'
 import { AlertStateIndicator } from 'lib/components/Alerts/views/ManageAlertsModal'
@@ -103,6 +103,10 @@ export function EditAlertModal({ alertId, onClose, isOpen, onEditSuccess, insigh
                             created_by: null,
                             created_at: '',
                             enabled: true,
+                            config: {
+                                type: 'TrendsAlertConfig',
+                                series_index: 0,
+                            },
                             threshold: {
                                 configuration: {
                                     absoluteThreshold: {},
@@ -137,7 +141,7 @@ function EditAlertForm({ alert, onClose, onEditSuccess, alertState }: EditAlertF
     const { setAlertValue } = useActions(formLogic)
 
     const trendsLogic = trendsDataLogic({ dashboardItemId: alert.insight_short_id })
-    const { alertSeries } = useValues(trendsLogic)
+    const { alertSeries, breakdownFilter } = useValues(trendsLogic)
 
     const creatingNewAlert = alertForm.id === undefined
 
@@ -181,25 +185,39 @@ function EditAlertForm({ alert, onClose, onEditSuccess, alertState }: EditAlertF
                         />
                     </LemonField>
 
-                    <LemonField name="series_index" label="Series">
-                        <LemonSelect
-                            fullWidth
-                            data-attr="alert-series-index"
-                            options={alertSeries.map(({ event }, index) => ({
-                                label: `${alphabet[index]} - ${event}`,
-                                value: index,
-                            }))}
-                        />
-                    </LemonField>
+                    {breakdownFilter && (
+                        <LemonBanner type="warning" className="mb-4">
+                            <span>
+                                Alerts on insights with breakdowns alert when any of the breakdown values breaches the
+                                threshold
+                            </span>
+                        </LemonBanner>
+                    )}
+
+                    <Group name={['config']}>
+                        <LemonField name="series_index" label="Series">
+                            <LemonSelect
+                                fullWidth
+                                data-attr="alert-series-index"
+                                options={alertSeries.map(({ event }, index) => ({
+                                    label: `${alphabet[index]} - ${event}`,
+                                    value: index,
+                                }))}
+                            />
+                        </LemonField>
+                    </Group>
 
                     <LemonField name="calculation_interval" label="Calculation Interval">
                         <LemonSelect
                             fullWidth
                             data-attr="alert-calculation-interval"
-                            options={Object.values(AlertCalculationInterval).map((interval) => ({
-                                label: interval,
-                                value: interval,
-                            }))}
+                            options={Object.values(AlertCalculationInterval)
+                                // TODO: support all intervals by setting up celery jobs
+                                .filter((interval) => ['hourly', 'daily'].includes(interval))
+                                .map((interval) => ({
+                                    label: interval,
+                                    value: interval,
+                                }))}
                         />
                     </LemonField>
 

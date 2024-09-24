@@ -13,6 +13,7 @@ from posthog.models.alert import (
     AlertSubscription,
     are_alerts_supported_for_insight,
 )
+from posthog.schema import AlertState
 
 
 class ThresholdSerializer(serializers.ModelSerializer):
@@ -99,7 +100,7 @@ class AlertSerializer(serializers.ModelSerializer):
             "last_notified_at",
             "last_checked_at",
             "checks",
-            "series_index",
+            "config",
             "calculation_interval",
             "insight_short_id",
         ]
@@ -175,8 +176,8 @@ class AlertSerializer(serializers.ModelSerializer):
                 )
 
         if conditions_or_threshold_changed:
-            # If anything changed we set inactive, so it's firing and notifying with the new settings
-            instance.state = "inactive"
+            # If anything changed we set to NOT_FIRING, so it's firing and notifying with the new settings
+            instance.state = AlertState.NOT_FIRING
 
         return super().update(instance, validated_data)
 
@@ -217,7 +218,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             queryset = queryset.filter(insight_id=filters["insight"])
         return queryset
 
-    def retrieve(self, _request, *args, **kwargs):
+    def retrieve(self, request, *args, **kwargs):
         instance = self.get_object()
         instance.checks = instance.alertcheck_set.all().order_by("-created_at")[:5]
         serializer = self.get_serializer(instance)

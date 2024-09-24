@@ -1944,12 +1944,19 @@ export interface AlertCheck {
     targets_notified: boolean
 }
 
+export interface TrendsAlertConfig {
+    type: 'TrendsAlertConfig'
+    series_index: number
+}
+
+export type AlertConfig = TrendsAlertConfig
 export interface AlertTypeBase {
     name: string
     condition: AlertCondition
     enabled: boolean
     insight: number
     insight_short_id: InsightShortId
+    config: AlertConfig
 }
 
 export interface AlertTypeWrite extends AlertTypeBase {
@@ -1966,7 +1973,6 @@ export interface AlertType extends AlertTypeBase {
     last_notified_at: string
     last_checked_at: string
     checks: AlertCheck[]
-    series_index: number
     calculation_interval: AlertCalculationInterval
 }
 

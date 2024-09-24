@@ -30,7 +30,6 @@ export function AlertListItem({ alert, onClick }: AlertListItemProps): JSX.Eleme
         <LemonButton type="secondary" onClick={onClick} data-attr="alert-list-item" fullWidth>
             <div className="flex justify-between flex-auto items-baseline py-2">
                 <div className="flex flex-row gap-1 items-baseline justify-between">
-                    {/* <div className="text-link font-medium"> */}
                     <div>
                         <AlertStateIndicator alert={alert} />
                         {alert.name}
@@ -45,7 +44,6 @@ export function AlertListItem({ alert, onClick }: AlertListItemProps): JSX.Eleme
                     ) : (
                         <div className="text-muted pl-2">Disabled</div>
                     )}
-                    {/* </div> */}
                 </div>
                 <ProfileBubbles limit={4} people={alert.subscribed_users?.map(({ email }) => ({ email }))} />
             </div>
