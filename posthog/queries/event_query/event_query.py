@@ -139,7 +139,7 @@ class EventQuery(metaclass=ABCMeta):
         elif person_on_events_mode == PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS:
             return f"{self.EVENT_TABLE_ALIAS}.person_id"
 
-        return f"if(not(empty({self.DISTINCT_ID_TABLE_ALIAS}.distinct_id)), {self.DISTINCT_ID_TABLE_ALIAS}.person_id, {self.EVENT_TABLE_ALIAS}.person_id)"
+        return f"if(notEmpty({self.DISTINCT_ID_TABLE_ALIAS}.distinct_id), {self.DISTINCT_ID_TABLE_ALIAS}.person_id, {self.EVENT_TABLE_ALIAS}.person_id)"
 
     def _get_person_ids_query(self, *, relevant_events_conditions: str = "") -> str:
         if not self._should_join_distinct_ids:
