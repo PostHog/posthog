@@ -72,7 +72,6 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
             variant,
             index,
         }),
-        incrementVariantCounter: true,
         saveExperiment: (formValues: ExperimentForm) => ({ formValues }),
         showButtonExperiments: true,
         hideButtonExperiments: true,
@@ -124,18 +123,6 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
                 inspectElementSelected: () => null,
                 selectExperiment: () => null,
                 newExperiment: () => null,
-            },
-        ],
-        editingSelector: [
-            null as number | null,
-            {
-                editSelectorWithIndex: (_, { index }) => index,
-            },
-        ],
-        variantCounter: [
-            0,
-            {
-                incrementVariantCounter: (state) => state + 1,
             },
         ],
         showExperimentsTooltip: [
@@ -260,7 +247,6 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
                         actions.setExperimentFormValue('variants', values.experimentForm.variants)
                     }
                 }
-                actions.incrementVariantCounter()
             }
         },
         removeVariant: ({ variant }) => {
