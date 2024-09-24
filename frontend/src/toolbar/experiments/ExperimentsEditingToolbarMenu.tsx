@@ -1,10 +1,10 @@
-import { IconDocument, IconEye, IconPlus, IconRecord, IconTrash } from '@posthog/icons'
-import { LemonDivider } from '@posthog/lemon-ui'
+import { IconEye, IconPlus, IconRecord, IconTrash } from '@posthog/icons'
+import { LemonBadge, LemonDivider } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form, Group } from 'kea-forms'
 import { EditableField } from 'lib/components/EditableField/EditableField'
-import { IconWithBadge } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonInput } from 'lib/lemon-ui/LemonInput'
 
 import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'
 import { experimentsTabLogic } from '~/toolbar/experiments/experimentsTabLogic'
@@ -43,18 +43,14 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
                     <div>
                         <div className="grid grid-cols-3 gap-2 mt-2">
                             {selectedExperimentId === 'new' ? (
-                                <EditableField
-                                    placeholder="please enter experiment name"
-                                    onSave={(newName) => {
-                                        experimentForm.name = newName
-                                    }}
-                                    name="item-name-small"
+                                <LemonInput
+                                    placeholder="enter experiment name"
+                                    className="col-span-2"
                                     value={experimentForm.name}
                                 />
                             ) : (
                                 <h4>{experimentForm.name}</h4>
                             )}
-                            <div className="col-span-1" />
                             <LemonButton
                                 type="secondary"
                                 size="small"
@@ -95,7 +91,18 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
                                                     <h2 className="col-span-1">{variant}</h2>
                                                 )}
                                                 <div className="col-span-1">
-                                                    <IconWithBadge content="50%" status="success" />
+                                                    <LemonBadge
+                                                        className="p-2"
+                                                        content={
+                                                            'rollout :' +
+                                                            (experimentForm.variants && experimentForm.variants[variant]
+                                                                ? experimentForm.variants[variant].rollout_percentage!
+                                                                : 0
+                                                            ).toString()
+                                                        }
+                                                        size="medium"
+                                                        status="success"
+                                                    />
                                                 </div>
 
                                                 <LemonButton
@@ -127,14 +134,11 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
                                             </div>
                                             <LemonDivider dashed={true} />
                                             <div className="grid grid-cols-3 gap-2 m-1">
-                                                <span className="col-span-1">
-                                                    <IconDocument />
-                                                    Elements
-                                                </span>
+                                                <span className="col-span-1">Elements</span>
                                                 <LemonButton
                                                     type="secondary"
                                                     size="small"
-                                                    className="ml-2 col-span-1"
+                                                    className="col-span-1"
                                                     sideIcon={<IconPlus />}
                                                     onClick={(e) => {
                                                         e.stopPropagation()
