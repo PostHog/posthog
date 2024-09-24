@@ -5,6 +5,7 @@ import { Form, Group } from 'kea-forms'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
+import { useMemo } from 'react'
 
 import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'
 import { experimentsTabLogic } from '~/toolbar/experiments/experimentsTabLogic'
@@ -23,6 +24,13 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
         removeVariant,
         visualizeVariant,
     } = useActions(experimentsTabLogic)
+
+    useMemo(() => {
+        if (selectedExperimentId === 'new') {
+            selectVariant('control')
+            inspectForElementWithIndex('control', 0)
+        }
+    }, [selectedExperimentId])
 
     return (
         <ToolbarMenu>
