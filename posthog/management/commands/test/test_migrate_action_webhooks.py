@@ -93,11 +93,11 @@ class TestMigrateActionWebhooks(BaseTest):
         assert hog_function.inputs["method"]["value"] == "POST"
         assert hog_function.inputs["body"]["value"] == snapshot(
             {
-                "text": "{event.name} triggered by {person.name}",
+                "text": "{event.event} triggered by {person.name}",
                 "blocks": [
                     {
                         "text": {
-                            "text": "<{event.url}|{event.name}> triggered by <{person.url}|{person.name}>",
+                            "text": "<{event.url}|{event.event}> triggered by <{person.url}|{person.name}>",
                             "type": "mrkdwn",
                         },
                         "type": "section",
@@ -114,7 +114,7 @@ class TestMigrateActionWebhooks(BaseTest):
 
         assert hog_function.inputs["url"]["value"] == "https://webhooks.other.com/123"
         assert hog_function.inputs["body"]["value"] == snapshot(
-            {"text": "[{event.name}]({event.url}) triggered by [{person.name}]({person.url})"}
+            {"text": "[{event.event}]({event.url}) triggered by [{person.name}]({person.url})"}
         )
 
     def test_migrates_advanced_message_format(self):
@@ -125,8 +125,8 @@ class TestMigrateActionWebhooks(BaseTest):
 
         assert (
             hog_function.inputs["body"]["value"]["text"]
-            == """Event: {event.name} {event.event} {event.link} {event.uuid}
-Person: {person.name} {person.link} {person.properties.foo.bar}
+            == """Event: {event.event} {event.event} {event.url} {event.uuid}
+Person: {person.name} {person.url} {person.properties.foo.bar}
 Groups: {groups.organization.url}  {groups.organization.properties.foo.bar}
 Action: Test Action {project.url}/data-management/actions/1""".replace("1", str(self.action.id))
         )
@@ -134,8 +134,8 @@ Action: Test Action {project.url}/data-management/actions/1""".replace("1", str(
         assert hog_function.inputs["body"]["value"]["blocks"] == [
             {
                 "text": {
-                    "text": """Event: <{event.url}|{event.name}> {event.event} {event.link} {event.uuid}
-Person: <{person.url}|{person.name}> {person.link} {person.properties.foo.bar}
+                    "text": """Event: <{event.url}|{event.event}> {event.event} {event.url} {event.uuid}
+Person: <{person.url}|{person.name}> {person.url} {person.properties.foo.bar}
 Groups: {groups.organization.url}  {groups.organization.properties.foo.bar}
 Action: <{project.url}/data-management/actions/1|Test Action> {project.url}/data-management/actions/1""".replace(
                         "1", str(self.action.id)
@@ -156,8 +156,8 @@ Action: <{project.url}/data-management/actions/1|Test Action> {project.url}/data
 
         assert hog_function.inputs["body"]["value"] == {
             "text": """\
-Event: [{event.name}]({event.url}) {event.event} {event.link} {event.uuid}
-Person: [{person.name}]({person.url}) {person.link} {person.properties.foo.bar}
+Event: [{event.event}]({event.url}) {event.event} {event.url} {event.uuid}
+Person: [{person.name}]({person.url}) {person.url} {person.properties.foo.bar}
 Groups: {groups.organization.url}  {groups.organization.properties.foo.bar}
 Action: [Test Action]({project.url}/data-management/actions/1) {project.url}/data-management/actions/1\
 """.replace("1", str(self.action.id))

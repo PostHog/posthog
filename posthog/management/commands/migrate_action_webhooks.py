@@ -13,12 +13,14 @@ from posthog.plugins.plugin_server_api import reload_all_hog_functions_on_worker
 
 # Maps to a string or a tuple of name and url
 mappings: dict[str, str | list[str]] = {
-    "[event]": ["{event.name}", "{event.url}"],
+    "[event]": ["{event.event}", "{event.url}"],
     "[event.link]": "{event.url}",
-    "[event.event]": "{event.name}",
+    "[event.event]": "{event.event}",
+    "[event.name]": "{event.event}",
     "[event.uuid]": "{event.uuid}",
     "[person]": ["{person.name}", "{person.url}"],
     "[person.link]": "{person.url}",
+    "[person.uuid]": "{person.id}",
     "[user]": ["{person.name}", "{person.url}"],
     "[user.name]": "{person.name}",
     "[user.pathname]": "{event.properties.$pathname}",
@@ -61,8 +63,8 @@ def convert_slack_message_format_to_hog(action: Action, is_slack: bool) -> tuple
                 # For text we just replace it with the name
                 text = text.replace(match, mappings[match][0])
             else:
-                markdown = markdown.replace(match, mappings[match])
-                text = text.replace(match, mappings[match])
+                markdown = markdown.replace(match, str(mappings[match]))
+                text = text.replace(match, str(mappings[match]))
         elif match.startswith("[action."):
             # Action data is no longer available as it is just a filter hence we need to replace it with static values
             action_property = content.split(".")[1]
