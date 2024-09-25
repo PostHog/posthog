@@ -19,6 +19,14 @@ mappings: dict[str, str | list[str]] = {
     "[event.uuid]": "{event.uuid}",
     "[person]": ["{person.name}", "{person.url}"],
     "[person.link]": "{person.url}",
+    "[user.name]": "{person.name}",
+    "[user.pathname]": "{event.properties.$pathname}",
+    "[user.email]": "{person.properties.email}",
+    "[user.distinct_id]": "{person.distinct_id}",
+    "[user.host]": "{event.properties.$host}",
+    "[user.os]": "{event.properties.$os}",
+    "[user.initial_referrer]": "{event.properties.$initial_referrer}",
+    "[user.time]": "{event.timestamp}",
 }
 
 inert_fetch_print = """
@@ -74,7 +82,13 @@ def convert_slack_message_format_to_hog(action: Action, is_slack: bool) -> tuple
                 # Only other supported thing is properties which happens to match the format
                 markdown = markdown.replace(match, f"{{{content}}}")
                 text = text.replace(match, f"{{{content}}}")
-
+        elif match.startswith("[user."):
+            parts = content.split(".")
+            string = ".".join(["person", "properties", "$" + parts[1]])
+            for part in parts[2:]:
+                string += f".{part}"
+            markdown = markdown.replace(match, f"{{{string}}}")
+            text = text.replace(match, f"{{{string}}}")
         else:
             markdown = markdown.replace(match, f"{{{content}}}")
             text = text.replace(match, f"{{{content}}}")

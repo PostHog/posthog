@@ -50,8 +50,8 @@ dependencies:
     specifier: 4.6.0
     version: 4.6.0(monaco-editor@0.49.0)(react-dom@18.2.0)(react@18.2.0)
   '@posthog/hogvm':
-    specifier: ^1.0.53
-    version: 1.0.53(luxon@3.5.0)
+    specifier: ^1.0.54
+    version: 1.0.54(luxon@3.5.0)
   '@posthog/icons':
     specifier: 0.8.1
     version: 0.8.1(react-dom@18.2.0)(react@18.2.0)
@@ -272,8 +272,8 @@ dependencies:
     specifier: ^9.3.0
     version: 9.3.0(postcss@8.4.31)
   posthog-js:
-    specifier: 1.164.3
-    version: 1.164.3
+    specifier: 1.165.0
+    version: 1.165.0
   posthog-js-lite:
     specifier: 3.0.0
     version: 3.0.0
@@ -5397,8 +5397,8 @@ packages:
     resolution: {integrity: sha512-50/17A98tWUfQ176raKiOGXuYpLyyVMkxxG6oylzL3BPOlA6ADGdK7EYunSa4I064xerltq9TGXs8HmOk5E+vw==}
     dev: false
 
-  /@posthog/hogvm@1.0.53(luxon@3.5.0):
-    resolution: {integrity: sha512-WfZvs+ZWrUmJ8qSmEpDs5EirRL5o2pk6du8FYDlNFkVkEQsdPYBnoTS9VBGEHB1TEVy0BQfHX+dPVQj8U0PTdA==}
+  /@posthog/hogvm@1.0.54(luxon@3.5.0):
+    resolution: {integrity: sha512-vHYdiFcIvJ3CxYd/8rSZoUk8ZkeHETGb1dbBhURLejxp9dMyWC1qJnmcIlkH/vsbed/4hVUtFMqtp4bnQSmi2g==}
     peerDependencies:
       luxon: ^3.4.4
     dependencies:
@@ -13901,7 +13901,7 @@ packages:
       hogan.js: 3.0.2
       htm: 3.1.1
       instantsearch-ui-components: 0.3.0
-      preact: 10.24.0
+      preact: 10.24.1
       qs: 6.9.7
       search-insights: 2.13.0
     dev: false
@@ -17716,11 +17716,11 @@ packages:
     resolution: {integrity: sha512-dyajjnfzZD1tht4N7p7iwf7nBnR1MjVaVu+MKr+7gBgA39bn28wizCIJZztZPtHy4PY0YwtSGgwfBCuG/hnHgA==}
     dev: false
 
-  /posthog-js@1.164.3:
-    resolution: {integrity: sha512-MKtvSfaFgrkBUD9X8tJUKsJ/FXKTMR+Qg1AYrMfLXabsCawAe3HFLhwMpWVlbBXHRj/oumtchNbd69jtAMexEQ==}
+  /posthog-js@1.165.0:
+    resolution: {integrity: sha512-rUfRJobvOz3Q9Er+zwb32Eq2qs+ToBe/B4k4IoKzmyszI7240Rf4xVWRB0ky8LvmdZfCeYX5knS2Uv3pnn/d5A==}
     dependencies:
       fflate: 0.4.8
-      preact: 10.24.0
+      preact: 10.24.1
       web-vitals: 4.2.3
     dev: false
 
@@ -17728,8 +17728,8 @@ packages:
     resolution: {integrity: sha512-Q+/tYsFU9r7xoOJ+y/ZTtdVQwTWfzjbiXBDMM/JKUux3+QPP02iUuIoeBQ+Ot6oEDlC+/PGjB/5A3K7KKb7hcw==}
     dev: false
 
-  /preact@10.24.0:
-    resolution: {integrity: sha512-aK8Cf+jkfyuZ0ZZRG9FbYqwmEiGQ4y/PUO4SuTWoyWL244nZZh7bd5h2APd4rSNDYTBNghg1L+5iJN3Skxtbsw==}
+  /preact@10.24.1:
+    resolution: {integrity: sha512-PnBAwFI3Yjxxcxw75n6VId/5TFxNW/81zexzWD9jn1+eSrOP84NdsS38H5IkF/UH3frqRPT+MvuCoVHjTDTnDw==}
     dev: false
 
   /prelude-ls@1.2.1:

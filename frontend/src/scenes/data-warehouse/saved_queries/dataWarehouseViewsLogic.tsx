@@ -75,10 +75,12 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
         dataWarehouseSavedQueryMapById: [
             (s) => [s.dataWarehouseSavedQueries],
             (dataWarehouseSavedQueries) => {
-                return dataWarehouseSavedQueries.reduce((acc, cur) => {
-                    acc[cur.id] = cur
-                    return acc
-                }, {} as Record<string, DataWarehouseSavedQuery>)
+                return (
+                    dataWarehouseSavedQueries?.reduce((acc, cur) => {
+                        acc[cur.id] = cur
+                        return acc
+                    }, {} as Record<string, DataWarehouseSavedQuery>) ?? {}
+                )
             },
         ],
     }),
@@ -86,7 +88,9 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
         afterMount: () => {
             actions.loadDataWarehouseSavedQueries()
             if (!cache.pollingInterval) {
-                cache.pollingInterval = setInterval(actions.loadDataWarehouseSavedQueries, 5000)
+                cache.pollingInterval = setInterval(() => {
+                    actions.loadDataWarehouseSavedQueries()
+                }, 5000)
             }
         },
         beforeUnmount: () => {
