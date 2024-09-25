@@ -91,7 +91,7 @@ sshtunnel==0.4.0
 statshog==1.0.6
 structlog==23.2.0
 sqlparse==0.4.4
-temporalio==1.7.0
+temporalio==1.7.1
 token-bucket==0.3.0
 toronado==0.1.0
 webdriver_manager==4.0.1

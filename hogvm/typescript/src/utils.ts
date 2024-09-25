@@ -27,10 +27,18 @@ export class UncaughtHogVMException extends HogVMException {
 /** Fixed cost per object in memory */
 const COST_PER_UNIT = 8
 
-export function like(string: string, pattern: string, caseInsensitive = false): boolean {
+export function like(
+    string: string,
+    pattern: string,
+    caseInsensitive = false,
+    match?: (regex: string, value: string) => boolean
+): boolean {
     pattern = String(pattern)
         .replaceAll(/[-/\\^$*+?.()|[\]{}]/g, '\\$&')
         .replaceAll('%', '.*')
+    if (match) {
+        return match((caseInsensitive ? '(?i)' : '') + pattern, string)
+    }
     return new RegExp(pattern, caseInsensitive ? 'i' : undefined).test(string)
 }
 export function getNestedValue(obj: any, chain: any[], nullish = false): any {
