@@ -525,7 +525,7 @@ export const billingLogic = kea<billingLogicType>([
         },
         reportCreditsFormSubmitted: ({ creditInput }) => {
             posthog.capture('credits modal credit form submitted', {
-                creditInput,
+                credit_amount_usd: creditInput,
             })
         },
         reportCreditsCTAShown: ({ creditOverview }) => {
