@@ -208,12 +208,12 @@ export class HogWatcher {
             }
 
             // Finally track the results
-            for (const id of disabledFunctionIds) {
-                await this.onStateChange(id, HogWatcherState.disabledForPeriod)
-            }
-
             for (const id of functionsToDisablePermanently) {
                 await this.onStateChange(id, HogWatcherState.disabledIndefinitely)
+            }
+
+            for (const id of functionsTempDisabled) {
+                await this.onStateChange(id, HogWatcherState.disabledForPeriod)
             }
         }
     }
