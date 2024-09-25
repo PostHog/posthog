@@ -1,7 +1,7 @@
 import { Tooltip } from '@posthog/lemon-ui'
 
 export function OverviewGrid({ children }: { children: React.ReactNode }): JSX.Element {
-    return <div className="grid grid-cols-3 place-items-center">{children}</div>
+    return <div className="grid grid-cols-3 place-items-center gap-4 p-2">{children}</div>
 }
 
 export function OverviewGridItem({
@@ -15,7 +15,7 @@ export function OverviewGridItem({
 }): JSX.Element {
     return (
         <Tooltip title={description}>
-            <div className="flex-1 p-2 text-center">
+            <div className="flex flex-1 w-full justify-between items-center ">
                 <div className="text-sm">{label}</div>
                 <div className="text-lg font-semibold">{children}</div>
             </div>
