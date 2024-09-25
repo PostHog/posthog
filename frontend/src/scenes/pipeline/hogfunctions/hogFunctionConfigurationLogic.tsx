@@ -877,7 +877,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         },
     })),
 
-    beforeUnload(({ actions, values, cache }) => ({
+    beforeUnload(({ values, cache }) => ({
         enabled: () => !cache.disabledBeforeUnload && !values.unsavedConfiguration && values.configurationChanged,
         message: 'Changes you made will be discarded.',
         onConfirm: () => {
