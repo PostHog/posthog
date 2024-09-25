@@ -15,10 +15,10 @@ export function PlayerSidebarOverviewTab(): JSX.Element {
 
     return (
         <div className="flex flex-col overflow-auto bg-bg-3000">
+            <PlayerSidebarOverviewGrid />
             <div className="font-bold bg-bg-light px-2 border-b py-3">
                 <PersonDisplay person={sessionPerson} withIcon noPopover />
             </div>
-            <PlayerSidebarOverviewGrid />
             {sessionPlayerMetaDataLoading ? (
                 <div className="space-y-2">
                     <LemonSkeleton.Row repeat={60} fade={true} className="h-3 w-full" />
