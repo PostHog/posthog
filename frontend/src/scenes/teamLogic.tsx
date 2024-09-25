@@ -9,7 +9,7 @@ import { identifierToHuman, isUserLoggedIn, resolveWebhookService } from 'lib/ut
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { getAppContext } from 'lib/utils/getAppContext'
 
-import { CorrelationConfigType, TeamPublicType, TeamType } from '~/types'
+import { CorrelationConfigType, ProjectType, TeamPublicType, TeamType } from '~/types'
 
 import { organizationLogic } from './organizationLogic'
 import { projectLogic } from './projectLogic'
@@ -86,10 +86,21 @@ export const teamLogic = kea<teamLogicType>([
                         }
                     }
 
-                    const patchedTeam = (await api.update(
-                        `api/environments/${values.currentTeam.id}`,
-                        payload
-                    )) as TeamType
+                    const promises: [Promise<TeamType>, Promise<ProjectType> | undefined] = [
+                        api.update(`api/environments/${values.currentTeam.id}`, payload),
+                        undefined,
+                    ]
+                    if (
+                        Object.keys(payload).length === 1 &&
+                        payload.name &&
+                        values.currentProject &&
+                        !values.featureFlags[FEATURE_FLAGS.ENVIRONMENTS]
+                    ) {
+                        // If we're only updating the name and the user doesn't have access to the environments feature,
+                        // update the project name as well, for 100% equivalence
+                        promises[0] = api.update(`api/projects/${values.currentProject.id}`, { name: payload.name })
+                    }
+                    const [patchedTeam] = await Promise.all(promises)
                     breakpoint()
 
                     actions.loadUser()
