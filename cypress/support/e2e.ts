@@ -24,7 +24,7 @@ Cypress.on('window:before:load', (win) => {
 })
 
 Cypress.on('window:load', (win) => {
-    // This is an absolutely mad fix for the Cypress rendered process crashing in CI:
+    // This is an absolutely mad fix for the Cypress renderer process crashing in CI:
     // https://github.com/cypress-io/cypress/issues/27415#issuecomment-2169155274
     // Hopefully one day #27415 is solved and this becomes unnecessary
     const RealResizeObserver = win.ResizeObserver
