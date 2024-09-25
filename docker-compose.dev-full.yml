@@ -143,6 +143,13 @@ services:
             - redis
             - kafka
 
+    property-defs-rs:
+        extends:
+            file: docker-compose.base.yml
+            service: property-defs-rs
+        depends_on:
+            - kafka
+
     plugins:
         extends:
             file: docker-compose.base.yml
