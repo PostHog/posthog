@@ -5856,6 +5856,13 @@
                 "values": {
                     "description": "Constant values that can be referenced with the {placeholder} syntax in the query",
                     "type": "object"
+                },
+                "variables": {
+                    "additionalProperties": {
+                        "$ref": "#/definitions/HogQLVariable"
+                    },
+                    "description": "Variables to be subsituted into the query",
+                    "type": "object"
                 }
             },
             "required": ["kind", "query"],
@@ -5990,6 +5997,17 @@
                 }
             },
             "required": ["results"],
+            "type": "object"
+        },
+        "HogQLVariable": {
+            "additionalProperties": false,
+            "properties": {
+                "value": {},
+                "variableId": {
+                    "type": "string"
+                }
+            },
+            "required": ["variableId"],
             "type": "object"
         },
         "HogQuery": {
@@ -10064,6 +10082,10 @@
                 "mouse_activity_count": {
                     "description": "count of all mouse activity in the recording, not just clicks",
                     "type": "number"
+                },
+                "ongoing": {
+                    "description": "whether we have received data for this recording in the last 5 minutes (assumes the recording was loaded from ClickHouse)\n*",
+                    "type": "boolean"
                 },
                 "person": {
                     "$ref": "#/definitions/PersonType"

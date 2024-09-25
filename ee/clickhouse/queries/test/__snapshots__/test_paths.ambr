@@ -59,8 +59,8 @@
                                                                                                     ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
                        FROM
                          (SELECT e.timestamp as timestamp,
-                                 pdi.person_id as aggregation_target,
-                                 pdi.person_id as person_id,
+                                 if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                                 if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                                  if(event = 'step one', 1, 0) as step_0,
                                  if(step_0 = 1, timestamp, null) as latest_0,
                                  if(event = 'step two', 1, 0) as step_1,
@@ -68,7 +68,7 @@
                                  if(event = 'step three', 1, 0) as step_2,
                                  if(step_2 = 1, timestamp, null) as latest_2
                           FROM events e
-                          INNER JOIN
+                          LEFT OUTER JOIN
                             (SELECT distinct_id,
                                     argMax(person_id, version) as person_id
                              FROM person_distinct_id2
@@ -140,13 +140,13 @@
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
-                        pdi.person_id AS person_id,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS person_id,
                         funnel_actors.timestamp AS target_timestamp,
                         ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
-                 INNER JOIN
+                 LEFT OUTER JOIN
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
@@ -159,12 +159,12 @@
                            AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC') )
                     GROUP BY distinct_id
                     HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                 JOIN funnel_actors ON funnel_actors.actor_id = pdi.person_id
+                 JOIN funnel_actors ON funnel_actors.actor_id = if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id)
                  WHERE team_id = 2
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
                    AND e.timestamp >= target_timestamp
-                 ORDER BY pdi.person_id,
+                 ORDER BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id),
                           e.timestamp)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -240,8 +240,8 @@
                                                                                                     ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
                        FROM
                          (SELECT e.timestamp as timestamp,
-                                 pdi.person_id as aggregation_target,
-                                 pdi.person_id as person_id,
+                                 if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                                 if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                                  if(event = 'step one', 1, 0) as step_0,
                                  if(step_0 = 1, timestamp, null) as latest_0,
                                  if(event = 'step two', 1, 0) as step_1,
@@ -249,7 +249,7 @@
                                  if(event = 'step three', 1, 0) as step_2,
                                  if(step_2 = 1, timestamp, null) as latest_2
                           FROM events e
-                          INNER JOIN
+                          LEFT OUTER JOIN
                             (SELECT distinct_id,
                                     argMax(person_id, version) as person_id
                              FROM person_distinct_id2
@@ -318,13 +318,13 @@
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
-                        pdi.person_id AS person_id,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS person_id,
                         funnel_actors.timestamp AS target_timestamp,
                         ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
-                 INNER JOIN
+                 LEFT OUTER JOIN
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
@@ -337,12 +337,12 @@
                            AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC') )
                     GROUP BY distinct_id
                     HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                 JOIN funnel_actors ON funnel_actors.actor_id = pdi.person_id
+                 JOIN funnel_actors ON funnel_actors.actor_id = if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id)
                  WHERE team_id = 2
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
                    AND e.timestamp >= target_timestamp
-                 ORDER BY pdi.person_id,
+                 ORDER BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id),
                           e.timestamp)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -416,8 +416,8 @@
                                                                                                     ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
                        FROM
                          (SELECT e.timestamp as timestamp,
-                                 pdi.person_id as aggregation_target,
-                                 pdi.person_id as person_id,
+                                 if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                                 if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                                  if(event = 'step one', 1, 0) as step_0,
                                  if(step_0 = 1, timestamp, null) as latest_0,
                                  if(event = 'step two', 1, 0) as step_1,
@@ -425,7 +425,7 @@
                                  if(event = 'step three', 1, 0) as step_2,
                                  if(step_2 = 1, timestamp, null) as latest_2
                           FROM events e
-                          INNER JOIN
+                          LEFT OUTER JOIN
                             (SELECT distinct_id,
                                     argMax(person_id, version) as person_id
                              FROM person_distinct_id2
@@ -494,13 +494,13 @@
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
-                        pdi.person_id AS person_id,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS person_id,
                         funnel_actors.timestamp AS target_timestamp,
                         ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
-                 INNER JOIN
+                 LEFT OUTER JOIN
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
@@ -513,12 +513,12 @@
                            AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC') )
                     GROUP BY distinct_id
                     HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                 JOIN funnel_actors ON funnel_actors.actor_id = pdi.person_id
+                 JOIN funnel_actors ON funnel_actors.actor_id = if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id)
                  WHERE team_id = 2
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
                    AND e.timestamp >= target_timestamp
-                 ORDER BY pdi.person_id,
+                 ORDER BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id),
                           e.timestamp)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -592,8 +592,8 @@
                                                                                                     ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
                        FROM
                          (SELECT e.timestamp as timestamp,
-                                 pdi.person_id as aggregation_target,
-                                 pdi.person_id as person_id,
+                                 if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                                 if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                                  if(event = 'step one', 1, 0) as step_0,
                                  if(step_0 = 1, timestamp, null) as latest_0,
                                  if(event = 'step two', 1, 0) as step_1,
@@ -601,7 +601,7 @@
                                  if(event = 'step three', 1, 0) as step_2,
                                  if(step_2 = 1, timestamp, null) as latest_2
                           FROM events e
-                          INNER JOIN
+                          LEFT OUTER JOIN
                             (SELECT distinct_id,
                                     argMax(person_id, version) as person_id
                              FROM person_distinct_id2
@@ -670,13 +670,13 @@
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
-                        pdi.person_id AS person_id,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS person_id,
                         funnel_actors.timestamp AS target_timestamp,
                         ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
-                 INNER JOIN
+                 LEFT OUTER JOIN
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
@@ -689,12 +689,12 @@
                            AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC') )
                     GROUP BY distinct_id
                     HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                 JOIN funnel_actors ON funnel_actors.actor_id = pdi.person_id
+                 JOIN funnel_actors ON funnel_actors.actor_id = if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id)
                  WHERE team_id = 2
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
                    AND e.timestamp >= target_timestamp
-                 ORDER BY pdi.person_id,
+                 ORDER BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id),
                           e.timestamp)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -768,8 +768,8 @@
                                                                                                     ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
                        FROM
                          (SELECT e.timestamp as timestamp,
-                                 pdi.person_id as aggregation_target,
-                                 pdi.person_id as person_id,
+                                 if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                                 if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                                  if(event = 'step one', 1, 0) as step_0,
                                  if(step_0 = 1, timestamp, null) as latest_0,
                                  if(event = 'step two', 1, 0) as step_1,
@@ -777,7 +777,7 @@
                                  if(event = 'step three', 1, 0) as step_2,
                                  if(step_2 = 1, timestamp, null) as latest_2
                           FROM events e
-                          INNER JOIN
+                          LEFT OUTER JOIN
                             (SELECT distinct_id,
                                     argMax(person_id, version) as person_id
                              FROM person_distinct_id2
@@ -846,13 +846,13 @@
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
-                        pdi.person_id AS person_id,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS person_id,
                         funnel_actors.timestamp AS target_timestamp,
                         ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
-                 INNER JOIN
+                 LEFT OUTER JOIN
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
@@ -865,12 +865,12 @@
                            AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC') )
                     GROUP BY distinct_id
                     HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                 JOIN funnel_actors ON funnel_actors.actor_id = pdi.person_id
+                 JOIN funnel_actors ON funnel_actors.actor_id = if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id)
                  WHERE team_id = 2
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
                    AND e.timestamp >= target_timestamp
-                 ORDER BY pdi.person_id,
+                 ORDER BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id),
                           e.timestamp)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -944,8 +944,8 @@
                                                                                                     ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
                        FROM
                          (SELECT e.timestamp as timestamp,
-                                 pdi.person_id as aggregation_target,
-                                 pdi.person_id as person_id,
+                                 if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                                 if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                                  if(event = 'step one', 1, 0) as step_0,
                                  if(step_0 = 1, timestamp, null) as latest_0,
                                  if(event = 'step two', 1, 0) as step_1,
@@ -953,7 +953,7 @@
                                  if(event = 'step three', 1, 0) as step_2,
                                  if(step_2 = 1, timestamp, null) as latest_2
                           FROM events e
-                          INNER JOIN
+                          LEFT OUTER JOIN
                             (SELECT distinct_id,
                                     argMax(person_id, version) as person_id
                              FROM person_distinct_id2
@@ -1025,13 +1025,13 @@
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
-                        pdi.person_id AS person_id,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS person_id,
                         funnel_actors.timestamp AS target_timestamp,
                         ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
-                 INNER JOIN
+                 LEFT OUTER JOIN
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
@@ -1051,13 +1051,13 @@
                     WHERE team_id = 2
                       AND group_type_index = 0
                     GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-                 JOIN funnel_actors ON funnel_actors.actor_id = pdi.person_id
+                 JOIN funnel_actors ON funnel_actors.actor_id = if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id)
                  WHERE team_id = 2
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
                    AND (has(['technology'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
                    AND e.timestamp >= target_timestamp
-                 ORDER BY pdi.person_id,
+                 ORDER BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id),
                           e.timestamp)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -1133,8 +1133,8 @@
                                                                                                     ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
                        FROM
                          (SELECT e.timestamp as timestamp,
-                                 pdi.person_id as aggregation_target,
-                                 pdi.person_id as person_id,
+                                 if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                                 if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                                  if(event = 'step one', 1, 0) as step_0,
                                  if(step_0 = 1, timestamp, null) as latest_0,
                                  if(event = 'step two', 1, 0) as step_1,
@@ -1142,7 +1142,7 @@
                                  if(event = 'step three', 1, 0) as step_2,
                                  if(step_2 = 1, timestamp, null) as latest_2
                           FROM events e
-                          INNER JOIN
+                          LEFT OUTER JOIN
                             (SELECT distinct_id,
                                     argMax(person_id, version) as person_id
                              FROM person_distinct_id2
@@ -1211,13 +1211,13 @@
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
-                        pdi.person_id AS person_id,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS person_id,
                         funnel_actors.timestamp AS target_timestamp,
                         ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
-                 INNER JOIN
+                 LEFT OUTER JOIN
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
@@ -1237,13 +1237,13 @@
                     WHERE team_id = 2
                       AND group_type_index = 0
                     GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-                 JOIN funnel_actors ON funnel_actors.actor_id = pdi.person_id
+                 JOIN funnel_actors ON funnel_actors.actor_id = if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id)
                  WHERE team_id = 2
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
                    AND (has(['technology'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
                    AND e.timestamp >= target_timestamp
-                 ORDER BY pdi.person_id,
+                 ORDER BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id),
                           e.timestamp)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -1317,8 +1317,8 @@
                                                                                                     ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
                        FROM
                          (SELECT e.timestamp as timestamp,
-                                 pdi.person_id as aggregation_target,
-                                 pdi.person_id as person_id,
+                                 if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                                 if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                                  if(event = 'step one', 1, 0) as step_0,
                                  if(step_0 = 1, timestamp, null) as latest_0,
                                  if(event = 'step two', 1, 0) as step_1,
@@ -1326,7 +1326,7 @@
                                  if(event = 'step three', 1, 0) as step_2,
                                  if(step_2 = 1, timestamp, null) as latest_2
                           FROM events e
-                          INNER JOIN
+                          LEFT OUTER JOIN
                             (SELECT distinct_id,
                                     argMax(person_id, version) as person_id
                              FROM person_distinct_id2
@@ -1395,13 +1395,13 @@
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
-                        pdi.person_id AS person_id,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS person_id,
                         funnel_actors.timestamp AS target_timestamp,
                         ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
-                 INNER JOIN
+                 LEFT OUTER JOIN
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
@@ -1421,13 +1421,13 @@
                     WHERE team_id = 2
                       AND group_type_index = 0
                     GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-                 JOIN funnel_actors ON funnel_actors.actor_id = pdi.person_id
+                 JOIN funnel_actors ON funnel_actors.actor_id = if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id)
                  WHERE team_id = 2
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
                    AND (has(['technology'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
                    AND e.timestamp >= target_timestamp
-                 ORDER BY pdi.person_id,
+                 ORDER BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id),
                           e.timestamp)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -1501,8 +1501,8 @@
                                                                                                     ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
                        FROM
                          (SELECT e.timestamp as timestamp,
-                                 pdi.person_id as aggregation_target,
-                                 pdi.person_id as person_id,
+                                 if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                                 if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                                  if(event = 'step one', 1, 0) as step_0,
                                  if(step_0 = 1, timestamp, null) as latest_0,
                                  if(event = 'step two', 1, 0) as step_1,
@@ -1510,7 +1510,7 @@
                                  if(event = 'step three', 1, 0) as step_2,
                                  if(step_2 = 1, timestamp, null) as latest_2
                           FROM events e
-                          INNER JOIN
+                          LEFT OUTER JOIN
                             (SELECT distinct_id,
                                     argMax(person_id, version) as person_id
                              FROM person_distinct_id2
@@ -1579,13 +1579,13 @@
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
-                        pdi.person_id AS person_id,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS person_id,
                         funnel_actors.timestamp AS target_timestamp,
                         ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
-                 INNER JOIN
+                 LEFT OUTER JOIN
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
@@ -1605,13 +1605,13 @@
                     WHERE team_id = 2
                       AND group_type_index = 0
                     GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-                 JOIN funnel_actors ON funnel_actors.actor_id = pdi.person_id
+                 JOIN funnel_actors ON funnel_actors.actor_id = if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id)
                  WHERE team_id = 2
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
                    AND (has(['technology'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
                    AND e.timestamp >= target_timestamp
-                 ORDER BY pdi.person_id,
+                 ORDER BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id),
                           e.timestamp)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -1685,8 +1685,8 @@
                                                                                                     ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
                        FROM
                          (SELECT e.timestamp as timestamp,
-                                 pdi.person_id as aggregation_target,
-                                 pdi.person_id as person_id,
+                                 if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                                 if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                                  if(event = 'step one', 1, 0) as step_0,
                                  if(step_0 = 1, timestamp, null) as latest_0,
                                  if(event = 'step two', 1, 0) as step_1,
@@ -1694,7 +1694,7 @@
                                  if(event = 'step three', 1, 0) as step_2,
                                  if(step_2 = 1, timestamp, null) as latest_2
                           FROM events e
-                          INNER JOIN
+                          LEFT OUTER JOIN
                             (SELECT distinct_id,
                                     argMax(person_id, version) as person_id
                              FROM person_distinct_id2
@@ -1763,13 +1763,13 @@
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
-                        pdi.person_id AS person_id,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS person_id,
                         funnel_actors.timestamp AS target_timestamp,
                         ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
-                 INNER JOIN
+                 LEFT OUTER JOIN
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
@@ -1789,13 +1789,13 @@
                     WHERE team_id = 2
                       AND group_type_index = 0
                     GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-                 JOIN funnel_actors ON funnel_actors.actor_id = pdi.person_id
+                 JOIN funnel_actors ON funnel_actors.actor_id = if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id)
                  WHERE team_id = 2
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
                    AND (has(['technology'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
                    AND e.timestamp >= target_timestamp
-                 ORDER BY pdi.person_id,
+                 ORDER BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id),
                           e.timestamp)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -1869,8 +1869,8 @@
                                                                                                     ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
                        FROM
                          (SELECT e.timestamp as timestamp,
-                                 pdi.person_id as aggregation_target,
-                                 pdi.person_id as person_id,
+                                 if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                                 if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                                  if(event = 'step one', 1, 0) as step_0,
                                  if(step_0 = 1, timestamp, null) as latest_0,
                                  if(event = 'step two', 1, 0) as step_1,
@@ -1878,7 +1878,7 @@
                                  if(event = 'step three', 1, 0) as step_2,
                                  if(step_2 = 1, timestamp, null) as latest_2
                           FROM events e
-                          INNER JOIN
+                          LEFT OUTER JOIN
                             (SELECT distinct_id,
                                     argMax(person_id, version) as person_id
                              FROM person_distinct_id2
@@ -1950,13 +1950,13 @@
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
-                        pdi.person_id AS person_id,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS person_id,
                         funnel_actors.timestamp AS target_timestamp,
                         ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
-                 INNER JOIN
+                 LEFT OUTER JOIN
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
@@ -1969,12 +1969,12 @@
                            AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC') )
                     GROUP BY distinct_id
                     HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                 JOIN funnel_actors ON funnel_actors.actor_id = pdi.person_id
+                 JOIN funnel_actors ON funnel_actors.actor_id = if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id)
                  WHERE team_id = 2
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
                    AND e.timestamp >= target_timestamp
-                 ORDER BY pdi.person_id,
+                 ORDER BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id),
                           e.timestamp)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -2050,8 +2050,8 @@
                                                                                                     ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
                        FROM
                          (SELECT e.timestamp as timestamp,
-                                 pdi.person_id as aggregation_target,
-                                 pdi.person_id as person_id,
+                                 if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                                 if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                                  if(event = 'step one', 1, 0) as step_0,
                                  if(step_0 = 1, timestamp, null) as latest_0,
                                  if(event = 'step two', 1, 0) as step_1,
@@ -2059,7 +2059,7 @@
                                  if(event = 'step three', 1, 0) as step_2,
                                  if(step_2 = 1, timestamp, null) as latest_2
                           FROM events e
-                          INNER JOIN
+                          LEFT OUTER JOIN
                             (SELECT distinct_id,
                                     argMax(person_id, version) as person_id
                              FROM person_distinct_id2
@@ -2131,13 +2131,13 @@
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
-                        pdi.person_id AS person_id,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS person_id,
                         funnel_actors.timestamp AS target_timestamp,
                         ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
-                 INNER JOIN
+                 LEFT OUTER JOIN
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
@@ -2150,12 +2150,12 @@
                            AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC') )
                     GROUP BY distinct_id
                     HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                 JOIN funnel_actors ON funnel_actors.actor_id = pdi.person_id
+                 JOIN funnel_actors ON funnel_actors.actor_id = if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id)
                  WHERE team_id = 2
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
                    AND e.timestamp >= target_timestamp
-                 ORDER BY pdi.person_id,
+                 ORDER BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id),
                           e.timestamp)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -2231,8 +2231,8 @@
                                                                                                     ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
                        FROM
                          (SELECT e.timestamp as timestamp,
-                                 pdi.person_id as aggregation_target,
-                                 pdi.person_id as person_id,
+                                 if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                                 if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                                  if(event = 'step one', 1, 0) as step_0,
                                  if(step_0 = 1, timestamp, null) as latest_0,
                                  if(event = 'step two', 1, 0) as step_1,
@@ -2240,7 +2240,7 @@
                                  if(event = 'step three', 1, 0) as step_2,
                                  if(step_2 = 1, timestamp, null) as latest_2
                           FROM events e
-                          INNER JOIN
+                          LEFT OUTER JOIN
                             (SELECT distinct_id,
                                     argMax(person_id, version) as person_id
                              FROM person_distinct_id2
@@ -2312,13 +2312,13 @@
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
-                        pdi.person_id AS person_id,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS person_id,
                         funnel_actors.timestamp AS target_timestamp,
                         ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
-                 INNER JOIN
+                 LEFT OUTER JOIN
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
@@ -2331,12 +2331,12 @@
                            AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC') )
                     GROUP BY distinct_id
                     HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                 JOIN funnel_actors ON funnel_actors.actor_id = pdi.person_id
+                 JOIN funnel_actors ON funnel_actors.actor_id = if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id)
                  WHERE team_id = 2
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
                    AND e.timestamp <= target_timestamp + INTERVAL 7 DAY
-                 ORDER BY pdi.person_id,
+                 ORDER BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id),
                           e.timestamp)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -2412,8 +2412,8 @@
                                                                                                     ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
                        FROM
                          (SELECT e.timestamp as timestamp,
-                                 pdi.person_id as aggregation_target,
-                                 pdi.person_id as person_id,
+                                 if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                                 if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                                  if(event = 'step one', 1, 0) as step_0,
                                  if(step_0 = 1, timestamp, null) as latest_0,
                                  if(event = 'step two', 1, 0) as step_1,
@@ -2421,7 +2421,7 @@
                                  if(event = 'step three', 1, 0) as step_2,
                                  if(step_2 = 1, timestamp, null) as latest_2
                           FROM events e
-                          INNER JOIN
+                          LEFT OUTER JOIN
                             (SELECT distinct_id,
                                     argMax(person_id, version) as person_id
                              FROM person_distinct_id2
@@ -2493,13 +2493,13 @@
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
-                        pdi.person_id AS person_id,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS person_id,
                         funnel_actors.timestamp AS target_timestamp,
                         ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
-                 INNER JOIN
+                 LEFT OUTER JOIN
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
@@ -2512,12 +2512,12 @@
                            AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC') )
                     GROUP BY distinct_id
                     HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                 JOIN funnel_actors ON funnel_actors.actor_id = pdi.person_id
+                 JOIN funnel_actors ON funnel_actors.actor_id = if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id)
                  WHERE team_id = 2
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
                    AND e.timestamp <= target_timestamp
-                 ORDER BY pdi.person_id,
+                 ORDER BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id),
                           e.timestamp)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -2593,8 +2593,8 @@
                                                                                                     ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
                        FROM
                          (SELECT e.timestamp as timestamp,
-                                 pdi.person_id as aggregation_target,
-                                 pdi.person_id as person_id,
+                                 if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                                 if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                                  if(event = 'step one', 1, 0) as step_0,
                                  if(step_0 = 1, timestamp, null) as latest_0,
                                  if(event = 'step two', 1, 0) as step_1,
@@ -2602,7 +2602,7 @@
                                  if(event = 'step three', 1, 0) as step_2,
                                  if(step_2 = 1, timestamp, null) as latest_2
                           FROM events e
-                          INNER JOIN
+                          LEFT OUTER JOIN
                             (SELECT distinct_id,
                                     argMax(person_id, version) as person_id
                              FROM person_distinct_id2
@@ -2674,14 +2674,14 @@
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
-                        pdi.person_id AS person_id,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS person_id,
                         funnel_actors.min_timestamp as min_timestamp,
                         funnel_actors.max_timestamp as max_timestamp,
                         ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
-                 INNER JOIN
+                 LEFT OUTER JOIN
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
@@ -2694,13 +2694,13 @@
                            AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC') )
                     GROUP BY distinct_id
                     HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                 JOIN funnel_actors ON funnel_actors.actor_id = pdi.person_id
+                 JOIN funnel_actors ON funnel_actors.actor_id = if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id)
                  WHERE team_id = 2
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
                    AND e.timestamp >= min_timestamp
                    AND e.timestamp <= max_timestamp
-                 ORDER BY pdi.person_id,
+                 ORDER BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id),
                           e.timestamp)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -2776,8 +2776,8 @@
                                                                                                     ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
                        FROM
                          (SELECT e.timestamp as timestamp,
-                                 pdi.person_id as aggregation_target,
-                                 pdi.person_id as person_id,
+                                 if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                                 if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                                  if(event = 'step one', 1, 0) as step_0,
                                  if(step_0 = 1, timestamp, null) as latest_0,
                                  if(event = 'step two', 1, 0) as step_1,
@@ -2785,7 +2785,7 @@
                                  if(event = 'step three', 1, 0) as step_2,
                                  if(step_2 = 1, timestamp, null) as latest_2
                           FROM events e
-                          INNER JOIN
+                          LEFT OUTER JOIN
                             (SELECT distinct_id,
                                     argMax(person_id, version) as person_id
                              FROM person_distinct_id2
@@ -2854,14 +2854,14 @@
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
-                        pdi.person_id AS person_id,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS person_id,
                         funnel_actors.min_timestamp as min_timestamp,
                         funnel_actors.max_timestamp as max_timestamp,
                         ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
-                 INNER JOIN
+                 LEFT OUTER JOIN
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
@@ -2874,13 +2874,13 @@
                            AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC') )
                     GROUP BY distinct_id
                     HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                 JOIN funnel_actors ON funnel_actors.actor_id = pdi.person_id
+                 JOIN funnel_actors ON funnel_actors.actor_id = if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id)
                  WHERE team_id = 2
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
                    AND e.timestamp >= min_timestamp
                    AND e.timestamp <= max_timestamp
-                 ORDER BY pdi.person_id,
+                 ORDER BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id),
                           e.timestamp)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -2954,8 +2954,8 @@
                                                                                                     ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
                        FROM
                          (SELECT e.timestamp as timestamp,
-                                 pdi.person_id as aggregation_target,
-                                 pdi.person_id as person_id,
+                                 if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                                 if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                                  if(event = 'step one', 1, 0) as step_0,
                                  if(step_0 = 1, timestamp, null) as latest_0,
                                  if(event = 'step two', 1, 0) as step_1,
@@ -2963,7 +2963,7 @@
                                  if(event = 'step three', 1, 0) as step_2,
                                  if(step_2 = 1, timestamp, null) as latest_2
                           FROM events e
-                          INNER JOIN
+                          LEFT OUTER JOIN
                             (SELECT distinct_id,
                                     argMax(person_id, version) as person_id
                              FROM person_distinct_id2
@@ -3032,14 +3032,14 @@
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
-                        pdi.person_id AS person_id,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS person_id,
                         funnel_actors.min_timestamp as min_timestamp,
                         funnel_actors.max_timestamp as max_timestamp,
                         ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
-                 INNER JOIN
+                 LEFT OUTER JOIN
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
@@ -3052,13 +3052,13 @@
                            AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC') )
                     GROUP BY distinct_id
                     HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                 JOIN funnel_actors ON funnel_actors.actor_id = pdi.person_id
+                 JOIN funnel_actors ON funnel_actors.actor_id = if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id)
                  WHERE team_id = 2
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
                    AND e.timestamp >= min_timestamp
                    AND e.timestamp <= max_timestamp
-                 ORDER BY pdi.person_id,
+                 ORDER BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id),
                           e.timestamp)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -3132,8 +3132,8 @@
                                                                                                     ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
                        FROM
                          (SELECT e.timestamp as timestamp,
-                                 pdi.person_id as aggregation_target,
-                                 pdi.person_id as person_id,
+                                 if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                                 if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                                  if(event = 'step one', 1, 0) as step_0,
                                  if(step_0 = 1, timestamp, null) as latest_0,
                                  if(event = 'step two', 1, 0) as step_1,
@@ -3141,7 +3141,7 @@
                                  if(event = 'step three', 1, 0) as step_2,
                                  if(step_2 = 1, timestamp, null) as latest_2
                           FROM events e
-                          INNER JOIN
+                          LEFT OUTER JOIN
                             (SELECT distinct_id,
                                     argMax(person_id, version) as person_id
                              FROM person_distinct_id2
@@ -3210,14 +3210,14 @@
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
-                        pdi.person_id AS person_id,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS person_id,
                         funnel_actors.min_timestamp as min_timestamp,
                         funnel_actors.max_timestamp as max_timestamp,
                         ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
-                 INNER JOIN
+                 LEFT OUTER JOIN
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
@@ -3230,13 +3230,13 @@
                            AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC') )
                     GROUP BY distinct_id
                     HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                 JOIN funnel_actors ON funnel_actors.actor_id = pdi.person_id
+                 JOIN funnel_actors ON funnel_actors.actor_id = if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id)
                  WHERE team_id = 2
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
                    AND e.timestamp >= min_timestamp
                    AND e.timestamp <= max_timestamp
-                 ORDER BY pdi.person_id,
+                 ORDER BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id),
                           e.timestamp)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -3310,8 +3310,8 @@
                                                                                                     ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
                        FROM
                          (SELECT e.timestamp as timestamp,
-                                 pdi.person_id as aggregation_target,
-                                 pdi.person_id as person_id,
+                                 if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                                 if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                                  if(event = 'step one', 1, 0) as step_0,
                                  if(step_0 = 1, timestamp, null) as latest_0,
                                  if(event = 'step two', 1, 0) as step_1,
@@ -3319,7 +3319,7 @@
                                  if(event = 'step three', 1, 0) as step_2,
                                  if(step_2 = 1, timestamp, null) as latest_2
                           FROM events e
-                          INNER JOIN
+                          LEFT OUTER JOIN
                             (SELECT distinct_id,
                                     argMax(person_id, version) as person_id
                              FROM person_distinct_id2
@@ -3388,14 +3388,14 @@
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
-                        pdi.person_id AS person_id,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS person_id,
                         funnel_actors.min_timestamp as min_timestamp,
                         funnel_actors.max_timestamp as max_timestamp,
                         ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
-                 INNER JOIN
+                 LEFT OUTER JOIN
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
@@ -3408,13 +3408,13 @@
                            AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC') )
                     GROUP BY distinct_id
                     HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                 JOIN funnel_actors ON funnel_actors.actor_id = pdi.person_id
+                 JOIN funnel_actors ON funnel_actors.actor_id = if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id)
                  WHERE team_id = 2
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
                    AND e.timestamp >= min_timestamp
                    AND e.timestamp <= max_timestamp
-                 ORDER BY pdi.person_id,
+                 ORDER BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id),
                           e.timestamp)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -3488,8 +3488,8 @@
                                                                                                     ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
                        FROM
                          (SELECT e.timestamp as timestamp,
-                                 pdi.person_id as aggregation_target,
-                                 pdi.person_id as person_id,
+                                 if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                                 if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                                  if(event = 'step one', 1, 0) as step_0,
                                  if(step_0 = 1, timestamp, null) as latest_0,
                                  if(event = 'step two', 1, 0) as step_1,
@@ -3497,7 +3497,7 @@
                                  if(event = 'step three', 1, 0) as step_2,
                                  if(step_2 = 1, timestamp, null) as latest_2
                           FROM events e
-                          INNER JOIN
+                          LEFT OUTER JOIN
                             (SELECT distinct_id,
                                     argMax(person_id, version) as person_id
                              FROM person_distinct_id2
@@ -3566,14 +3566,14 @@
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
-                        pdi.person_id AS person_id,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS person_id,
                         funnel_actors.min_timestamp as min_timestamp,
                         funnel_actors.max_timestamp as max_timestamp,
                         ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
-                 INNER JOIN
+                 LEFT OUTER JOIN
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
@@ -3586,13 +3586,13 @@
                            AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC') )
                     GROUP BY distinct_id
                     HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                 JOIN funnel_actors ON funnel_actors.actor_id = pdi.person_id
+                 JOIN funnel_actors ON funnel_actors.actor_id = if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id)
                  WHERE team_id = 2
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
                    AND e.timestamp >= min_timestamp
                    AND e.timestamp <= max_timestamp
-                 ORDER BY pdi.person_id,
+                 ORDER BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id),
                           e.timestamp)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -3653,12 +3653,12 @@
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
-                        pdi.person_id AS person_id,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS person_id,
                         ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
-                 INNER JOIN
+                 LEFT OUTER JOIN
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
@@ -3674,7 +3674,7 @@
                  WHERE team_id = 2
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
-                 ORDER BY pdi.person_id,
+                 ORDER BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id),
                           e.timestamp)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -3738,12 +3738,12 @@
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
-                        pdi.person_id AS person_id,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS person_id,
                         ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
-                 INNER JOIN
+                 LEFT OUTER JOIN
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
@@ -3759,7 +3759,7 @@
                  WHERE team_id = 2
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
-                 ORDER BY pdi.person_id,
+                 ORDER BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id),
                           e.timestamp)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -3823,12 +3823,12 @@
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
-                        pdi.person_id AS person_id,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS person_id,
                         ifNull(if(equals(event, '$screen'), nullIf(nullIf(e.`mat_$screen_name`, ''), 'null'), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(nullIf(nullIf(e.`mat_$current_url`, ''), 'null'), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
-                 INNER JOIN
+                 LEFT OUTER JOIN
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
@@ -3844,7 +3844,7 @@
                  WHERE team_id = 2
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
-                 ORDER BY pdi.person_id,
+                 ORDER BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id),
                           e.timestamp)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -3908,12 +3908,12 @@
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
-                        pdi.person_id AS person_id,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS person_id,
                         ifNull(if(equals(event, '$screen'), nullIf(nullIf(e.`mat_$screen_name`, ''), 'null'), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(nullIf(nullIf(e.`mat_$current_url`, ''), 'null'), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
-                 INNER JOIN
+                 LEFT OUTER JOIN
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
@@ -3929,7 +3929,7 @@
                  WHERE team_id = 2
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
-                 ORDER BY pdi.person_id,
+                 ORDER BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id),
                           e.timestamp)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -3993,12 +3993,12 @@
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
-                        pdi.person_id AS person_id,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS person_id,
                         ifNull(if(equals(event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), event), '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, ['/bar/.*/foo']) AS group_index,
                         if(group_index > 0, ['/bar/*/foo'][group_index], path_item_ungrouped) AS path_item
                  FROM events e
-                 INNER JOIN
+                 LEFT OUTER JOIN
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
@@ -4017,7 +4017,7 @@
                    AND NOT path_item IN ['/bar/*/foo']
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2023-05-23 23:59:59', 'UTC')
-                 ORDER BY pdi.person_id,
+                 ORDER BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id),
                           e.timestamp)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -4080,12 +4080,12 @@
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
-                        pdi.person_id AS person_id,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS person_id,
                         ifNull(if(equals(event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), event), '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, ['/xxx/invalid/.*']) AS group_index,
                         if(group_index > 0, ['/xxx/invalid/*'][group_index], path_item_ungrouped) AS path_item
                  FROM events e
-                 INNER JOIN
+                 LEFT OUTER JOIN
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
@@ -4104,7 +4104,7 @@
                    AND NOT path_item IN ['/bar/*/foo']
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2023-05-23 23:59:59', 'UTC')
-                 ORDER BY pdi.person_id,
+                 ORDER BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id),
                           e.timestamp)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -4167,12 +4167,12 @@
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
-                        pdi.person_id AS person_id,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS person_id,
                         ifNull(if(equals(event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), event), '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
-                 INNER JOIN
+                 LEFT OUTER JOIN
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
@@ -4190,7 +4190,7 @@
                    AND (event = '$pageview')
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2023-05-23 23:59:59', 'UTC')
-                 ORDER BY pdi.person_id,
+                 ORDER BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id),
                           e.timestamp)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -4253,12 +4253,12 @@
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
-                        pdi.person_id AS person_id,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS person_id,
                         ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), event), '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
-                 INNER JOIN
+                 LEFT OUTER JOIN
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
@@ -4276,7 +4276,7 @@
                    AND (event = '$screen')
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2023-05-23 23:59:59', 'UTC')
-                 ORDER BY pdi.person_id,
+                 ORDER BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id),
                           e.timestamp)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -4339,12 +4339,12 @@
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
-                        pdi.person_id AS person_id,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS person_id,
                         ifNull(event, '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
-                 INNER JOIN
+                 LEFT OUTER JOIN
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
@@ -4362,7 +4362,7 @@
                    AND (NOT event LIKE '$%')
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2023-05-23 23:59:59', 'UTC')
-                 ORDER BY pdi.person_id,
+                 ORDER BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id),
                           e.timestamp)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -4425,12 +4425,12 @@
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
-                        pdi.person_id AS person_id,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS person_id,
                         ifNull(event, '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
-                 INNER JOIN
+                 LEFT OUTER JOIN
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
@@ -4448,7 +4448,7 @@
                    AND (event IN ['/custom1', '/custom2'])
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2023-05-23 23:59:59', 'UTC')
-                 ORDER BY pdi.person_id,
+                 ORDER BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id),
                           e.timestamp)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -4511,12 +4511,12 @@
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
-                        pdi.person_id AS person_id,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS person_id,
                         ifNull(event, '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
-                 INNER JOIN
+                 LEFT OUTER JOIN
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
@@ -4534,7 +4534,7 @@
                    AND (event IN ['/custom3', 'blah'])
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2023-05-23 23:59:59', 'UTC')
-                 ORDER BY pdi.person_id,
+                 ORDER BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id),
                           e.timestamp)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -4597,12 +4597,12 @@
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
-                        pdi.person_id AS person_id,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS person_id,
                         ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
-                 INNER JOIN
+                 LEFT OUTER JOIN
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
@@ -4624,7 +4624,7 @@
                         OR NOT event LIKE '$%')
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2023-05-23 23:59:59', 'UTC')
-                 ORDER BY pdi.person_id,
+                 ORDER BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id),
                           e.timestamp)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -4687,12 +4687,12 @@
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
-                        pdi.person_id AS person_id,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS person_id,
                         ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
-                 INNER JOIN
+                 LEFT OUTER JOIN
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
@@ -4715,7 +4715,7 @@
                    AND NOT path_item IN ['/custom1', '/1', '/2', '/3']
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2023-05-23 23:59:59', 'UTC')
-                 ORDER BY pdi.person_id,
+                 ORDER BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id),
                           e.timestamp)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -4778,12 +4778,12 @@
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
-                        pdi.person_id AS person_id,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS person_id,
                         ifNull(event, '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
-                 INNER JOIN
+                 LEFT OUTER JOIN
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
@@ -4801,7 +4801,7 @@
                    AND (NOT event LIKE '$%')
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-03 23:59:59', 'UTC')
-                 ORDER BY pdi.person_id,
+                 ORDER BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id),
                           e.timestamp)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -5113,13 +5113,13 @@
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
-                        pdi.person_id AS person_id,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS person_id,
                         ifNull(if(equals(event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), event), '') AS path_item_ungrouped,
                         replaceRegexpAll(path_item_ungrouped, '\\?(.*)', '?<param>') AS path_item_cleaned,
                         multiMatchAnyIndex(path_item_cleaned, ['/step1']) AS group_index,
                         if(group_index > 0, ['/step1'][group_index], path_item_cleaned) AS path_item
                  FROM events e
-                 INNER JOIN
+                 LEFT OUTER JOIN
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
@@ -5137,7 +5137,7 @@
                    AND (event = '$pageview')
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
-                 ORDER BY pdi.person_id,
+                 ORDER BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id),
                           e.timestamp)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -5198,12 +5198,12 @@
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
-                        pdi.person_id AS person_id,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS person_id,
                         ifNull(event, '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
-                 INNER JOIN
+                 LEFT OUTER JOIN
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
@@ -5221,7 +5221,7 @@
                    AND (NOT event LIKE '$%')
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
-                 ORDER BY pdi.person_id,
+                 ORDER BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id),
                           e.timestamp)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -5279,12 +5279,12 @@
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
-                        pdi.person_id AS person_id,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS person_id,
                         ifNull(event, '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
-                 INNER JOIN
+                 LEFT OUTER JOIN
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
@@ -5302,7 +5302,7 @@
                    AND (NOT event LIKE '$%')
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
-                 ORDER BY pdi.person_id,
+                 ORDER BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id),
                           e.timestamp)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -5359,12 +5359,12 @@
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
-                        pdi.person_id AS person_id,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS person_id,
                         ifNull(event, '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
-                 INNER JOIN
+                 LEFT OUTER JOIN
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
@@ -5382,7 +5382,7 @@
                    AND (NOT event LIKE '$%')
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
-                 ORDER BY pdi.person_id,
+                 ORDER BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id),
                           e.timestamp)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -5439,12 +5439,12 @@
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
-                        pdi.person_id AS person_id,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS person_id,
                         ifNull(event, '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
-                 INNER JOIN
+                 LEFT OUTER JOIN
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
@@ -5462,7 +5462,7 @@
                    AND (NOT event LIKE '$%')
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
-                 ORDER BY pdi.person_id,
+                 ORDER BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id),
                           e.timestamp)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -5520,12 +5520,12 @@
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
-                        pdi.person_id AS person_id,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS person_id,
                         ifNull(event, '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
-                 INNER JOIN
+                 LEFT OUTER JOIN
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
@@ -5543,7 +5543,7 @@
                    AND (NOT event LIKE '$%')
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
-                 ORDER BY pdi.person_id,
+                 ORDER BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id),
                           e.timestamp)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -5600,12 +5600,12 @@
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
-                        pdi.person_id AS person_id,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS person_id,
                         ifNull(event, '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
-                 INNER JOIN
+                 LEFT OUTER JOIN
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
@@ -5623,7 +5623,7 @@
                    AND (NOT event LIKE '$%')
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
-                 ORDER BY pdi.person_id,
+                 ORDER BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id),
                           e.timestamp)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -5680,12 +5680,12 @@
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
-                        pdi.person_id AS person_id,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS person_id,
                         ifNull(event, '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
-                 INNER JOIN
+                 LEFT OUTER JOIN
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
@@ -5703,7 +5703,7 @@
                    AND (NOT event LIKE '$%')
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
-                 ORDER BY pdi.person_id,
+                 ORDER BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id),
                           e.timestamp)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -5761,12 +5761,12 @@
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
-                        pdi.person_id AS person_id,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS person_id,
                         ifNull(event, '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
-                 INNER JOIN
+                 LEFT OUTER JOIN
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
@@ -5784,7 +5784,7 @@
                    AND (NOT event LIKE '$%')
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
-                 ORDER BY pdi.person_id,
+                 ORDER BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id),
                           e.timestamp)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -5841,12 +5841,12 @@
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
-                        pdi.person_id AS person_id,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS person_id,
                         ifNull(event, '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
-                 INNER JOIN
+                 LEFT OUTER JOIN
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
@@ -5864,7 +5864,7 @@
                    AND (NOT event LIKE '$%')
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
-                 ORDER BY pdi.person_id,
+                 ORDER BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id),
                           e.timestamp)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -6043,7 +6043,7 @@
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
-                        pdi.person_id AS person_id,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS person_id,
                         e.uuid AS uuid,
                         e.timestamp AS timestamp,
                         e."$session_id" as $session_id,
@@ -6052,7 +6052,7 @@
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
-                 INNER JOIN
+                 LEFT OUTER JOIN
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
@@ -6070,7 +6070,7 @@
                    AND (event = '$pageview')
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-02 23:59:59', 'UTC')
-                 ORDER BY pdi.person_id,
+                 ORDER BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id),
                           e.timestamp)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -6170,7 +6170,7 @@
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
-                        pdi.person_id AS person_id,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS person_id,
                         e.uuid AS uuid,
                         e.timestamp AS timestamp,
                         e."$session_id" as $session_id,
@@ -6179,7 +6179,7 @@
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
-                 INNER JOIN
+                 LEFT OUTER JOIN
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
@@ -6197,7 +6197,7 @@
                    AND (event = '$pageview')
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-02 23:59:59', 'UTC')
-                 ORDER BY pdi.person_id,
+                 ORDER BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id),
                           e.timestamp)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -6298,7 +6298,7 @@
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
-                        pdi.person_id AS person_id,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS person_id,
                         e.uuid AS uuid,
                         e.timestamp AS timestamp,
                         e."$session_id" as $session_id,
@@ -6307,7 +6307,7 @@
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
-                 INNER JOIN
+                 LEFT OUTER JOIN
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
@@ -6325,7 +6325,7 @@
                    AND (event = '$pageview')
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-02 23:59:59', 'UTC')
-                 ORDER BY pdi.person_id,
+                 ORDER BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id),
                           e.timestamp)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -6426,7 +6426,7 @@
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
-                        pdi.person_id AS person_id,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS person_id,
                         e.uuid AS uuid,
                         e.timestamp AS timestamp,
                         e."$session_id" as $session_id,
@@ -6435,7 +6435,7 @@
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
-                 INNER JOIN
+                 LEFT OUTER JOIN
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
@@ -6453,7 +6453,7 @@
                    AND (event = '$pageview')
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-02 23:59:59', 'UTC')
-                 ORDER BY pdi.person_id,
+                 ORDER BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id),
                           e.timestamp)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -6560,7 +6560,7 @@
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
-                        pdi.person_id AS person_id,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS person_id,
                         e.uuid AS uuid,
                         e.timestamp AS timestamp,
                         e."$session_id" as $session_id,
@@ -6569,7 +6569,7 @@
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
-                 INNER JOIN
+                 LEFT OUTER JOIN
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
@@ -6587,7 +6587,7 @@
                    AND (event = '$pageview')
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-02 23:59:59', 'UTC')
-                 ORDER BY pdi.person_id,
+                 ORDER BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id),
                           e.timestamp)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -6661,12 +6661,12 @@
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
-                        pdi.person_id AS person_id,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS person_id,
                         ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
-                 INNER JOIN
+                 LEFT OUTER JOIN
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
@@ -6682,7 +6682,7 @@
                  WHERE team_id = 2
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2023-05-23 23:59:59', 'UTC')
-                 ORDER BY pdi.person_id,
+                 ORDER BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id),
                           e.timestamp)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -6748,12 +6748,12 @@
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
-                        pdi.person_id AS person_id,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS person_id,
                         ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
-                 INNER JOIN
+                 LEFT OUTER JOIN
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
@@ -6769,7 +6769,7 @@
                  WHERE team_id = 2
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
-                 ORDER BY pdi.person_id,
+                 ORDER BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id),
                           e.timestamp)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -6833,12 +6833,12 @@
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
-                        pdi.person_id AS person_id,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS person_id,
                         ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
-                 INNER JOIN
+                 LEFT OUTER JOIN
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
@@ -6854,7 +6854,7 @@
                  WHERE team_id = 2
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
-                 ORDER BY pdi.person_id,
+                 ORDER BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id),
                           e.timestamp)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -6920,12 +6920,12 @@
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
-                        pdi.person_id AS person_id,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS person_id,
                         ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
-                 INNER JOIN
+                 LEFT OUTER JOIN
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
@@ -6941,7 +6941,7 @@
                  WHERE team_id = 2
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
-                 ORDER BY pdi.person_id,
+                 ORDER BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id),
                           e.timestamp)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -7005,12 +7005,12 @@
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
-                        pdi.person_id AS person_id,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS person_id,
                         ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
-                 INNER JOIN
+                 LEFT OUTER JOIN
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
@@ -7026,7 +7026,7 @@
                  WHERE team_id = 2
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
-                 ORDER BY pdi.person_id,
+                 ORDER BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id),
                           e.timestamp)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -7092,12 +7092,12 @@
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
-                        pdi.person_id AS person_id,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS person_id,
                         ifNull(if(equals(event, '$screen'), nullIf(nullIf(e.`mat_$screen_name`, ''), 'null'), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(nullIf(nullIf(e.`mat_$current_url`, ''), 'null'), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
-                 INNER JOIN
+                 LEFT OUTER JOIN
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
@@ -7113,7 +7113,7 @@
                  WHERE team_id = 2
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
-                 ORDER BY pdi.person_id,
+                 ORDER BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id),
                           e.timestamp)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -7177,12 +7177,12 @@
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
-                        pdi.person_id AS person_id,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS person_id,
                         ifNull(if(equals(event, '$screen'), nullIf(nullIf(e.`mat_$screen_name`, ''), 'null'), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(nullIf(nullIf(e.`mat_$current_url`, ''), 'null'), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
-                 INNER JOIN
+                 LEFT OUTER JOIN
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
@@ -7198,7 +7198,7 @@
                  WHERE team_id = 2
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
-                 ORDER BY pdi.person_id,
+                 ORDER BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id),
                           e.timestamp)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -7264,12 +7264,12 @@
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
-                        pdi.person_id AS person_id,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS person_id,
                         ifNull(if(equals(event, '$screen'), nullIf(nullIf(e.`mat_$screen_name`, ''), 'null'), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(nullIf(nullIf(e.`mat_$current_url`, ''), 'null'), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
-                 INNER JOIN
+                 LEFT OUTER JOIN
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
@@ -7285,7 +7285,7 @@
                  WHERE team_id = 2
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
-                 ORDER BY pdi.person_id,
+                 ORDER BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id),
                           e.timestamp)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -7349,12 +7349,12 @@
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
-                        pdi.person_id AS person_id,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS person_id,
                         ifNull(if(equals(event, '$screen'), nullIf(nullIf(e.`mat_$screen_name`, ''), 'null'), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(nullIf(nullIf(e.`mat_$current_url`, ''), 'null'), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
-                 INNER JOIN
+                 LEFT OUTER JOIN
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
@@ -7370,7 +7370,7 @@
                  WHERE team_id = 2
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
-                 ORDER BY pdi.person_id,
+                 ORDER BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id),
                           e.timestamp)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -7433,12 +7433,12 @@
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
-                        pdi.person_id AS person_id,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS person_id,
                         ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
-                 INNER JOIN
+                 LEFT OUTER JOIN
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
@@ -7454,7 +7454,7 @@
                  WHERE team_id = 2
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
-                 ORDER BY pdi.person_id,
+                 ORDER BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id),
                           e.timestamp)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -7518,12 +7518,12 @@
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
-                        pdi.person_id AS person_id,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS person_id,
                         ifNull(if(equals(event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), event), '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
-                 INNER JOIN
+                 LEFT OUTER JOIN
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
@@ -7541,7 +7541,7 @@
                    AND (event = '$pageview')
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2023-05-23 23:59:59', 'UTC')
-                 ORDER BY pdi.person_id,
+                 ORDER BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id),
                           e.timestamp)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -7604,12 +7604,12 @@
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
-                        pdi.person_id AS person_id,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS person_id,
                         ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
-                 INNER JOIN
+                 LEFT OUTER JOIN
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
@@ -7625,7 +7625,7 @@
                  WHERE team_id = 2
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2011-12-31 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-07 23:59:59', 'UTC')
-                 ORDER BY pdi.person_id,
+                 ORDER BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id),
                           e.timestamp)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -7685,12 +7685,12 @@
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
-                        pdi.person_id AS person_id,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS person_id,
                         ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
-                 INNER JOIN
+                 LEFT OUTER JOIN
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
@@ -7706,7 +7706,7 @@
                  WHERE team_id = 2
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2011-12-31 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-07 23:59:59', 'UTC')
-                 ORDER BY pdi.person_id,
+                 ORDER BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id),
                           e.timestamp)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -7764,12 +7764,12 @@
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
-                        pdi.person_id AS person_id,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS person_id,
                         ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
-                 INNER JOIN
+                 LEFT OUTER JOIN
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
@@ -7785,7 +7785,7 @@
                  WHERE team_id = 2
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2011-12-31 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-07 23:59:59', 'UTC')
-                 ORDER BY pdi.person_id,
+                 ORDER BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id),
                           e.timestamp)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -7846,12 +7846,12 @@
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
-                        pdi.person_id AS person_id,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS person_id,
                         ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
-                 INNER JOIN
+                 LEFT OUTER JOIN
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
@@ -7867,7 +7867,7 @@
                  WHERE team_id = 2
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2011-12-31 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-07 23:59:59', 'UTC')
-                 ORDER BY pdi.person_id,
+                 ORDER BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id),
                           e.timestamp)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -7927,12 +7927,12 @@
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
-                        pdi.person_id AS person_id,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS person_id,
                         ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
-                 INNER JOIN
+                 LEFT OUTER JOIN
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
@@ -7948,7 +7948,7 @@
                  WHERE team_id = 2
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2011-12-31 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-07 23:59:59', 'UTC')
-                 ORDER BY pdi.person_id,
+                 ORDER BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id),
                           e.timestamp)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -8009,12 +8009,12 @@
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
-                        pdi.person_id AS person_id,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS person_id,
                         ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
-                 INNER JOIN
+                 LEFT OUTER JOIN
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
@@ -8030,7 +8030,7 @@
                  WHERE team_id = 2
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2011-12-31 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-07 23:59:59', 'UTC')
-                 ORDER BY pdi.person_id,
+                 ORDER BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id),
                           e.timestamp)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -8090,12 +8090,12 @@
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
-                        pdi.person_id AS person_id,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS person_id,
                         ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
-                 INNER JOIN
+                 LEFT OUTER JOIN
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
@@ -8111,7 +8111,7 @@
                  WHERE team_id = 2
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2011-12-31 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-07 23:59:59', 'UTC')
-                 ORDER BY pdi.person_id,
+                 ORDER BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id),
                           e.timestamp)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -8169,12 +8169,12 @@
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
-                        pdi.person_id AS person_id,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS person_id,
                         ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
-                 INNER JOIN
+                 LEFT OUTER JOIN
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
@@ -8190,7 +8190,7 @@
                  WHERE team_id = 2
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2011-12-31 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-07 23:59:59', 'UTC')
-                 ORDER BY pdi.person_id,
+                 ORDER BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id),
                           e.timestamp)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -8248,12 +8248,12 @@
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
-                        pdi.person_id AS person_id,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS person_id,
                         ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
-                 INNER JOIN
+                 LEFT OUTER JOIN
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
@@ -8269,7 +8269,7 @@
                  WHERE team_id = 2
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2011-12-31 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-07 23:59:59', 'UTC')
-                 ORDER BY pdi.person_id,
+                 ORDER BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id),
                           e.timestamp)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -8330,14 +8330,14 @@
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
-                        pdi.person_id AS person_id,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS person_id,
                         ifNull(if(equals(event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), event), '') AS path_item_ungrouped,
                         replaceRegexpAll(path_item_ungrouped, '\\?(.*)', '?<param>') AS path_item_0,
                         replaceRegexpAll(path_item_0, '/\\d+(/|\\?)?', '/<id>') AS path_item_cleaned,
                         multiMatchAnyIndex(path_item_cleaned, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_cleaned) AS path_item
                  FROM events e
-                 INNER JOIN
+                 LEFT OUTER JOIN
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
@@ -8355,7 +8355,7 @@
                    AND (event = '$pageview')
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
-                 ORDER BY pdi.person_id,
+                 ORDER BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id),
                           e.timestamp)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -8418,14 +8418,14 @@
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
-                        pdi.person_id AS person_id,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS person_id,
                         ifNull(if(equals(event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), event), '') AS path_item_ungrouped,
                         replaceRegexpAll(path_item_ungrouped, '\\?(.*)', '?<param>') AS path_item_0,
                         replaceRegexpAll(path_item_0, '/\\d+(/|\\?)?', '/<id>') AS path_item_cleaned,
                         multiMatchAnyIndex(path_item_cleaned, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_cleaned) AS path_item
                  FROM events e
-                 INNER JOIN
+                 LEFT OUTER JOIN
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
@@ -8443,7 +8443,7 @@
                    AND (event = '$pageview')
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
-                 ORDER BY pdi.person_id,
+                 ORDER BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id),
                           e.timestamp)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -8506,14 +8506,14 @@
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
-                        pdi.person_id AS person_id,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS person_id,
                         ifNull(if(equals(event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), event), '') AS path_item_ungrouped,
                         replaceRegexpAll(path_item_ungrouped, '\\?(.*)', '?<param>') AS path_item_0,
                         replaceRegexpAll(path_item_0, '/\\d+(/|\\?)?', '/<id>') AS path_item_cleaned,
                         multiMatchAnyIndex(path_item_cleaned, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_cleaned) AS path_item
                  FROM events e
-                 INNER JOIN
+                 LEFT OUTER JOIN
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
@@ -8531,7 +8531,7 @@
                    AND (event = '$pageview')
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
-                 ORDER BY pdi.person_id,
+                 ORDER BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id),
                           e.timestamp)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -8594,12 +8594,12 @@
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
-                        pdi.person_id AS person_id,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS person_id,
                         ifNull(if(equals(event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), event), '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
-                 INNER JOIN
+                 LEFT OUTER JOIN
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
@@ -8617,7 +8617,7 @@
                    AND (event = '$pageview')
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
-                 ORDER BY pdi.person_id,
+                 ORDER BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id),
                           e.timestamp)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -8680,13 +8680,13 @@
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
-                        pdi.person_id AS person_id,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS person_id,
                         ifNull(if(equals(event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), event), '') AS path_item_ungrouped,
                         replaceRegexpAll(path_item_ungrouped, '\\?(.*)', '?<param>') AS path_item_cleaned,
                         multiMatchAnyIndex(path_item_cleaned, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_cleaned) AS path_item
                  FROM events e
-                 INNER JOIN
+                 LEFT OUTER JOIN
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
@@ -8704,7 +8704,7 @@
                    AND (event = '$pageview')
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
-                 ORDER BY pdi.person_id,
+                 ORDER BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id),
                           e.timestamp)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -8767,12 +8767,12 @@
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
-                        pdi.person_id AS person_id,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS person_id,
                         ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, ['between_step_1_.*', 'between_step_2_.*', 'step\\ drop.*']) AS group_index,
                         if(group_index > 0, ['between_step_1_*', 'between_step_2_*', 'step drop*'][group_index], path_item_ungrouped) AS path_item
                  FROM events e
-                 INNER JOIN
+                 LEFT OUTER JOIN
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
@@ -8788,7 +8788,7 @@
                  WHERE team_id = 2
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
-                 ORDER BY pdi.person_id,
+                 ORDER BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id),
                           e.timestamp)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -8851,12 +8851,12 @@
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
-                        pdi.person_id AS person_id,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS person_id,
                         ifNull(if(equals(event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), event), '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, ['/bar/.*/foo']) AS group_index,
                         if(group_index > 0, ['/bar/*/foo'][group_index], path_item_ungrouped) AS path_item
                  FROM events e
-                 INNER JOIN
+                 LEFT OUTER JOIN
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
@@ -8874,7 +8874,7 @@
                    AND (event = '$pageview')
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2023-05-23 23:59:59', 'UTC')
-                 ORDER BY pdi.person_id,
+                 ORDER BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id),
                           e.timestamp)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -8937,12 +8937,12 @@
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
-                        pdi.person_id AS person_id,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS person_id,
                         ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, ['between_step_1_.*', 'between_step_2_.*', 'step\\ drop.*']) AS group_index,
                         if(group_index > 0, ['between_step_1_*', 'between_step_2_*', 'step drop*'][group_index], path_item_ungrouped) AS path_item
                  FROM events e
-                 INNER JOIN
+                 LEFT OUTER JOIN
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
@@ -8958,7 +8958,7 @@
                  WHERE team_id = 2
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
-                 ORDER BY pdi.person_id,
+                 ORDER BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id),
                           e.timestamp)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -9022,12 +9022,12 @@
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
-                        pdi.person_id AS person_id,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS person_id,
                         ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, ['between_step_1_.*', 'between_step_2_.*', 'step\\ drop.*']) AS group_index,
                         if(group_index > 0, ['between_step_1_*', 'between_step_2_*', 'step drop*'][group_index], path_item_ungrouped) AS path_item
                  FROM events e
-                 INNER JOIN
+                 LEFT OUTER JOIN
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
@@ -9043,7 +9043,7 @@
                  WHERE team_id = 2
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
-                 ORDER BY pdi.person_id,
+                 ORDER BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id),
                           e.timestamp)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -9107,12 +9107,12 @@
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
-                        pdi.person_id AS person_id,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS person_id,
                         ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, ['between_step_1_.*', 'between_step_2_.*', 'step\\ drop.*']) AS group_index,
                         if(group_index > 0, ['between_step_1_*', 'between_step_2_*', 'step drop*'][group_index], path_item_ungrouped) AS path_item
                  FROM events e
-                 INNER JOIN
+                 LEFT OUTER JOIN
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
@@ -9128,7 +9128,7 @@
                  WHERE team_id = 2
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
-                 ORDER BY pdi.person_id,
+                 ORDER BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id),
                           e.timestamp)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -9193,12 +9193,12 @@
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
-                        pdi.person_id AS person_id,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS person_id,
                         ifNull(if(equals(event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), event), '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, ['\\(a\\+\\)\\+', '\\[aaa\\|aaaa\\]\\+', '1\\..*', '\\..*', '/3\\?q=1', '/3.*']) AS group_index,
                         if(group_index > 0, ['(a+)+', '[aaa|aaaa]+', '1.*', '.*', '/3?q=1', '/3*'][group_index], path_item_ungrouped) AS path_item
                  FROM events e
-                 INNER JOIN
+                 LEFT OUTER JOIN
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
@@ -9216,7 +9216,7 @@
                    AND (event = '$pageview')
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2023-05-23 23:59:59', 'UTC')
-                 ORDER BY pdi.person_id,
+                 ORDER BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id),
                           e.timestamp)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
@@ -9279,12 +9279,12 @@
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
-                        pdi.person_id AS person_id,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS person_id,
                         ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, ['between_step_1_.*', 'between_step_2_.*', 'step\\ drop.*']) AS group_index,
                         if(group_index > 0, ['between_step_1_*', 'between_step_2_*', 'step drop*'][group_index], path_item_ungrouped) AS path_item
                  FROM events e SAMPLE 1.0
-                 INNER JOIN
+                 LEFT OUTER JOIN
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
@@ -9300,7 +9300,7 @@
                  WHERE team_id = 2
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
-                 ORDER BY pdi.person_id,
+                 ORDER BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id),
                           e.timestamp)
               GROUP BY person_id) ARRAY
            JOIN session_paths AS path_time_tuple,
