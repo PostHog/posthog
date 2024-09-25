@@ -1,6 +1,7 @@
 import os
 import time
 
+import structlog
 from celery import Celery
 from celery.signals import (
     setup_logging,
@@ -15,6 +16,11 @@ from django.dispatch import receiver
 from django_structlog.celery import signals
 from django_structlog.celery.steps import DjangoStructLogInitStep
 from prometheus_client import Counter, Histogram
+
+from posthog.cloud_utils import is_cloud
+
+logger = structlog.get_logger(__name__)
+
 
 # set the default Django settings module for the 'celery' program.
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
@@ -160,8 +166,11 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
         setup_periodic_tasks(sender)
     except Exception as exc:
         # Setup fails silently. Alert the team if a configuration error is detected in periodic tasks.
-        create_incident(
-            f"Periodic tasks setup failed: {exc}",
-            "posthog.celery.setup_periodic_tasks",
-            "critical",
-        )
+        if is_cloud():
+            create_incident(
+                f"Periodic tasks setup failed: {exc}",
+                "posthog.celery.setup_periodic_tasks",
+                "critical",
+            )
+        else:
+            logger.exception("Periodic tasks setup failed", exception=exc)
