@@ -4,6 +4,7 @@ import { FieldNamePath, forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api, { getJSONOrNull } from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonBannerAction } from 'lib/lemon-ui/LemonBanner/LemonBanner'
 import { lemonBannerLogic } from 'lib/lemon-ui/LemonBanner/lemonBannerLogic'
@@ -87,6 +88,7 @@ export const billingLogic = kea<billingLogicType>([
         reportCreditsModalShown: true,
         reportBillingShown: true,
         registerInstrumentationProps: true,
+        reportCreditsCTAShown: (creditOverview: any) => ({ creditOverview }),
         setRedirectPath: true,
         setIsOnboarding: true,
         determineBillingAlert: true,
@@ -337,6 +339,14 @@ export const billingLogic = kea<billingLogicType>([
                                 Math.round(response.estimated_monthly_credit_amount_usd * 12)
                             )
                         }
+
+                        if (
+                            response.eligible &&
+                            response.status === 'none' &&
+                            values.featureFlags[FEATURE_FLAGS.PURCHASE_CREDITS]
+                        ) {
+                            actions.reportCreditsCTAShown(response)
+                        }
                         return response
                     }
                     // Return default values if not subscribed
@@ -516,6 +526,13 @@ export const billingLogic = kea<billingLogicType>([
         reportCreditsFormSubmitted: ({ creditInput }) => {
             posthog.capture('credits modal credit form submitted', {
                 creditInput,
+            })
+        },
+        reportCreditsCTAShown: ({ creditOverview }) => {
+            posthog.capture('credits cta shown', {
+                eligible: creditOverview.eligible,
+                status: creditOverview.status,
+                estimated_monthly_credit_amount_usd: creditOverview.estimated_monthly_credit_amount_usd,
             })
         },
         loadBillingSuccess: () => {
