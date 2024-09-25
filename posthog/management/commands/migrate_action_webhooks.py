@@ -88,6 +88,11 @@ def convert_slack_message_format_to_hog(action: Action, is_slack: bool) -> tuple
             string = ".".join(["person", "properties", "$" + parts[1], *parts[2:]])
             markdown = markdown.replace(match, f"{{{string}}}")
             text = text.replace(match, f"{{{string}}}")
+        elif match.startswith("[properties."):
+            parts = content.split(".")
+            string = ".".join(["event", *parts])
+            markdown = markdown.replace(match, f"{{{string}}}")
+            text = text.replace(match, f"{{{string}}}")
         else:
             markdown = markdown.replace(match, f"{{{content}}}")
             text = text.replace(match, f"{{{content}}}")
