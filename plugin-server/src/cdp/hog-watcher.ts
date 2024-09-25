@@ -209,11 +209,14 @@ export class HogWatcher {
 
             // Finally track the results
             for (const id of functionsToDisablePermanently) {
+                console.log('Disabling function permanently', id)
                 await this.onStateChange(id, HogWatcherState.disabledIndefinitely)
             }
 
             for (const id of functionsTempDisabled) {
-                await this.onStateChange(id, HogWatcherState.disabledForPeriod)
+                if (!functionsToDisablePermanently.includes(id)) {
+                    await this.onStateChange(id, HogWatcherState.disabledForPeriod)
+                }
             }
         }
     }
