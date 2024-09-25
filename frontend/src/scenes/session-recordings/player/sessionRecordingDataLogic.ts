@@ -26,6 +26,7 @@ import { isObject } from 'lib/utils'
 import { chainToElements } from 'lib/utils/elements-chain'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import posthog from 'posthog-js'
+import { compressedEventWithTime } from 'posthog-js/lib/src/extensions/replay/sessionrecording'
 
 import { HogQLQuery, NodeKind } from '~/queries/schema'
 import { hogql } from '~/queries/utils'
@@ -50,7 +51,6 @@ import {
     SnapshotSourceType,
 } from '~/types'
 
-import { compressedEventWithTime } from '../../../../../.yalc/posthog-js/lib/src/extensions/replay/sessionrecording'
 import { PostHogEE } from '../../../../@posthog/ee/types'
 import { ExportedSessionRecordingFileV2 } from '../file-playback/types'
 import type { sessionRecordingDataLogicType } from './sessionRecordingDataLogicType'
