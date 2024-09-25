@@ -5848,7 +5848,14 @@
                     "description": "Modifiers used when performing the query"
                 },
                 "query": {
-                    "type": "string"
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "$ref": "#/definitions/HogQLXAST"
+                        }
+                    ]
                 },
                 "response": {
                     "$ref": "#/definitions/HogQLQueryResponse"
@@ -5990,6 +5997,15 @@
                 }
             },
             "required": ["results"],
+            "type": "object"
+        },
+        "HogQLXAST": {
+            "properties": {
+                "__hx_ast": {
+                    "type": "string"
+                }
+            },
+            "required": ["__hx_ast"],
             "type": "object"
         },
         "HogQuery": {

@@ -8,7 +8,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import DatabaseField, LazyJoinToAdd, LazyTableToAdd
 from posthog.hogql.errors import NotImplementedError
 
-from posthog.hogql.visitor import clone_expr, CloningVisitor, Visitor, TraversingVisitor
+from posthog.hogql.visitor import clone_expr, CloningVisitor, Visitor, TraversingVisitor, T_AST
 
 SESSION_BUFFER_DAYS = 3
 
@@ -393,6 +393,9 @@ class IsTimeOrIntervalConstantVisitor(Visitor[bool]):
     def __init__(self, tombstone_string: str):
         self.tombstone_string = tombstone_string
 
+    def visit(self, node: Optional[T_AST]) -> bool:  # type: ignore
+        return cast(bool, super().visit(node))
+
     def visit_constant(self, node: ast.Constant) -> bool:
         if node.value == self.tombstone_string:
             return False
@@ -471,6 +474,9 @@ class IsSimpleTimestampFieldExpressionVisitor(Visitor[bool]):
     def __init__(self, context: HogQLContext, tombstone_string: str):
         self.context = context
         self.tombstone_string = tombstone_string
+
+    def visit(self, node: Optional[T_AST]) -> bool:  # type: ignore
+        return cast(bool, super().visit(node))
 
     def visit_constant(self, node: ast.Constant) -> bool:
         return False

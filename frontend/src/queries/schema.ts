@@ -265,9 +265,13 @@ export interface HogQLFilters {
     filterTestAccounts?: boolean
 }
 
+export interface HogQLXAST extends Record<string, any> {
+    __hx_ast: string
+}
+
 export interface HogQLQuery extends DataNode<HogQLQueryResponse> {
     kind: NodeKind.HogQLQuery
-    query: string
+    query: string | HogQLXAST
     filters?: HogQLFilters
     /** Constant values that can be referenced with the {placeholder} syntax in the query */
     values?: Record<string, any>

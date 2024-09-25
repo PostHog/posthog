@@ -15,7 +15,7 @@ class TestParser(BaseTest):
         expr = parse_expr("{foo}")
         self.assertEqual(
             expr,
-            ast.Placeholder(chain=["foo"], start=0, end=5),
+            ast.Placeholder(expr=ast.Field(chain=["foo"], start=0, end=5), start=0, end=5),
         )
         expr2 = replace_placeholders(expr, {"foo": ast.Constant(value="bar")})
         self.assertEqual(
@@ -24,7 +24,7 @@ class TestParser(BaseTest):
         )
 
     def test_replace_placeholders_error(self):
-        expr = ast.Placeholder(chain=["foo"])
+        expr = ast.Placeholder(expr=ast.Field(chain=["foo"]))
         with self.assertRaises(QueryError) as context:
             replace_placeholders(expr, {})
         self.assertEqual(
@@ -47,7 +47,7 @@ class TestParser(BaseTest):
                 end=23,
                 op=ast.CompareOperationOp.Lt,
                 left=ast.Field(chain=["timestamp"], start=0, end=9),
-                right=ast.Placeholder(chain=["timestamp"], start=12, end=23),
+                right=ast.Placeholder(expr=ast.Field(chain=["timestamp"]), start=12, end=23),
             ),
         )
         expr2 = replace_placeholders(expr, {"timestamp": ast.Constant(value=123)})
@@ -63,7 +63,7 @@ class TestParser(BaseTest):
         )
 
     def test_assert_no_placeholders(self):
-        expr = ast.Placeholder(chain=["foo"])
+        expr = ast.Placeholder(expr=ast.Field(chain=["foo"]))
         with self.assertRaises(QueryError) as context:
             replace_placeholders(expr, None)
         self.assertEqual(

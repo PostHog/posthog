@@ -105,7 +105,7 @@ class ErrorTrackingQueryRunner(QueryRunner):
                 left=ast.Field(chain=["event"]),
                 right=ast.Constant(value="$exception"),
             ),
-            ast.Placeholder(chain=["filters"]),
+            ast.Placeholder(expr=ast.Field(chain=["filters"])),
         ]
 
         groups = []

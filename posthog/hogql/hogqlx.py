@@ -36,3 +36,12 @@ def convert_to_hx(node: Any) -> ast.Expr:
     if isinstance(node, list) or isinstance(node, tuple):
         return ast.Tuple(exprs=[convert_to_hx(x) for x in node])
     return ast.Constant(value=node)
+
+
+#
+# def convert_ast_to_hx(node: ast.Dict) -> ast.Tuple:
+#     attrs: list[ast.Expr] = []
+#     for attribute in node.items:
+#         attrs.append(convert_to_hx(attribute[0]))
+#         attrs.append(convert_to_hx(attribute[1]))
+#     return ast.Tuple(exprs=attrs)

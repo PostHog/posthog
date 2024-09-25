@@ -1,5 +1,6 @@
 from typing import Optional
 
+from hogvm.python.execute import execute_bytecode
 from posthog.hogql import ast
 from posthog.hogql.errors import QueryError
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
@@ -9,7 +10,7 @@ def replace_placeholders(node: ast.Expr, placeholders: Optional[dict[str, ast.Ex
     return ReplacePlaceholders(placeholders).visit(node)
 
 
-def find_placeholders(node: ast.Expr) -> list[str]:
+def find_placeholders(node: ast.Expr) -> list[ast.Placeholder]:
     finder = FindPlaceholders()
     finder.visit(node)
     return list(finder.found)
@@ -18,13 +19,13 @@ def find_placeholders(node: ast.Expr) -> list[str]:
 class FindPlaceholders(TraversingVisitor):
     def __init__(self):
         super().__init__()
-        self.found: set[str] = set()
+        self.found: list[ast.Placeholder] = []
 
     def visit_cte(self, node: ast.CTE):
         super().visit(node.expr)
 
     def visit_placeholder(self, node: ast.Placeholder):
-        self.found.add(node.field)
+        self.found.append(node)
 
 
 class ReplacePlaceholders(CloningVisitor):
@@ -33,14 +34,25 @@ class ReplacePlaceholders(CloningVisitor):
         self.placeholders = placeholders
 
     def visit_placeholder(self, node):
-        if not self.placeholders:
-            raise QueryError(f"Placeholders, such as {{{node.field}}}, are not supported in this context")
-        if node.field in self.placeholders and self.placeholders[node.field] is not None:
-            new_node = self.placeholders[node.field]
-            new_node.start = node.start
-            new_node.end = node.end
-            return new_node
-        raise QueryError(
-            f"Placeholder {{{node.field}}} is not available in this context. You can use the following: "
-            + ", ".join(f"{placeholder}" for placeholder in self.placeholders)
-        )
+        from posthog.hogql.bytecode import create_bytecode
+
+        bytecode = create_bytecode(expr=ast.ReturnStatement(expr=node.expr))
+
+        # TODO: add some real values
+        self.placeholders["vars"] = {"team_id": 1, "zone": 3, "limit": 10, "message": "Believe in Pasta!"}
+
+        result = execute_bytecode(bytecode, globals=self.placeholders).result
+        if (
+            result is None
+            or isinstance(result, bool)
+            or isinstance(result, int)
+            or isinstance(result, float)
+            or isinstance(result, str)
+        ):
+            return ast.Constant(value=result)
+        elif isinstance(result, ast.AST):
+            return result
+        elif isinstance(result, dict) and "__hx_ast" in result:
+            return ast.deserialize_hx_ast(result)
+        else:
+            raise QueryError(f"Expected a constant value, but got {result}")

@@ -1165,7 +1165,10 @@ class _Printer(Visitor):
             raise QueryError(f"Unsupported function call '{node.name}(...)'")
 
     def visit_placeholder(self, node: ast.Placeholder):
-        raise QueryError(f"Placeholders, such as {{{node.field}}}, are not supported in this context")
+        hog_expr = node.expr
+        if hog_expr is None:
+            raise QueryError(f"Placeholder '{node.field}' is not defined")
+        return f"{{{self.visit(node)}}}"
 
     def visit_alias(self, node: ast.Alias):
         # Skip hidden aliases completely.

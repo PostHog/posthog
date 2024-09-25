@@ -342,7 +342,7 @@ class Resolver(CloningVisitor):
 
             # :TRICKY: Make sure to clone and visit _all_ JoinExpr fields/nodes.
             node.type = node_type
-            node.table = cast(ast.Field, clone_expr(node.table))
+            node.table = clone_expr(node.table)
             node.table.type = node_table_type
             if node.table_args is not None:
                 node.table_args = [self.visit(arg) for arg in node.table_args]
@@ -390,6 +390,8 @@ class Resolver(CloningVisitor):
                     )
                 node.type = ast.SelectQueryAliasType(alias=node.alias, select_query_type=node.table.type)
                 scope.tables[node.alias] = node.type
+            elif node.table is None:
+                raise ImpossibleASTError("JoinExpr table is None")
             else:
                 node.type = node.table.type
                 scope.anonymous_tables.append(node.type)
