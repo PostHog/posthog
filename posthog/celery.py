@@ -153,6 +153,15 @@ def retry_signal_handler(sender, reason, **kwargs):
 
 @app.on_after_finalize.connect
 def setup_periodic_tasks(sender: Celery, **kwargs):
+    from posthog.pagerduty.pd import create_incident
     from posthog.tasks.scheduled import setup_periodic_tasks
 
-    setup_periodic_tasks(sender)
+    try:
+        setup_periodic_tasks(sender)
+    except Exception as exc:
+        # Setup fails silently. Alert the team if a configuration error is detected in periodic tasks.
+        create_incident(
+            f"Periodic tasks setup failed: {exc}",
+            "posthog.celery.setup_periodic_tasks",
+            "critical",
+        )
