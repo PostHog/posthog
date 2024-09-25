@@ -75,7 +75,6 @@ export type HogFunctionInvocationGlobals = {
         timestamp: string
 
         /* Special fields in Hog */
-        name: string
         url: string
     }
     person?: {
@@ -84,7 +83,6 @@ export type HogFunctionInvocationGlobals = {
         properties: Record<string, any>
 
         /** Special fields in Hog */
-        uuid: string // TODO: remove?
         name: string
         url: string
     }

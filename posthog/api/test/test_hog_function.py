@@ -176,6 +176,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "id": template_webhook.id,
             "status": template_webhook.status,
             "icon_url": template_webhook.icon_url,
+            "category": template_webhook.category,
             "inputs_schema": template_webhook.inputs_schema,
             "hog": template_webhook.hog,
             "filters": None,
@@ -337,6 +338,42 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         # Finally check the DB has the real value
         obj = HogFunction.objects.get(id=res.json()["id"])
         assert obj.encrypted_inputs["secret1"]["value"] == "I AM SECRET"
+        assert obj.encrypted_inputs["secret2"]["value"] == "I AM ALSO SECRET"
+
+    def test_secret_inputs_updated_if_changed(self, *args):
+        payload = {
+            "name": "Fetch URL",
+            "hog": "fetch(inputs.url);",
+            "inputs_schema": [
+                {"key": "secret1", "type": "string", "label": "Secret 1", "secret": True, "required": True},
+                {"key": "secret2", "type": "string", "label": "Secret 2", "secret": True, "required": False},
+            ],
+            "inputs": {
+                "secret1": {
+                    "value": "I AM SECRET",
+                },
+            },
+        }
+        res = self.client.post(f"/api/projects/{self.team.id}/hog_functions/", data={**payload})
+        assert res.json()["inputs"] == {"secret1": {"secret": True}}, res.json()
+        res = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/{res.json()['id']}",
+            data={
+                "inputs": {
+                    "secret1": {
+                        "value": "I AM CHANGED",
+                    },
+                    "secret2": {
+                        "value": "I AM ALSO SECRET",
+                    },
+                },
+            },
+        )
+        assert res.json()["inputs"] == {"secret1": {"secret": True}, "secret2": {"secret": True}}, res.json()
+
+        # Finally check the DB has the real value
+        obj = HogFunction.objects.get(id=res.json()["id"])
+        assert obj.encrypted_inputs["secret1"]["value"] == "I AM CHANGED"
         assert obj.encrypted_inputs["secret2"]["value"] == "I AM ALSO SECRET"
 
     def test_generates_hog_bytecode(self, *args):

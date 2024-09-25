@@ -6,6 +6,7 @@ export interface Position {
 export interface Node {
     nodeId: string
     name: string
+    savedQueryId?: string
     leaf: string[]
 }
 

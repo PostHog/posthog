@@ -910,7 +910,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                     ) : (
                         <div className="w-1/2">
                             <div className="text-muted mb-4">
-                                Specify a payload to be returned when the served value is{' '}
+                                Specify a valid JSON payload to be returned when the served value is{' '}
                                 <strong>
                                     <code>true</code>
                                 </strong>

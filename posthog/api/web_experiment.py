@@ -1,5 +1,7 @@
 from typing import Any
 from django.http import HttpResponse, JsonResponse
+from django.utils.text import slugify
+from nanoid import generate
 from rest_framework import status, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
@@ -139,7 +141,10 @@ class WebExperimentsAPISerializer(serializers.ModelSerializer):
         return {"variants": variant_names}
 
     def get_feature_flag_name(self, experiment_name: str) -> str:
-        return experiment_name.replace(" ", "-").lower() + "-web-experiment-feature"
+        random_id = generate("1234567890abcdef", 10)
+        prefix = experiment_name.replace(" ", "-").lower() + "-web-experiment-feature"
+        feature_flag_key = slugify(f"{prefix}-{random_id}")
+        return feature_flag_key
 
 
 class WebExperimentViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):

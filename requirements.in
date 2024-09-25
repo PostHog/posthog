@@ -32,7 +32,6 @@ django-revproxy==0.12.0
 djangorestframework==3.15.1
 djangorestframework-csv==2.1.1
 djangorestframework-dataclasses==1.2.0
-django-fernet-encrypted-fields==0.1.3
 dlt==0.5.4
 dlt[deltalake]==0.5.4
 dnspython==2.2.1
@@ -92,7 +91,7 @@ sshtunnel==0.4.0
 statshog==1.0.6
 structlog==23.2.0
 sqlparse==0.4.4
-temporalio==1.7.0
+temporalio==1.7.1
 token-bucket==0.3.0
 toronado==0.1.0
 webdriver_manager==4.0.1
