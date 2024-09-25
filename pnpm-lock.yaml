@@ -50,8 +50,8 @@ dependencies:
     specifier: 4.6.0
     version: 4.6.0(monaco-editor@0.49.0)(react-dom@18.2.0)(react@18.2.0)
   '@posthog/hogvm':
-    specifier: ^1.0.53
-    version: 1.0.53(luxon@3.5.0)
+    specifier: ^1.0.54
+    version: 1.0.54(luxon@3.5.0)
   '@posthog/icons':
     specifier: 0.8.1
     version: 0.8.1(react-dom@18.2.0)(react@18.2.0)
@@ -377,7 +377,7 @@ dependencies:
 optionalDependencies:
   fsevents:
     specifier: ^2.3.2
-    version: 2.3.3
+    version: 2.3.2
 
 devDependencies:
   '@babel/core':
@@ -5397,8 +5397,8 @@ packages:
     resolution: {integrity: sha512-50/17A98tWUfQ176raKiOGXuYpLyyVMkxxG6oylzL3BPOlA6ADGdK7EYunSa4I064xerltq9TGXs8HmOk5E+vw==}
     dev: false
 
-  /@posthog/hogvm@1.0.53(luxon@3.5.0):
-    resolution: {integrity: sha512-WfZvs+ZWrUmJ8qSmEpDs5EirRL5o2pk6du8FYDlNFkVkEQsdPYBnoTS9VBGEHB1TEVy0BQfHX+dPVQj8U0PTdA==}
+  /@posthog/hogvm@1.0.54(luxon@3.5.0):
+    resolution: {integrity: sha512-vHYdiFcIvJ3CxYd/8rSZoUk8ZkeHETGb1dbBhURLejxp9dMyWC1qJnmcIlkH/vsbed/4hVUtFMqtp4bnQSmi2g==}
     peerDependencies:
       luxon: ^3.4.4
     dependencies:
@@ -13073,7 +13073,6 @@ packages:
     engines: {node: ^8.16.0 || ^10.6.0 || >=11.0.0}
     os: [darwin]
     requiresBuild: true
-    dev: true
     optional: true
 
   /fsevents@2.3.3:
