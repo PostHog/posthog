@@ -263,16 +263,30 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     @action(methods=["POST"], detail=False, url_path="activate/authorize")
     def authorize(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
+        license = get_cached_instance_license()
+        if not license:
+            return Response(
+                {"success": True},
+                status=status.HTTP_200_OK,
+            )
+
         organization = self._get_org_required()
-        res = BillingManager(license).authorize(organization, request.data)
+        res = BillingManager(license).authorize(organization)
         return Response(res, status=status.HTTP_200_OK)
 
-    @action(methods=["GET"], detail=False, url_path="activate/authoriz/status")
+    @action(methods=["POST"], detail=False, url_path="activate/authorize/status")
     def authorize_status(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
+        license = get_cached_instance_license()
+        if not license:
+            return Response(
+                {"success": True},
+                status=status.HTTP_200_OK,
+            )
+
         organization = self._get_org_required()
         res = BillingManager(license).authorize_status(organization, request.data)
         return Response(res, status=status.HTTP_200_OK)
-    
+
     @action(methods=["PATCH"], detail=False)
     def license(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         license = get_cached_instance_license()
