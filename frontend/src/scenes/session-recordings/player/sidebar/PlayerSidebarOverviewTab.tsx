@@ -9,7 +9,7 @@ import { playerMetaLogic } from '../playerMetaLogic'
 import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 import { PlayerSidebarOverviewGrid } from './PlayerSidebarOverviewGrid'
 
-export function PlayerSidebarPersonTab(): JSX.Element {
+export function PlayerSidebarOverviewTab(): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
     const { sessionPerson, sessionPlayerMetaDataLoading } = useValues(playerMetaLogic(logicProps))
 
