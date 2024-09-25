@@ -1,4 +1,3 @@
-from dataclasses import dataclass
 from rest_framework.exceptions import ValidationError
 from numpy.random import default_rng
 from sentry_sdk import capture_exception
@@ -9,21 +8,14 @@ from posthog.hogql_queries.experiments import (
     FF_DISTRIBUTION_THRESHOLD,
     MIN_PROBABILITY_FOR_SIGNIFICANCE,
 )
-
-
-@dataclass(frozen=True)
-class Variant:
-    key: str
-    success_count: int
-    failure_count: int
-
+from posthog.schema import ExperimentVariantFunnelResult
 
 Probability = float
 
 
 def calculate_probabilities(
-    control_variant: Variant,
-    test_variants: list[Variant],
+    control_variant: ExperimentVariantFunnelResult,
+    test_variants: list[ExperimentVariantFunnelResult],
     priors: tuple[int, int] = (1, 1),
 ) -> list[Probability]:
     """
@@ -68,7 +60,9 @@ def calculate_probabilities(
     return [max(0, 1 - total_test_probabilities), *probabilities[1:]]
 
 
-def simulate_winning_variant_for_conversion(target_variant: Variant, variants: list[Variant]) -> Probability:
+def simulate_winning_variant_for_conversion(
+    target_variant: ExperimentVariantFunnelResult, variants: list[ExperimentVariantFunnelResult]
+) -> Probability:
     random_sampler = default_rng()
     prior_success = 1
     prior_failure = 1
@@ -101,11 +95,11 @@ def simulate_winning_variant_for_conversion(target_variant: Variant, variants: l
 
 
 def are_results_significant(
-    control_variant: Variant,
-    test_variants: list[Variant],
+    control_variant: ExperimentVariantFunnelResult,
+    test_variants: list[ExperimentVariantFunnelResult],
     probabilities: list[Probability],
 ) -> tuple[ExperimentSignificanceCode, Probability]:
-    def get_conversion_rate(variant: Variant):
+    def get_conversion_rate(variant: ExperimentVariantFunnelResult):
         return variant.success_count / (variant.success_count + variant.failure_count)
 
     control_sample_size = control_variant.success_count + control_variant.failure_count
@@ -142,7 +136,9 @@ def are_results_significant(
     return ExperimentSignificanceCode.SIGNIFICANT, expected_loss
 
 
-def calculate_expected_loss(target_variant: Variant, variants: list[Variant]) -> float:
+def calculate_expected_loss(
+    target_variant: ExperimentVariantFunnelResult, variants: list[ExperimentVariantFunnelResult]
+) -> float:
     """
     Calculates expected loss in conversion rate for a given variant.
     Loss calculation comes from VWO's SmartStats technical paper:
