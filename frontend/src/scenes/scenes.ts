@@ -342,6 +342,11 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         organizationBased: true,
         defaultDocsPath: '/pricing',
     },
+    [Scene.BillingAuthorizationStatus]: {
+        hideProjectNotice: true,
+        organizationBased: true,
+        defaultDocsPath: '/pricing',
+    },
     [Scene.Unsubscribe]: {
         allowUnauthenticated: true,
         layout: 'app-raw',
@@ -533,6 +538,7 @@ export const routes: Record<string, Scene> = {
     [urls.max()]: Scene.Max,
     [urls.projectCreateFirst()]: Scene.ProjectCreateFirst,
     [urls.organizationBilling()]: Scene.Billing,
+    [urls.billingAuthorizationStatus()]: Scene.BillingAuthorizationStatus,
     [urls.organizationCreateFirst()]: Scene.OrganizationCreateFirst,
     [urls.organizationCreationConfirm()]: Scene.OrganizationCreationConfirm,
     [urls.instanceStatus()]: Scene.SystemStatus,
