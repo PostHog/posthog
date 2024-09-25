@@ -121,7 +121,7 @@ abstract class CdpConsumerBase {
             void this.captureInternalPostHogEvent(id, 'hog function state changed', { state })
         })
         this.hogMasker = new HogMasker(this.redis)
-        this.hogExecutor = new HogExecutor(this.hogFunctionManager)
+        this.hogExecutor = new HogExecutor(this.hub, this.hogFunctionManager)
         const rustyHook = this.hub?.rustyHook ?? new RustyHook(this.hub)
         this.fetchExecutor = new FetchExecutor(this.hub, rustyHook)
         this.groupsManager = new GroupsManager(this.hub)
@@ -427,17 +427,16 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
         )
 
         // For the cyclotron ones we simply create the jobs
-        await Promise.all(
-            cyclotronInvocations.map((item) =>
-                this.cyclotronManager?.createJob({
-                    teamId: item.globals.project.id,
-                    functionId: item.hogFunction.id,
-                    queueName: 'hog',
-                    priority: item.priority,
-                    vmState: serializeHogFunctionInvocation(item),
-                })
-            )
-        )
+        const cyclotronJobs = cyclotronInvocations.map((item) => {
+            return {
+                teamId: item.globals.project.id,
+                functionId: item.hogFunction.id,
+                queueName: 'hog',
+                priority: item.priority,
+                vmState: serializeHogFunctionInvocation(item),
+            }
+        })
+        await this.cyclotronManager?.bulkCreateJobs(cyclotronJobs)
 
         if (kafkaInvocations.length) {
             // As we don't want to over-produce to kafka we invoke the hog functions and then queue the results
@@ -836,6 +835,7 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
             includeVmState: true,
             batchMaxSize: this.hub.CDP_CYCLOTRON_BATCH_SIZE,
             pollDelayMs: this.hub.CDP_CYCLOTRON_BATCH_DELAY_MS,
+            includeEmptyBatches: true,
         })
         await this.cyclotronWorker.connect((jobs) => this.handleJobBatch(jobs))
     }

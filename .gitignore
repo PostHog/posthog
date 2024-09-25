@@ -67,3 +67,5 @@ plugin-transpiler/dist
 *.db
 # Ignore any log files that happen to be present
 *.log
+# pyright config (keep this until we have a standardized one)
+pyrightconfig.json

@@ -461,7 +461,6 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "instance_tag": "none",
                     "event_count_in_period": 29,
                     "enhanced_persons_event_count_in_period": 28,
-                    "anonymous_personful_event_count_in_period": 1,
                     "event_count_with_groups_in_period": 2,
                     "event_count_from_keywords_ai_in_period": 1,
                     "event_count_from_traceloop_in_period": 1,
@@ -503,7 +502,6 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                         str(self.org_1_team_1.id): {
                             "event_count_in_period": 18,
                             "enhanced_persons_event_count_in_period": 17,
-                            "anonymous_personful_event_count_in_period": 0,
                             "event_count_with_groups_in_period": 2,
                             "event_count_from_keywords_ai_in_period": 1,
                             "event_count_from_traceloop_in_period": 1,
@@ -539,7 +537,6 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                         str(self.org_1_team_2.id): {
                             "event_count_in_period": 11,
                             "enhanced_persons_event_count_in_period": 11,
-                            "anonymous_personful_event_count_in_period": 1,
                             "event_count_with_groups_in_period": 0,
                             "event_count_from_keywords_ai_in_period": 0,
                             "event_count_from_traceloop_in_period": 0,
@@ -598,7 +595,6 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "instance_tag": "none",
                     "event_count_in_period": 10,
                     "enhanced_persons_event_count_in_period": 10,
-                    "anonymous_personful_event_count_in_period": 0,
                     "event_count_with_groups_in_period": 0,
                     "event_count_from_keywords_ai_in_period": 0,
                     "event_count_from_traceloop_in_period": 0,
@@ -640,7 +636,6 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                         str(self.org_2_team_3.id): {
                             "event_count_in_period": 10,
                             "enhanced_persons_event_count_in_period": 10,
-                            "anonymous_personful_event_count_in_period": 0,
                             "event_count_with_groups_in_period": 0,
                             "event_count_from_keywords_ai_in_period": 0,
                             "event_count_from_traceloop_in_period": 0,

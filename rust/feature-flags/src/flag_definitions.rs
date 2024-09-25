@@ -110,6 +110,14 @@ impl FeatureFlag {
             .clone()
             .map_or(vec![], |m| m.variants)
     }
+
+    pub fn get_payload(&self, match_val: &str) -> Option<serde_json::Value> {
+        self.filters.payloads.as_ref().and_then(|payloads| {
+            payloads
+                .as_object()
+                .and_then(|obj| obj.get(match_val).cloned())
+        })
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize)]

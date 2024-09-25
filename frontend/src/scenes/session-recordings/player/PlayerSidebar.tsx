@@ -63,7 +63,7 @@ export function PlayerSidebar({
                 !sidebarOpen
                     ? {}
                     : isVerticallyStacked
-                    ? { height: desiredSize ?? undefined, minHeight: 110 }
+                    ? { height: desiredSize ?? undefined, minHeight: 210 }
                     : { width: desiredSize ?? undefined }
             }
         >

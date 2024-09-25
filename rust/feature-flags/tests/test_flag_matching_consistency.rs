@@ -1,3 +1,4 @@
+use feature_flags::feature_flag_match_reason::FeatureFlagMatchReason;
 /// These tests are common between all libraries doing local evaluation of feature flags.
 /// This ensures there are no mismatches between implementations.
 use feature_flags::flag_matching::{FeatureFlagMatch, FeatureFlagMatcher};
@@ -121,6 +122,9 @@ async fn it_is_consistent_with_rollout_calculation_for_simple_flags() {
                 FeatureFlagMatch {
                     matches: true,
                     variant: None,
+                    reason: FeatureFlagMatchReason::ConditionMatch,
+                    condition_index: Some(0),
+                    payload: None,
                 }
             );
         } else {
@@ -129,6 +133,9 @@ async fn it_is_consistent_with_rollout_calculation_for_simple_flags() {
                 FeatureFlagMatch {
                     matches: false,
                     variant: None,
+                    reason: FeatureFlagMatchReason::OutOfRolloutBound,
+                    condition_index: Some(0),
+                    payload: None,
                 }
             );
         }
@@ -1199,12 +1206,15 @@ async fn it_is_consistent_with_rollout_calculation_for_multivariate_flags() {
                 .await
                 .unwrap();
 
-        if result.is_some() {
+        if let Some(variant) = &result {
             assert_eq!(
                 feature_flag_match,
                 FeatureFlagMatch {
                     matches: true,
-                    variant: results[i].clone(),
+                    variant: Some(variant.clone()),
+                    reason: FeatureFlagMatchReason::ConditionMatch,
+                    condition_index: Some(0),
+                    payload: None,
                 }
             );
         } else {
@@ -1213,6 +1223,9 @@ async fn it_is_consistent_with_rollout_calculation_for_multivariate_flags() {
                 FeatureFlagMatch {
                     matches: false,
                     variant: None,
+                    reason: FeatureFlagMatchReason::OutOfRolloutBound,
+                    condition_index: Some(0),
+                    payload: None,
                 }
             );
         }
