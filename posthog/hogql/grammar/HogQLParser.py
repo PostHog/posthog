@@ -446,8 +446,8 @@ def serializedATN():
         1070,1,0,0,0,1068,1066,1,0,0,0,1069,1071,5,117,0,0,1070,1069,1,0,
         0,0,1070,1071,1,0,0,0,1071,1075,1,0,0,0,1072,1073,5,131,0,0,1073,
         1075,5,150,0,0,1074,1047,1,0,0,0,1074,1061,1,0,0,0,1074,1072,1,0,
-        0,0,1075,1076,1,0,0,0,1076,1079,5,112,0,0,1077,1080,3,116,58,0,1078,
-        1080,3,36,18,0,1079,1077,1,0,0,0,1079,1078,1,0,0,0,1080,119,1,0,
+        0,0,1075,1076,1,0,0,0,1076,1079,5,112,0,0,1077,1080,3,36,18,0,1078,
+        1080,3,116,58,0,1079,1077,1,0,0,0,1079,1078,1,0,0,0,1080,119,1,0,
         0,0,1081,1082,5,133,0,0,1082,1086,3,156,78,0,1083,1085,3,122,61,
         0,1084,1083,1,0,0,0,1085,1088,1,0,0,0,1086,1084,1,0,0,0,1086,1087,
         1,0,0,0,1087,1089,1,0,0,0,1088,1086,1,0,0,0,1089,1090,5,152,0,0,
@@ -511,7 +511,7 @@ def serializedATN():
         5,106,0,0,1254,1257,3,148,74,0,1255,1257,3,150,75,0,1256,1253,1,
         0,0,0,1256,1254,1,0,0,0,1256,1255,1,0,0,0,1257,157,1,0,0,0,1258,
         1259,3,162,81,0,1259,1260,5,123,0,0,1260,1261,3,144,72,0,1261,159,
-        1,0,0,0,1262,1263,5,129,0,0,1263,1264,3,130,65,0,1264,1265,5,148,
+        1,0,0,0,1262,1263,5,129,0,0,1263,1264,3,116,58,0,1264,1265,5,148,
         0,0,1265,161,1,0,0,0,1266,1269,5,111,0,0,1267,1269,3,164,82,0,1268,
         1266,1,0,0,0,1268,1267,1,0,0,0,1269,163,1,0,0,0,1270,1274,5,143,
         0,0,1271,1273,3,166,83,0,1272,1271,1,0,0,0,1273,1276,1,0,0,0,1274,
@@ -7663,12 +7663,12 @@ class HogQLParser ( Parser ):
         def RPAREN(self):
             return self.getToken(HogQLParser.RPAREN, 0)
 
-        def columnExpr(self):
-            return self.getTypedRuleContext(HogQLParser.ColumnExprContext,0)
-
-
         def block(self):
             return self.getTypedRuleContext(HogQLParser.BlockContext,0)
+
+
+        def columnExpr(self):
+            return self.getTypedRuleContext(HogQLParser.ColumnExprContext,0)
 
 
         def COMMA(self, i:int=None):
@@ -7770,12 +7770,12 @@ class HogQLParser ( Parser ):
             la_ = self._interp.adaptivePredict(self._input,136,self._ctx)
             if la_ == 1:
                 self.state = 1077
-                self.columnExpr(0)
+                self.block()
                 pass
 
             elif la_ == 2:
                 self.state = 1078
-                self.block()
+                self.columnExpr(0)
                 pass
 
 
@@ -9701,8 +9701,8 @@ class HogQLParser ( Parser ):
         def LBRACE(self):
             return self.getToken(HogQLParser.LBRACE, 0)
 
-        def nestedIdentifier(self):
-            return self.getTypedRuleContext(HogQLParser.NestedIdentifierContext,0)
+        def columnExpr(self):
+            return self.getTypedRuleContext(HogQLParser.ColumnExprContext,0)
 
 
         def RBRACE(self):
@@ -9729,7 +9729,7 @@ class HogQLParser ( Parser ):
             self.state = 1262
             self.match(HogQLParser.LBRACE)
             self.state = 1263
-            self.nestedIdentifier()
+            self.columnExpr(0)
             self.state = 1264
             self.match(HogQLParser.RBRACE)
         except RecognitionException as re:

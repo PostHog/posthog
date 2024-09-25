@@ -1872,8 +1872,8 @@ public:
     std::vector<IdentifierContext *> identifier();
     IdentifierContext* identifier(size_t i);
     antlr4::tree::TerminalNode *RPAREN();
-    ColumnExprContext *columnExpr();
     BlockContext *block();
+    ColumnExprContext *columnExpr();
     std::vector<antlr4::tree::TerminalNode *> COMMA();
     antlr4::tree::TerminalNode* COMMA(size_t i);
 
@@ -2407,7 +2407,7 @@ public:
     PlaceholderContext(antlr4::ParserRuleContext *parent, size_t invokingState);
     virtual size_t getRuleIndex() const override;
     antlr4::tree::TerminalNode *LBRACE();
-    NestedIdentifierContext *nestedIdentifier();
+    ColumnExprContext *columnExpr();
     antlr4::tree::TerminalNode *RBRACE();
 
 

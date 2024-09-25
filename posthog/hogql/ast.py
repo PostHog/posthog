@@ -698,11 +698,15 @@ class Field(Expr):
 
 @dataclass(kw_only=True)
 class Placeholder(Expr):
-    chain: list[str | int]
+    expr: Expr
 
     @property
-    def field(self):
-        return ".".join(str(chain) for chain in self.chain)
+    def chain(self) -> list[str | int] | None:
+        return self.expr.chain if isinstance(self.expr, Field) else None
+
+    @property
+    def field(self) -> str | None:
+        return ".".join(str(chain) for chain in self.chain) if self.chain else None
 
 
 @dataclass(kw_only=True)
