@@ -2,9 +2,10 @@ import clsx from 'clsx'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { humanFriendlyMilliseconds } from 'lib/utils'
-import { OverviewGrid, OverviewGridItem } from '../../components/OverviewGrid'
 
 import { PerformanceEvent, RecordingEventType } from '~/types'
+
+import { OverviewGrid, OverviewGridItem } from '../../components/OverviewGrid'
 
 interface SummaryCardData {
     label: string

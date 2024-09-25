@@ -1,6 +1,9 @@
 import { eventWithTime } from '@rrweb/types'
 import { connect, kea, key, listeners, path, props, selectors } from 'kea'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { getCoreFilterDefinition } from 'lib/taxonomy'
 import { ceilMsToClosestSecond, findLastIndex, objectsEqual } from 'lib/utils'
+import { countryCodeToName } from 'scenes/insights/views/WorldMap'
 import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 import {
     sessionRecordingPlayerLogic,
@@ -11,9 +14,6 @@ import { PersonType } from '~/types'
 
 import { sessionRecordingsListPropertiesLogic } from '../playlist/sessionRecordingsListPropertiesLogic'
 import type { playerMetaLogicType } from './playerMetaLogicType'
-import { getCoreFilterDefinition } from 'lib/taxonomy'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { countryCodeToName } from 'scenes/insights/views/WorldMap'
 
 export interface OverviewItem {
     property: string
