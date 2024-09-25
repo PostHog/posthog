@@ -123,49 +123,57 @@ function unzip(compressedStr: string): any {
 }
 
 function decompressEvent(ev: eventWithTime | compressedEventWithTime): eventWithTime {
-    if (isCompressedEvent(ev)) {
-        if (ev.cv === '2024-10') {
-            if (ev.type === EventType.FullSnapshot) {
-                return {
-                    ...ev,
-                    data: unzip(ev.data),
-                }
-            } else if (ev.type === EventType.IncrementalSnapshot) {
-                if (ev.data.source === IncrementalSource.StyleSheetRule) {
+    try {
+        if (isCompressedEvent(ev)) {
+            if (ev.cv === '2024-10') {
+                if (ev.type === EventType.FullSnapshot) {
                     return {
                         ...ev,
-                        data: {
-                            ...ev.data,
-                            source: IncrementalSource.StyleSheetRule,
-                            adds: unzip(ev.data.adds),
-                            removes: unzip(ev.data.removes),
-                        },
+                        data: unzip(ev.data),
                     }
-                } else if (ev.data.source === IncrementalSource.Mutation) {
-                    return {
-                        ...ev,
-                        data: {
-                            ...ev.data,
-                            source: IncrementalSource.Mutation,
-                            adds: unzip(ev.data.adds),
-                            removes: unzip(ev.data.removes),
-                            texts: unzip(ev.data.texts),
-                            attributes: unzip(ev.data.attributes),
-                        },
+                } else if (ev.type === EventType.IncrementalSnapshot) {
+                    if (ev.data.source === IncrementalSource.StyleSheetRule) {
+                        return {
+                            ...ev,
+                            data: {
+                                ...ev.data,
+                                source: IncrementalSource.StyleSheetRule,
+                                adds: unzip(ev.data.adds),
+                                removes: unzip(ev.data.removes),
+                            },
+                        }
+                    } else if (ev.data.source === IncrementalSource.Mutation) {
+                        return {
+                            ...ev,
+                            data: {
+                                ...ev.data,
+                                source: IncrementalSource.Mutation,
+                                adds: unzip(ev.data.adds),
+                                removes: unzip(ev.data.removes),
+                                texts: unzip(ev.data.texts),
+                                attributes: unzip(ev.data.attributes),
+                            },
+                        }
                     }
                 }
+            } else {
+                posthog.captureException(new Error('Unknown compressed event version'), {
+                    feature: 'session-recording-compressed-event-decompression',
+                    compressedEvent: ev,
+                    compressionVersion: ev.cv,
+                })
+                // probably unplayable but we don't know how to decompress it
+                return ev as eventWithTime
             }
-        } else {
-            posthog.captureException(new Error('Unknown compressed event version'), {
-                feature: 'session-recording-compressed-event-decompression',
-                compressedEvent: ev,
-                compressionVersion: ev.cv,
-            })
-            // probably unplayable but we don't know how to decompress it
-            return ev as eventWithTime
         }
+        return ev as eventWithTime
+    } catch (e) {
+        posthog.captureException((e as Error) || new Error('Cound not decompress event'), {
+            feature: 'session-recording-compressed-event-decompression',
+            compressedEvent: ev,
+        })
+        return ev as eventWithTime
     }
-    return ev as eventWithTime
 }
 
 export const parseEncodedSnapshots = async (
