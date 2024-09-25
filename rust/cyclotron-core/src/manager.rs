@@ -10,7 +10,7 @@ use crate::{
         manager::{bulk_create_jobs, create_job},
         meta::count_total_waiting_jobs,
     },
-    BulkInsertResult, JobInit, ManagerConfig, QueueError,
+    JobInit, ManagerConfig, QueueError,
 };
 
 pub struct Shard {
@@ -82,48 +82,26 @@ impl QueueManager {
         shard.create_job_blocking(init, timeout).await
     }
 
-    pub async fn bulk_create_jobs(&self, inits: Vec<JobInit>) -> BulkInsertResult {
+    pub async fn bulk_create_jobs(&self, inits: Vec<JobInit>) -> Result<(), QueueError> {
+        let next = self
+            .next_shard
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let shards = self.shards.read().await;
-        let chunk_size = inits.len() / shards.len();
-        let mut result = BulkInsertResult::new();
-        // TODO - at some point, we should dynamically re-acquire the lock each time, to allow
-        // for re-routing jobs away from a bad shard during a bulk insert, but right now, we
-        // don't even re-try inserts. Later work.
-        for chunk in inits.chunks(chunk_size) {
-            let next_shard = self
-                .next_shard
-                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            let shard = &shards[next_shard % shards.len()];
-            let shard_result = shard.bulk_create_jobs(chunk).await;
-            if let Err(err) = shard_result {
-                result.add_failure(err, chunk.to_vec());
-            }
-        }
-
-        result
+        shards[next % shards.len()].bulk_create_jobs(&inits).await
     }
 
     pub async fn bulk_create_jobs_blocking(
         &self,
         inits: Vec<JobInit>,
         timeout: Option<Duration>,
-    ) -> BulkInsertResult {
+    ) -> Result<(), QueueError> {
+        let next = self
+            .next_shard
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let shards = self.shards.read().await;
-        let chunk_size = inits.len() / shards.len();
-        let mut result = BulkInsertResult::new();
-        for chunk in inits.chunks(chunk_size) {
-            let next_shard = self
-                .next_shard
-                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            let shard = &shards[next_shard % shards.len()];
-            // TODO - we sequentially try each shard, but we could try to parallelize this.
-            let shard_result = shard.bulk_create_jobs_blocking(chunk, timeout).await;
-            if let Err(err) = shard_result {
-                result.add_failure(err, chunk.to_vec());
-            }
-        }
-
-        result
+        shards[next % shards.len()]
+            .bulk_create_jobs_blocking(&inits, timeout)
+            .await
     }
 }
 

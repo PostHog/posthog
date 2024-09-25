@@ -86,10 +86,8 @@ type AnimationState = {
 export class HedgehogActor {
     element?: HTMLDivElement | null
     direction: 'left' | 'right' = 'right'
-    startX = 0
-    startY = 0
-    x = this.startX
-    y = this.startY
+    x = 0
+    y = 0
     followMouse = false
     lastKnownMousePosition: [number, number] | null = null
     isDragging = false
@@ -113,14 +111,8 @@ export class HedgehogActor {
     constructor() {
         this.log('Created new HedgehogActor')
 
-        this.startX = Math.min(
-            Math.max(0, Math.floor(Math.random() * window.innerWidth)),
-            window.innerWidth - SPRITE_SIZE
-        )
-        this.startY = Math.min(
-            Math.max(0, Math.floor(Math.random() * window.innerHeight)),
-            window.innerHeight - SPRITE_SIZE
-        )
+        this.x = Math.min(Math.max(0, Math.floor(Math.random() * window.innerWidth)), window.innerWidth - SPRITE_SIZE)
+        this.y = Math.min(Math.max(0, Math.floor(Math.random() * window.innerHeight)), window.innerHeight - SPRITE_SIZE)
         this.setAnimation('fall')
     }
 

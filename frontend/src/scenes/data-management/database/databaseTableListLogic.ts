@@ -118,6 +118,23 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
                     }, {} as Record<string, DatabaseSchemaDataWarehouseTable>)
             },
         ],
+        dataWarehouseTablesMapById: [
+            (s) => [s.database],
+            (database): Record<string, DatabaseSchemaDataWarehouseTable> => {
+                if (!database || !database.tables) {
+                    return {}
+                }
+
+                return Object.values(database.tables)
+                    .filter(
+                        (n): n is DatabaseSchemaDataWarehouseTable => n.type === 'data_warehouse' || n.type == 'view'
+                    )
+                    .reduce((acc, cur) => {
+                        acc[cur.id] = database.tables[cur.name] as DatabaseSchemaDataWarehouseTable
+                        return acc
+                    }, {} as Record<string, DatabaseSchemaDataWarehouseTable>)
+            },
+        ],
         views: [
             (s) => [s.database],
             (database): DatabaseSchemaViewTable[] => {

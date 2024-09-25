@@ -237,8 +237,10 @@ pub async fn test_bulk_insert(db: PgPool) {
         })
         .collect::<Vec<_>>();
 
-    let result = manager.bulk_create_jobs(jobs).await;
-    assert!(result.all_succeeded());
+    manager
+        .bulk_create_jobs(jobs)
+        .await
+        .expect("failed to bulk insert jobs");
 
     let dequeue_jobs = worker
         .dequeue_jobs(&job_template.queue_name, 1000)
