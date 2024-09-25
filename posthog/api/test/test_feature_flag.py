@@ -3349,6 +3349,31 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+        valid_json_payload = self._create_flag_with_properties(
+            "json-flag",
+            [{"key": "key", "value": "value", "type": "person"}],
+            payloads={"true": json.dumps({"key": "value"})},
+            expected_status=status.HTTP_201_CREATED,
+        )
+        self.assertEqual(valid_json_payload.status_code, status.HTTP_201_CREATED)
+
+        invalid_json_payload = self._create_flag_with_properties(
+            "invalid-json-flag",
+            [{"key": "key", "value": "value", "type": "person"}],
+            payloads={"true": "{invalid_json}"},
+            expected_status=status.HTTP_400_BAD_REQUEST,
+        )
+        self.assertEqual(invalid_json_payload.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(invalid_json_payload.json()["detail"], "Payload value is not valid JSON")
+
+        non_string_payload = self._create_flag_with_properties(
+            "non-string-json-flag",
+            [{"key": "key", "value": "value", "type": "person"}],
+            payloads={"true": {"key": "value"}},
+            expected_status=status.HTTP_201_CREATED,
+        )
+        self.assertEqual(non_string_payload.status_code, status.HTTP_201_CREATED)
+
     def test_creating_feature_flag_with_behavioral_cohort(self):
         cohort_valid_for_ff = Cohort.objects.create(
             team=self.team,

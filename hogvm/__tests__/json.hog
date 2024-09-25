@@ -37,3 +37,17 @@ print(JSONLength('{"a": "hello", "b": [-100, 200.0, 300]}')) // 2
 
 print(JSONLength({'a': 'hello', 'b': [-100, 200.0, 300]}, 'b')) // 3
 print(JSONLength({'a': 'hello', 'b': [-100, 200.0, 300]})) // 2
+
+print('-- JSONExtractBool --')
+print(JSONExtractBool('{"a": "hello", "b": true}', 'b')) // true
+print(JSONExtractBool('{"a": "hello", "b": false}', 'b')) // false
+print(JSONExtractBool('{"a": "hello", "b": 1}', 'b')) // false
+print(JSONExtractBool('{"a": "hello", "b": 0}', 'b')) // false
+print(JSONExtractBool('{"a": "hello", "b": "true"}', 'b')) // false
+print(JSONExtractBool('{"a": "hello", "b": "false"}', 'b')) // false
+print(JSONExtractBool(true)) // true
+print(JSONExtractBool(false)) // false
+print(JSONExtractBool(1)) // false
+print(JSONExtractBool(0)) // false
+print(JSONExtractBool('true')) // true
+print(JSONExtractBool('false')) // false

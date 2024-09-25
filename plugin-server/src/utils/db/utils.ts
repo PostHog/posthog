@@ -15,7 +15,7 @@ import {
     TimestampFormat,
 } from '../../types'
 import { status } from '../../utils/status'
-import { castTimestampOrNow } from '../../utils/utils'
+import { areMapsEqual, castTimestampOrNow } from '../../utils/utils'
 
 export function unparsePersonPartial(person: Partial<InternalPerson>): Partial<RawPerson> {
     return { ...(person as BasePerson), ...(person.created_at ? { created_at: person.created_at.toISO() } : {}) }
@@ -50,26 +50,10 @@ export function timeoutGuard(
         }
     }, timeout)
 }
-
-// when changing this set, be sure to update the frontend as well (taxonomy.tsx (eventToPersonProperties))
-export const eventToPersonProperties = new Set([
-    // mobile params
-    '$app_build',
-    '$app_name',
-    '$app_namespace',
-    '$app_version',
-    // web params
-    '$browser',
-    '$browser_version',
-    '$device_type',
-    '$current_url',
-    '$pathname',
-    '$os',
-    '$os_name', // $os_name is a special case, it's treated as an alias of $os!
-    '$os_version',
-    '$referring_domain',
-    '$referrer',
-    // campaign params - automatically added by posthog-js here https://github.com/PostHog/posthog-js/blob/master/src/utils/event-utils.ts
+// When changing this set, make sure you also make the same changes in:
+// - taxonomy.tsx (CAMPAIGN_PROPERTIES)
+// - posthog-js event-utils.ts (CAMPAIGN_PARAMS)
+export const campaignParams = new Set([
     'utm_source',
     'utm_medium',
     'utm_campaign',
@@ -90,6 +74,31 @@ export const eventToPersonProperties = new Set([
     'igshid', // instagram
     'ttclid', // tiktok
     'rdt_cid', // reddit
+])
+
+export const initialCampaignParams = new Set(Array.from(campaignParams, (key) => `$initial_${key.replace('$', '')}`))
+
+// When changing this set, make sure you also make the same changes in:
+// - taxonomy.tsx (PERSON_PROPERTIES_ADAPTED_FROM_EVENT)
+export const eventToPersonProperties = new Set([
+    // mobile params
+    '$app_build',
+    '$app_name',
+    '$app_namespace',
+    '$app_version',
+    // web params
+    '$browser',
+    '$browser_version',
+    '$device_type',
+    '$current_url',
+    '$pathname',
+    '$os',
+    '$os_name', // $os_name is a special case, it's treated as an alias of $os!
+    '$os_version',
+    '$referring_domain',
+    '$referrer',
+
+    ...campaignParams,
 ])
 export const initialEventToPersonProperties = new Set(
     Array.from(eventToPersonProperties, (key) => `$initial_${key.replace('$', '')}`)
@@ -133,11 +142,38 @@ export function personInitialAndUTMProperties(properties: Properties): Propertie
     return propertiesCopy
 }
 
-export function hasSetOrSetOnceInitialEventToPersonProperty(properties: Properties): boolean {
-    return (
-        Object.keys(properties.$set || {}).some((key) => initialEventToPersonProperties.has(key)) ||
-        Object.keys(properties.$set_once || {}).some((key) => initialEventToPersonProperties.has(key))
+export function hasDifferenceWithProposedNewNormalisationMode(properties: Properties): boolean {
+    // this functions checks if there would be a difference in the properties if we strip the initial campaign params
+    // when any $set_once initial eventToPersonProperties are present. This will often return true for events from
+    // posthog-js, but it is unknown if this will be the case for other SDKs.
+    if (
+        !properties.$set_once ||
+        !Object.keys(properties.$set_once).some((key) => initialEventToPersonProperties.has(key))
+    ) {
+        return false
+    }
+
+    const propertiesForPerson: [string, any][] = Object.entries(properties).filter(([key]) =>
+        eventToPersonProperties.has(key)
     )
+
+    const maybeSetOnce: [string, any][] = propertiesForPerson.map(([key, value]) => [
+        `$initial_${key.replace('$', '')}`,
+        value,
+    ])
+
+    if (maybeSetOnce.length === 0) {
+        return false
+    }
+
+    const filteredMayBeSetOnce = maybeSetOnce.filter(([key]) => !initialCampaignParams.has(key))
+
+    const setOnce = new Map(Object.entries({ ...Object.fromEntries(maybeSetOnce), ...(properties.$set_once || {}) }))
+    const filteredSetOnce = new Map(
+        Object.entries({ ...Object.fromEntries(filteredMayBeSetOnce), ...(properties.$set_once || {}) })
+    )
+
+    return !areMapsEqual(setOnce, filteredSetOnce)
 }
 
 export function generateKafkaPersonUpdateMessage(person: InternalPerson, isDeleted = false): ProducerRecord {

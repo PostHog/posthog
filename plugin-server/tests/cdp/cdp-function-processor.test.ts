@@ -209,7 +209,7 @@ describe('CDP Function Processor', () => {
             ])
             expect(kafkaMessages.logs.map((x) => x.value.message)).toEqual([
                 'Executing function',
-                "Suspending function due to async function call 'fetch'. Payload: 1931 bytes",
+                "Suspending function due to async function call 'fetch'. Payload: 1956 bytes",
                 'Resuming function',
                 'Fetch response:, {"status":200,"body":{"success":true}}',
                 expect.stringContaining('Function completed'),

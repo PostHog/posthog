@@ -675,3 +675,16 @@ export const getKnownLibValueOrSentinel = (lib: string): string => {
     }
     return '$other'
 }
+
+// Check if 2 maps with primitive values are equal
+export const areMapsEqual = <K, V>(map1: Map<K, V>, map2: Map<K, V>): boolean => {
+    if (map1.size !== map2.size) {
+        return false
+    }
+    for (const [key, value] of map1) {
+        if (!map2.has(key) || map2.get(key) !== value) {
+            return false
+        }
+    }
+    return true
+}
