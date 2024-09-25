@@ -6,7 +6,6 @@ import { PlayerInspectorControls } from '../inspector/PlayerInspectorControls'
 import { PlayerInspectorList } from '../inspector/PlayerInspectorList'
 import { PlayerSidebarDebuggerTab } from './PlayerSidebarDebuggerTab'
 import { playerSidebarLogic } from './playerSidebarLogic'
-import { PlayerSidebarOverviewTab } from './PlayerSidebarOverviewTab'
 import { PlayerSidebarPersonTab } from './PlayerSidebarPersonTab'
 
 export function PlayerSidebarTab(): JSX.Element | null {
@@ -14,7 +13,7 @@ export function PlayerSidebarTab(): JSX.Element | null {
 
     switch (activeTab) {
         case SessionRecordingSidebarTab.OVERVIEW:
-            return <PlayerSidebarOverviewTab />
+            return <PlayerSidebarPersonTab />
         case SessionRecordingSidebarTab.INSPECTOR:
             return (
                 <>
@@ -22,8 +21,6 @@ export function PlayerSidebarTab(): JSX.Element | null {
                     <PlayerInspectorList />
                 </>
             )
-        case SessionRecordingSidebarTab.PERSON:
-            return <PlayerSidebarPersonTab />
         case SessionRecordingSidebarTab.DEBUGGER:
             return <PlayerSidebarDebuggerTab />
         default:

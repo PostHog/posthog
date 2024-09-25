@@ -45,11 +45,7 @@ export function PlayerSidebar({
 
     const { desiredSize } = useValues(resizerLogic(resizerLogicProps))
 
-    const sidebarTabs = [
-        SessionRecordingSidebarTab.OVERVIEW,
-        SessionRecordingSidebarTab.INSPECTOR,
-        SessionRecordingSidebarTab.PERSON,
-    ]
+    const sidebarTabs = [SessionRecordingSidebarTab.OVERVIEW, SessionRecordingSidebarTab.INSPECTOR]
 
     if (window.IMPERSONATED_SESSION || featureFlags[FEATURE_FLAGS.SESSION_REPLAY_DOCTOR]) {
         sidebarTabs.push(SessionRecordingSidebarTab.DEBUGGER)

@@ -7,6 +7,7 @@ import { PropertyDefinitionType } from '~/types'
 
 import { playerMetaLogic } from '../playerMetaLogic'
 import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
+import { PlayerSidebarOverviewGrid } from './PlayerSidebarOverviewGrid'
 
 export function PlayerSidebarPersonTab(): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
@@ -17,6 +18,7 @@ export function PlayerSidebarPersonTab(): JSX.Element {
             <div className="font-bold bg-bg-light px-2 border-b py-3">
                 <PersonDisplay person={sessionPerson} withIcon noPopover />
             </div>
+            <PlayerSidebarOverviewGrid />
             {sessionPlayerMetaDataLoading ? (
                 <div className="space-y-2">
                     <LemonSkeleton.Row repeat={60} fade={true} className="h-3 w-full" />
