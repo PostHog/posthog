@@ -35,6 +35,7 @@ function newExperiment(): ExperimentForm {
                 rollout_percentage: 50,
             },
             test: {
+                is_new: true,
                 transforms: [
                     {
                         text: '',
@@ -300,6 +301,7 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
                 }
 
                 values.experimentForm.variants[nextVariantName] = {
+                    is_new: true,
                     transforms: [
                         {
                             text: '',

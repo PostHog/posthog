@@ -93,6 +93,7 @@ export interface WebExperiment extends Experiment {
 }
 
 export interface WebExperimentVariant {
+    is_new?: boolean
     conditions: {
         url?: string
         urlMatchType?: WebExperimentUrlMatchType

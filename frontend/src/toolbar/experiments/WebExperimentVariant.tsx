@@ -14,12 +14,12 @@ interface WebExperimentVariantProps {
 }
 
 export function WebExperimentVariant({ variant }: WebExperimentVariantProps): JSX.Element {
-    const { experimentForm, selectedExperimentId } = useValues(experimentsTabLogic)
+    const { experimentForm } = useValues(experimentsTabLogic)
     const [localTentativeValue, setLocalTentativeValue] = useState(variant)
     const { addNewElement, setExperimentFormValue } = useActions(experimentsTabLogic)
     return (
         <div className="flex flex-col">
-            {selectedExperimentId === 'new' && (
+            {experimentForm.variants && experimentForm.variants[variant].is_new && (
                 <LemonInput
                     key="variant-name-small"
                     className="m-2"

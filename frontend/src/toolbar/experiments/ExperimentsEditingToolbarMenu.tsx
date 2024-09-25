@@ -73,7 +73,7 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
                                         }
                                     }}
                                     panels={Object.keys(experimentForm.variants || {})
-                                        .sort((_, b) => b.localeCompare('control'))
+                                        .sort((a, b) => (b === 'control' ? 0 : a.localeCompare(b)))
                                         .map((variant) => {
                                             return {
                                                 key: variant,
