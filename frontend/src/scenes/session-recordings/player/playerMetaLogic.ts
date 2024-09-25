@@ -159,9 +159,10 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 recordingPropertyKeys.forEach((property) => {
                     if (sessionPlayerMetaData?.[property]) {
                         items.push({
-                            label:
-                                getCoreFilterDefinition(property, TaxonomicFilterGroupType.Replay)?.label ?? property,
-                            value: `${sessionPlayerMetaData[property]}`,
+                            label: `${sessionPlayerMetaData[property]} ${
+                                getCoreFilterDefinition(property, TaxonomicFilterGroupType.Replay)?.label ?? property
+                            }`,
+                            value: '',
                             type: 'text',
                             property,
                         })
