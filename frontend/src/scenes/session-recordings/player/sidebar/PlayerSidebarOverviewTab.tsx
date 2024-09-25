@@ -10,58 +10,7 @@ import { SessionRecordingType } from '~/types'
 import { playerMetaLogic } from '../playerMetaLogic'
 import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 
-interface OverviewItem {
-    property: string
-    label: string
-    value: string
-    type: 'text' | 'icon'
-    tooltipTitle?: string
-}
 
-const browserPropertyKeys = ['$geoip_country_code', '$browser', '$device_type', '$os']
-const mobilePropertyKeys = ['$geoip_country_code', '$device_type', '$os_name']
-const recordingPropertyKeys = ['click_count', 'keypress_count', 'console_error_count'] as const
-
-function sessionPlayerMetaDataToOverviewItems(sessionPlayerMetaData: SessionRecordingType | null): OverviewItem[] {
-    const items: OverviewItem[] = []
-
-    recordingPropertyKeys.forEach((property) => {
-        if (sessionPlayerMetaData?.[property]) {
-            items.push({
-                label: getCoreFilterDefinition(property, TaxonomicFilterGroupType.Replay)?.label ?? property,
-                value: `${sessionPlayerMetaData[property]}`,
-                type: 'text',
-                property,
-            })
-        }
-    })
-
-    const personProperties = sessionPlayerMetaData?.person?.properties ?? {}
-
-    const deviceType = personProperties['$device_type'] || personProperties['$initial_device_type']
-    const deviceTypePropertyKeys = deviceType === 'Mobile' ? mobilePropertyKeys : browserPropertyKeys
-
-    deviceTypePropertyKeys.forEach((property) => {
-        if (personProperties[property]) {
-            const value = personProperties[property]
-
-            const tooltipTitle =
-                property === '$geoip_country_code' && value in countryCodeToName
-                    ? countryCodeToName[value as keyof typeof countryCodeToName]
-                    : value
-
-            items.push({
-                label: getCoreFilterDefinition(property, TaxonomicFilterGroupType.PersonProperties)?.label ?? property,
-                value,
-                tooltipTitle,
-                type: 'icon',
-                property,
-            })
-        }
-    })
-
-    return items
-}
 
 function OverviewCard({ item }: { item: OverviewItem }): JSX.Element {
     return (
