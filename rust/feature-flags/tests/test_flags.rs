@@ -189,7 +189,15 @@ async fn it_handles_malformed_json() -> Result<()> {
     let payload = "{invalid_json}";
     let res = server.send_flags_request(payload.to_string()).await;
     assert_eq!(StatusCode::BAD_REQUEST, res.status());
-    assert!(res.text().await?.starts_with("Failed to parse request:"));
+
+    let response_text = res.text().await?;
+    println!("Response text: {:?}", response_text);
+
+    assert!(
+        response_text.contains("Failed to decode request: invalid JSON"),
+        "Unexpected error message: {:?}",
+        response_text
+    );
     Ok(())
 }
 

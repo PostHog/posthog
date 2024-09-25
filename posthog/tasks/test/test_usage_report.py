@@ -298,6 +298,43 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                 properties={"$group_0": "org:6", "$is_identified": True},
             )
 
+            # For LLM integrations
+            create_event(
+                event_uuid=uuid4(),
+                distinct_id=distinct_id,
+                event="helicone_request_response",
+                properties={"$lib": "web", "$is_identified": True},
+                timestamp=now() - relativedelta(hours=12),
+                team=self.org_1_team_1,
+            )
+
+            create_event(
+                event_uuid=uuid4(),
+                distinct_id=distinct_id,
+                event="keywords_ai_api_logging",
+                properties={"$lib": "web", "$is_identified": True},
+                timestamp=now() - relativedelta(hours=12),
+                team=self.org_1_team_1,
+            )
+
+            create_event(
+                event_uuid=uuid4(),
+                distinct_id=distinct_id,
+                event="langfuse generation",
+                properties={"$lib": "web", "$is_identified": True},
+                timestamp=now() - relativedelta(hours=12),
+                team=self.org_1_team_1,
+            )
+
+            create_event(
+                event_uuid=uuid4(),
+                distinct_id=distinct_id,
+                event="traceloop span",
+                properties={"$lib": "web", "$is_identified": True},
+                timestamp=now() - relativedelta(hours=12),
+                team=self.org_1_team_1,
+            )
+
             # Events for org 1 team 2
             distinct_id = str(uuid4())
             _create_person(distinct_ids=[distinct_id], team=self.org_1_team_2)
@@ -422,10 +459,13 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     },
                     "plugins_enabled": {"Installed and enabled": 1},
                     "instance_tag": "none",
-                    "event_count_in_period": 25,
-                    "enhanced_persons_event_count_in_period": 24,
-                    "anonymous_personful_event_count_in_period": 1,
+                    "event_count_in_period": 29,
+                    "enhanced_persons_event_count_in_period": 28,
                     "event_count_with_groups_in_period": 2,
+                    "event_count_from_keywords_ai_in_period": 1,
+                    "event_count_from_traceloop_in_period": 1,
+                    "event_count_from_langfuse_in_period": 1,
+                    "event_count_from_helicone_in_period": 1,
                     "recording_count_in_period": 5,
                     "mobile_recording_count_in_period": 0,
                     "group_types_total": 2,
@@ -460,10 +500,13 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "team_count": 2,
                     "teams": {
                         str(self.org_1_team_1.id): {
-                            "event_count_in_period": 14,
-                            "enhanced_persons_event_count_in_period": 13,
-                            "anonymous_personful_event_count_in_period": 0,
+                            "event_count_in_period": 18,
+                            "enhanced_persons_event_count_in_period": 17,
                             "event_count_with_groups_in_period": 2,
+                            "event_count_from_keywords_ai_in_period": 1,
+                            "event_count_from_traceloop_in_period": 1,
+                            "event_count_from_langfuse_in_period": 1,
+                            "event_count_from_helicone_in_period": 1,
                             "recording_count_in_period": 0,
                             "mobile_recording_count_in_period": 0,
                             "group_types_total": 2,
@@ -494,8 +537,11 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                         str(self.org_1_team_2.id): {
                             "event_count_in_period": 11,
                             "enhanced_persons_event_count_in_period": 11,
-                            "anonymous_personful_event_count_in_period": 1,
                             "event_count_with_groups_in_period": 0,
+                            "event_count_from_keywords_ai_in_period": 0,
+                            "event_count_from_traceloop_in_period": 0,
+                            "event_count_from_langfuse_in_period": 0,
+                            "event_count_from_helicone_in_period": 0,
                             "recording_count_in_period": 5,
                             "mobile_recording_count_in_period": 0,
                             "group_types_total": 0,
@@ -549,8 +595,11 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "instance_tag": "none",
                     "event_count_in_period": 10,
                     "enhanced_persons_event_count_in_period": 10,
-                    "anonymous_personful_event_count_in_period": 0,
                     "event_count_with_groups_in_period": 0,
+                    "event_count_from_keywords_ai_in_period": 0,
+                    "event_count_from_traceloop_in_period": 0,
+                    "event_count_from_langfuse_in_period": 0,
+                    "event_count_from_helicone_in_period": 0,
                     "recording_count_in_period": 0,
                     "mobile_recording_count_in_period": 0,
                     "group_types_total": 0,
@@ -587,8 +636,11 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                         str(self.org_2_team_3.id): {
                             "event_count_in_period": 10,
                             "enhanced_persons_event_count_in_period": 10,
-                            "anonymous_personful_event_count_in_period": 0,
                             "event_count_with_groups_in_period": 0,
+                            "event_count_from_keywords_ai_in_period": 0,
+                            "event_count_from_traceloop_in_period": 0,
+                            "event_count_from_langfuse_in_period": 0,
+                            "event_count_from_helicone_in_period": 0,
                             "recording_count_in_period": 0,
                             "mobile_recording_count_in_period": 0,
                             "group_types_total": 0,

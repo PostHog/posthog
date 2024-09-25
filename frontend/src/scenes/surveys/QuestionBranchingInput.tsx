@@ -137,6 +137,12 @@ function QuestionResponseBasedBranchingInput({
             { value: 'neutral', label: '3 (Neutral)' },
             { value: 'positive', label: '4 to 5 (Positive)' },
         ]
+    } else if (question.type === SurveyQuestionType.Rating && question.scale === 7) {
+        config = [
+            { value: 'negative', label: '1 to 3 (Negative)' },
+            { value: 'neutral', label: '4 (Neutral)' },
+            { value: 'positive', label: '5 to 7 (Positive)' },
+        ]
     } else if (question.type === SurveyQuestionType.Rating && question.scale === 10) {
         config = [
             // NPS categories

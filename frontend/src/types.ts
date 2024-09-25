@@ -295,9 +295,12 @@ export interface MinimalHedgehogConfig {
     accessories: string[]
 }
 
+export type HedgehogSkin = 'default' | 'spiderhog'
+
 export interface HedgehogConfig extends MinimalHedgehogConfig {
     enabled: boolean
     color: HedgehogColorOptions | null
+    skin?: HedgehogSkin
     accessories: string[]
     walking_enabled: boolean
     interactions_enabled: boolean
@@ -372,6 +375,7 @@ export interface OrganizationDomainType {
 export interface BaseMemberType {
     id: string
     user: UserBasicType
+    last_login: string | null
     joined_at: string
     updated_at: string
     is_2fa_enabled: boolean
@@ -466,6 +470,12 @@ export interface SessionRecordingAIConfig {
     important_user_properties: string[]
 }
 
+export interface ProjectType {
+    id: number
+    name: string
+    organization_id: string
+    created_at: string
+}
 export interface TeamType extends TeamBasicType {
     created_at: string
     updated_at: string
@@ -565,6 +575,7 @@ export interface ActionStepType {
     url?: string | null
     /** @default StringMatching.Contains */
     url_matching?: ActionStepStringMatching | null
+    name?: string | null
 }
 
 export interface ElementType {
@@ -579,7 +590,7 @@ export interface ElementType {
     text?: string
 }
 
-export type ToolbarUserIntent = 'add-action' | 'edit-action' | 'heatmaps'
+export type ToolbarUserIntent = 'add-action' | 'edit-action' | 'heatmaps' | 'add-experiment' | 'edit-experiment'
 export type ToolbarSource = 'url' | 'localstorage'
 export type ToolbarVersion = 'toolbar'
 
@@ -630,6 +641,8 @@ export enum PropertyOperator {
     NotBetween = 'not_between',
     Minimum = 'min',
     Maximum = 'max',
+    In = 'in',
+    NotIn = 'not_in',
 }
 
 export enum SavedInsightsTabs {
@@ -760,6 +773,8 @@ export interface CohortPropertyFilter extends BasePropertyFilter {
     key: 'id'
     /**  @asType integer */
     value: number
+    /** @default 'in' */
+    operator: PropertyOperator
 }
 
 export interface GroupPropertyFilter extends BasePropertyFilter {
@@ -932,6 +947,17 @@ export enum SessionRecordingUsageType {
     VIEWED = 'viewed',
     ANALYZED = 'analyzed',
     LOADED = 'loaded',
+}
+
+export enum SessionRecordingSidebarTab {
+    PERSON = 'person',
+    INSPECTOR = 'inspector',
+    DEBUGGER = 'debugger',
+}
+
+export enum SessionRecordingSidebarStacking {
+    Vertical = 'vertical',
+    Horizontal = 'horizontal',
 }
 
 export enum SessionRecordingPlayerTab {
@@ -1365,6 +1391,10 @@ export interface SessionRecordingType {
     storage?: 'object_storage_lts' | 'object_storage'
     summary?: string
     snapshot_source: 'web' | 'mobile' | 'unknown'
+    /** whether we have received data for this recording in the last 5 minutes
+     * (assumes the recording was loaded from ClickHouse)
+     * **/
+    ongoing?: boolean
 }
 
 export interface SessionRecordingPropertiesType {
@@ -1489,6 +1519,9 @@ export interface PerformanceEvent {
     request_body?: Body
     response_body?: Body
     method?: string
+    // normally, can rely on performance event values like duration,
+    // but they may be absent in which case the SDK may have sent start and end time
+    end_time?: number
 
     //rrweb/network@1 - i.e. not in ClickHouse table
     is_initial?: boolean
@@ -1771,6 +1804,11 @@ export interface DashboardType<T = InsightModel> extends DashboardBasicType {
     filters: DashboardFilter
 }
 
+export enum TemplateAvailabilityContext {
+    GENERAL = 'general',
+    ONBOARDING = 'onboarding',
+}
+
 export interface DashboardTemplateType<T = InsightModel> {
     id: string
     team_id?: number
@@ -1783,6 +1821,7 @@ export interface DashboardTemplateType<T = InsightModel> {
     tags?: string[]
     image_url?: string
     scope?: DashboardTemplateScope
+    availability_contexts?: TemplateAvailabilityContext[]
 }
 
 export interface MonacoMarker {
@@ -1799,9 +1838,12 @@ export interface DashboardTemplateVariableType {
     name: string
     description: string
     type: 'event'
-    default: Record<string, JsonType>
+    default: TemplateVariableStep
     required: boolean
     touched?: boolean
+    selector?: string
+    href?: string
+    url?: string
 }
 
 export type DashboardLayoutSize = 'sm' | 'xs'
@@ -2133,6 +2175,21 @@ export interface FilterType {
     aggregation_group_type_index?: integer // Groups aggregation
 }
 
+export interface TemplateVariableStep {
+    id?: string
+    math?: BaseMathType
+    name?: string | null
+    order?: number
+    type?: EntityTypes
+    event?: string
+    selector?: string | null
+    href?: string | null
+    url?: string | null
+    properties?: Record<string, any>[]
+    custom_name?: string
+    custom_event?: boolean
+}
+
 export interface PropertiesTimelineFilterType {
     date_from?: string | null // DateMixin
     date_to?: string | null // DateMixin
@@ -2263,10 +2320,10 @@ export interface RetentionFilterType extends FilterType {
     returning_entity?: RetentionEntity
     target_entity?: RetentionEntity
     period?: RetentionPeriod
+    cumulative?: boolean
 
     //frontend only
     show_mean?: boolean
-    cumulative?: boolean
 }
 export interface LifecycleFilterType extends FilterType {
     /** @deprecated */
@@ -2580,6 +2637,9 @@ export interface InsightLogicProps<T = InsightVizNode> {
 
     /** Used to group DataNodes into a collection for group operations like refreshAll **/
     dataNodeCollectionId?: string
+
+    /** Dashboard filters to override the ones in the query */
+    filtersOverride?: DashboardFilter | null
 }
 
 export interface SetInsightOptions {
@@ -3062,6 +3122,7 @@ export enum PropertyType {
     Boolean = 'Boolean',
     Duration = 'Duration',
     Selector = 'Selector',
+    Cohort = 'Cohort',
 }
 
 export enum PropertyDefinitionType {
@@ -3270,6 +3331,7 @@ export type EventOrPropType = EventDefinition & PropertyDefinition
 
 export interface AppContext {
     current_user: UserType | null
+    current_project: ProjectType | null
     current_team: TeamType | TeamPublicType | null
     preflight: PreflightStatus
     default_event_name: string
@@ -3282,6 +3344,7 @@ export interface AppContext {
     year_in_hog_url?: string
     /** Support flow aid: a staff-only list of users who may be impersonated to access this resource. */
     suggested_users_with_access?: UserBasicType[]
+    is_region_blocked?: boolean
 }
 
 export type StoredMetricMathOperations = 'max' | 'min' | 'sum'
@@ -3561,7 +3624,7 @@ export enum EventDefinitionType {
     EventPostHog = 'event_posthog',
 }
 
-export type IntegrationKind = 'slack' | 'salesforce' | 'hubspot'
+export type IntegrationKind = 'slack' | 'salesforce' | 'hubspot' | 'google-pubsub' | 'google-cloud-storage'
 
 export interface IntegrationType {
     id: number
@@ -3836,6 +3899,8 @@ export interface DataWarehouseSavedQuery {
     name: string
     query: HogQLQuery
     columns: DatabaseSchemaField[]
+    last_run_at?: string
+    status?: string
 }
 
 export interface DataWarehouseViewLink {
@@ -3864,6 +3929,7 @@ export const externalDataSources = [
     'Snowflake',
     'Salesforce',
     'Vitally',
+    'BigQuery',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
@@ -4248,11 +4314,20 @@ export interface SourceFieldSwitchGroupConfig {
     fields: SourceFieldConfig[]
 }
 
+export interface SourceFieldFileUploadConfig {
+    type: 'file-upload'
+    name: string
+    label: string
+    fileFormat: string
+    required: boolean
+}
+
 export type SourceFieldConfig =
     | SourceFieldInputConfig
     | SourceFieldSwitchGroupConfig
     | SourceFieldSelectConfig
     | SourceFieldOauthConfig
+    | SourceFieldFileUploadConfig
 
 export interface SourceConfig {
     name: ExternalDataSourceType
@@ -4444,17 +4519,18 @@ export type HogFunctionInvocationGlobals = {
     }
     event: {
         uuid: string
-        name: string
+        event: string
+        elements_chain: string
         distinct_id: string
         properties: Record<string, any>
         timestamp: string
         url: string
     }
     person?: {
-        uuid: string
+        id: string
+        properties: Record<string, any>
         name: string
         url: string
-        properties: Record<string, any>
     }
     groups?: Record<
         string,

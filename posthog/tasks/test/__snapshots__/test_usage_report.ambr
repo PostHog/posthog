@@ -3,14 +3,17 @@
   '''
   
   SELECT team_id,
-         count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
+         multiIf(event LIKE 'helicone%', 'helicone', event LIKE 'langfuse%', 'langfuse', event LIKE 'keywords_ai%', 'keywords_ai', event LIKE 'traceloop%', 'traceloop', 'other') AS integration,
+         count(1) as count
   FROM events
-  WHERE timestamp between '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
-    AND event != '$feature_flag_called'
-    AND event NOT IN ('survey sent',
-                      'survey shown',
-                      'survey dismissed')
-  GROUP BY team_id
+  WHERE timestamp BETWEEN '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
+    AND (event LIKE 'helicone%'
+         OR event LIKE 'langfuse%'
+         OR event LIKE 'keywords_ai%'
+         OR event LIKE 'traceloop%')
+  GROUP BY team_id,
+           integration
+  HAVING integration != 'other'
   '''
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.1
@@ -24,8 +27,6 @@
     AND event NOT IN ('survey sent',
                       'survey shown',
                       'survey dismissed')
-    AND person_mode IN ('full',
-                        'force_upgrade')
   GROUP BY team_id
   '''
 # ---
@@ -212,8 +213,6 @@
                       'survey dismissed')
     AND person_mode IN ('full',
                         'force_upgrade')
-    AND JSONExtractBool(properties, '$is_identified') = 0
-    AND JSONExtractString(properties, '$lib') = 'web'
   GROUP BY team_id
   '''
 # ---
@@ -231,39 +230,12 @@
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.21
   '''
   
-  SELECT team,
-         sum(rows_synced)
-  FROM
-    (SELECT JSONExtractString(properties, 'job_id') AS job_id,
-            distinct_id AS team,
-            any(JSONExtractInt(properties, 'count')) AS rows_synced
-     FROM events
-     WHERE team_id = 2
-       AND event = '$data_sync_job_completed'
-       AND JSONExtractString(properties, 'start_time') != ''
-       AND parseDateTimeBestEffort(JSONExtractString(properties, 'start_time')) BETWEEN '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
-     GROUP BY job_id,
-              team)
-  GROUP BY team
-  '''
-# ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.22
-  '''
-  
-  SELECT team,
-         sum(rows_synced)
-  FROM
-    (SELECT JSONExtractString(properties, 'job_id') AS job_id,
-            distinct_id AS team,
-            any(JSONExtractInt(properties, 'count')) AS rows_synced
-     FROM events
-     WHERE team_id = 2
-       AND event = '$data_sync_job_completed'
-       AND JSONExtractString(properties, 'start_time') != ''
-       AND parseDateTimeBestEffort(JSONExtractString(properties, 'start_time')) BETWEEN '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
-     GROUP BY job_id,
-              team)
-  GROUP BY team
+  SELECT team_id,
+         COUNT() as count
+  FROM events
+  WHERE event = 'survey sent'
+    AND timestamp between '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
+  GROUP BY team_id
   '''
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.3

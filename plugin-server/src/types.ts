@@ -18,6 +18,7 @@ import { Kafka } from 'kafkajs'
 import { DateTime } from 'luxon'
 import { VM } from 'vm2'
 
+import { EncryptedFields } from './cdp/encryption-utils'
 import { ObjectStorage } from './main/services/object_storage'
 import { DB } from './utils/db/db'
 import { KafkaProducerWrapper } from './utils/db/kafka-producer-wrapper'
@@ -113,7 +114,10 @@ export type CdpConfig = {
     CDP_WATCHER_DISABLED_TEMPORARY_TTL: number // How long a function should be temporarily disabled for
     CDP_WATCHER_DISABLED_TEMPORARY_MAX_COUNT: number // How many times a function can be disabled before it is disabled permanently
     CDP_ASYNC_FUNCTIONS_RUSTY_HOOK_TEAMS: string
-    CDP_ASYNC_FUNCTIONS_CYCLOTRON_TEAMS: string
+    CDP_HOG_FILTERS_TELEMETRY_TEAMS: string
+    CDP_CYCLOTRON_ENABLED_TEAMS: string
+    CDP_CYCLOTRON_BATCH_SIZE: number
+    CDP_CYCLOTRON_BATCH_DELAY_MS: number
     CDP_REDIS_HOST: string
     CDP_REDIS_PORT: number
     CDP_REDIS_PASSWORD: string
@@ -284,7 +288,10 @@ export interface PluginsServerConfig extends CdpConfig {
     // kafka debug stats interval
     SESSION_RECORDING_KAFKA_CONSUMPTION_STATISTICS_EVENT_INTERVAL_MS: number
 
+    ENCRYPTION_SALT_KEYS: string
+
     CYCLOTRON_DATABASE_URL: string
+    CYCLOTRON_SHARD_DEPTH_LIMIT: number
 }
 
 export interface Hub extends PluginsServerConfig {
@@ -325,6 +332,7 @@ export interface Hub extends PluginsServerConfig {
     pluginConfigsToSkipElementsParsing: ValueMatcher<number>
     // lookups
     eventsToDropByToken: Map<string, string[]>
+    encryptedFields: EncryptedFields
 }
 
 export interface PluginServerCapabilities {
@@ -1212,6 +1220,13 @@ export type AppMetric2Type = {
     app_source_id: string
     instance_id?: string
     metric_kind: 'failure' | 'success' | 'other'
-    metric_name: 'succeeded' | 'failed' | 'filtered' | 'disabled_temporarily' | 'disabled_permanently' | 'masked'
+    metric_name:
+        | 'succeeded'
+        | 'failed'
+        | 'filtered'
+        | 'disabled_temporarily'
+        | 'disabled_permanently'
+        | 'masked'
+        | 'filtering_failed'
     count: number
 }

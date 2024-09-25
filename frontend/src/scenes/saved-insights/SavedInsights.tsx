@@ -335,9 +335,15 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconVideoCamera,
         inMenu: false,
     },
-    [NodeKind.ExperimentResultQuery]: {
+    [NodeKind.ExperimentTrendQuery]: {
         name: 'Experiment Result',
-        description: 'View experiment result',
+        description: 'View experiment trend result',
+        icon: IconFlask,
+        inMenu: false,
+    },
+    [NodeKind.ExperimentFunnelQuery]: {
+        name: 'Experiment Funnel',
+        description: 'View experiment funnel result',
         icon: IconFlask,
         inMenu: false,
     },
@@ -427,8 +433,7 @@ function SavedInsightsGrid(): JSX.Element {
                     )
                 })}
                 {insightsLoading && (
-                    // eslint-disable-next-line react/forbid-dom-props
-                    <div style={{ minHeight: '30rem' }}>
+                    <div className="min-h-[30rem]">
                         <SpinnerOverlay sceneLevel />
                     </div>
                 )}

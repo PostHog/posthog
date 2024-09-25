@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 import { urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { LemonSelectOptions } from 'lib/lemon-ui/LemonSelect/LemonSelect'
+import { liveEventsTableLogic } from 'scenes/activity/live/liveEventsTableLogic'
 
 import { HogQLQuery, NodeKind } from '~/queries/schema'
 import { hogql } from '~/queries/utils'
@@ -41,7 +42,7 @@ export const multiInstallProducts = [ProductKey.PRODUCT_ANALYTICS, ProductKey.FE
 export const sdksLogic = kea<sdksLogicType>([
     path(['scenes', 'onboarding', 'sdks', 'sdksLogic']),
     connect({
-        values: [onboardingLogic, ['productKey']],
+        values: [onboardingLogic, ['productKey'], liveEventsTableLogic, ['eventHosts']],
     }),
     actions({
         setSourceFilter: (sourceFilter: string | null) => ({ sourceFilter }),
@@ -118,6 +119,20 @@ export const sdksLogic = kea<sdksLogicType>([
                 return Object.keys(availableSDKInstructionsMap).length > 5 && sourceOptions.length > 2
             },
         ],
+        combinedSnippetAndLiveEventsHosts: [
+            (selectors) => [selectors.snippetHosts, selectors.eventHosts],
+            (snippetHosts: string[], eventHosts: string[]): string[] => {
+                const combinedSnippetAndLiveEventsHosts = snippetHosts
+                for (const host of eventHosts) {
+                    const hostProtocol = new URL(host).protocol
+                    const currentProtocol = window.location.protocol
+                    if (hostProtocol === currentProtocol && !combinedSnippetAndLiveEventsHosts.includes(host)) {
+                        combinedSnippetAndLiveEventsHosts.push(host)
+                    }
+                }
+                return combinedSnippetAndLiveEventsHosts
+            },
+        ],
     }),
     loaders(({ actions }) => ({
         hasSnippetEvents: [
@@ -126,26 +141,28 @@ export const sdksLogic = kea<sdksLogicType>([
                 loadSnippetEvents: async () => {
                     const query: HogQLQuery = {
                         kind: NodeKind.HogQLQuery,
-                        query: hogql`SELECT properties.$lib_version AS lib_version,
+                        query: hogql`SELECT
                                         max(timestamp) AS latest_timestamp,
-                                        count(lib_version) AS count,
                                         concat(
-                                            if(startsWith(properties.current_url, 'https://'), 'https://', 'http://'),
+                                            concat({protocol}, '//'),
                                             properties.$host
-                                        ) AS full_host
+                                        ) AS full_host,
                                     FROM events
                                     WHERE timestamp >= now() - INTERVAL 3 DAY
                                     AND timestamp <= now()
                                     AND properties.$lib = 'web'
                                     AND properties.$host is not null
-                                    GROUP BY lib_version, full_host
+                                    AND startsWith(properties.$current_url, {protocol})
+                                    GROUP BY full_host
                                     ORDER BY latest_timestamp DESC
-                                    LIMIT 10`,
+                                    LIMIT 7`,
+                        values: {
+                            protocol: window.location.protocol,
+                        },
                     }
-
                     const res = await api.query(query)
                     const hasEvents = !!(res.results?.length ?? 0 > 0)
-                    const snippetHosts = res.results?.map((result) => result[3]).filter((val) => !!val) ?? []
+                    const snippetHosts = res.results?.map((result) => result[1]).filter((val) => !!val) ?? []
                     if (hasEvents) {
                         actions.setSnippetHosts(snippetHosts)
                     }

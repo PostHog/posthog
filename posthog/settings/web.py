@@ -3,10 +3,13 @@ import os
 from datetime import timedelta
 
 from corsheaders.defaults import default_headers
+import structlog
 
 from posthog.settings.base_variables import BASE_DIR, DEBUG, TEST
 from posthog.settings.utils import get_from_env, get_list, str_to_bool
 from posthog.utils_cors import CORS_ALLOWED_TRACING_HEADERS
+
+logger = structlog.get_logger(__name__)
 
 # django-axes settings to lockout after too many attempts
 
@@ -24,6 +27,11 @@ DECIDE_RATE_LIMIT_ENABLED = get_from_env("DECIDE_RATE_LIMIT_ENABLED", False, typ
 DECIDE_BUCKET_CAPACITY = get_from_env("DECIDE_BUCKET_CAPACITY", type_cast=int, default=500)
 DECIDE_BUCKET_REPLENISH_RATE = get_from_env("DECIDE_BUCKET_REPLENISH_RATE", type_cast=float, default=10.0)
 
+# Prevent decide abuse
+
+# This is a list of team-ids that are prevented from using the /decide endpoint
+# until they fix an issue with their feature flags causing instability in posthog.
+DECIDE_SHORT_CIRCUITED_TEAM_IDS = [0]
 # Decide db settings
 
 DECIDE_SKIP_POSTGRES_FLAGS = get_from_env("DECIDE_SKIP_POSTGRES_FLAGS", False, type_cast=str_to_bool)
@@ -244,7 +252,7 @@ LOGIN_URL = "/login"
 LOGOUT_URL = "/logout"
 LOGIN_REDIRECT_URL = "/"
 APPEND_SLASH = False
-CORS_URLS_REGEX = r"^/api/(?!early_access_features|surveys).*$"
+CORS_URLS_REGEX = r"^/api/(?!early_access_features|surveys|web_experiments).*$"
 CORS_ALLOW_HEADERS = default_headers + CORS_ALLOWED_TRACING_HEADERS
 X_FRAME_OPTIONS = "SAMEORIGIN"
 
@@ -362,8 +370,6 @@ KAFKA_PRODUCE_ACK_TIMEOUT_SECONDS = int(os.getenv("KAFKA_PRODUCE_ACK_TIMEOUT_SEC
 
 # We keep the number of buckets low to reduce resource usage on the Prometheus
 PROMETHEUS_LATENCY_BUCKETS = [0.1, 0.3, 0.9, 2.7, 8.1, float("inf")]
-
-SALT_KEY = get_list(os.getenv("SALT_KEY", "0123456789abcdefghijklmnopqrstuvwxyz"))
 
 # temporary flag to control new UUID version setting in posthog-js
 # is set to v7 to test new generation but can be set to "og" to revert

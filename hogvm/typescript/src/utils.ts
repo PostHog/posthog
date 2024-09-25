@@ -27,10 +27,18 @@ export class UncaughtHogVMException extends HogVMException {
 /** Fixed cost per object in memory */
 const COST_PER_UNIT = 8
 
-export function like(string: string, pattern: string, caseInsensitive = false): boolean {
+export function like(
+    string: string,
+    pattern: string,
+    caseInsensitive = false,
+    match?: (regex: string, value: string) => boolean
+): boolean {
     pattern = String(pattern)
         .replaceAll(/[-/\\^$*+?.()|[\]{}]/g, '\\$&')
         .replaceAll('%', '.*')
+    if (match) {
+        return match((caseInsensitive ? '(?i)' : '') + pattern, string)
+    }
     return new RegExp(pattern, caseInsensitive ? 'i' : undefined).test(string)
 }
 export function getNestedValue(obj: any, chain: any[], nullish = false): any {
@@ -43,10 +51,13 @@ export function getNestedValue(obj: any, chain: any[], nullish = false): any {
             if (obj instanceof Map) {
                 obj = obj.get(key) ?? null
             } else if (typeof key === 'number') {
-                if (key <= 0) {
+                if (key == 0) {
                     throw new Error(`Hog arrays start from index 1`)
+                } else if (key > 0) {
+                    obj = obj[key - 1] ?? null
+                } else {
+                    obj = obj[obj.length + key] ?? null
                 }
-                obj = obj[key - 1] ?? null
             } else {
                 obj = obj[key] ?? null
             }
@@ -86,9 +97,19 @@ export function setNestedValue(obj: any, chain: any[], value: any): void {
 }
 
 // Recursively convert objects to maps
-export function convertJSToHog(x: any): any {
+export function convertJSToHog(x: any, found?: Map<any, any>): any {
+    if (!found) {
+        found = new Map()
+    }
+    if (found.has(x)) {
+        return found.get(x)
+    }
     if (Array.isArray(x)) {
-        return x.map(convertJSToHog)
+        const obj: any[] = []
+        found.set(x, obj)
+        x.forEach((v) => obj.push(convertJSToHog(v, found)))
+        found.delete(x)
+        return obj
     } else if (typeof x === 'object' && x !== null) {
         if (x.__hogDateTime__) {
             return toHogDateTime(x.dt, x.zone)
@@ -98,31 +119,47 @@ export function convertJSToHog(x: any): any {
             return x
         }
         const map = new Map()
+        found.set(x, map)
         for (const key in x) {
-            map.set(key, convertJSToHog(x[key]))
+            map.set(key, convertJSToHog(x[key], found))
         }
+        found.delete(x)
         return map
     }
     return x
 }
 
-export function convertHogToJS(x: any): any {
+export function convertHogToJS(x: any, found?: Map<any, any>): any {
+    if (!found) {
+        found = new Map()
+    }
+    if (found.has(x)) {
+        return found.get(x)
+    }
     if (x instanceof Map) {
         const obj: Record<string, any> = {}
+        found.set(x, obj)
         x.forEach((value, key) => {
-            obj[key] = convertHogToJS(value)
+            obj[key] = convertHogToJS(value, found)
         })
+        found.delete(x)
         return obj
     } else if (typeof x === 'object' && Array.isArray(x)) {
-        return x.map(convertHogToJS)
+        const obj: any[] = []
+        found.set(x, obj)
+        x.forEach((v) => obj.push(convertHogToJS(v, found)))
+        found.delete(x)
+        return obj
     } else if (typeof x === 'object' && x !== null) {
         if (x.__hogDateTime__ || x.__hogDate__ || x.__hogClosure__ || x.__hogCallable__) {
             return x
         }
         const obj: Record<string, any> = {}
+        found.set(x, obj)
         for (const key in x) {
-            obj[key] = convertHogToJS(x[key])
+            obj[key] = convertHogToJS(x[key], found)
         }
+        found.delete(x)
         return obj
     }
     return x

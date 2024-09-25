@@ -107,20 +107,21 @@ unittest.util._MAX_LENGTH = 2000  # type: ignore
 
 def _setup_test_data(klass):
     klass.organization = Organization.objects.create(name=klass.CONFIG_ORGANIZATION_NAME)
-    klass.project, klass.team = Project.objects.create_with_team(
+    klass.project = Project.objects.create(id=Team.objects.increment_id_sequence(), organization=klass.organization)
+    klass.team = Team.objects.create(
+        id=klass.project.id,
+        project=klass.project,
         organization=klass.organization,
-        team_fields={
-            "api_token": klass.CONFIG_API_TOKEN,
-            "test_account_filters": [
-                {
-                    "key": "email",
-                    "value": "@posthog.com",
-                    "operator": "not_icontains",
-                    "type": "person",
-                }
-            ],
-            "has_completed_onboarding_for": {"product_analytics": True},
-        },
+        api_token=klass.CONFIG_API_TOKEN,
+        test_account_filters=[
+            {
+                "key": "email",
+                "value": "@posthog.com",
+                "operator": "not_icontains",
+                "type": "person",
+            }
+        ],
+        has_completed_onboarding_for={"product_analytics": True},
     )
     if klass.CONFIG_EMAIL:
         klass.user = User.objects.create_and_join(klass.organization, klass.CONFIG_EMAIL, klass.CONFIG_PASSWORD)
@@ -554,7 +555,7 @@ class QueryMatchingTest:
         # replace session uuids
         # replace arrays like "in(s.session_id, ['ea376ce0-d365-4c75-8015-0407e71a1a28'])"
         query = re.sub(
-            r"in\(s\.session_id, \['[0-9a-f-]{36}'(, '[0-9a-f-]{36}')*\]\)",
+            r"in\((?:s\.)?session_id, \['[0-9a-f-]{36}'(, '[0-9a-f-]{36}')*\]\)",
             r"in(s.session_id, ['00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000001' /* ... */]",
             query,
         )
@@ -887,6 +888,13 @@ class ClickhouseTestMixin(QueryMatchingTest):
     CLASS_DATA_LEVEL_SETUP = False
 
     snapshot: Any
+
+    @staticmethod
+    def generalize_sql(value: str):
+        """Makes sure we can use inline_snapshot() for query SQL snapshots - swaps concrete team_id for placeholder."""
+        if "team_id," in value:
+            return re.sub(r"team_id, \d+", "team_id, <TEAM_ID>", value)
+        return value
 
     def capture_select_queries(self):
         return self.capture_queries_startswith(("SELECT", "WITH", "select", "with"))

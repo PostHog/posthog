@@ -1,17 +1,21 @@
 // NOTE: PostIngestionEvent is our context event - it should never be sent directly to an output, but rather transformed into a lightweight schema
 
+import { CyclotronJob, CyclotronJobUpdate } from '@posthog/cyclotron'
+import { captureException } from '@sentry/node'
 import { DateTime } from 'luxon'
 import RE2 from 're2'
 import { gunzip, gzip } from 'zlib'
 
 import { RawClickHouseEvent, Team, TimestampFormat } from '../types'
 import { safeClickhouseString } from '../utils/db/utils'
+import { status } from '../utils/status'
 import { castTimestampOrNow, clickHouseTimestampToISO, UUIDT } from '../utils/utils'
 import {
     HogFunctionCapturedEvent,
     HogFunctionFilterGlobals,
     HogFunctionInvocation,
     HogFunctionInvocationGlobals,
+    HogFunctionInvocationQueueParameters,
     HogFunctionInvocationResult,
     HogFunctionInvocationSerialized,
     HogFunctionLogEntrySerialized,
@@ -46,10 +50,6 @@ export function convertToHogFunctionInvocationGlobals(
     siteUrl: string
 ): HogFunctionInvocationGlobals {
     const properties = event.properties ? JSON.parse(event.properties) : {}
-    if (event.elements_chain) {
-        properties['$elements_chain'] = event.elements_chain
-    }
-
     const projectUrl = `${siteUrl}/project/${team.id}`
 
     let person: HogFunctionInvocationGlobals['person']
@@ -59,9 +59,9 @@ export function convertToHogFunctionInvocationGlobals(
         const personDisplayName = getPersonDisplayName(team, event.distinct_id, personProperties)
 
         person = {
-            uuid: event.person_id,
-            name: personDisplayName,
+            id: event.person_id,
             properties: personProperties,
+            name: personDisplayName,
             url: `${projectUrl}/person/${encodeURIComponent(event.distinct_id)}`,
         }
     }
@@ -76,7 +76,8 @@ export function convertToHogFunctionInvocationGlobals(
         },
         event: {
             uuid: event.uuid,
-            name: event.event!,
+            event: event.event!,
+            elements_chain: event.elements_chain,
             distinct_id: event.distinct_id,
             properties,
             timestamp: eventTimestamp,
@@ -137,9 +138,9 @@ export function convertToHogFunctionFilterGlobal(globals: HogFunctionInvocationG
         }
     }
 
-    const elementsChain = globals.event.properties['$elements_chain']
+    const elementsChain = globals.event.elements_chain ?? globals.event.properties['$elements_chain']
     const response = {
-        event: globals.event.name,
+        event: globals.event.event,
         elements_chain: elementsChain,
         elements_chain_href: '',
         elements_chain_texts: [] as string[],
@@ -147,7 +148,15 @@ export function convertToHogFunctionFilterGlobal(globals: HogFunctionInvocationG
         elements_chain_elements: [] as string[],
         timestamp: globals.event.timestamp,
         properties: globals.event.properties,
-        person: globals.person ? { properties: globals.person.properties } : undefined,
+        person: globals.person ? { id: globals.person.id, properties: globals.person.properties } : undefined,
+        pdi: globals.person
+            ? {
+                  distinct_id: globals.event.distinct_id,
+                  person_id: globals.person.id,
+                  person: { id: globals.person.id, properties: globals.person.properties },
+              }
+            : undefined,
+        distinct_id: globals.event.distinct_id,
         ...groups,
     } satisfies HogFunctionFilterGlobals
 
@@ -281,16 +290,91 @@ export function createInvocation(
         teamId: hogFunction.team_id,
         hogFunction,
         queue: 'hog',
+        priority: 1,
         timings: [],
     }
 }
 
-export function serializeInvocation(invocation: HogFunctionInvocation): HogFunctionInvocationSerialized {
+export function serializeHogFunctionInvocation(invocation: HogFunctionInvocation): HogFunctionInvocationSerialized {
     const serializedInvocation: HogFunctionInvocationSerialized = {
         ...invocation,
         hogFunctionId: invocation.hogFunction.id,
+        // We clear the params as they are never used in the serialized form
+        queueParameters: undefined,
     }
 
     delete (serializedInvocation as any).hogFunction
-    return invocation
+
+    return serializedInvocation
+}
+
+function prepareQueueParams(
+    _params?: HogFunctionInvocation['queueParameters']
+): Pick<CyclotronJobUpdate, 'parameters' | 'blob'> {
+    let parameters: HogFunctionInvocation['queueParameters'] = _params
+    let blob: CyclotronJobUpdate['blob'] = undefined
+
+    if (parameters && 'body' in parameters) {
+        // Fetch request
+        const { body, ...rest } = parameters
+        parameters = rest
+        blob = body ? Buffer.from(body) : undefined
+    } else if (parameters && 'response' in parameters && parameters.response) {
+        // Fetch response
+        const { body, ...rest } = parameters.response
+        parameters = {
+            ...parameters,
+            response: rest,
+        }
+        blob = body ? Buffer.from(body) : undefined
+    }
+
+    return {
+        parameters,
+        blob,
+    }
+}
+
+export function invocationToCyclotronJobUpdate(invocation: HogFunctionInvocation): CyclotronJobUpdate {
+    const updates = {
+        priority: invocation.priority,
+        vmState: serializeHogFunctionInvocation(invocation),
+        queueName: invocation.queue,
+        ...prepareQueueParams(invocation.queueParameters),
+    }
+    return updates
+}
+
+export function cyclotronJobToInvocation(job: CyclotronJob, hogFunction: HogFunctionType): HogFunctionInvocation {
+    const parsedState = job.vmState as HogFunctionInvocationSerialized
+    const params = job.parameters as HogFunctionInvocationQueueParameters | undefined
+
+    if (job.blob && params) {
+        // Deserialize the blob into the params
+        try {
+            const body = job.blob ? Buffer.from(job.blob).toString('utf-8') : undefined
+            if ('response' in params && params.response) {
+                // Fetch response
+                params.response.body = body
+            } else if ('method' in params) {
+                // Fetch request
+                params.body = body
+            }
+        } catch (e) {
+            status.error('Error parsing blob', e, job.blob)
+            captureException(e)
+        }
+    }
+
+    return {
+        id: job.id,
+        globals: parsedState.globals,
+        teamId: hogFunction.team_id,
+        hogFunction,
+        priority: job.priority,
+        queue: (job.queueName as any) ?? 'hog',
+        queueParameters: params,
+        vmState: parsedState.vmState,
+        timings: parsedState.timings,
+    }
 }

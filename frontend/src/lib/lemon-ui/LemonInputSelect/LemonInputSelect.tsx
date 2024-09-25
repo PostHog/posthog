@@ -46,6 +46,8 @@ export type LemonInputSelectProps = Pick<
     'data-attr'?: string
     className?: string
     popoverClassName?: string
+    size?: 'xsmall' | 'small' | 'medium' | 'large'
+    transparentBackground?: boolean
 }
 
 export function LemonInputSelect({
@@ -66,6 +68,8 @@ export function LemonInputSelect({
     className,
     popoverClassName,
     'data-attr': dataAttr,
+    size = 'medium',
+    transparentBackground,
 }: LemonInputSelectProps): JSX.Element {
     const [showPopover, setShowPopover] = useState(false)
     const [inputValue, _setInputValue] = useState('')
@@ -459,6 +463,7 @@ export function LemonInputSelect({
                 onKeyDown={_onKeyDown}
                 disabled={disabled}
                 autoFocus={autoFocus}
+                transparentBackground={transparentBackground}
                 className={clsx(
                     'h-auto leading-7', // leading-7 means line height aligned with LemonSnack height
                     // Putting button-like text styling on the single-select unfocused placeholder
@@ -469,6 +474,7 @@ export function LemonInputSelect({
                     className
                 )}
                 data-attr={dataAttr}
+                size={size}
             />
         </LemonDropdown>
     )

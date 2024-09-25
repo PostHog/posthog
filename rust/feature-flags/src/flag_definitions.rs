@@ -7,11 +7,6 @@ use tracing::instrument;
 // TODO: Add integration tests across repos to ensure this doesn't happen.
 pub const TEAM_FLAGS_CACHE_PREFIX: &str = "posthog:1:team_feature_flags_";
 
-// TODO: Hmm, revisit when dealing with groups, but seems like
-// ideal to just treat it as a u8 and do our own validation on top
-#[derive(Debug, Deserialize)]
-pub enum GroupTypeIndex {}
-
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum OperatorType {
@@ -42,7 +37,7 @@ pub struct PropertyFilter {
     pub operator: Option<OperatorType>,
     #[serde(rename = "type")]
     pub prop_type: String,
-    pub group_type_index: Option<i8>,
+    pub group_type_index: Option<i32>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -68,7 +63,7 @@ pub struct MultivariateFlagOptions {
 pub struct FlagFilters {
     pub groups: Vec<FlagGroupType>,
     pub multivariate: Option<MultivariateFlagOptions>,
-    pub aggregation_group_type_index: Option<i8>,
+    pub aggregation_group_type_index: Option<i32>,
     pub payloads: Option<serde_json::Value>,
     pub super_groups: Option<Vec<FlagGroupType>>,
 }
@@ -101,7 +96,7 @@ pub struct FeatureFlagRow {
 }
 
 impl FeatureFlag {
-    pub fn get_group_type_index(&self) -> Option<i8> {
+    pub fn get_group_type_index(&self) -> Option<i32> {
         self.filters.aggregation_group_type_index
     }
 
@@ -114,6 +109,14 @@ impl FeatureFlag {
             .multivariate
             .clone()
             .map_or(vec![], |m| m.variants)
+    }
+
+    pub fn get_payload(&self, match_val: &str) -> Option<serde_json::Value> {
+        self.filters.payloads.as_ref().and_then(|payloads| {
+            payloads
+                .as_object()
+                .and_then(|obj| obj.get(match_val).cloned())
+        })
     }
 }
 
@@ -242,7 +245,10 @@ mod tests {
             .await
             .expect("Failed to fetch flags from redis");
         assert_eq!(flags_from_redis.flags.len(), 1);
-        let flag = flags_from_redis.flags.get(0).expect("Empty flags in redis");
+        let flag = flags_from_redis
+            .flags
+            .first()
+            .expect("Empty flags in redis");
         assert_eq!(flag.key, "flag1");
         assert_eq!(flag.team_id, team.id);
         assert_eq!(flag.filters.groups.len(), 1);
@@ -293,7 +299,7 @@ mod tests {
             .expect("Failed to fetch flags from pg");
 
         assert_eq!(flags_from_pg.flags.len(), 1);
-        let flag = flags_from_pg.flags.get(0).expect("Flags should be in pg");
+        let flag = flags_from_pg.flags.first().expect("Flags should be in pg");
 
         assert_eq!(flag.key, "flag1");
         assert_eq!(flag.team_id, team.id);
@@ -419,13 +425,11 @@ mod tests {
     async fn test_fetch_empty_team_from_pg() {
         let client = setup_pg_client(None).await;
 
-        match FeatureFlagList::from_pg(client.clone(), 1234)
+        let FeatureFlagList { flags } = FeatureFlagList::from_pg(client.clone(), 1234)
             .await
-            .expect("Failed to fetch flags from pg")
+            .expect("Failed to fetch flags from pg");
         {
-            FeatureFlagList { flags } => {
-                assert_eq!(flags.len(), 0);
-            }
+            assert_eq!(flags.len(), 0);
         }
     }
 

@@ -1,4 +1,4 @@
-import { IconBug, IconCursorClick, IconKeyboard, IconMagicWand, IconPinFilled } from '@posthog/icons'
+import { IconBug, IconCursorClick, IconKeyboard, IconLive, IconMagicWand, IconPinFilled } from '@posthog/icons'
 import clsx from 'clsx'
 import { useValues } from 'kea'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
@@ -16,10 +16,10 @@ import { useState } from 'react'
 import { countryCodeToName } from 'scenes/insights/views/WorldMap'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { asDisplay } from 'scenes/persons/person-utils'
-import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { urls } from 'scenes/urls'
 
-import { DurationType, SessionRecordingType } from '~/types'
+import { RecordingsQuery } from '~/queries/schema'
+import { SessionRecordingType } from '~/types'
 
 import { sessionRecordingsListPropertiesLogic } from './sessionRecordingsListPropertiesLogic'
 import { sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
@@ -153,7 +153,15 @@ function PinnedIndicator(): JSX.Element | null {
     )
 }
 
-function ViewedIndicator(): JSX.Element {
+function RecordingOngoingIndicator(): JSX.Element {
+    return (
+        <Tooltip title="This recording is still ongoing - we received data within the last 5 minutes.">
+            <IconLive className="animate-[pulse_1s_ease-out_infinite] text-primary-3000" />
+        </Tooltip>
+    )
+}
+
+function UnwatchedIndicator(): JSX.Element {
     return (
         <Tooltip title="Indicates the recording has not been watched yet">
             <div className="w-2 h-2 rounded-full bg-primary-3000" aria-label="unwatched-recording-label" />
@@ -161,12 +169,12 @@ function ViewedIndicator(): JSX.Element {
     )
 }
 
-function durationToShow(recording: SessionRecordingType, durationType: DurationType | undefined): number | undefined {
-    return {
-        duration: recording.recording_duration,
-        active_seconds: recording.active_seconds,
-        inactive_seconds: recording.inactive_seconds,
-    }[durationType || 'duration']
+function durationToShow(recording: SessionRecordingType, order: RecordingsQuery['order']): number | undefined {
+    return order === 'active_seconds'
+        ? recording.active_seconds
+        : order === 'inactive_seconds'
+        ? recording.inactive_seconds
+        : recording.recording_duration
 }
 
 export function SessionRecordingPreview({
@@ -178,7 +186,6 @@ export function SessionRecordingPreview({
     sessionSummaryLoading,
 }: SessionRecordingPreviewProps): JSX.Element {
     const { orderBy } = useValues(sessionRecordingsPlaylistLogic)
-    const { durationTypeToShow } = useValues(playerSettingsLogic)
 
     const { recordingPropertiesById, recordingPropertiesLoading } = useValues(sessionRecordingsListPropertiesLogic)
     const recordingProperties = recordingPropertiesById[recording.id]
@@ -278,21 +285,23 @@ export function SessionRecordingPreview({
                         {orderBy === 'console_error_count' ? (
                             <ErrorCount iconClassNames={iconClassNames} errorCount={recording.console_error_count} />
                         ) : (
-                            <RecordingDuration
-                                recordingDuration={durationToShow(
-                                    recording,
-                                    orderBy === 'start_time' ? durationTypeToShow : orderBy
-                                )}
-                            />
+                            <RecordingDuration recordingDuration={durationToShow(recording, orderBy)} />
                         )}
                     </div>
 
                     <FirstURL startUrl={recording.start_url} />
                 </div>
 
-                <div className="min-w-6 flex flex-col items-center mt-2">
-                    {!recording.viewed ? <ViewedIndicator /> : null}
+                <div
+                    className={clsx(
+                        'min-w-6 flex flex-col gap-0.5 items-center',
+                        // need different margin if the first item is an icon
+                        recording.ongoing || pinned ? 'mt-1' : 'mt-2'
+                    )}
+                >
+                    {recording.ongoing ? <RecordingOngoingIndicator /> : null}
                     {pinned ? <PinnedIndicator /> : null}
+                    {!recording.viewed ? <UnwatchedIndicator /> : null}
                 </div>
             </div>
         </DraggableToNotebook>

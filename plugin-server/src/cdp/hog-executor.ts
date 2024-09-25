@@ -4,6 +4,8 @@ import { DateTime } from 'luxon'
 import { Histogram } from 'prom-client'
 import RE2 from 're2'
 
+import { buildIntegerMatcher } from '../config/config'
+import { Hub, ValueMatcher } from '../types'
 import { status } from '../utils/status'
 import { HogFunctionManager } from './hog-function-manager'
 import {
@@ -26,6 +28,19 @@ const hogExecutionDuration = new Histogram({
     help: 'Processing time and success status of internal functions',
     // We have a timeout so we don't need to worry about much more than that
     buckets: [0, 10, 20, 50, 100, 200],
+})
+
+const hogFunctionFilterDuration = new Histogram({
+    name: 'cdp_hog_function_filter_duration_ms',
+    help: 'Processing time for filtering a function',
+    // We have a timeout so we don't need to worry about much more than that
+    buckets: [0, 10, 20, 50, 100, 200],
+})
+
+const hogFunctionStateMemory = new Histogram({
+    name: 'cdp_hog_function_execution_state_memory_kb',
+    help: 'The amount of memory in kb used by a hog function',
+    buckets: [0, 50, 100, 250, 500, 1000, 2000, 3000, 5000, Infinity],
 })
 
 export function execHog(bytecode: any, options?: ExecOptions): ExecResult {
@@ -51,6 +66,9 @@ export const formatInput = (bytecode: any, globals: HogFunctionInvocation['globa
         if (!res.finished) {
             // NOT ALLOWED
             throw new Error('Input fields must be simple sync values')
+        }
+        if (res.error) {
+            throw res.error
         }
         return convertHogToJS(res.result)
     }
@@ -80,35 +98,71 @@ const sanitizeLogMessage = (args: any[], sensitiveValues?: string[]): string => 
 }
 
 export class HogExecutor {
-    constructor(private hogFunctionManager: HogFunctionManager) {}
+    private telemetryMatcher: ValueMatcher<number>
+
+    constructor(private hub: Hub, private hogFunctionManager: HogFunctionManager) {
+        this.telemetryMatcher = buildIntegerMatcher(this.hub.CDP_HOG_FILTERS_TELEMETRY_TEAMS, true)
+    }
 
     findMatchingFunctions(event: HogFunctionInvocationGlobals): {
         matchingFunctions: HogFunctionType[]
         nonMatchingFunctions: HogFunctionType[]
+        erroredFunctions: HogFunctionType[]
     } {
         const allFunctionsForTeam = this.hogFunctionManager.getTeamHogFunctions(event.project.id)
         const filtersGlobals = convertToHogFunctionFilterGlobal(event)
 
         const nonMatchingFunctions: HogFunctionType[] = []
         const matchingFunctions: HogFunctionType[] = []
+        const erroredFunctions: HogFunctionType[] = []
 
         // Filter all functions based on the invocation
         allFunctionsForTeam.forEach((hogFunction) => {
-            try {
-                if (hogFunction.filters?.bytecode) {
-                    const filterResult = execHog(hogFunction.filters.bytecode, { globals: filtersGlobals })
+            if (hogFunction.filters?.bytecode) {
+                const start = performance.now()
+                try {
+                    const filterResult = execHog(hogFunction.filters.bytecode, {
+                        globals: filtersGlobals,
+                        telemetry: this.telemetryMatcher(hogFunction.team_id),
+                    })
                     if (typeof filterResult.result === 'boolean' && filterResult.result) {
                         matchingFunctions.push(hogFunction)
                         return
                     }
+                    if (filterResult.error) {
+                        status.error('🦔', `[HogExecutor] Error filtering function`, {
+                            hogFunctionId: hogFunction.id,
+                            hogFunctionName: hogFunction.name,
+                            teamId: hogFunction.team_id,
+                            error: filterResult.error.message,
+                            result: filterResult,
+                        })
+                        erroredFunctions.push(hogFunction)
+                        return
+                    }
+                } catch (error) {
+                    status.error('🦔', `[HogExecutor] Error filtering function`, {
+                        hogFunctionId: hogFunction.id,
+                        hogFunctionName: hogFunction.name,
+                        teamId: hogFunction.team_id,
+                        error: error.message,
+                    })
+                    erroredFunctions.push(hogFunction)
+                    return
+                } finally {
+                    const duration = performance.now() - start
+                    hogFunctionFilterDuration.observe(performance.now() - start)
+
+                    if (duration > DEFAULT_TIMEOUT_MS) {
+                        status.error('🦔', `[HogExecutor] Filter took longer than expected`, {
+                            hogFunctionId: hogFunction.id,
+                            hogFunctionName: hogFunction.name,
+                            teamId: hogFunction.team_id,
+                            duration,
+                            eventId: event.event.uuid,
+                        })
+                    }
                 }
-            } catch (error) {
-                // TODO: This should be reported as a log or metric
-                status.error('🦔', `[HogExecutor] Error filtering function`, {
-                    hogFunctionId: hogFunction.id,
-                    hogFunctionName: hogFunction.name,
-                    error: error.message,
-                })
             }
 
             nonMatchingFunctions.push(hogFunction)
@@ -124,6 +178,7 @@ export class HogExecutor {
         return {
             nonMatchingFunctions,
             matchingFunctions,
+            erroredFunctions,
         }
     }
 
@@ -153,25 +208,26 @@ export class HogExecutor {
         try {
             // If the queueParameter is set then we have an expected format that we want to parse and add to the stack
             if (invocation.queueParameters) {
+                // NOTE: This is all based around the only response type being fetch currently
                 const {
                     logs = [],
                     response = null,
                     error,
                     timings = [],
                 } = invocation.queueParameters as HogFunctionQueueParametersFetchResponse
-
                 // Reset the queue parameters to be sure
                 invocation.queue = 'hog'
                 invocation.queueParameters = undefined
 
+                const status = typeof response?.status === 'number' ? response.status : 503
+
                 // Special handling for fetch
-                // TODO: Would be good to have a dedicated value in the fetch response for the status code
-                if (response?.status && response.status >= 400) {
+                if (status >= 400) {
                     // Generic warn log for bad status codes
                     logs.push({
                         level: 'warn',
                         timestamp: DateTime.now(),
-                        message: `Fetch returned bad status: ${response.status}`,
+                        message: `Fetch returned bad status: ${status}`,
                     })
                 }
 
@@ -191,9 +247,12 @@ export class HogExecutor {
                     }
                 }
 
-                // Add the response to the stack to continue execution
-                invocation.vmState!.stack.push(response)
-                invocation.timings.push(...timings)
+                // Finally we create the response object as the VM expects
+                invocation.vmState!.stack.push({
+                    status,
+                    body: response?.body,
+                })
+                invocation.timings = invocation.timings.concat(timings)
                 result.logs = [...logs, ...result.logs]
             }
 
@@ -280,6 +339,9 @@ export class HogExecutor {
                         },
                     },
                 })
+                if (execRes.error) {
+                    throw execRes.error
+                }
             } catch (e) {
                 result.logs.push({
                     level: 'error',
@@ -327,18 +389,21 @@ export class HogExecutor {
                             const headers = fetchOptions?.headers || {
                                 'Content-Type': 'application/json',
                             }
-                            let body = fetchOptions?.body
                             // Modify the body to ensure it is a string (we allow Hog to send an object to keep things simple)
-                            body = body ? (typeof body === 'string' ? body : JSON.stringify(body)) : body
+                            const body: string | undefined = fetchOptions?.body
+                                ? typeof fetchOptions.body === 'string'
+                                    ? fetchOptions.body
+                                    : JSON.stringify(fetchOptions.body)
+                                : fetchOptions?.body
 
                             result.invocation.queue = 'fetch'
                             result.invocation.queueParameters = {
                                 url,
                                 method,
-                                headers,
                                 body,
+                                headers,
+                                return_queue: 'hog',
                             }
-
                             break
                         default:
                             throw new Error(`Unknown async function '${execRes.asyncFunctionName}'`)
@@ -357,6 +422,19 @@ export class HogExecutor {
                     messages.push(`Sync: ${execRes.state.syncDuration}ms.`)
                     messages.push(`Mem: ${execRes.state.maxMemUsed} bytes.`)
                     messages.push(`Ops: ${execRes.state.ops}.`)
+
+                    hogFunctionStateMemory.observe(execRes.state.maxMemUsed / 1024)
+
+                    if (execRes.state.maxMemUsed > 1024 * 1024) {
+                        // If the memory used is more than a MB then we should log it
+                        status.warn('🦔', `[HogExecutor] Function used more than 1MB of memory`, {
+                            hogFunctionId: invocation.hogFunction.id,
+                            hogFunctionName: invocation.hogFunction.name,
+                            teamId: invocation.teamId,
+                            eventId: invocation.globals.event.uuid,
+                            memoryUsedKb: execRes.state.maxMemUsed / 1024,
+                        })
+                    }
                 }
                 result.logs.push({
                     level: 'debug',
@@ -366,6 +444,7 @@ export class HogExecutor {
             }
         } catch (err) {
             result.error = err.message
+            result.finished = true // Explicitly set to true to prevent infinite loops
             status.error(
                 '🦔',
                 `[HogExecutor] Error executing function ${invocation.hogFunction.id} - ${invocation.hogFunction.name}`,
@@ -380,6 +459,15 @@ export class HogExecutor {
         const builtInputs: Record<string, any> = {}
 
         Object.entries(invocation.hogFunction.inputs ?? {}).forEach(([key, item]) => {
+            builtInputs[key] = item.value
+
+            if (item.bytecode) {
+                // Use the bytecode to compile the field
+                builtInputs[key] = formatInput(item.bytecode, invocation.globals)
+            }
+        })
+
+        Object.entries(invocation.hogFunction.encrypted_inputs ?? {}).forEach(([key, item]) => {
             builtInputs[key] = item.value
 
             if (item.bytecode) {

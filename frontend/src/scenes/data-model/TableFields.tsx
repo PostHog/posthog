@@ -31,13 +31,7 @@ export function TableFields({ fixedFields, joinedFields, rowsRefs, tableName }: 
                 </div>
             </div>
             <div className="flex flex-col gap-1">
-                <div
-                    ref={(el) => {
-                        rowsRefs.current[joinedFields.length] = el
-                        rowsRefs.current[joinedFields.length]?.setAttribute('id', 'schema')
-                    }}
-                    className="pl-4 mt-4"
-                >
+                <div className="pl-4 mt-4">
                     <h4>Schema</h4>
                 </div>
                 <LemonTable
@@ -81,7 +75,7 @@ export function TableFields({ fixedFields, joinedFields, rowsRefs, tableName }: 
                                 <div
                                     ref={(el) => {
                                         rowsRefs.current[idx] = el
-                                        rowsRefs.current[idx]?.setAttribute('id', nodeId)
+                                        rowsRefs.current[idx]?.setAttribute('id', `${nodeId}_joined`)
                                     }}
                                     className="flex flex-col"
                                 >

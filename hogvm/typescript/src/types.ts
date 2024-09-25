@@ -21,6 +21,8 @@ export interface VMState {
     syncDuration: number
     /** Max memory used */
     maxMemUsed: number
+    /** Telemetry data */
+    telemetry?: Telemetry[]
 }
 
 export interface ExecOptions {
@@ -43,14 +45,31 @@ export interface ExecOptions {
         /** NodeJS crypto */
         crypto?: typeof crypto
     }
+    /** Collecte telemetry data */
+    telemetry?: boolean
 }
+
+export type Telemetry = [
+    /** Time from epoch in milliseconds */
+    number,
+    /** Current chunk */
+    string,
+    /** Current position in chunk */
+    number,
+    /** Opcode */
+    string,
+    /** Debug */
+    string
+]
 
 export interface ExecResult {
     result: any
     finished: boolean
+    error?: any
     asyncFunctionName?: string
     asyncFunctionArgs?: any[]
     state?: VMState
+    telemetry?: Telemetry[]
 }
 
 export interface CallFrame {

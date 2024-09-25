@@ -1,6 +1,7 @@
 from typing import Any
 
 import structlog
+from asgiref.sync import async_to_sync
 from django.conf import settings
 from django.db import transaction
 from rest_framework import exceptions, filters, request, response, serializers, status, viewsets
@@ -8,12 +9,15 @@ from rest_framework.decorators import action
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.constants import DATA_WAREHOUSE_TASK_QUEUE
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import SerializedField, create_hogql_database, serialize_fields
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.metadata import is_valid_view
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast
+from posthog.temporal.common.client import sync_connect
+from posthog.temporal.data_modeling.run_workflow import RunWorkflowInputs, Selector
 from posthog.warehouse.models import DataWarehouseJoin, DataWarehouseModelPath, DataWarehouseSavedQuery
 import uuid
 
@@ -34,8 +38,10 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
             "created_by",
             "created_at",
             "columns",
+            "status",
+            "last_run_at",
         ]
-        read_only_fields = ["id", "created_by", "created_at", "columns"]
+        read_only_fields = ["id", "created_by", "created_at", "columns", "status", "last_run_at"]
 
     def get_columns(self, view: DataWarehouseSavedQuery) -> list[SerializedField]:
         team_id = self.context["team_id"]
@@ -152,6 +158,32 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
         self.perform_destroy(instance)
 
         return response.Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(methods=["POST"], detail=True)
+    def run(self, request: request.Request, *args, **kwargs) -> response.Response:
+        """Run this saved query."""
+        ancestors = request.data.get("ancestors", 0)
+        descendants = request.data.get("descendants", 0)
+
+        saved_query = self.get_object()
+
+        temporal = sync_connect()
+        inputs = RunWorkflowInputs(
+            team_id=saved_query.team_id,
+            select=[Selector(label=saved_query.id.hex, ancestors=ancestors, descendants=descendants)],
+        )
+        workflow_id = f"data-modeling-run-{saved_query.id.hex}"
+        saved_query.status = DataWarehouseSavedQuery.Status.RUNNING
+        saved_query.save()
+
+        async_to_sync(temporal.start_workflow)(  # type: ignore
+            "data-modeling-run",  # type: ignore
+            inputs,  # type: ignore
+            id=workflow_id,
+            task_queue=DATA_WAREHOUSE_TASK_QUEUE,
+        )
+
+        return response.Response(status=status.HTTP_200_OK)
 
     @action(methods=["POST"], detail=True)
     def ancestors(self, request: request.Request, *args, **kwargs) -> response.Response:

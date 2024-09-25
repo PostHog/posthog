@@ -66,6 +66,14 @@ def dlt_to_hogql_type(dlt_type: TDataType | None) -> str:
     return hogql_type.__name__
 
 
+async def update_last_synced_at(job_id: str, schema_id: str, team_id: int) -> None:
+    job: ExternalDataJob = await get_external_data_job(job_id=job_id)
+    schema = await aget_schema_by_id(schema_id=schema_id, team_id=team_id)
+    schema.last_synced_at = job.created_at
+
+    await asave_external_data_schema(schema)
+
+
 async def validate_schema_and_update_table(
     run_id: str,
     team_id: int,
@@ -185,7 +193,6 @@ async def validate_schema_and_update_table(
 
         if schema_model:
             schema_model.table = table_created
-            schema_model.last_synced_at = job.created_at
             await asave_external_data_schema(schema_model)
 
     except ServerException as err:

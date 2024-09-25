@@ -28,7 +28,7 @@
                          count(DISTINCT person_id) counts,
                          status
         FROM
-          (SELECT pdi.person_id as person_id,
+          (SELECT if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                   arraySort(groupUniqArray(dateTrunc('day', toTimeZone(toDateTime(events.timestamp, 'UTC'), 'UTC')))) AS all_activity,
                   arrayPopBack(arrayPushFront(all_activity, dateTrunc('day', toTimeZone(toDateTime(min(person.created_at), 'UTC'), 'UTC')))) as previous_activity,
                   arrayPopFront(arrayPushBack(all_activity, dateTrunc('day', toDateTime('1970-01-01')))) as following_activity,
@@ -43,7 +43,7 @@
                   period_status_pairs.2 as status,
                   toDateTime(min(person.created_at), 'UTC') AS created_at
            FROM events AS e
-           INNER JOIN
+           LEFT OUTER JOIN
              (SELECT distinct_id,
                      argMax(person_id, version) as person_id
               FROM person_distinct_id2
@@ -61,7 +61,7 @@
              AND event = '$pageview'
              AND timestamp >= toDateTime(dateTrunc('day', toDateTime('2021-04-28 00:00:00', 'UTC'))) - INTERVAL 1 day
              AND timestamp < toDateTime(dateTrunc('day', toDateTime('2021-05-05 23:59:59', 'UTC'))) + INTERVAL 1 day
-           GROUP BY pdi.person_id)
+           GROUP BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id))
         GROUP BY start_of_period,
                  status)
      WHERE start_of_period <= dateTrunc('day', toDateTime('2021-05-05 23:59:59', 'UTC'))
@@ -101,7 +101,7 @@
                          count(DISTINCT person_id) counts,
                          status
         FROM
-          (SELECT pdi.person_id as person_id,
+          (SELECT if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                   arraySort(groupUniqArray(dateTrunc('month', toTimeZone(toDateTime(events.timestamp, 'UTC'), 'UTC')))) AS all_activity,
                   arrayPopBack(arrayPushFront(all_activity, dateTrunc('month', toTimeZone(toDateTime(min(person.created_at), 'UTC'), 'UTC')))) as previous_activity,
                   arrayPopFront(arrayPushBack(all_activity, dateTrunc('month', toDateTime('1970-01-01')))) as following_activity,
@@ -116,7 +116,7 @@
                   period_status_pairs.2 as status,
                   toDateTime(min(person.created_at), 'UTC') AS created_at
            FROM events AS e
-           INNER JOIN
+           LEFT OUTER JOIN
              (SELECT distinct_id,
                      argMax(person_id, version) as person_id
               FROM person_distinct_id2
@@ -134,7 +134,7 @@
              AND event = '$pageview'
              AND timestamp >= toDateTime(dateTrunc('month', toDateTime('2021-02-04 00:00:00', 'UTC'))) - INTERVAL 1 month
              AND timestamp < toDateTime(dateTrunc('month', toDateTime('2021-05-05 23:59:59', 'UTC'))) + INTERVAL 1 month
-           GROUP BY pdi.person_id)
+           GROUP BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id))
         GROUP BY start_of_period,
                  status)
      WHERE start_of_period <= dateTrunc('month', toDateTime('2021-05-05 23:59:59', 'UTC'))
@@ -174,7 +174,7 @@
                          count(DISTINCT person_id) counts,
                          status
         FROM
-          (SELECT pdi.person_id as person_id,
+          (SELECT if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                   arraySort(groupUniqArray(dateTrunc('week', toTimeZone(toDateTime(events.timestamp, 'UTC'), 'UTC')))) AS all_activity,
                   arrayPopBack(arrayPushFront(all_activity, dateTrunc('week', toTimeZone(toDateTime(min(person.created_at), 'UTC'), 'UTC')))) as previous_activity,
                   arrayPopFront(arrayPushBack(all_activity, dateTrunc('week', toDateTime('1970-01-01')))) as following_activity,
@@ -189,7 +189,7 @@
                   period_status_pairs.2 as status,
                   toDateTime(min(person.created_at), 'UTC') AS created_at
            FROM events AS e
-           INNER JOIN
+           LEFT OUTER JOIN
              (SELECT distinct_id,
                      argMax(person_id, version) as person_id
               FROM person_distinct_id2
@@ -207,7 +207,7 @@
              AND event = '$pageview'
              AND timestamp >= toDateTime(dateTrunc('week', toDateTime('2021-04-06 00:00:00', 'UTC'))) - INTERVAL 1 week
              AND timestamp < toDateTime(dateTrunc('week', toDateTime('2021-05-06 23:59:59', 'UTC'))) + INTERVAL 1 week
-           GROUP BY pdi.person_id)
+           GROUP BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id))
         GROUP BY start_of_period,
                  status)
      WHERE start_of_period <= dateTrunc('week', toDateTime('2021-05-06 23:59:59', 'UTC'))
@@ -247,7 +247,7 @@
                          count(DISTINCT person_id) counts,
                          status
         FROM
-          (SELECT pdi.person_id as person_id,
+          (SELECT if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                   arraySort(groupUniqArray(dateTrunc('day', toTimeZone(toDateTime(events.timestamp, 'UTC'), 'UTC')))) AS all_activity,
                   arrayPopBack(arrayPushFront(all_activity, dateTrunc('day', toTimeZone(toDateTime(min(person.created_at), 'UTC'), 'UTC')))) as previous_activity,
                   arrayPopFront(arrayPushBack(all_activity, dateTrunc('day', toDateTime('1970-01-01')))) as following_activity,
@@ -262,7 +262,7 @@
                   period_status_pairs.2 as status,
                   toDateTime(min(person.created_at), 'UTC') AS created_at
            FROM events AS e
-           INNER JOIN
+           LEFT OUTER JOIN
              (SELECT distinct_id,
                      argMax(person_id, version) as person_id
               FROM person_distinct_id2
@@ -280,7 +280,7 @@
              AND event = '$pageview'
              AND timestamp >= toDateTime(dateTrunc('day', toDateTime('2020-01-11 00:00:00', 'UTC'))) - INTERVAL 1 day
              AND timestamp < toDateTime(dateTrunc('day', toDateTime('2020-01-18 23:59:59', 'UTC'))) + INTERVAL 1 day
-           GROUP BY pdi.person_id)
+           GROUP BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id))
         GROUP BY start_of_period,
                  status)
      WHERE start_of_period <= dateTrunc('day', toDateTime('2020-01-18 23:59:59', 'UTC'))
@@ -320,7 +320,7 @@
                          count(DISTINCT person_id) counts,
                          status
         FROM
-          (SELECT pdi.person_id as person_id,
+          (SELECT if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                   arraySort(groupUniqArray(dateTrunc('day', toTimeZone(toDateTime(events.timestamp, 'UTC'), 'UTC')))) AS all_activity,
                   arrayPopBack(arrayPushFront(all_activity, dateTrunc('day', toTimeZone(toDateTime(min(person.created_at), 'UTC'), 'UTC')))) as previous_activity,
                   arrayPopFront(arrayPushBack(all_activity, dateTrunc('day', toDateTime('1970-01-01')))) as following_activity,
@@ -335,7 +335,7 @@
                   period_status_pairs.2 as status,
                   toDateTime(min(person.created_at), 'UTC') AS created_at
            FROM events AS e
-           INNER JOIN
+           LEFT OUTER JOIN
              (SELECT distinct_id,
                      argMax(person_id, version) as person_id
               FROM person_distinct_id2
@@ -354,7 +354,7 @@
              AND timestamp >= toDateTime(dateTrunc('day', toDateTime('2021-04-28 00:00:00', 'UTC'))) - INTERVAL 1 day
              AND timestamp < toDateTime(dateTrunc('day', toDateTime('2021-05-05 23:59:59', 'UTC'))) + INTERVAL 1 day
              AND (and(ifNull(like(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), '%example%'), 0), 1))
-           GROUP BY pdi.person_id)
+           GROUP BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id))
         GROUP BY start_of_period,
                  status)
      WHERE start_of_period <= dateTrunc('day', toDateTime('2021-05-05 23:59:59', 'UTC'))
@@ -394,7 +394,7 @@
                          count(DISTINCT person_id) counts,
                          status
         FROM
-          (SELECT pdi.person_id as person_id,
+          (SELECT if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                   arraySort(groupUniqArray(dateTrunc('day', toTimeZone(toDateTime(events.timestamp, 'UTC'), 'UTC')))) AS all_activity,
                   arrayPopBack(arrayPushFront(all_activity, dateTrunc('day', toTimeZone(toDateTime(min(person.created_at), 'UTC'), 'UTC')))) as previous_activity,
                   arrayPopFront(arrayPushBack(all_activity, dateTrunc('day', toDateTime('1970-01-01')))) as following_activity,
@@ -409,7 +409,7 @@
                   period_status_pairs.2 as status,
                   toDateTime(min(person.created_at), 'UTC') AS created_at
            FROM events AS e
-           INNER JOIN
+           LEFT OUTER JOIN
              (SELECT distinct_id,
                      argMax(person_id, version) as person_id
               FROM person_distinct_id2
@@ -428,7 +428,7 @@
              AND timestamp >= toDateTime(dateTrunc('day', toDateTime('2021-04-28 00:00:00', 'UTC'))) - INTERVAL 1 day
              AND timestamp < toDateTime(dateTrunc('day', toDateTime('2021-05-05 23:59:59', 'UTC'))) + INTERVAL 1 day
              AND (and(ifNull(like(nullIf(nullIf(events.`mat_$current_url`, ''), 'null'), '%example%'), 0), 1))
-           GROUP BY pdi.person_id)
+           GROUP BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id))
         GROUP BY start_of_period,
                  status)
      WHERE start_of_period <= dateTrunc('day', toDateTime('2021-05-05 23:59:59', 'UTC'))
@@ -468,7 +468,7 @@
                          count(DISTINCT person_id) counts,
                          status
         FROM
-          (SELECT pdi.person_id as person_id,
+          (SELECT if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                   arraySort(groupUniqArray(dateTrunc('day', toTimeZone(toDateTime(events.timestamp, 'UTC'), 'UTC')))) AS all_activity,
                   arrayPopBack(arrayPushFront(all_activity, dateTrunc('day', toTimeZone(toDateTime(min(person.created_at), 'UTC'), 'UTC')))) as previous_activity,
                   arrayPopFront(arrayPushBack(all_activity, dateTrunc('day', toDateTime('1970-01-01')))) as following_activity,
@@ -483,7 +483,7 @@
                   period_status_pairs.2 as status,
                   toDateTime(min(person.created_at), 'UTC') AS created_at
            FROM events AS e
-           INNER JOIN
+           LEFT OUTER JOIN
              (SELECT distinct_id,
                      argMax(person_id, version) as person_id
               FROM person_distinct_id2
@@ -502,8 +502,8 @@
              AND event = '$pageview'
              AND timestamp >= toDateTime(dateTrunc('day', toDateTime('2021-04-28 00:00:00', 'UTC'))) - INTERVAL 1 day
              AND timestamp < toDateTime(dateTrunc('day', toDateTime('2021-05-05 23:59:59', 'UTC'))) + INTERVAL 1 day
-             AND (ifNull(like(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_properties, 'email'), ''), 'null'), '^"|"$', ''), '%test.com'), 0))
-           GROUP BY pdi.person_id)
+             AND (ifNull(like(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_props, 'email'), ''), 'null'), '^"|"$', ''), '%test.com'), 0))
+           GROUP BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id))
         GROUP BY start_of_period,
                  status)
      WHERE start_of_period <= dateTrunc('day', toDateTime('2021-05-05 23:59:59', 'UTC'))
@@ -543,7 +543,7 @@
                          count(DISTINCT person_id) counts,
                          status
         FROM
-          (SELECT pdi.person_id as person_id,
+          (SELECT if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                   arraySort(groupUniqArray(dateTrunc('day', toTimeZone(toDateTime(events.timestamp, 'UTC'), 'UTC')))) AS all_activity,
                   arrayPopBack(arrayPushFront(all_activity, dateTrunc('day', toTimeZone(toDateTime(min(person.created_at), 'UTC'), 'UTC')))) as previous_activity,
                   arrayPopFront(arrayPushBack(all_activity, dateTrunc('day', toDateTime('1970-01-01')))) as following_activity,
@@ -558,7 +558,7 @@
                   period_status_pairs.2 as status,
                   toDateTime(min(person.created_at), 'UTC') AS created_at
            FROM events AS e
-           INNER JOIN
+           LEFT OUTER JOIN
              (SELECT distinct_id,
                      argMax(person_id, version) as person_id
               FROM person_distinct_id2
@@ -577,8 +577,8 @@
              AND event = '$pageview'
              AND timestamp >= toDateTime(dateTrunc('day', toDateTime('2021-04-28 00:00:00', 'UTC'))) - INTERVAL 1 day
              AND timestamp < toDateTime(dateTrunc('day', toDateTime('2021-05-05 23:59:59', 'UTC'))) + INTERVAL 1 day
-             AND (ifNull(like(nullIf(nullIf(mat_pp_email, ''), 'null'), '%test.com'), 0))
-           GROUP BY pdi.person_id)
+             AND (ifNull(like(nullIf(nullIf(pmat_email, ''), 'null'), '%test.com'), 0))
+           GROUP BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id))
         GROUP BY start_of_period,
                  status)
      WHERE start_of_period <= dateTrunc('day', toDateTime('2021-05-05 23:59:59', 'UTC'))
@@ -618,7 +618,7 @@
                          count(DISTINCT person_id) counts,
                          status
         FROM
-          (SELECT pdi.person_id as person_id,
+          (SELECT if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                   arraySort(groupUniqArray(dateTrunc('day', toTimeZone(toDateTime(events.timestamp, 'UTC'), 'UTC')))) AS all_activity,
                   arrayPopBack(arrayPushFront(all_activity, dateTrunc('day', toTimeZone(toDateTime(min(person.created_at), 'UTC'), 'UTC')))) as previous_activity,
                   arrayPopFront(arrayPushBack(all_activity, dateTrunc('day', toDateTime('1970-01-01')))) as following_activity,
@@ -633,7 +633,7 @@
                   period_status_pairs.2 as status,
                   toDateTime(min(person.created_at), 'UTC') AS created_at
            FROM events AS e
-           INNER JOIN
+           LEFT OUTER JOIN
              (SELECT distinct_id,
                      argMax(person_id, version) as person_id
               FROM person_distinct_id2
@@ -659,7 +659,7 @@
              AND timestamp >= toDateTime(dateTrunc('day', toDateTime('2020-01-12 00:00:00', 'UTC'))) - INTERVAL 1 day
              AND timestamp < toDateTime(dateTrunc('day', toDateTime('2020-01-19 23:59:59', 'UTC'))) + INTERVAL 1 day
              AND (has(['value'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'key'), '^"|"$', '')))
-           GROUP BY pdi.person_id)
+           GROUP BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id))
         GROUP BY start_of_period,
                  status)
      WHERE start_of_period <= dateTrunc('day', toDateTime('2020-01-19 23:59:59', 'UTC'))

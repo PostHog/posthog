@@ -1,5 +1,9 @@
-import { Link } from '@posthog/lemon-ui'
+import { LemonSwitch, Link } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
 import { IconBranch, IconClipboardEdit, IconLink, IconTextSize } from 'lib/lemon-ui/icons'
+
+import { actionsTabLogic } from './actionsTabLogic'
+import { ActionStepPropertyKey } from './ActionStep'
 
 function SelectorString({ value }: { value: string }): JSX.Element {
     const [last, ...rest] = value.split(' ').reverse()
@@ -10,7 +14,16 @@ function SelectorString({ value }: { value: string }): JSX.Element {
     )
 }
 
-export function ActionAttribute({ attribute, value }: { attribute: string; value?: string }): JSX.Element {
+export function ActionAttribute({
+    attribute,
+    value,
+}: {
+    attribute: ActionStepPropertyKey
+    value?: string
+}): JSX.Element {
+    const { automaticCreationIncludedPropertyKeys, automaticActionCreationEnabled } = useValues(actionsTabLogic)
+    const { removeAutomaticCreationIncludedPropertyKey, addAutomaticCreationIncludedPropertyKey } =
+        useActions(actionsTabLogic)
     const icon =
         attribute === 'text' ? (
             <IconTextSize />
@@ -44,6 +57,19 @@ export function ActionAttribute({ attribute, value }: { attribute: string; value
 
     return (
         <div key={attribute} className="flex flex-row gap-2 justify-between items-center">
+            {automaticActionCreationEnabled && (
+                <LemonSwitch
+                    size="small"
+                    checked={automaticCreationIncludedPropertyKeys.includes(attribute)}
+                    onChange={(checked) =>
+                        checked
+                            ? addAutomaticCreationIncludedPropertyKey(attribute)
+                            : removeAutomaticCreationIncludedPropertyKey(attribute)
+                    }
+                    sliderColorOverrideChecked="primary-3000-light"
+                    sliderColorOverrideUnchecked="muted-3000-light"
+                />
+            )}
             <div className="text-muted text-xl">{icon}</div>
             <div className="grow">{text}</div>
         </div>

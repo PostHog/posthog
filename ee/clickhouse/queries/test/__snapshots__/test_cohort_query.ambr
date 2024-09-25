@@ -18,7 +18,7 @@
      AND minIf(timestamp, ((replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '') = 'https://posthog.com/feedback/123'
                             AND event = '$autocapture'))) < now() as first_time_condition_None_level_level_0_level_1_level_0_0
      FROM events e
-     INNER JOIN
+     LEFT OUTER JOIN
        (SELECT distinct_id,
                argMax(person_id, version) as person_id
         FROM person_distinct_id2
@@ -73,7 +73,7 @@
                                                                   min(event_1_latest_1) over (PARTITION by person_id
                                                                                               ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) event_1_latest_1
         FROM
-          (SELECT pdi.person_id AS person_id,
+          (SELECT if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS person_id,
                   event,
                   properties,
                   distinct_id, timestamp, if(event = '$pageview'
@@ -89,7 +89,7 @@
                                              AND timestamp > now() - INTERVAL 8 day, 1, 0) AS event_1_step_1,
                                           if(event_1_step_1 = 1, timestamp, null) AS event_1_latest_1
            FROM events AS e
-           INNER JOIN
+           LEFT OUTER JOIN
              (SELECT distinct_id,
                      argMax(person_id, version) as person_id
               FROM person_distinct_id2
@@ -133,7 +133,7 @@
                     AND event = '$pageview'
                     AND 1=1) > 0 AS performed_event_condition_None_level_level_0_level_0_0
      FROM events e
-     INNER JOIN
+     LEFT OUTER JOIN
        (SELECT distinct_id,
                argMax(person_id, version) as person_id
         FROM person_distinct_id2
@@ -176,7 +176,7 @@
                     AND event = '$pageview'
                     AND 1=1) > 0 AS performed_event_condition_None_level_level_0_level_1_level_0_0
      FROM events e
-     INNER JOIN
+     LEFT OUTER JOIN
        (SELECT distinct_id,
                argMax(person_id, version) as person_id
         FROM person_distinct_id2
@@ -221,7 +221,7 @@
                                        min(event_0_latest_1) over (PARTITION by person_id
                                                                    ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) event_0_latest_1
         FROM
-          (SELECT pdi.person_id AS person_id,
+          (SELECT if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS person_id,
                   event,
                   properties,
                   distinct_id, timestamp, if(event = '$pageview'
@@ -231,7 +231,7 @@
                                              AND timestamp > now() - INTERVAL 7 day, 1, 0) AS event_0_step_1,
                                           if(event_0_step_1 = 1, timestamp, null) AS event_0_latest_1
            FROM events AS e
-           INNER JOIN
+           LEFT OUTER JOIN
              (SELECT distinct_id,
                      argMax(person_id, version) as person_id
               FROM person_distinct_id2
@@ -269,7 +269,7 @@
                                        min(event_0_latest_1) over (PARTITION by person_id
                                                                    ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) event_0_latest_1
         FROM
-          (SELECT pdi.person_id AS person_id,
+          (SELECT if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS person_id,
                   event,
                   properties,
                   distinct_id, timestamp, if(event = '$pageview'
@@ -279,7 +279,7 @@
                                              AND timestamp > now() - INTERVAL 7 day, 1, 0) AS event_0_step_1,
                                           if(event_0_step_1 = 1, timestamp, null) AS event_0_latest_1
            FROM events AS e
-           INNER JOIN
+           LEFT OUTER JOIN
              (SELECT distinct_id,
                      argMax(person_id, version) as person_id
               FROM person_distinct_id2
@@ -318,7 +318,7 @@
                                        min(event_0_latest_1) over (PARTITION by person_id
                                                                    ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) event_0_latest_1
         FROM
-          (SELECT pdi.person_id AS person_id,
+          (SELECT if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS person_id,
                   event,
                   properties,
                   distinct_id, timestamp, if(event = '$pageview'
@@ -328,7 +328,7 @@
                                              AND timestamp > now() - INTERVAL 7 day, 1, 0) AS event_0_step_1,
                                           if(event_0_step_1 = 1, timestamp, null) AS event_0_latest_1
            FROM events AS e
-           INNER JOIN
+           LEFT OUTER JOIN
              (SELECT distinct_id,
                      argMax(person_id, version) as person_id
               FROM person_distinct_id2
@@ -372,7 +372,7 @@
                     AND event = '$pageview'
                     AND (has(['something'], replaceRegexpAll(JSONExtractRaw(properties, '$filter_prop'), '^"|"$', '')))) > 0 AS performed_event_condition_None_level_level_0_level_0_0
      FROM events e
-     INNER JOIN
+     LEFT OUTER JOIN
        (SELECT distinct_id,
                argMax(person_id, version) as person_id
         FROM person_distinct_id2
@@ -400,7 +400,7 @@
                     AND event = '$pageview'
                     AND 1=1) > 0 AS performed_event_condition_None_level_level_0_level_0_0
      FROM events e
-     INNER JOIN
+     LEFT OUTER JOIN
        (SELECT distinct_id,
                argMax(person_id, version) as person_id
         FROM person_distinct_id2
@@ -439,7 +439,7 @@
                     AND event = '$pageview'
                     AND 1=1) > 0 AS performed_event_condition_None_level_level_0_level_0_0
      FROM events e
-     INNER JOIN
+     LEFT OUTER JOIN
        (SELECT distinct_id,
                argMax(person_id, version) as person_id
         FROM person_distinct_id2
@@ -486,7 +486,7 @@
      AND minIf(timestamp, ((replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '') = 'https://posthog.com/feedback/123'
                             AND event = '$autocapture'))) < now() as first_time_condition_None_level_level_0_level_1_level_0_0
      FROM events e
-     INNER JOIN
+     LEFT OUTER JOIN
        (SELECT distinct_id,
                argMax(person_id, version) as person_id
         FROM person_distinct_id2
@@ -631,7 +631,7 @@
                     AND event = '$pageview'
                     AND 1=1) > 0 AS performed_event_condition_None_level_level_0_level_1_0
      FROM events e
-     INNER JOIN
+     LEFT OUTER JOIN
        (SELECT distinct_id,
                argMax(person_id, version) as person_id
         FROM person_distinct_id2
@@ -673,7 +673,7 @@
                     AND event = '$pageview'
                     AND 1=1) > 0 AS performed_event_condition_None_level_level_0_level_1_level_0_0
      FROM events e
-     INNER JOIN
+     LEFT OUTER JOIN
        (SELECT distinct_id,
                argMax(person_id, version) as person_id
         FROM person_distinct_id2
@@ -728,7 +728,7 @@
                     AND event = '$pageview'
                     AND 1=1) > 0 AS performed_event_condition_None_level_level_0_level_1_0
      FROM events e
-     INNER JOIN
+     LEFT OUTER JOIN
        (SELECT distinct_id,
                argMax(person_id, version) as person_id
         FROM person_distinct_id2

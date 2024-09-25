@@ -43,15 +43,23 @@ export function areObjectValuesEmpty(obj?: Record<string, any>): boolean {
 }
 
 // taken from https://stackoverflow.com/questions/10420352/converting-file-size-in-bytes-to-human-readable-string/10420404
-export const humanizeBytes = (fileSizeInBytes: number): string => {
+export const humanizeBytes = (fileSizeInBytes: number | null): string => {
+    if (fileSizeInBytes === null) {
+        return ''
+    }
+
     let i = -1
+    let convertedBytes = fileSizeInBytes
     const byteUnits = ['kB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB']
     do {
-        fileSizeInBytes = fileSizeInBytes / 1024
+        convertedBytes = convertedBytes / 1024
         i++
-    } while (fileSizeInBytes > 1024)
+    } while (convertedBytes > 1024)
 
-    return Math.max(fileSizeInBytes, 0.1).toFixed(1) + ' ' + byteUnits[i]
+    if (convertedBytes < 0.1) {
+        return fileSizeInBytes + ' bytes'
+    }
+    return convertedBytes.toFixed(2) + ' ' + byteUnits[i]
 }
 
 export function toParams(obj: Record<string, any>, explodeArrays: boolean = false): string {
@@ -219,6 +227,11 @@ export const selectorOperatorMap: Record<string, string> = {
     is_not: "≠ doesn't equal",
 }
 
+export const cohortOperatorMap: Record<string, string> = {
+    in: 'user in',
+    not_in: 'user not in',
+}
+
 export const allOperatorsMapping: Record<string, string> = {
     ...dateTimeOperatorMap,
     ...stringOperatorMap,
@@ -227,6 +240,7 @@ export const allOperatorsMapping: Record<string, string> = {
     ...booleanOperatorMap,
     ...durationOperatorMap,
     ...selectorOperatorMap,
+    ...cohortOperatorMap,
     // slight overkill to spread all of these into the map
     // but gives freedom for them to diverge more over time
 }
@@ -238,6 +252,7 @@ const operatorMappingChoice: Record<keyof typeof PropertyType, Record<string, st
     Boolean: booleanOperatorMap,
     Duration: durationOperatorMap,
     Selector: selectorOperatorMap,
+    Cohort: cohortOperatorMap,
 }
 
 export function chooseOperatorMap(propertyType: PropertyType | undefined): Record<string, string> {
@@ -254,7 +269,14 @@ export function isOperatorMulti(operator: PropertyOperator): boolean {
 
 export function isOperatorFlag(operator: PropertyOperator): boolean {
     // these filter operators can only be just set, no additional parameter
-    return [PropertyOperator.IsSet, PropertyOperator.IsNotSet].includes(operator)
+    return [PropertyOperator.IsSet, PropertyOperator.IsNotSet, PropertyOperator.In, PropertyOperator.NotIn].includes(
+        operator
+    )
+}
+
+export function isOperatorCohort(operator: PropertyOperator): boolean {
+    // these filter operators use value different ( to represent the number of the cohort )
+    return [PropertyOperator.In, PropertyOperator.NotIn].includes(operator)
 }
 
 export function isOperatorRegex(operator: PropertyOperator): boolean {
@@ -413,6 +435,22 @@ export function humanFriendlyNumber(d: number, precision: number = DEFAULT_DECIM
     return d.toLocaleString('en-US', { maximumFractionDigits: precision })
 }
 
+/** Format currency from string with commas and 2 decimal places. */
+export function humanFriendlyCurrency(d: string | undefined | number): string {
+    if (!d) {
+        d = '0.00'
+    }
+
+    let number: number
+    if (typeof d === 'string') {
+        number = parseFloat(d)
+    } else {
+        number = d
+    }
+
+    return `$${number.toLocaleString('en-US', { maximumFractionDigits: 2, minimumFractionDigits: 2 })}`
+}
+
 export function humanFriendlyLargeNumber(d: number): string {
     if (isNaN(d)) {
         return 'NaN'
@@ -491,7 +529,7 @@ export function humanFriendlyDiff(from: dayjs.Dayjs | string, to: dayjs.Dayjs | 
 }
 
 export function humanFriendlyDetailedTime(
-    date: dayjs.Dayjs | string | null,
+    date: dayjs.Dayjs | string | null | undefined,
     formatDate = 'MMMM DD, YYYY',
     formatTime = 'h:mm:ss A'
 ): string {
@@ -1397,6 +1435,12 @@ export function hexToRGBA(hex: string, alpha = 1): string {
     return `rgba(${[r, g, b, a].join(',')})`
 }
 
+export function RGBToHex(rgb: string): string {
+    const rgbValues = rgb.replace('rgb(', '').replace(')', '').split(',').map(Number)
+
+    return `#${rgbValues.map((val) => val.toString(16).padStart(2, '0')).join('')}`
+}
+
 export function RGBToRGBA(rgb: string, a: number): string {
     const [r, g, b] = rgb.slice(4, rgb.length - 1).split(',')
     return `rgba(${[r, g, b, a].join(',')})`
@@ -1674,6 +1718,10 @@ export function downloadFile(file: File): void {
 
 export function inStorybookTestRunner(): boolean {
     return navigator.userAgent.includes('StorybookTestRunner')
+}
+
+export function inStorybook(): boolean {
+    return '__STORYBOOK_CLIENT_API__' in window
 }
 
 /** We issue a cancel request, when the request is aborted or times out (frontend side), since in these cases the backend query might still be running. */

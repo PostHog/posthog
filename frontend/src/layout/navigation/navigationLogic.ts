@@ -4,6 +4,7 @@ import { windowValues } from 'kea-window-values'
 import api from 'lib/api'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { getAppContext } from 'lib/utils/getAppContext'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -20,6 +21,7 @@ export type ProjectNoticeVariant =
     | 'unverified_email'
     | 'is_impersonated'
     | 'internet_connection_issue'
+    | 'region_blocked'
 
 export const navigationLogic = kea<navigationLogicType>([
     path(['layout', 'navigation', 'navigationLogic']),
@@ -93,7 +95,7 @@ export const navigationLogic = kea<navigationLogicType>([
             },
         ],
         asyncMigrationsOk: [(s) => [s.navigationStatus], (status) => status.async_migrations_ok],
-        projectNoticeVariantWithClosability: [
+        projectNoticeVariant: [
             (s) => [
                 organizationLogic.selectors.currentOrganization,
                 teamLogic.selectors.currentTeam,
@@ -111,30 +113,32 @@ export const navigationLogic = kea<navigationLogicType>([
                 memberCount,
                 internetConnectionIssue,
                 projectNoticesAcknowledged
-            ): [ProjectNoticeVariant, boolean] | null => {
+            ): ProjectNoticeVariant | null => {
                 if (!organization) {
                     return null
                 }
 
                 if (internetConnectionIssue) {
-                    return ['internet_connection_issue', false]
+                    return 'internet_connection_issue'
                 } else if (user?.is_impersonated) {
-                    return ['is_impersonated', false]
+                    return 'is_impersonated'
+                } else if (getAppContext()?.is_region_blocked) {
+                    return 'region_blocked'
                 } else if (currentTeam?.is_demo && !preflight?.demo) {
                     // If the project is a demo one, show a project-level warning
                     // Don't show this project-level warning in the PostHog demo environemnt though,
                     // as then Announcement is shown instance-wide
-                    return ['demo_project', false]
+                    return 'demo_project'
                 } else if (!user?.is_email_verified && !user?.has_social_auth && preflight?.email_service_available) {
-                    return ['unverified_email', false]
+                    return 'unverified_email'
                 } else if (
                     !projectNoticesAcknowledged['real_project_with_no_events'] &&
                     currentTeam &&
                     !currentTeam.ingested_event
                 ) {
-                    return ['real_project_with_no_events', true]
+                    return 'real_project_with_no_events'
                 } else if (!projectNoticesAcknowledged['invite_teammates'] && memberCount === 1) {
-                    return ['invite_teammates', true]
+                    return 'invite_teammates'
                 }
 
                 return null
