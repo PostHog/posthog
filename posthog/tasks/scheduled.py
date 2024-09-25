@@ -207,7 +207,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     )
 
     sender.add_periodic_task(
-        crontab(settings.CALCULATE_COHORTS_DAY_SCHEDULE),
+        get_crontab(settings.CALCULATE_COHORTS_DAY_SCHEDULE),
         calculate_cohort.s(),
         name="recalculate cohorts",
         expires=120 * 1.5,
@@ -215,7 +215,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     )
 
     sender.add_periodic_task(
-        crontab(settings.CALCULATE_COHORTS_NIGHT_SCHEDULE),
+        get_crontab(settings.CALCULATE_COHORTS_NIGHT_SCHEDULE),
         calculate_cohort.s(),
         name="recalculate cohorts",
         expires=60 * 1.5,

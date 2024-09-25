@@ -36,6 +36,7 @@ from . import (
     hog_function_template,
     hog,
     ingestion_warnings,
+    insight_variable,
     instance_settings,
     instance_status,
     integration,
@@ -508,6 +509,13 @@ projects_router.register(
     r"hog",
     hog.HogViewSet,
     "hog",
+    ["team_id"],
+)
+
+projects_router.register(
+    r"insight_variables",
+    insight_variable.InsightVariableViewSet,
+    "insight_variables",
     ["team_id"],
 )
 

@@ -708,6 +708,14 @@ class HogQLQueryModifiers(BaseModel):
     sessionTableVersion: Optional[SessionTableVersion] = None
 
 
+class HogQLVariable(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    value: Optional[Any] = None
+    variableId: str
+
+
 class HogQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4450,6 +4458,9 @@ class HogQLQuery(BaseModel):
     response: Optional[HogQLQueryResponse] = None
     values: Optional[dict[str, Any]] = Field(
         default=None, description="Constant values that can be referenced with the {placeholder} syntax in the query"
+    )
+    variables: Optional[dict[str, HogQLVariable]] = Field(
+        default=None, description="Variables to be subsituted into the query"
     )
 
 
