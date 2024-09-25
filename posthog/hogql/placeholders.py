@@ -5,7 +5,7 @@ from posthog.hogql.errors import QueryError
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 
 
-def replace_placeholders(node: ast.Expr, placeholders: Optional[dict[str, ast.Expr]]) -> ast.Expr:
+def replace_placeholders(node: ast.Expr, placeholders: Optional[dict[str | None, ast.Expr]]) -> ast.Expr:
     return ReplacePlaceholders(placeholders).visit(node)
 
 

@@ -81,7 +81,7 @@ def execute_hogql_query(
         ):
             select_query = replace_filters(select_query, filters, team)
 
-            leftover_placeholders: list[str] = []
+            leftover_placeholders: list[str | None] = []
             for placeholder in placeholders_in_query:
                 if placeholder is None:
                     raise ValueError("Placeholder expressions are not yet supported")
@@ -93,7 +93,7 @@ def execute_hogql_query(
         if len(placeholders_in_query) > 0:
             if len(placeholders) == 0:
                 raise ValueError(
-                    f"Query contains placeholders, but none were provided. Placeholders in query: {', '.join(placeholders_in_query)}"
+                    f"Query contains placeholders, but none were provided. Placeholders in query: {', '.join(s for s in placeholders_in_query if s is not None)}"
                 )
             select_query = replace_placeholders(select_query, placeholders)
 
