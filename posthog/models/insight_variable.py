@@ -12,6 +12,7 @@ class InsightVariable(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
 
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
     name = models.CharField(max_length=400)
+    code_name = models.CharField(max_length=400)
     type = models.CharField(max_length=128, choices=Type.choices)
     default_value = models.JSONField(null=True, blank=True)
 

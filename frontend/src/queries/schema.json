@@ -5751,6 +5751,13 @@
                 "sourceQuery": {
                     "$ref": "#/definitions/AnyDataNode",
                     "description": "Query within which \"expr\" and \"template\" are validated. Defaults to \"select * from events\""
+                },
+                "variables": {
+                    "additionalProperties": {
+                        "$ref": "#/definitions/HogQLVariable"
+                    },
+                    "description": "Variables to be subsituted into the query",
+                    "type": "object"
                 }
             },
             "required": ["kind", "language", "query"],
@@ -6002,12 +6009,15 @@
         "HogQLVariable": {
             "additionalProperties": false,
             "properties": {
+                "code_name": {
+                    "type": "string"
+                },
                 "value": {},
                 "variableId": {
                     "type": "string"
                 }
             },
-            "required": ["variableId"],
+            "required": ["variableId", "code_name"],
             "type": "object"
         },
         "HogQuery": {

@@ -731,6 +731,7 @@ class HogQLVariable(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    code_name: str
     value: Optional[Any] = None
     variableId: str
 
@@ -5955,6 +5956,9 @@ class HogQLMetadata(BaseModel):
     ] = Field(
         default=None,
         description='Query within which "expr" and "template" are validated. Defaults to "select * from events"',
+    )
+    variables: Optional[dict[str, HogQLVariable]] = Field(
+        default=None, description="Variables to be subsituted into the query"
     )
 
 

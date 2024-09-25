@@ -68,25 +68,31 @@ export type VariableType = 'String' | 'Number' | 'Boolean' | 'List'
 interface VariableBase {
     id: string
     name: string
+    code_name: string
     type: VariableType
+    value?: any
 }
 
 export interface StringVariable extends VariableBase {
     type: 'String'
     default_value: string
+    value?: string
 }
 export interface NumberVariable extends VariableBase {
     type: 'Number'
     default_value: number
+    value?: number
 }
 export interface BooleanVariable extends VariableBase {
     type: 'Boolean'
     default_value: boolean
+    value?: boolean
 }
 export interface ListVariable extends VariableBase {
     type: 'List'
     values: string[]
     default_value: string
+    value?: string
 }
 
 export type Variable = StringVariable | NumberVariable | BooleanVariable | ListVariable
