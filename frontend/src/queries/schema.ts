@@ -1573,6 +1573,7 @@ export interface ExperimentVariantTrendResult {
 }
 
 export interface ExperimentVariantFunnelResult {
+    key: string
     success_count: number
     failure_count: number
 }
