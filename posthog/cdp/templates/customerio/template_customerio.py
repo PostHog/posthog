@@ -71,7 +71,7 @@ let res := fetch(f'https://{inputs.host}/api/v2/entity', {
 })
 
 if (res.status >= 400) {
-    print('Error from customer.io api:', res.status, res.body)
+    throw Error(f'Error from customer.io api: {res.status}: {res.body}');
 }
 
 """.strip(),
