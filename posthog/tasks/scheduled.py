@@ -258,7 +258,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     )
 
     sender.add_periodic_task(
-        crontab(hour="*", minute="*/12"),
+        crontab(hour="*", minute="*/30"),
         hourly_alerts_task.s(),
         name="check alerts which require hourly recalculation for matches and send notifications",
     )
@@ -270,7 +270,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     )
 
     sender.add_periodic_task(
-        crontab(hour="*", minute="18"),
+        crontab(hour="*", minute="*/6"),
         daily_alerts_task.s(),
         name="check alerts which require daily recalculation for matches and send notifications",
     )

@@ -65,7 +65,7 @@ NON_TIME_SERIES_DISPLAY_TYPES = {
 def hourly_alerts_backlog_task() -> None:
     """
     This runs every 5min to check for alerts with hourly check SLA
-    but haven't been checked in the last hour
+    but haven't been checked in the last hour + 5min
     """
     now = datetime.now(UTC)
 
@@ -73,7 +73,7 @@ def hourly_alerts_backlog_task() -> None:
         Q(
             enabled=True,
             calculation_interval=AlertCalculationInterval.HOURLY,
-            last_checked_at__lte=now - relativedelta(hours=1),
+            last_checked_at__lte=now - relativedelta(hours=1, minutes=5),
         )
     ).count()
 
@@ -87,7 +87,7 @@ def hourly_alerts_backlog_task() -> None:
 def daily_alerts_backlog_task() -> None:
     """
     This runs every 15min to check for alerts with hourly check SLA
-    but haven't been checked in the last hour
+    but haven't been checked in the last hour + 15min
     """
     now = datetime.now(UTC)
 
@@ -95,7 +95,7 @@ def daily_alerts_backlog_task() -> None:
         Q(
             enabled=True,
             calculation_interval=AlertCalculationInterval.HOURLY,
-            last_checked_at__lte=now - relativedelta(days=1),
+            last_checked_at__lte=now - relativedelta(days=1, minutes=15),
         )
     ).count()
 
@@ -108,12 +108,9 @@ def daily_alerts_backlog_task() -> None:
 )
 def hourly_alerts_task() -> None:
     """
-    This runs every 5min to check for alerts that have 5min left to recalculate
+    This runs every 2min to check for alerts that are due to recalculate
     """
-    now = datetime.now(UTC)
-    # alerts with 5min left for recalculation
-    last_checked_at_before = now - relativedelta(minutes=55)
-    check_alerts(AlertCalculationInterval.HOURLY, last_checked_at_before)
+    check_alerts(AlertCalculationInterval.HOURLY)
 
 
 @shared_task(
@@ -122,12 +119,9 @@ def hourly_alerts_task() -> None:
 )
 def daily_alerts_task() -> None:
     """
-    This runs every hour to check for alerts that have 5min left to recalculate
+    This runs every 10min to check for alerts that are due to recalculate
     """
-    now = datetime.now(UTC)
-    # alerts with 1h left for recalculation
-    last_checked_at_before = now - relativedelta(hours=23)
-    check_alerts(AlertCalculationInterval.DAILY, last_checked_at_before)
+    check_alerts(AlertCalculationInterval.DAILY)
 
 
 @shared_task(
@@ -149,21 +143,23 @@ def checks_cleanup_task() -> None:
     AlertCheck.clean_up_old_checks()
 
 
-def check_alerts(interval: AlertCalculationInterval, last_checked_at_before: datetime) -> None:
+def check_alerts(interval: AlertCalculationInterval) -> None:
+    now = datetime.now(UTC)
     # Use a fixed expiration time since tasks in the chain are executed sequentially
-    expire_after = datetime.now(UTC) + timedelta(minutes=30)
+    expire_after = now + timedelta(minutes=30)
 
     teams = Team.objects.filter(alertconfiguration__isnull=False).distinct()
 
+    # find all tasks with the provided interval that are due to be calculated (next_check_at is null or less than now)
     for team in teams:
         alert_ids = list(
             AlertConfiguration.objects.filter(
-                Q(team=team, enabled=True, calculation_interval=interval, last_checked_at__lte=last_checked_at_before)
+                Q(team=team, enabled=True, calculation_interval=interval, next_check_at__lte=now)
                 | Q(
                     team=team,
                     enabled=True,
                     calculation_interval=interval,
-                    last_checked_at__isnull=True,
+                    next_check_at__isnull=True,
                 )
             ).values_list("id", flat=True)
         )

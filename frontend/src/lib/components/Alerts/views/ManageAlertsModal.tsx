@@ -13,9 +13,9 @@ import { insightAlertsLogic, InsightAlertsLogicProps } from '../insightAlertsLog
 
 export function AlertStateIndicator({ alert }: { alert: AlertType }): JSX.Element {
     return alert.state === AlertState.NOT_FIRING ? (
-        <span className="inline-block align-middle rounded-full w-4 h-4 mx-2 bg-success-light" />
+        <span className="inline-block align-middle rounded-full w-4 h-4 bg-success-light" />
     ) : (
-        <span className="inline-block align-middle rounded-full w-4 h-4 mx-2 bg-danger-light" />
+        <span className="inline-block align-middle rounded-full w-4 h-4 bg-danger-light" />
     )
 }
 
@@ -28,23 +28,22 @@ export function AlertListItem({ alert, onClick }: AlertListItemProps): JSX.Eleme
     const absoluteThreshold = alert.threshold?.configuration?.absoluteThreshold
     return (
         <LemonButton type="secondary" onClick={onClick} data-attr="alert-list-item" fullWidth>
-            <div className="flex justify-between flex-auto items-baseline py-2">
-                <div className="flex flex-row gap-1 items-baseline justify-between">
-                    <div>
-                        <AlertStateIndicator alert={alert} />
-                        {alert.name}
-                    </div>
+            <div className="flex justify-between flex-auto items-center p-2">
+                <div className="flex flex-row gap-3 items-center">
+                    <AlertStateIndicator alert={alert} />
+                    <span>{alert.name}</span>
 
                     {alert.enabled ? (
-                        <div className="text-muted pl-2">
+                        <div className="text-muted pl-3">
                             {absoluteThreshold?.lower && `Low ${absoluteThreshold.lower}`}
                             {absoluteThreshold?.lower && absoluteThreshold?.upper ? ' · ' : ''}
                             {absoluteThreshold?.upper && `High ${absoluteThreshold.upper}`}
                         </div>
                     ) : (
-                        <div className="text-muted pl-2">Disabled</div>
+                        <div className="text-muted pl-3">Disabled</div>
                     )}
                 </div>
+
                 <ProfileBubbles limit={4} people={alert.subscribed_users?.map(({ email }) => ({ email }))} />
             </div>
         </LemonButton>

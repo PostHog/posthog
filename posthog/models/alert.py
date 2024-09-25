@@ -1,5 +1,7 @@
 from datetime import datetime, UTC, timedelta
 from typing import Any, Optional
+from dateutil.relativedelta import relativedelta
+
 
 from django.db import models
 from django.core.exceptions import ValidationError
@@ -15,6 +17,20 @@ ALERT_STATE_CHOICES = [
     (AlertState.NOT_FIRING, AlertState.NOT_FIRING),
     (AlertState.ERRORED, AlertState.ERRORED),
 ]
+
+
+def alert_calculation_interval_to_relativedelta(alert_calculation_interval: AlertCalculationInterval) -> relativedelta:
+    match alert_calculation_interval:
+        case AlertCalculationInterval.HOURLY:
+            return relativedelta(hours=1)
+        case AlertCalculationInterval.DAILY:
+            return relativedelta(days=1)
+        case AlertCalculationInterval.WEEKLY:
+            return relativedelta(weeks=1)
+        case AlertCalculationInterval.MONTHLY:
+            return relativedelta(months=1)
+        case _:
+            raise ValueError(f"Invalid alert calculation interval: {alert_calculation_interval}")
 
 
 def are_alerts_supported_for_insight(insight: Insight) -> bool:
@@ -111,6 +127,7 @@ class AlertConfiguration(CreatedMetaFields, UUIDModel):
 
     last_notified_at = models.DateTimeField(null=True, blank=True)
     last_checked_at = models.DateTimeField(null=True, blank=True)
+    next_check_at = models.DateTimeField(null=True, blank=True)
 
     @property
     def insight_short_id(self) -> str:
@@ -174,6 +191,10 @@ class AlertConfiguration(CreatedMetaFields, UUIDModel):
 
         now = datetime.now(UTC)
         self.last_checked_at = datetime.now(UTC)
+
+        # IMPORTANT: update next_check_at according to interval
+        # ensure we don't recheck alert until the next interval is due
+        self.next_check_at = self.next_check_at + alert_calculation_interval_to_relativedelta(self.calculation_interval)
 
         if notify:
             self.last_notified_at = now
