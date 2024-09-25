@@ -111,6 +111,7 @@ describe('experimentsTabLogic', () => {
                                 rollout_percentage: 50,
                             },
                             test: {
+                                is_new: true,
                                 transforms: [
                                     {
                                         text: '',
@@ -135,6 +136,7 @@ describe('experimentsTabLogic', () => {
                         name: '',
                         variants: {
                             'variant #0': {
+                                is_new: true,
                                 conditions: null,
                                 rollout_percentage: 100,
                                 transforms: [{ html: '', text: '' }],
@@ -181,6 +183,7 @@ describe('experimentsTabLogic', () => {
                                 rollout_percentage: 50,
                             },
                             test: {
+                                is_new: true,
                                 transforms: [
                                     {
                                         text: '',
