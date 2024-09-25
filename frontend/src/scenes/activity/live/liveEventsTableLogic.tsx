@@ -1,5 +1,6 @@
 import { lemonToast, Spinner } from '@posthog/lemon-ui'
 import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
+import { router } from 'kea-router'
 import { liveEventsHostOrigin } from 'lib/utils/apiHost'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -153,7 +154,10 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
 
             source.onerror = function (e) {
                 console.error('Failed to poll events: ', e)
-                if (!cache.hasShownLiveStreamErrorToast) {
+                if (
+                    !cache.hasShownLiveStreamErrorToast &&
+                    !router.values.currentLocation.pathname.includes('onboarding')
+                ) {
                     lemonToast.error(
                         `Cannot connect to the live event stream. Continuing to retry in the background…`,
                         { icon: <Spinner />, toastId: ERROR_TOAST_ID, autoClose: false }

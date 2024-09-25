@@ -99,6 +99,7 @@ if (res.status != 200 or not res.body.ok) {
             "type": "string",
             "label": "Plain text message",
             "description": "Optional fallback message if blocks are not provided or supported",
+            "default": "*{person.name}* triggered event: '{event.event}'",
             "secret": False,
             "required": False,
         },
