@@ -422,6 +422,7 @@ export class HogExecutor {
                     messages.push(`Sync: ${execRes.state.syncDuration}ms.`)
                     messages.push(`Mem: ${execRes.state.maxMemUsed} bytes.`)
                     messages.push(`Ops: ${execRes.state.ops}.`)
+                    messages.push(`Event: '${globals.event.uuid}'`)
 
                     hogFunctionStateMemory.observe(execRes.state.maxMemUsed / 1024)
 
