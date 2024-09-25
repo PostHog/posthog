@@ -3,11 +3,6 @@
     align-items: center;
 }
 
-.progress-info {
-    width: 30px;
-    padding-left: 5px;
-}
-
 .progress {
     position: relative;
     width: 100%;
@@ -15,7 +10,7 @@
     min-height: 1px;
     overflow: hidden;
     background: #eee;
-    border-radius: 3px;
+    border-radius: var(--radius-sm);
 }
 
 .progress-bar {
