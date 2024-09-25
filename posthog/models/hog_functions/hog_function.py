@@ -124,7 +124,7 @@ class HogFunction(UUIDModel):
 
     @property
     def url(self):
-        return absolute_uri(f"/projects/{self.team_id}/pipeline/destinations/hog-{str(self.id)}")
+        return absolute_uri(f"/project/{self.team_id}/pipeline/destinations/hog-{str(self.id)}")
 
     def save(self, *args, **kwargs):
         from posthog.cdp.filters import compile_filters_bytecode

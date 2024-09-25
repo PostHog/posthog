@@ -26,7 +26,7 @@ export class HogWatcher {
     constructor(private hub: Hub, private redis: CdpRedis) {}
 
     private async onStateChange(id: HogFunctionType['id'], state: HogWatcherState) {
-        await this.hub.db.celeryApplyAsync('posthog.tasks.hog_function_state_transition', [id, state])
+        await this.hub.db.celeryApplyAsync('posthog.tasks.hog_functions.hog_function_state_transition', [id, state])
     }
 
     private rateLimitArgs(id: HogFunctionType['id'], cost: number) {
