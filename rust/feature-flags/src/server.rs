@@ -24,11 +24,20 @@ where
         }
     };
 
-    let read_postgres_client =
-        match get_pool(&config.read_database_url, config.max_pg_connections).await {
+    let postgres_reader = match get_pool(&config.read_database_url, config.max_pg_connections).await
+    {
+        Ok(client) => Arc::new(client),
+        Err(e) => {
+            tracing::error!("Failed to create read Postgres client: {}", e);
+            return;
+        }
+    };
+
+    let postgres_writer =
+        match get_pool(&config.write_database_url, config.max_pg_connections).await {
             Ok(client) => Arc::new(client),
             Err(e) => {
-                tracing::error!("Failed to create read Postgres client: {}", e);
+                tracing::error!("Failed to create write Postgres client: {}", e);
                 return;
             }
         };
@@ -52,7 +61,8 @@ where
     // You can decide which client to pass to the router, or pass both if needed
     let app = router::router(
         redis_client,
-        read_postgres_client,
+        postgres_reader,
+        postgres_writer,
         geoip_service,
         health,
         config.enable_metrics,

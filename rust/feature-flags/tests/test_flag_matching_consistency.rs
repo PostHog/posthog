@@ -3,7 +3,9 @@ use feature_flags::feature_flag_match_reason::FeatureFlagMatchReason;
 /// This ensures there are no mismatches between implementations.
 use feature_flags::flag_matching::{FeatureFlagMatch, FeatureFlagMatcher};
 
-use feature_flags::test_utils::{create_flag_from_json, setup_pg_client};
+use feature_flags::test_utils::{
+    create_flag_from_json, setup_pg_reader_client, setup_pg_writer_client,
+};
 use serde_json::json;
 
 #[tokio::test]
@@ -106,15 +108,23 @@ async fn it_is_consistent_with_rollout_calculation_for_simple_flags() {
     ];
 
     for (i, result) in results.iter().enumerate().take(1000) {
-        let database_client = setup_pg_client(None).await;
+        let postgres_reader = setup_pg_reader_client(None).await;
+        let postgres_writer = setup_pg_writer_client(None).await;
 
         let distinct_id = format!("distinct_id_{}", i);
 
-        let feature_flag_match =
-            FeatureFlagMatcher::new(distinct_id, 1, database_client, None, None, None)
-                .get_match(&flags[0], None)
-                .await
-                .unwrap();
+        let feature_flag_match = FeatureFlagMatcher::new(
+            distinct_id,
+            1,
+            postgres_reader,
+            postgres_writer,
+            None,
+            None,
+            None,
+        )
+        .get_match(&flags[0], None)
+        .await
+        .unwrap();
 
         if *result {
             assert_eq!(
@@ -1197,14 +1207,22 @@ async fn it_is_consistent_with_rollout_calculation_for_multivariate_flags() {
     ];
 
     for (i, result) in results.iter().enumerate().take(1000) {
-        let database_client = setup_pg_client(None).await;
+        let postgres_reader = setup_pg_reader_client(None).await;
+        let postgres_writer = setup_pg_writer_client(None).await;
         let distinct_id = format!("distinct_id_{}", i);
 
-        let feature_flag_match =
-            FeatureFlagMatcher::new(distinct_id, 1, database_client, None, None, None)
-                .get_match(&flags[0], None)
-                .await
-                .unwrap();
+        let feature_flag_match = FeatureFlagMatcher::new(
+            distinct_id,
+            1,
+            postgres_reader,
+            postgres_writer,
+            None,
+            None,
+            None,
+        )
+        .get_match(&flags[0], None)
+        .await
+        .unwrap();
 
         if let Some(variant) = &result {
             assert_eq!(

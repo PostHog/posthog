@@ -17,13 +17,15 @@ use crate::{
 pub struct State {
     // TODO add writers when ready
     pub redis: Arc<dyn RedisClient + Send + Sync>,
-    pub postgres: Arc<dyn DatabaseClient + Send + Sync>,
+    pub postgres_reader: Arc<dyn DatabaseClient + Send + Sync>,
+    pub postgres_writer: Arc<dyn DatabaseClient + Send + Sync>,
     pub geoip: Arc<GeoIpClient>,
 }
 
 pub fn router<R, D>(
     redis: Arc<R>,
-    postgres: Arc<D>,
+    postgres_reader: Arc<D>,
+    postgres_writer: Arc<D>,
     geoip: Arc<GeoIpClient>,
     liveness: HealthRegistry,
     metrics: bool,
@@ -35,7 +37,8 @@ where
 {
     let state = State {
         redis,
-        postgres,
+        postgres_reader,
+        postgres_writer,
         geoip,
     };
 

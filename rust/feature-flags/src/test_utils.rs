@@ -130,10 +130,19 @@ pub fn create_flag_from_json(json_value: Option<String>) -> Vec<FeatureFlag> {
     flags
 }
 
-pub async fn setup_pg_client(config: Option<&Config>) -> Arc<PgPool> {
+pub async fn setup_pg_reader_client(config: Option<&Config>) -> Arc<PgPool> {
     let config = config.unwrap_or(&DEFAULT_TEST_CONFIG);
     Arc::new(
         get_pool(&config.read_database_url, config.max_pg_connections)
+            .await
+            .expect("Failed to create Postgres client"),
+    )
+}
+
+pub async fn setup_pg_writer_client(config: Option<&Config>) -> Arc<PgPool> {
+    let config = config.unwrap_or(&DEFAULT_TEST_CONFIG);
+    Arc::new(
+        get_pool(&config.write_database_url, config.max_pg_connections)
             .await
             .expect("Failed to create Postgres client"),
     )
