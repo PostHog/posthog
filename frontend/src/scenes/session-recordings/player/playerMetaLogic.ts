@@ -15,7 +15,7 @@ import { getCoreFilterDefinition } from 'lib/taxonomy'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { countryCodeToName } from 'scenes/insights/views/WorldMap'
 
-interface OverviewItem {
+export interface OverviewItem {
     property: string
     label: string
     value: string
