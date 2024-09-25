@@ -368,3 +368,26 @@ class BillingManager:
         handle_billing_service_error(res)
 
         return res.json()
+
+    def authorize(self, organization: Organization, data: dict[str, Any]):
+        res = requests.post(
+            f"{BILLING_SERVICE_URL}/api/activate/authorize",
+            headers=self.get_auth_headers(organization),
+            json=data,
+        )
+
+        handle_billing_service_error(res)
+
+        return res.json()
+
+
+    def authorize_status(self, organization: Organization, data: dict[str, Any]):
+        res = requests.get(
+            f"{BILLING_SERVICE_URL}/api/activate/authorize/status",
+            headers=self.get_auth_headers(organization),
+            json=data,
+        )
+
+        handle_billing_service_error(res)
+
+        return res.json()
