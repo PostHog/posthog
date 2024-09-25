@@ -16,7 +16,7 @@ let sessionPlayerModalSingletonRendered = false
  * SessionPlayerModal is templated into the page by multiple components
  * It has to be present _once_ for the player modal to work
  * But gets very unhappy if there are multiple instances
- * So, it is written as a singleton that attempts to only renders once
+ * So, it is written as a singleton that attempts to only render once
  *
  */
 export function SessionPlayerModal(): JSX.Element | null {
