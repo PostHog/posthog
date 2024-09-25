@@ -12,11 +12,11 @@ class TestRecordingButton(BaseTest):
         )
         self.assertEqual(
             response.hogql,
-            f"SELECT tuple('__hx_tag', 'RecordingButton', 'data', '12345-6789') LIMIT 100",
+            f"SELECT tuple('__hx_tag', 'RecordingButton', 'sessionId', '12345-6789') LIMIT 100",
         )
         self.assertEqual(
             response.results[0][0],
-            ("__hx_tag", "RecordingButton", "data", "12345-6789"),
+            ("__hx_tag", "RecordingButton", "sessionId", "12345-6789"),
         )
 
     def test_sparkline_error(self):
