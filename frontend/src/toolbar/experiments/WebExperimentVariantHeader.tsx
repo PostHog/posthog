@@ -1,7 +1,7 @@
 import { IconTrash } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
-import { LemonBadge } from 'lib/lemon-ui/LemonBadge'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonTag } from 'lib/lemon-ui/LemonTag'
 
 import { experimentsTabLogic } from '~/toolbar/experiments/experimentsTabLogic'
 
@@ -18,21 +18,21 @@ export function WebExperimentVariantHeader({ variant }: WebExperimentVariantHead
                 <h2>{variant}</h2>
             </div>
             <div className="shrink">
-                <LemonBadge
-                    className="p-2"
-                    content={
-                        'rollout :' +
-                        (experimentForm.variants && experimentForm.variants[variant]
-                            ? experimentForm.variants[variant].rollout_percentage!
-                            : 0
-                        ).toString()
-                    }
-                    size="medium"
-                    status="success"
-                />
+                <LemonTag className="p-2" type="success">
+                    <span>
+                        {'rollout :' +
+                            (experimentForm.variants && experimentForm.variants[variant]
+                                ? experimentForm.variants[variant].rollout_percentage!
+                                : 0
+                            ).toString()}
+                    </span>
+                </LemonTag>
             </div>
 
-            {variant !== 'control' && (
+            {/*Only show the remove button if there's more than one test variant, and the variant is not control*/}
+            {variant !== 'control' &&
+            experimentForm?.variants &&
+            Object.keys(experimentForm.variants || {}).length > 2 ? (
                 <LemonButton
                     icon={<IconTrash />}
                     size="small"
@@ -44,8 +44,9 @@ export function WebExperimentVariantHeader({ variant }: WebExperimentVariantHead
                         removeVariant(variant)
                     }}
                 />
+            ) : (
+                <span className="size-5 inline-block" />
             )}
-            {variant === 'control' && <span className="size-5 inline-block" />}
         </div>
     )
 }

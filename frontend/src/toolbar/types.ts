@@ -116,5 +116,5 @@ export interface WebExperimentTransform {
     text?: string
     html?: string
     imgUrl?: string
-    className?: string
+    css?: string
 }

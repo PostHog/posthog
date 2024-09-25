@@ -269,11 +269,11 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
                                     }
 
                                     if (transform.html) {
-                                        htmlElement.innerHTML = transform.html
+                                        htmlElement.outerHTML = transform.html
                                     }
 
-                                    if (transform.className) {
-                                        htmlElement.className = transform.className
+                                    if (transform.css) {
+                                        htmlElement.setAttribute('style', transform.css)
                                     }
                                 }
                             })

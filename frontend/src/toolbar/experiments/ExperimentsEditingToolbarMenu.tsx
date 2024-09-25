@@ -1,9 +1,9 @@
 import { IconPlus } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { Form, Group } from 'kea-forms'
-import { EditableField } from 'lib/components/EditableField/EditableField'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
+import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { useMemo } from 'react'
 
 import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'
@@ -13,8 +13,14 @@ import { WebExperimentVariantHeader } from '~/toolbar/experiments/WebExperimentV
 
 export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
     const { selectedExperimentId, experimentForm, selectedVariant } = useValues(experimentsTabLogic)
-    const { selectExperiment, selectVariant, inspectForElementWithIndex, addNewVariant, visualizeVariant } =
-        useActions(experimentsTabLogic)
+    const {
+        selectExperiment,
+        selectVariant,
+        inspectForElementWithIndex,
+        addNewVariant,
+        visualizeVariant,
+        setExperimentFormValue,
+    } = useActions(experimentsTabLogic)
 
     useMemo(() => {
         if (selectedExperimentId === 'new') {
@@ -41,14 +47,14 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
                 </ToolbarMenu.Header>
                 <ToolbarMenu.Body>
                     <div>
-                        <div className="flex w-full m-2">
+                        <div className="flex w-full m-1">
                             {selectedExperimentId === 'new' ? (
-                                <EditableField
-                                    placeholder="please enter experiment name"
-                                    onSave={(newName: string) => {
+                                <LemonInput
+                                    placeholder="Enter experiment name"
+                                    onChange={(newName: string) => {
                                         experimentForm.name = newName
+                                        setExperimentFormValue('name', experimentForm.name)
                                     }}
-                                    name="item-name-small"
                                     value={experimentForm.name}
                                 />
                             ) : (
@@ -67,14 +73,14 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
                                         }
                                     }}
                                     panels={Object.keys(experimentForm.variants || {})
-                                        .sort((a, b) => a.localeCompare(b))
+                                        .sort((_, b) => b.localeCompare('control'))
                                         .map((variant) => {
                                             return {
                                                 key: variant,
                                                 header: <WebExperimentVariantHeader variant={variant} />,
                                                 content:
                                                     variant == 'control' ? (
-                                                        'control variants do not modify the page'
+                                                        "You're viewing the control variant, which represents your page in its original state."
                                                     ) : (
                                                         <WebExperimentVariant variant={variant} />
                                                     ),
@@ -99,12 +105,13 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
                 </ToolbarMenu.Body>
                 <ToolbarMenu.Footer>
                     <div className="flex justify-between items-center w-full">
+                        <LemonButton type="secondary" size="small" onClick={() => selectExperiment(null)}>
+                            Cancel
+                        </LemonButton>
+
                         <LemonButton type="primary" htmlType="submit" size="small">
                             {selectedExperimentId === 'new' ? 'Create ' : 'Save '}
                             experiment
-                        </LemonButton>
-                        <LemonButton type="secondary" size="small" onClick={() => selectExperiment(null)}>
-                            Cancel
                         </LemonButton>
                     </div>
                 </ToolbarMenu.Footer>
