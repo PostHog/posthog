@@ -1,8 +1,8 @@
 import clsx from 'clsx'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyMilliseconds } from 'lib/utils'
+import { OverviewGrid, OverviewGridItem } from '../../components/OverviewGrid'
 
 import { PerformanceEvent, RecordingEventType } from '~/types'
 
@@ -158,25 +158,6 @@ export function PerformanceDuration({
     )
 }
 
-function PerformanceCard(props: {
-    benchmarks: number[]
-    description: JSX.Element
-    label: string
-    value: number | undefined
-    loading: boolean
-}): JSX.Element {
-    return (
-        <Tooltip title={props.description}>
-            <div className="flex-1 p-2 text-center">
-                <div className="text-sm">{props.label}</div>
-                <div className="text-lg font-semibold">
-                    <PerformanceDuration {...props} />
-                </div>
-            </div>
-        </Tooltip>
-    )
-}
-
 function itemToPerformanceValues(item: PerformanceEvent): {
     cls?: number
     lcp?: number
@@ -212,18 +193,17 @@ export function PerformanceCardRow({ item }: { item: PerformanceEvent }): JSX.El
     const performanceValues = itemToPerformanceValues(item)
 
     return (
-        <div className="grid grid-cols-3 place-items-center">
+        <OverviewGrid>
             {Object.entries(summaryMapping).map(([key, summary]) => (
-                <PerformanceCard
-                    key={key}
-                    benchmarks={summary.scoreBenchmarks}
-                    description={summary.description}
-                    label={summary.label}
-                    value={performanceValues[key]}
-                    loading={summary.allowLoadingIndicator && !performanceValues.loaded}
-                />
+                <OverviewGridItem key={key} description={summary.description} label={summary.label}>
+                    <PerformanceDuration
+                        benchmarks={summary.scoreBenchmarks}
+                        value={performanceValues[key]}
+                        loading={summary.allowLoadingIndicator && !performanceValues.loaded}
+                    />
+                </OverviewGridItem>
             ))}
-        </div>
+        </OverviewGrid>
     )
 }
 

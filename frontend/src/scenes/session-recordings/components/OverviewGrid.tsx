@@ -10,8 +10,8 @@ export function OverviewGridItem({
     label,
 }: {
     children: React.ReactNode
-    description: string
-    label: string
+    description: React.ReactNode
+    label: React.ReactNode
 }): JSX.Element {
     return (
         <Tooltip title={description}>
