@@ -1,6 +1,5 @@
-import { WebAnalyticsAllJSFinalSteps } from 'scenes/onboarding/sdks/web-analytics/AllJSFinalSteps'
-
 import { SDKInstallRemixJSInstructions } from '../sdk-install-instructions/remix'
+import { WebAnalyticsAllJSFinalSteps } from './FinalSteps'
 
 export function RemixInstructions(): JSX.Element {
     return (

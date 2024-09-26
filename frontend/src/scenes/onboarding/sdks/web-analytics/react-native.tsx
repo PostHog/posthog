@@ -1,4 +1,5 @@
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { WebAnalyticsMobileFinalSteps } from 'scenes/onboarding/sdks/web-analytics/FinalSteps'
 
 import { SDKInstallRNInstructions } from '../sdk-install-instructions'
 
@@ -19,6 +20,7 @@ const MyComponent = () => {
     }, [])
 }
         `}</CodeSnippet>
+            <WebAnalyticsMobileFinalSteps />
         </>
     )
 }

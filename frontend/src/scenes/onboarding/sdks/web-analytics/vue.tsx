@@ -1,6 +1,5 @@
-import { WebAnalyticsAllJSFinalSteps } from 'scenes/onboarding/sdks/web-analytics/AllJSFinalSteps'
-
 import { SDKInstallVueInstructions } from '../sdk-install-instructions'
+import { WebAnalyticsAllJSFinalSteps } from './FinalSteps'
 
 export function VueInstructions(): JSX.Element {
     return (

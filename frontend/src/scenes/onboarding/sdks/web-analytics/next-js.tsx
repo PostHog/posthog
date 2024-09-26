@@ -1,6 +1,5 @@
-import { WebAnalyticsAllJSFinalSteps } from 'scenes/onboarding/sdks/web-analytics/AllJSFinalSteps'
-
 import { SDKInstallNextJSInstructions } from '../sdk-install-instructions/next-js'
+import { WebAnalyticsAllJSFinalSteps } from './FinalSteps'
 
 export function NextJSInstructions(): JSX.Element {
     return (

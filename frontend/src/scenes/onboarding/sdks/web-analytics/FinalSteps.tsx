@@ -20,3 +20,12 @@ export const WebAnalyticsAllJSFinalSteps = (): JSX.Element => {
         </>
     )
 }
+
+export const WebAnalyticsMobileFinalSteps = (): JSX.Element => {
+    return (
+        <>
+            <h4>Track screen views</h4>
+            <p>Despite the name, the web analytics dashboard can be used to track screen views in mobile apps, too.</p>
+        </>
+    )
+}

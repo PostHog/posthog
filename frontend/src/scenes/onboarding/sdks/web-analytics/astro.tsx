@@ -1,6 +1,5 @@
-import { WebAnalyticsAllJSFinalSteps } from 'scenes/onboarding/sdks/web-analytics/AllJSFinalSteps'
-
 import { SDKInstallAstroInstructions } from '../sdk-install-instructions'
+import { WebAnalyticsAllJSFinalSteps } from './FinalSteps'
 
 export function AstroInstructions(): JSX.Element {
     return (
