@@ -98,7 +98,6 @@ class Database(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     # Users can query from the tables below
-    # events: EventsTable = EventsTable()
     groups: GroupsTable = GroupsTable()
     persons: PersonsTable = PersonsTable()
     person_distinct_ids: PersonDistinctIdsTable = PersonDistinctIdsTable()

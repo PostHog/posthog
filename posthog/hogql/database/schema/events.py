@@ -20,7 +20,7 @@ from posthog.hogql.database.models import (
 from posthog.hogql.database.schema.groups import GroupsTable, join_with_group_n_table
 from posthog.hogql.database.schema.person_distinct_ids import (
     PersonDistinctIdsTable,
-    lazy_join_with_person_distinct_ids_table,
+    join_with_person_distinct_ids_table,
 )
 from posthog.hogql.database.schema.sessions_v1 import join_events_table_to_sessions_table, SessionsTableV1
 from posthog.hogql.database.schema.util.where_clause_extractor import WhereClauseExtractor
@@ -81,7 +81,7 @@ class EventsLazy(LazyTable):
         "pdi": LazyJoin(
             from_field=["distinct_id"],
             join_table=PersonDistinctIdsTable(),
-            join_function=lazy_join_with_person_distinct_ids_table,
+            join_function=join_with_person_distinct_ids_table,
         ),
         # Person and group fields on the event itself. Should not be used directly.
         "poe": EventsPersonSubTable(),
@@ -154,13 +154,13 @@ class EventsLazy(LazyTable):
                 table=ast.Field(chain=["raw_events"]),
                 sample=clone_expr(node.select_from.sample, clear_types=True, clear_locations=True),
             ),
-            where=where,
+            # where=where,
         )
         node.select_from.sample = None
         return select
 
     def to_printed_clickhouse(self, context):
-        return "events_lazy"
+        return "lazy_click"
 
     def to_printed_hogql(self):
         return "events"
@@ -198,4 +198,4 @@ class EventsTable(Table):
         return "events"
 
     def to_printed_hogql(self):
-        return "raw_events"
+        return "raw_hog"

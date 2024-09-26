@@ -4,13 +4,22 @@
   SELECT count() AS occurrences,
          count(DISTINCT events.`$session_id`) AS sessions,
          count(DISTINCT events.distinct_id) AS users,
-         max(toTimeZone(events.timestamp, 'UTC')) AS last_seen,
-         min(toTimeZone(events.timestamp, 'UTC')) AS first_seen,
-         any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_message'), ''), 'null'), '^"|"$', '')) AS description,
-         any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_type'), ''), 'null'), '^"|"$', '')) AS exception_type,
-         multiIf(has([['SyntaxError']], JSONExtract(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), '[]'), 'Array(String)')), ['SyntaxError'], has([['custom_fingerprint']], JSONExtract(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), '[]'), 'Array(String)')), ['custom_fingerprint'], JSONExtract(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), '[]'), 'Array(String)')) AS fingerprint
-  FROM events
-  WHERE and(equals(events.team_id, 2), equals(events.event, '$exception'), 1, has([['SyntaxError'], ['custom_fingerprint']], JSONExtract(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), '[]'), 'Array(String)')))
+         max(events.timestamp) AS last_seen,
+         min(events.timestamp) AS first_seen,
+         any(events.`properties___$exception_message`) AS description,
+         any(events.`properties___$exception_type`) AS exception_type,
+         multiIf(has([['SyntaxError']], JSONExtract(ifNull(events.`properties___$exception_fingerprint`, '[]'), 'Array(String)')), ['SyntaxError'], has([['custom_fingerprint']], JSONExtract(ifNull(events.`properties___$exception_fingerprint`, '[]'), 'Array(String)')), ['custom_fingerprint'], JSONExtract(ifNull(events.`properties___$exception_fingerprint`, '[]'), 'Array(String)')) AS fingerprint
+  FROM
+    (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_message'), ''), 'null'), '^"|"$', '') AS `properties___$exception_message`,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_type'), ''), 'null'), '^"|"$', '') AS `properties___$exception_type`,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', '') AS `properties___$exception_fingerprint`,
+            events.`$session_id` AS `$session_id`,
+            events.distinct_id AS distinct_id,
+            toTimeZone(events.timestamp, 'UTC') AS timestamp,
+            events.event AS event
+     FROM events
+     WHERE and(equals(events.team_id, 2), ifNull(equals(event, '$exception'), 0), has([['SyntaxError'], ['custom_fingerprint']], JSONExtract(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), '[]'), 'Array(String)')))) AS events
+  WHERE and(ifNull(equals(events.event, '$exception'), 0), 1, has([['SyntaxError'], ['custom_fingerprint']], JSONExtract(ifNull(events.`properties___$exception_fingerprint`, '[]'), 'Array(String)')))
   GROUP BY fingerprint
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -27,19 +36,22 @@
   SELECT count() AS occurrences,
          count(DISTINCT events.`$session_id`) AS sessions,
          count(DISTINCT events.distinct_id) AS users,
-         max(toTimeZone(events.timestamp, 'UTC')) AS last_seen,
-         min(toTimeZone(events.timestamp, 'UTC')) AS first_seen,
-         any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_message'), ''), 'null'), '^"|"$', '')) AS description,
-         any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_type'), ''), 'null'), '^"|"$', '')) AS exception_type,
-         JSONExtract(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), '[]'), 'Array(String)') AS fingerprint
-  FROM events
-  LEFT OUTER JOIN
-    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-            person_distinct_id_overrides.distinct_id AS distinct_id
-     FROM person_distinct_id_overrides
-     WHERE equals(person_distinct_id_overrides.team_id, 2)
-     GROUP BY person_distinct_id_overrides.distinct_id
-     HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+         max(events.timestamp) AS last_seen,
+         min(events.timestamp) AS first_seen,
+         any(events.`properties___$exception_message`) AS description,
+         any(events.`properties___$exception_type`) AS exception_type,
+         JSONExtract(ifNull(events.`properties___$exception_fingerprint`, '[]'), 'Array(String)') AS fingerprint
+  FROM
+    (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_message'), ''), 'null'), '^"|"$', '') AS `properties___$exception_message`,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_type'), ''), 'null'), '^"|"$', '') AS `properties___$exception_type`,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', '') AS `properties___$exception_fingerprint`,
+            events.`$session_id` AS `$session_id`,
+            events.distinct_id AS distinct_id,
+            toTimeZone(events.timestamp, 'UTC') AS timestamp,
+            events.event AS event,
+            events.person_id AS events___person_id
+     FROM events
+     WHERE and(equals(events.team_id, 2), ifNull(equals(event, '$exception'), 0))) AS events
   LEFT JOIN
     (SELECT person.id AS id,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
@@ -49,8 +61,8 @@
                                                        FROM person
                                                        WHERE equals(person.team_id, 2)
                                                        GROUP BY person.id
-                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-  WHERE and(equals(events.team_id, 2), equals(events.event, '$exception'), ifNull(notILike(events__person.properties___email, '%@posthog.com%'), 1))
+                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(events.events___person_id, events__person.id)
+  WHERE and(ifNull(equals(events.event, '$exception'), 0), ifNull(notILike(events__person.properties___email, '%@posthog.com%'), 1))
   GROUP BY fingerprint
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -67,18 +79,21 @@
   SELECT count() AS occurrences,
          count(DISTINCT events.`$session_id`) AS sessions,
          count(DISTINCT events.distinct_id) AS users,
-         max(toTimeZone(events.timestamp, 'UTC')) AS last_seen,
-         min(toTimeZone(events.timestamp, 'UTC')) AS first_seen,
-         any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_message'), ''), 'null'), '^"|"$', '')) AS description,
-         any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_type'), ''), 'null'), '^"|"$', '')) AS exception_type
-  FROM events
-  LEFT OUTER JOIN
-    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-            person_distinct_id_overrides.distinct_id AS distinct_id
-     FROM person_distinct_id_overrides
-     WHERE equals(person_distinct_id_overrides.team_id, 2)
-     GROUP BY person_distinct_id_overrides.distinct_id
-     HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+         max(events.timestamp) AS last_seen,
+         min(events.timestamp) AS first_seen,
+         any(events.`properties___$exception_message`) AS description,
+         any(events.`properties___$exception_type`) AS exception_type
+  FROM
+    (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_message'), ''), 'null'), '^"|"$', '') AS `properties___$exception_message`,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_type'), ''), 'null'), '^"|"$', '') AS `properties___$exception_type`,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', '') AS `properties___$exception_fingerprint`,
+            events.`$session_id` AS `$session_id`,
+            events.distinct_id AS distinct_id,
+            toTimeZone(events.timestamp, 'UTC') AS timestamp,
+            events.event AS event,
+            events.person_id AS events___person_id
+     FROM events
+     WHERE and(equals(events.team_id, 2), ifNull(equals(event, '$exception'), 0), has([['SyntaxError']], JSONExtract(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), '[]'), 'Array(String)')))) AS events
   LEFT JOIN
     (SELECT person.id AS id,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
@@ -88,8 +103,8 @@
                                                        FROM person
                                                        WHERE equals(person.team_id, 2)
                                                        GROUP BY person.id
-                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-  WHERE and(equals(events.team_id, 2), equals(events.event, '$exception'), ifNull(notILike(events__person.properties___email, '%@posthog.com%'), 1), has([['SyntaxError']], JSONExtract(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), '[]'), 'Array(String)')))
+                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(events.events___person_id, events__person.id)
+  WHERE and(ifNull(equals(events.event, '$exception'), 0), ifNull(notILike(events__person.properties___email, '%@posthog.com%'), 1), has([['SyntaxError']], JSONExtract(ifNull(events.`properties___$exception_fingerprint`, '[]'), 'Array(String)')))
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -145,12 +160,21 @@
   SELECT count() AS occurrences,
          count(DISTINCT events.`$session_id`) AS sessions,
          count(DISTINCT events.distinct_id) AS users,
-         max(toTimeZone(events.timestamp, 'UTC')) AS last_seen,
-         min(toTimeZone(events.timestamp, 'UTC')) AS first_seen,
-         any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_message'), ''), 'null'), '^"|"$', '')) AS description,
-         any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_type'), ''), 'null'), '^"|"$', '')) AS exception_type
-  FROM events
-  WHERE and(equals(events.team_id, 2), equals(events.event, '$exception'), 1, has([['SyntaxError']], JSONExtract(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), '[]'), 'Array(String)')))
+         max(events.timestamp) AS last_seen,
+         min(events.timestamp) AS first_seen,
+         any(events.`properties___$exception_message`) AS description,
+         any(events.`properties___$exception_type`) AS exception_type
+  FROM
+    (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_message'), ''), 'null'), '^"|"$', '') AS `properties___$exception_message`,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_type'), ''), 'null'), '^"|"$', '') AS `properties___$exception_type`,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', '') AS `properties___$exception_fingerprint`,
+            events.`$session_id` AS `$session_id`,
+            events.distinct_id AS distinct_id,
+            toTimeZone(events.timestamp, 'UTC') AS timestamp,
+            events.event AS event
+     FROM events
+     WHERE and(equals(events.team_id, 2), ifNull(equals(event, '$exception'), 0), has([['SyntaxError']], JSONExtract(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), '[]'), 'Array(String)')))) AS events
+  WHERE and(ifNull(equals(events.event, '$exception'), 0), 1, has([['SyntaxError']], JSONExtract(ifNull(events.`properties___$exception_fingerprint`, '[]'), 'Array(String)')))
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -166,19 +190,22 @@
   SELECT count() AS occurrences,
          count(DISTINCT events.`$session_id`) AS sessions,
          count(DISTINCT events.distinct_id) AS users,
-         max(toTimeZone(events.timestamp, 'UTC')) AS last_seen,
-         min(toTimeZone(events.timestamp, 'UTC')) AS first_seen,
-         any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_message'), ''), 'null'), '^"|"$', '')) AS description,
-         any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_type'), ''), 'null'), '^"|"$', '')) AS exception_type,
-         JSONExtract(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), '[]'), 'Array(String)') AS fingerprint
-  FROM events
-  LEFT OUTER JOIN
-    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-            person_distinct_id_overrides.distinct_id AS distinct_id
-     FROM person_distinct_id_overrides
-     WHERE equals(person_distinct_id_overrides.team_id, 2)
-     GROUP BY person_distinct_id_overrides.distinct_id
-     HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+         max(events.timestamp) AS last_seen,
+         min(events.timestamp) AS first_seen,
+         any(events.`properties___$exception_message`) AS description,
+         any(events.`properties___$exception_type`) AS exception_type,
+         JSONExtract(ifNull(events.`properties___$exception_fingerprint`, '[]'), 'Array(String)') AS fingerprint
+  FROM
+    (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_message'), ''), 'null'), '^"|"$', '') AS `properties___$exception_message`,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_type'), ''), 'null'), '^"|"$', '') AS `properties___$exception_type`,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', '') AS `properties___$exception_fingerprint`,
+            events.`$session_id` AS `$session_id`,
+            events.distinct_id AS distinct_id,
+            toTimeZone(events.timestamp, 'UTC') AS timestamp,
+            events.event AS event,
+            events.person_id AS events___person_id
+     FROM events
+     WHERE and(equals(events.team_id, 2), ifNull(equals(event, '$exception'), 0))) AS events
   LEFT JOIN
     (SELECT person.id AS id,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
@@ -188,8 +215,8 @@
                                                        FROM person
                                                        WHERE equals(person.team_id, 2)
                                                        GROUP BY person.id
-                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-  WHERE and(equals(events.team_id, 2), equals(events.event, '$exception'), ifNull(equals(events__person.properties___email, 'email@posthog.com'), 0))
+                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(events.events___person_id, events__person.id)
+  WHERE and(ifNull(equals(events.event, '$exception'), 0), ifNull(equals(events__person.properties___email, 'email@posthog.com'), 0))
   GROUP BY fingerprint
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,

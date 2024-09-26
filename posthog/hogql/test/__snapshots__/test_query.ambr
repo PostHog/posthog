@@ -32,8 +32,11 @@
   -- ClickHouse
   
   SELECT events.event AS event, events.distinct_id AS distinct_id 
+  FROM (
+  SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS properties___index, events.event AS event, events.distinct_id AS distinct_id 
   FROM events 
-  WHERE and(equals(events.team_id, 420), equals(events.distinct_id, %(hogql_val_0)s), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_1)s), ''), 'null'), '^"|"$', ''), %(hogql_val_2)s), 0)) 
+  WHERE equals(events.team_id, 420)) AS events 
+  WHERE and(ifNull(equals(events.distinct_id, %(hogql_val_1)s), 0), ifNull(equals(events.properties___index, %(hogql_val_2)s), 0)) 
   LIMIT 100 
   SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0
   
@@ -59,8 +62,11 @@
   -- ClickHouse
   
   SELECT events.event AS event, events.distinct_id AS distinct_id 
+  FROM (
+  SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS properties___index, events.event AS event, events.distinct_id AS distinct_id, toTimeZone(events.timestamp, %(hogql_val_1)s) AS timestamp 
   FROM events 
-  WHERE and(equals(events.team_id, 420), equals(events.distinct_id, %(hogql_val_0)s), and(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_1)s), ''), 'null'), '^"|"$', ''), %(hogql_val_2)s), 0), less(toTimeZone(events.timestamp, %(hogql_val_3)s), toDateTime64('2020-01-02 00:00:00.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, %(hogql_val_4)s), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')))) 
+  WHERE equals(events.team_id, 420)) AS events 
+  WHERE and(ifNull(equals(events.distinct_id, %(hogql_val_2)s), 0), and(ifNull(equals(events.properties___index, %(hogql_val_3)s), 0), ifNull(less(events.timestamp, toDateTime64('2020-01-02 00:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(events.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), 0))) 
   LIMIT 100 
   SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0
   
@@ -86,8 +92,11 @@
   -- ClickHouse
   
   SELECT e.event AS event, e.distinct_id AS distinct_id 
-  FROM events AS e 
-  WHERE and(equals(e.team_id, 420), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), %(hogql_val_1)s), 0)) 
+  FROM (
+  SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS properties___random_uuid, events.event AS event, events.distinct_id AS distinct_id 
+  FROM events 
+  WHERE equals(events.team_id, 420)) AS e 
+  WHERE ifNull(equals(e.properties___random_uuid, %(hogql_val_1)s), 0) 
   LIMIT 100 
   SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0
   
@@ -166,12 +175,16 @@
   -- ClickHouse
   
   SELECT events.event AS event 
-  FROM events 
-  WHERE equals(events.team_id, 420) 
-  LIMIT 100 UNION ALL 
+  FROM (
   SELECT events.event AS event 
   FROM events 
-  WHERE equals(events.team_id, 420) 
+  WHERE equals(events.team_id, 420)) AS events 
+  LIMIT 100 UNION ALL 
+  SELECT events.event AS event 
+  FROM (
+  SELECT events.event AS event 
+  FROM events 
+  WHERE equals(events.team_id, 420)) AS events 
   LIMIT 100 
   SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0
   
@@ -190,12 +203,15 @@
   -- ClickHouse
   
   SELECT e.event AS event, s.session_id AS session_id 
-  FROM events AS e LEFT JOIN (
+  FROM (
+  SELECT nullIf(nullIf(events.`$session_id`, ''), 'null') AS `properties___$session_id`, events.event AS event 
+  FROM events 
+  WHERE equals(events.team_id, 420)) AS e LEFT JOIN (
   SELECT session_replay_events.session_id AS session_id 
   FROM session_replay_events 
   WHERE equals(session_replay_events.team_id, 420) 
-  GROUP BY session_replay_events.session_id) AS s ON equals(s.session_id, nullIf(nullIf(e.`$session_id`, ''), 'null')) 
-  WHERE and(equals(e.team_id, 420), isNotNull(nullIf(nullIf(e.`$session_id`, ''), 'null'))) 
+  GROUP BY session_replay_events.session_id) AS s ON equals(s.session_id, e.`properties___$session_id`) 
+  WHERE isNotNull(e.`properties___$session_id`) 
   LIMIT 10 
   SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0
   
@@ -225,8 +241,11 @@
   SELECT session_replay_events.session_id AS session_id 
   FROM session_replay_events 
   WHERE equals(session_replay_events.team_id, 420) 
-  GROUP BY session_replay_events.session_id) AS s LEFT JOIN events AS e ON equals(nullIf(nullIf(e.`$session_id`, ''), 'null'), s.session_id) 
-  WHERE and(equals(e.team_id, 420), isNotNull(nullIf(nullIf(e.`$session_id`, ''), 'null'))) 
+  GROUP BY session_replay_events.session_id) AS s LEFT JOIN (
+  SELECT nullIf(nullIf(events.`$session_id`, ''), 'null') AS `properties___$session_id`, events.event AS event 
+  FROM events 
+  WHERE equals(events.team_id, 420)) AS e ON equals(e.`properties___$session_id`, s.session_id) 
+  WHERE isNotNull(e.`properties___$session_id`) 
   LIMIT 10 
   SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0
   
@@ -252,12 +271,15 @@
   -- ClickHouse
   
   SELECT e.event AS event, s.session_id AS session_id 
-  FROM events AS e LEFT JOIN (
+  FROM (
+  SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS `properties___$$$session_id`, events.event AS event 
+  FROM events 
+  WHERE equals(events.team_id, 420)) AS e LEFT JOIN (
   SELECT session_replay_events.session_id AS session_id 
   FROM session_replay_events 
   WHERE equals(session_replay_events.team_id, 420) 
-  GROUP BY session_replay_events.session_id) AS s ON equals(s.session_id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '')) 
-  WHERE and(equals(e.team_id, 420), isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, %(hogql_val_1)s), ''), 'null'), '^"|"$', ''))) 
+  GROUP BY session_replay_events.session_id) AS s ON equals(s.session_id, e.`properties___$$$session_id`) 
+  WHERE isNotNull(e.`properties___$$$session_id`) 
   LIMIT 10 
   SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0
   
@@ -287,8 +309,11 @@
   SELECT session_replay_events.session_id AS session_id 
   FROM session_replay_events 
   WHERE equals(session_replay_events.team_id, 420) 
-  GROUP BY session_replay_events.session_id) AS s LEFT JOIN events AS e ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), s.session_id) 
-  WHERE and(equals(e.team_id, 420), isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, %(hogql_val_1)s), ''), 'null'), '^"|"$', ''))) 
+  GROUP BY session_replay_events.session_id) AS s LEFT JOIN (
+  SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS `properties___$$$session_id`, events.event AS event 
+  FROM events 
+  WHERE equals(events.team_id, 420)) AS e ON equals(e.`properties___$$$session_id`, s.session_id) 
+  WHERE isNotNull(e.`properties___$$$session_id`) 
   LIMIT 10 
   SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0
   
@@ -314,19 +339,22 @@
   -- ClickHouse
   
   SELECT events.event AS event, count() 
-  FROM events LEFT OUTER JOIN (
+  FROM (
+  SELECT events.event AS event, events.person_id AS event_person_id, events.distinct_id AS events___distinct_id 
+  FROM events 
+  WHERE equals(events.team_id, 420)) AS events LEFT OUTER JOIN (
   SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id 
   FROM person_distinct_id_overrides 
   WHERE equals(person_distinct_id_overrides.team_id, 420) 
   GROUP BY person_distinct_id_overrides.distinct_id 
   HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) 
-  SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id) 
-  WHERE and(equals(events.team_id, 420), ifNull(in(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), (
+  SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.events___distinct_id, events__override.distinct_id) 
+  WHERE ifNull(in(if(not(empty(events__override.distinct_id)), events__override.person_id, events.event_person_id), (
   SELECT cohortpeople.person_id AS person_id 
   FROM cohortpeople 
   WHERE and(equals(cohortpeople.team_id, 420), equals(cohortpeople.cohort_id, XX)) 
   GROUP BY cohortpeople.person_id, cohortpeople.cohort_id, cohortpeople.version 
-  HAVING ifNull(greater(sum(cohortpeople.sign), 0), 0))), 0)) 
+  HAVING ifNull(greater(sum(cohortpeople.sign), 0), 0))), 0) 
   GROUP BY events.event 
   LIMIT 100 
   SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0
@@ -350,13 +378,16 @@
   -- ClickHouse
   
   SELECT events.event AS event, count(*) 
+  FROM (
+  SELECT events.event AS event, events.person_id AS person_id 
   FROM events 
-  WHERE and(equals(events.team_id, 420), in(events.person_id, (
+  WHERE equals(events.team_id, 420)) AS events 
+  WHERE ifNull(in(events.person_id, (
   SELECT cohortpeople.person_id AS person_id 
   FROM cohortpeople 
   WHERE and(equals(cohortpeople.team_id, 420), equals(cohortpeople.cohort_id, XX)) 
   GROUP BY cohortpeople.person_id, cohortpeople.cohort_id, cohortpeople.version 
-  HAVING ifNull(greater(sum(cohortpeople.sign), 0), 0)))) 
+  HAVING ifNull(greater(sum(cohortpeople.sign), 0), 0))), 0) 
   GROUP BY events.event 
   LIMIT 100 
   SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0
@@ -380,17 +411,20 @@
   -- ClickHouse
   
   SELECT events.event AS event, count() 
-  FROM events LEFT OUTER JOIN (
+  FROM (
+  SELECT events.event AS event, events.person_id AS event_person_id, events.distinct_id AS events___distinct_id 
+  FROM events 
+  WHERE equals(events.team_id, 420)) AS events LEFT OUTER JOIN (
   SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id 
   FROM person_distinct_id_overrides 
   WHERE equals(person_distinct_id_overrides.team_id, 420) 
   GROUP BY person_distinct_id_overrides.distinct_id 
   HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) 
-  SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id) 
-  WHERE and(equals(events.team_id, 420), ifNull(in(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), (
+  SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.events___distinct_id, events__override.distinct_id) 
+  WHERE ifNull(in(if(not(empty(events__override.distinct_id)), events__override.person_id, events.event_person_id), (
   SELECT person_static_cohort.person_id AS person_id 
   FROM person_static_cohort 
-  WHERE and(equals(person_static_cohort.team_id, 420), equals(person_static_cohort.cohort_id, XX)))), 0)) 
+  WHERE and(equals(person_static_cohort.team_id, 420), equals(person_static_cohort.cohort_id, XX)))), 0) 
   GROUP BY events.event 
   LIMIT 100 
   SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0
@@ -412,11 +446,14 @@
   -- ClickHouse
   
   SELECT events.event AS event, count(*) 
+  FROM (
+  SELECT events.event AS event, events.person_id AS person_id 
   FROM events 
-  WHERE and(equals(events.team_id, 420), in(events.person_id, (
+  WHERE equals(events.team_id, 420)) AS events 
+  WHERE ifNull(in(events.person_id, (
   SELECT person_static_cohort.person_id AS person_id 
   FROM person_static_cohort 
-  WHERE and(equals(person_static_cohort.team_id, 420), equals(person_static_cohort.cohort_id, XX))))) 
+  WHERE and(equals(person_static_cohort.team_id, 420), equals(person_static_cohort.cohort_id, XX)))), 0) 
   GROUP BY events.event 
   LIMIT 100 
   SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0
@@ -438,8 +475,11 @@
   -- ClickHouse
   
   SELECT count(), events.event AS event 
+  FROM (
+  SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS properties___random_uuid, events.event AS event 
   FROM events 
-  WHERE and(equals(events.team_id, 420), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), %(hogql_val_1)s), 0)) 
+  WHERE equals(events.team_id, 420)) AS events 
+  WHERE ifNull(equals(events.properties___random_uuid, %(hogql_val_1)s), 0) 
   GROUP BY events.event 
   LIMIT 100 
   SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0
@@ -484,15 +524,17 @@
   '''
   -- ClickHouse
   
-  SELECT e.event AS event, toTimeZone(e.timestamp, %(hogql_val_0)s) AS timestamp, e__pdi.distinct_id AS distinct_id, e__pdi.person_id AS person_id 
-  FROM events AS e INNER JOIN (
+  SELECT e.event AS event, e.timestamp AS timestamp, e__pdi.distinct_id AS distinct_id, e__pdi.person_id AS person_id 
+  FROM (
+  SELECT events.event AS event, toTimeZone(events.timestamp, %(hogql_val_0)s) AS timestamp, events.distinct_id AS e___distinct_id 
+  FROM events 
+  WHERE equals(events.team_id, 420)) AS e INNER JOIN (
   SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id 
   FROM person_distinct_id2 
   WHERE equals(person_distinct_id2.team_id, 420) 
   GROUP BY person_distinct_id2.distinct_id 
   HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) 
-  SETTINGS optimize_aggregation_in_order=1) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id) 
-  WHERE equals(e.team_id, 420) 
+  SETTINGS optimize_aggregation_in_order=1) AS e__pdi ON equals(e.e___distinct_id, e__pdi.distinct_id) 
   LIMIT 10 
   SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0
   
@@ -507,15 +549,17 @@
   '''
   -- ClickHouse
   
-  SELECT events.event AS event, toTimeZone(events.timestamp, %(hogql_val_0)s) AS timestamp, events__pdi.distinct_id AS distinct_id, events__pdi.person_id AS person_id 
-  FROM events INNER JOIN (
+  SELECT events.event AS event, events.timestamp AS timestamp, events__pdi.distinct_id AS distinct_id, events__pdi.person_id AS person_id 
+  FROM (
+  SELECT events.event AS event, toTimeZone(events.timestamp, %(hogql_val_0)s) AS timestamp, events.distinct_id AS events___distinct_id 
+  FROM events 
+  WHERE equals(events.team_id, 420)) AS events INNER JOIN (
   SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id 
   FROM person_distinct_id2 
   WHERE equals(person_distinct_id2.team_id, 420) 
   GROUP BY person_distinct_id2.distinct_id 
   HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) 
-  SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id) 
-  WHERE equals(events.team_id, 420) 
+  SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.events___distinct_id, events__pdi.distinct_id) 
   LIMIT 10 
   SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0
   
@@ -530,24 +574,26 @@
   '''
   -- ClickHouse
   
-  SELECT e.event AS event, toTimeZone(e.timestamp, %(hogql_val_3)s) AS timestamp, e__pdi.distinct_id AS distinct_id, e__pdi__person.properties___sneaky_mail AS sneaky_mail 
-  FROM events AS e INNER JOIN (
+  SELECT e.event AS event, e.timestamp AS timestamp, e__pdi.distinct_id AS distinct_id, e__pdi__person.properties___sneaky_mail AS sneaky_mail 
+  FROM (
+  SELECT events.event AS event, toTimeZone(events.timestamp, %(hogql_val_0)s) AS timestamp, events.distinct_id AS e___distinct_id 
+  FROM events 
+  WHERE equals(events.team_id, 420)) AS e INNER JOIN (
   SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS e__pdi___person_id, argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id 
   FROM person_distinct_id2 
   WHERE equals(person_distinct_id2.team_id, 420) 
   GROUP BY person_distinct_id2.distinct_id 
   HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) 
-  SETTINGS optimize_aggregation_in_order=1) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id) LEFT JOIN (
-  SELECT person.id AS id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS properties___sneaky_mail 
+  SETTINGS optimize_aggregation_in_order=1) AS e__pdi ON equals(e.e___distinct_id, e__pdi.distinct_id) LEFT JOIN (
+  SELECT person.id AS id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_1)s), ''), 'null'), '^"|"$', '') AS properties___sneaky_mail 
   FROM person 
   WHERE and(equals(person.team_id, 420), ifNull(in(tuple(person.id, person.version), (
   SELECT person.id AS id, max(person.version) AS version 
   FROM person 
   WHERE equals(person.team_id, 420) 
   GROUP BY person.id 
-  HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, %(hogql_val_1)s), person.version), plus(now64(6, %(hogql_val_2)s), toIntervalDay(1))), 0)))), 0)) 
+  HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, %(hogql_val_2)s), person.version), plus(now64(6, %(hogql_val_3)s), toIntervalDay(1))), 0)))), 0)) 
   SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.e__pdi___person_id, e__pdi__person.id) 
-  WHERE equals(e.team_id, 420) 
   LIMIT 10 
   SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0
   
@@ -562,21 +608,23 @@
   '''
   -- ClickHouse
   
-  SELECT events.event AS event, toTimeZone(events.timestamp, %(hogql_val_2)s) AS timestamp, events__pdi.distinct_id AS distinct_id, events__pdi__person.id AS id 
-  FROM events INNER JOIN (
+  SELECT events.event AS event, events.timestamp AS timestamp, events__pdi.distinct_id AS distinct_id, events__pdi__person.id AS id 
+  FROM (
+  SELECT events.event AS event, toTimeZone(events.timestamp, %(hogql_val_0)s) AS timestamp, events.distinct_id AS events___distinct_id 
+  FROM events 
+  WHERE equals(events.team_id, 420)) AS events INNER JOIN (
   SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS events__pdi___person_id, argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id 
   FROM person_distinct_id2 
   WHERE equals(person_distinct_id2.team_id, 420) 
   GROUP BY person_distinct_id2.distinct_id 
   HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) 
-  SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id) LEFT JOIN (
+  SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.events___distinct_id, events__pdi.distinct_id) LEFT JOIN (
   SELECT person.id AS id 
   FROM person 
   WHERE equals(person.team_id, 420) 
   GROUP BY person.id 
-  HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, %(hogql_val_0)s), person.version), plus(now64(6, %(hogql_val_1)s), toIntervalDay(1))), 0)) 
+  HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, %(hogql_val_1)s), person.version), plus(now64(6, %(hogql_val_2)s), toIntervalDay(1))), 0)) 
   SETTINGS optimize_aggregation_in_order=1) AS events__pdi__person ON equals(events__pdi.events__pdi___person_id, events__pdi__person.id) 
-  WHERE equals(events.team_id, 420) 
   LIMIT 10 
   SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0
   
@@ -591,24 +639,26 @@
   '''
   -- ClickHouse
   
-  SELECT events.event AS event, toTimeZone(events.timestamp, %(hogql_val_3)s) AS timestamp, events__pdi.distinct_id AS distinct_id, events__pdi__person.properties___sneaky_mail AS sneaky_mail 
-  FROM events INNER JOIN (
+  SELECT events.event AS event, events.timestamp AS timestamp, events__pdi.distinct_id AS distinct_id, events__pdi__person.properties___sneaky_mail AS sneaky_mail 
+  FROM (
+  SELECT events.event AS event, toTimeZone(events.timestamp, %(hogql_val_0)s) AS timestamp, events.distinct_id AS events___distinct_id 
+  FROM events 
+  WHERE equals(events.team_id, 420)) AS events INNER JOIN (
   SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS events__pdi___person_id, argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id 
   FROM person_distinct_id2 
   WHERE equals(person_distinct_id2.team_id, 420) 
   GROUP BY person_distinct_id2.distinct_id 
   HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) 
-  SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id) LEFT JOIN (
-  SELECT person.id AS id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS properties___sneaky_mail 
+  SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.events___distinct_id, events__pdi.distinct_id) LEFT JOIN (
+  SELECT person.id AS id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_1)s), ''), 'null'), '^"|"$', '') AS properties___sneaky_mail 
   FROM person 
   WHERE and(equals(person.team_id, 420), ifNull(in(tuple(person.id, person.version), (
   SELECT person.id AS id, max(person.version) AS version 
   FROM person 
   WHERE equals(person.team_id, 420) 
   GROUP BY person.id 
-  HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, %(hogql_val_1)s), person.version), plus(now64(6, %(hogql_val_2)s), toIntervalDay(1))), 0)))), 0)) 
+  HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, %(hogql_val_2)s), person.version), plus(now64(6, %(hogql_val_3)s), toIntervalDay(1))), 0)))), 0)) 
   SETTINGS optimize_aggregation_in_order=1) AS events__pdi__person ON equals(events__pdi.events__pdi___person_id, events__pdi__person.id) 
-  WHERE equals(events.team_id, 420) 
   LIMIT 10 
   SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0
   
@@ -623,24 +673,26 @@
   '''
   -- ClickHouse
   
-  SELECT e.event AS event, toTimeZone(e.timestamp, %(hogql_val_3)s) AS timestamp, e__pdi__person.properties___sneaky_mail AS sneaky_mail 
-  FROM events AS e INNER JOIN (
+  SELECT e.event AS event, e.timestamp AS timestamp, e__pdi__person.properties___sneaky_mail AS sneaky_mail 
+  FROM (
+  SELECT events.event AS event, toTimeZone(events.timestamp, %(hogql_val_0)s) AS timestamp, events.distinct_id AS e___distinct_id 
+  FROM events 
+  WHERE equals(events.team_id, 420)) AS e INNER JOIN (
   SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS e__pdi___person_id, argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id 
   FROM person_distinct_id2 
   WHERE equals(person_distinct_id2.team_id, 420) 
   GROUP BY person_distinct_id2.distinct_id 
   HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) 
-  SETTINGS optimize_aggregation_in_order=1) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id) LEFT JOIN (
-  SELECT person.id AS id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS properties___sneaky_mail 
+  SETTINGS optimize_aggregation_in_order=1) AS e__pdi ON equals(e.e___distinct_id, e__pdi.distinct_id) LEFT JOIN (
+  SELECT person.id AS id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_1)s), ''), 'null'), '^"|"$', '') AS properties___sneaky_mail 
   FROM person 
   WHERE and(equals(person.team_id, 420), ifNull(in(tuple(person.id, person.version), (
   SELECT person.id AS id, max(person.version) AS version 
   FROM person 
   WHERE equals(person.team_id, 420) 
   GROUP BY person.id 
-  HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, %(hogql_val_1)s), person.version), plus(now64(6, %(hogql_val_2)s), toIntervalDay(1))), 0)))), 0)) 
+  HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, %(hogql_val_2)s), person.version), plus(now64(6, %(hogql_val_3)s), toIntervalDay(1))), 0)))), 0)) 
   SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.e__pdi___person_id, e__pdi__person.id) 
-  WHERE equals(e.team_id, 420) 
   LIMIT 10 
   SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0
   
@@ -656,13 +708,16 @@
   -- ClickHouse
   
   SELECT s__pdi__person.properties___sneaky_mail AS sneaky_mail, count() 
-  FROM events AS s INNER JOIN (
+  FROM (
+  SELECT events.distinct_id AS s___distinct_id 
+  FROM events 
+  WHERE equals(events.team_id, 420)) AS s INNER JOIN (
   SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS s__pdi___person_id, argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id 
   FROM person_distinct_id2 
   WHERE equals(person_distinct_id2.team_id, 420) 
   GROUP BY person_distinct_id2.distinct_id 
   HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) 
-  SETTINGS optimize_aggregation_in_order=1) AS s__pdi ON equals(s.distinct_id, s__pdi.distinct_id) LEFT JOIN (
+  SETTINGS optimize_aggregation_in_order=1) AS s__pdi ON equals(s.s___distinct_id, s__pdi.distinct_id) LEFT JOIN (
   SELECT person.id AS id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS properties___sneaky_mail 
   FROM person 
   WHERE and(equals(person.team_id, 420), ifNull(in(tuple(person.id, person.version), (
@@ -672,7 +727,6 @@
   GROUP BY person.id 
   HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, %(hogql_val_1)s), person.version), plus(now64(6, %(hogql_val_2)s), toIntervalDay(1))), 0)))), 0)) 
   SETTINGS optimize_aggregation_in_order=1) AS s__pdi__person ON equals(s__pdi.s__pdi___person_id, s__pdi__person.id) 
-  WHERE equals(s.team_id, 420) 
   GROUP BY s__pdi__person.properties___sneaky_mail 
   LIMIT 10 
   SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0
@@ -689,14 +743,16 @@
   '''
   -- ClickHouse
   
-  SELECT e.event AS event, toTimeZone(e.timestamp, %(hogql_val_0)s) AS timestamp, pdi.person_id AS person_id 
-  FROM events AS e INNER JOIN (
+  SELECT e.event AS event, e.timestamp AS timestamp, pdi.person_id AS person_id 
+  FROM (
+  SELECT events.distinct_id AS distinct_id, events.event AS event, toTimeZone(events.timestamp, %(hogql_val_0)s) AS timestamp 
+  FROM events 
+  WHERE equals(events.team_id, 420)) AS e INNER JOIN (
   SELECT person_distinct_id2.distinct_id AS distinct_id, argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id 
   FROM person_distinct_id2 
   WHERE equals(person_distinct_id2.team_id, 420) 
   GROUP BY person_distinct_id2.distinct_id 
   HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS pdi ON equals(e.distinct_id, pdi.distinct_id) 
-  WHERE equals(e.team_id, 420) 
   LIMIT 100 
   SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0
   
@@ -774,24 +830,26 @@
   '''
   -- ClickHouse
   
-  SELECT e.event AS event, toTimeZone(e.timestamp, %(hogql_val_3)s) AS timestamp, pdi.distinct_id AS distinct_id, p.id AS id, p.properties___sneaky_mail AS sneaky_mail 
-  FROM events AS e LEFT JOIN (
+  SELECT e.event AS event, e.timestamp AS timestamp, pdi.distinct_id AS distinct_id, p.id AS id, p.properties___sneaky_mail AS sneaky_mail 
+  FROM (
+  SELECT events.distinct_id AS distinct_id, events.event AS event, toTimeZone(events.timestamp, %(hogql_val_0)s) AS timestamp 
+  FROM events 
+  WHERE equals(events.team_id, 420)) AS e LEFT JOIN (
   SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id 
   FROM person_distinct_id2 
   WHERE equals(person_distinct_id2.team_id, 420) 
   GROUP BY person_distinct_id2.distinct_id 
   HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) 
   SETTINGS optimize_aggregation_in_order=1) AS pdi ON equals(pdi.distinct_id, e.distinct_id) LEFT JOIN (
-  SELECT person.id AS id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS properties___sneaky_mail 
+  SELECT person.id AS id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_1)s), ''), 'null'), '^"|"$', '') AS properties___sneaky_mail 
   FROM person 
   WHERE and(equals(person.team_id, 420), ifNull(in(tuple(person.id, person.version), (
   SELECT person.id AS id, max(person.version) AS version 
   FROM person 
   WHERE equals(person.team_id, 420) 
   GROUP BY person.id 
-  HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, %(hogql_val_1)s), person.version), plus(now64(6, %(hogql_val_2)s), toIntervalDay(1))), 0)))), 0)) 
+  HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, %(hogql_val_2)s), person.version), plus(now64(6, %(hogql_val_3)s), toIntervalDay(1))), 0)))), 0)) 
   SETTINGS optimize_aggregation_in_order=1) AS p ON equals(p.id, pdi.person_id) 
-  WHERE equals(e.team_id, 420) 
   LIMIT 100 
   SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0
   
@@ -828,24 +886,20 @@
   '''
   -- ClickHouse
   
-  SELECT events.event AS event, toTimeZone(events.timestamp, %(hogql_val_3)s) AS timestamp, events__person.id AS id, events__person.properties___sneaky_mail AS sneaky_mail 
-  FROM events LEFT OUTER JOIN (
-  SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id 
-  FROM person_distinct_id_overrides 
-  WHERE equals(person_distinct_id_overrides.team_id, 420) 
-  GROUP BY person_distinct_id_overrides.distinct_id 
-  HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) 
-  SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id) LEFT JOIN (
-  SELECT person.id AS id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS properties___sneaky_mail 
+  SELECT events.event AS event, events.timestamp AS timestamp, events__person.id AS id, events__person.properties___sneaky_mail AS sneaky_mail 
+  FROM (
+  SELECT events.event AS event, toTimeZone(events.timestamp, %(hogql_val_0)s) AS timestamp, events.person_id AS events___person_id 
+  FROM events 
+  WHERE equals(events.team_id, 420)) AS events LEFT JOIN (
+  SELECT person.id AS id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_1)s), ''), 'null'), '^"|"$', '') AS properties___sneaky_mail 
   FROM person 
   WHERE and(equals(person.team_id, 420), ifNull(in(tuple(person.id, person.version), (
   SELECT person.id AS id, max(person.version) AS version 
   FROM person 
   WHERE equals(person.team_id, 420) 
   GROUP BY person.id 
-  HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, %(hogql_val_1)s), person.version), plus(now64(6, %(hogql_val_2)s), toIntervalDay(1))), 0)))), 0)) 
-  SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id) 
-  WHERE equals(events.team_id, 420) 
+  HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, %(hogql_val_2)s), person.version), plus(now64(6, %(hogql_val_3)s), toIntervalDay(1))), 0)))), 0)) 
+  SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(events.events___person_id, events__person.id) 
   LIMIT 10 
   SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0
   
@@ -873,25 +927,6 @@
   LIMIT 10
   '''
 # ---
-# name: TestQuery.test_select_person_on_events
-  '''
-  -- ClickHouse
-  
-  SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(s.person_properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS sneaky_mail, count() 
-  FROM events AS s 
-  WHERE equals(s.team_id, 420) 
-  GROUP BY replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(s.person_properties, %(hogql_val_1)s), ''), 'null'), '^"|"$', '') 
-  LIMIT 10 
-  SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0
-  
-  -- HogQL
-  
-  SELECT poe.properties.sneaky_mail, count() 
-  FROM events AS s 
-  GROUP BY poe.properties.sneaky_mail 
-  LIMIT 10
-  '''
-# ---
 # name: TestQuery.test_subquery
   '''
   -- ClickHouse
@@ -899,8 +934,11 @@
   SELECT count AS count, event AS event 
   FROM (
   SELECT count() AS count, events.event AS event 
+  FROM (
+  SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS properties___random_uuid, events.event AS event 
   FROM events 
-  WHERE and(equals(events.team_id, 420), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), %(hogql_val_1)s), 0)) 
+  WHERE equals(events.team_id, 420)) AS events 
+  WHERE ifNull(equals(events.properties___random_uuid, %(hogql_val_1)s), 0) 
   GROUP BY events.event) 
   GROUP BY count, event 
   LIMIT 100 
@@ -925,8 +963,11 @@
   SELECT c.count AS count, c.event AS event 
   FROM (
   SELECT count(*) AS count, events.event AS event 
+  FROM (
+  SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS properties___random_uuid, events.event AS event 
   FROM events 
-  WHERE and(equals(events.team_id, 420), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), %(hogql_val_1)s), 0)) 
+  WHERE equals(events.team_id, 420)) AS events 
+  WHERE ifNull(equals(events.properties___random_uuid, %(hogql_val_1)s), 0) 
   GROUP BY events.event) AS c 
   GROUP BY c.count, c.event 
   LIMIT 100 
@@ -952,10 +993,12 @@
   FROM (
   SELECT col_a AS col_a, groupArray(tuple(col_b, col_c)) AS g 
   FROM (
-  SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS col_a, events.event AS col_b, count() AS col_c 
+  SELECT events.properties___index AS col_a, events.event AS col_b, count() AS col_c 
+  FROM (
+  SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS properties___index, events.event AS event 
   FROM events 
-  WHERE equals(events.team_id, 420) 
-  GROUP BY replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_1)s), ''), 'null'), '^"|"$', ''), events.event) 
+  WHERE equals(events.team_id, 420)) AS events 
+  GROUP BY events.properties___index, events.event) 
   GROUP BY col_a) 
   GROUP BY col_a ORDER BY col_a ASC 
   LIMIT 100 
@@ -985,10 +1028,12 @@
   FROM (
   SELECT PIVOT_TABLE_COL_ABC.col_a AS col_a, groupArray(tuple(PIVOT_TABLE_COL_ABC.col_b, PIVOT_TABLE_COL_ABC.col_c)) AS g 
   FROM (
-  SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS col_a, events.event AS col_b, count() AS col_c 
+  SELECT events.properties___index AS col_a, events.event AS col_b, count() AS col_c 
+  FROM (
+  SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS properties___index, events.event AS event 
   FROM events 
-  WHERE equals(events.team_id, 420) 
-  GROUP BY replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_1)s), ''), 'null'), '^"|"$', ''), events.event) AS PIVOT_TABLE_COL_ABC 
+  WHERE equals(events.team_id, 420)) AS events 
+  GROUP BY events.properties___index, events.event) AS PIVOT_TABLE_COL_ABC 
   GROUP BY PIVOT_TABLE_COL_ABC.col_a) AS PIVOT_FUNCTION_1 
   GROUP BY PIVOT_FUNCTION_1.col_a) AS PIVOT_FUNCTION_2 ORDER BY PIVOT_FUNCTION_2.col_a ASC 
   LIMIT 100 
@@ -1022,10 +1067,12 @@
   FROM (
   SELECT PIVOT_TABLE_COL_ABC.col_a AS col_a, groupArray(tuple(PIVOT_TABLE_COL_ABC.col_b, PIVOT_TABLE_COL_ABC.col_c)) AS g 
   FROM (
-  SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS col_a, events.event AS col_b, count() AS col_c 
+  SELECT events.properties___index AS col_a, events.event AS col_b, count() AS col_c 
+  FROM (
+  SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS properties___index, events.event AS event 
   FROM events 
-  WHERE equals(events.team_id, 420) 
-  GROUP BY replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_1)s), ''), 'null'), '^"|"$', ''), events.event) AS PIVOT_TABLE_COL_ABC 
+  WHERE equals(events.team_id, 420)) AS events 
+  GROUP BY events.properties___index, events.event) AS PIVOT_TABLE_COL_ABC 
   GROUP BY PIVOT_TABLE_COL_ABC.col_a) AS PIVOT_FUNCTION_1 
   GROUP BY PIVOT_FUNCTION_1.col_a) AS PIVOT_FUNCTION_2) AS final ORDER BY final.col_a ASC 
   LIMIT 100 

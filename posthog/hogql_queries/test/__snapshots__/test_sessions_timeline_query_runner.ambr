@@ -26,8 +26,8 @@
                                                                              ORDER BY timestamp ASC ROWS UNBOUNDED PRECEDING) AS session_id_flip_index
      FROM
        (SELECT events.uuid AS uuid,
-               if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               if(not(empty(events__override.distinct_id)), events__override.person_id, events.event_person_id) AS person_id,
+               events.timestamp AS timestamp,
                events.event AS event,
                events.properties AS properties,
                events.distinct_id AS distinct_id,
@@ -35,15 +35,26 @@
                events.`$session_id` AS session_id,
                lagInFrame(events.`$session_id`, 1) OVER (PARTITION BY person_id
                                                          ORDER BY timestamp ASC) AS prev_session_id
-        FROM events
+        FROM
+          (SELECT events.uuid AS uuid,
+                  events.person_id AS event_person_id,
+                  toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                  events.event AS event,
+                  events.properties AS properties,
+                  events.distinct_id AS distinct_id,
+                  events.elements_chain AS elements_chain,
+                  events.`$session_id` AS `$session_id`,
+                  events.distinct_id AS events___distinct_id
+           FROM events
+           WHERE equals(events.team_id, 2)) AS events
         LEFT OUTER JOIN
           (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
            FROM person_distinct_id_overrides
            WHERE equals(person_distinct_id_overrides.team_id, 2)
            GROUP BY person_distinct_id_overrides.distinct_id
-           HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-        WHERE and(equals(events.team_id, 2), ifNull(greater(timestamp, toDateTime64('2023-10-01 12:00:00.000000', 6, 'UTC')), 0), ifNull(less(timestamp, toDateTime64('2023-10-01 17:00:00.000000', 6, 'UTC')), 0))
+           HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.events___distinct_id, events__override.distinct_id)
+        WHERE and(ifNull(greater(timestamp, toDateTime64('2023-10-01 12:00:00.000000', 6, 'UTC')), 0), ifNull(less(timestamp, toDateTime64('2023-10-01 17:00:00.000000', 6, 'UTC')), 0))
         ORDER BY timestamp DESC
         LIMIT 1001)) AS e
   LEFT JOIN
@@ -94,8 +105,8 @@
                                                                              ORDER BY timestamp ASC ROWS UNBOUNDED PRECEDING) AS session_id_flip_index
      FROM
        (SELECT events.uuid AS uuid,
-               if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               if(not(empty(events__override.distinct_id)), events__override.person_id, events.event_person_id) AS person_id,
+               events.timestamp AS timestamp,
                events.event AS event,
                events.properties AS properties,
                events.distinct_id AS distinct_id,
@@ -103,15 +114,26 @@
                events.`$session_id` AS session_id,
                lagInFrame(events.`$session_id`, 1) OVER (PARTITION BY person_id
                                                          ORDER BY timestamp ASC) AS prev_session_id
-        FROM events
+        FROM
+          (SELECT events.uuid AS uuid,
+                  events.person_id AS event_person_id,
+                  toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                  events.event AS event,
+                  events.properties AS properties,
+                  events.distinct_id AS distinct_id,
+                  events.elements_chain AS elements_chain,
+                  events.`$session_id` AS `$session_id`,
+                  events.distinct_id AS events___distinct_id
+           FROM events
+           WHERE equals(events.team_id, 2)) AS events
         LEFT OUTER JOIN
           (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
            FROM person_distinct_id_overrides
            WHERE equals(person_distinct_id_overrides.team_id, 2)
            GROUP BY person_distinct_id_overrides.distinct_id
-           HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-        WHERE and(equals(events.team_id, 2), ifNull(greater(timestamp, toDateTime64('2023-09-30 16:00:00.000000', 6, 'UTC')), 0), ifNull(less(timestamp, toDateTime64('2023-10-01 16:00:00.000000', 6, 'UTC')), 0))
+           HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.events___distinct_id, events__override.distinct_id)
+        WHERE and(ifNull(greater(timestamp, toDateTime64('2023-09-30 16:00:00.000000', 6, 'UTC')), 0), ifNull(less(timestamp, toDateTime64('2023-10-01 16:00:00.000000', 6, 'UTC')), 0))
         ORDER BY timestamp DESC
         LIMIT 1001)) AS e
   LEFT JOIN
@@ -162,8 +184,8 @@
                                                                              ORDER BY timestamp ASC ROWS UNBOUNDED PRECEDING) AS session_id_flip_index
      FROM
        (SELECT events.uuid AS uuid,
-               if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               if(not(empty(events__override.distinct_id)), events__override.person_id, events.event_person_id) AS person_id,
+               events.timestamp AS timestamp,
                events.event AS event,
                events.properties AS properties,
                events.distinct_id AS distinct_id,
@@ -171,15 +193,26 @@
                events.`$session_id` AS session_id,
                lagInFrame(events.`$session_id`, 1) OVER (PARTITION BY person_id
                                                          ORDER BY timestamp ASC) AS prev_session_id
-        FROM events
+        FROM
+          (SELECT events.uuid AS uuid,
+                  events.person_id AS event_person_id,
+                  toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                  events.event AS event,
+                  events.properties AS properties,
+                  events.distinct_id AS distinct_id,
+                  events.elements_chain AS elements_chain,
+                  events.`$session_id` AS `$session_id`,
+                  events.distinct_id AS events___distinct_id
+           FROM events
+           WHERE equals(events.team_id, 2)) AS events
         LEFT OUTER JOIN
           (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
            FROM person_distinct_id_overrides
            WHERE equals(person_distinct_id_overrides.team_id, 2)
            GROUP BY person_distinct_id_overrides.distinct_id
-           HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-        WHERE and(equals(events.team_id, 2), ifNull(greater(timestamp, toDateTime64('2023-10-01 06:00:00.000000', 6, 'UTC')), 0), ifNull(less(timestamp, toDateTime64('2023-10-02 06:00:00.000000', 6, 'UTC')), 0))
+           HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.events___distinct_id, events__override.distinct_id)
+        WHERE and(ifNull(greater(timestamp, toDateTime64('2023-10-01 06:00:00.000000', 6, 'UTC')), 0), ifNull(less(timestamp, toDateTime64('2023-10-02 06:00:00.000000', 6, 'UTC')), 0))
         ORDER BY timestamp DESC
         LIMIT 3)) AS e
   LEFT JOIN
@@ -230,8 +263,8 @@
                                                                              ORDER BY timestamp ASC ROWS UNBOUNDED PRECEDING) AS session_id_flip_index
      FROM
        (SELECT events.uuid AS uuid,
-               if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               if(not(empty(events__override.distinct_id)), events__override.person_id, events.event_person_id) AS person_id,
+               events.timestamp AS timestamp,
                events.event AS event,
                events.properties AS properties,
                events.distinct_id AS distinct_id,
@@ -239,15 +272,26 @@
                events.`$session_id` AS session_id,
                lagInFrame(events.`$session_id`, 1) OVER (PARTITION BY person_id
                                                          ORDER BY timestamp ASC) AS prev_session_id
-        FROM events
+        FROM
+          (SELECT events.uuid AS uuid,
+                  events.person_id AS event_person_id,
+                  toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                  events.event AS event,
+                  events.properties AS properties,
+                  events.distinct_id AS distinct_id,
+                  events.elements_chain AS elements_chain,
+                  events.`$session_id` AS `$session_id`,
+                  events.distinct_id AS events___distinct_id
+           FROM events
+           WHERE equals(events.team_id, 2)) AS events
         LEFT OUTER JOIN
           (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
            FROM person_distinct_id_overrides
            WHERE equals(person_distinct_id_overrides.team_id, 2)
            GROUP BY person_distinct_id_overrides.distinct_id
-           HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-        WHERE and(equals(events.team_id, 2), ifNull(greater(timestamp, toDateTime64('2023-10-01 06:00:00.000000', 6, 'UTC')), 0), ifNull(less(timestamp, toDateTime64('2023-10-02 06:00:00.000000', 6, 'UTC')), 0))
+           HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.events___distinct_id, events__override.distinct_id)
+        WHERE and(ifNull(greater(timestamp, toDateTime64('2023-10-01 06:00:00.000000', 6, 'UTC')), 0), ifNull(less(timestamp, toDateTime64('2023-10-02 06:00:00.000000', 6, 'UTC')), 0))
         ORDER BY timestamp DESC
         LIMIT 1001)) AS e
   LEFT JOIN
@@ -298,8 +342,8 @@
                                                                              ORDER BY timestamp ASC ROWS UNBOUNDED PRECEDING) AS session_id_flip_index
      FROM
        (SELECT events.uuid AS uuid,
-               if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               if(not(empty(events__override.distinct_id)), events__override.person_id, events.event_person_id) AS person_id,
+               events.timestamp AS timestamp,
                events.event AS event,
                events.properties AS properties,
                events.distinct_id AS distinct_id,
@@ -307,15 +351,26 @@
                events.`$session_id` AS session_id,
                lagInFrame(events.`$session_id`, 1) OVER (PARTITION BY person_id
                                                          ORDER BY timestamp ASC) AS prev_session_id
-        FROM events
+        FROM
+          (SELECT events.uuid AS uuid,
+                  events.person_id AS event_person_id,
+                  toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                  events.event AS event,
+                  events.properties AS properties,
+                  events.distinct_id AS distinct_id,
+                  events.elements_chain AS elements_chain,
+                  events.`$session_id` AS `$session_id`,
+                  events.distinct_id AS events___distinct_id
+           FROM events
+           WHERE equals(events.team_id, 2)) AS events
         LEFT OUTER JOIN
           (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
            FROM person_distinct_id_overrides
            WHERE equals(person_distinct_id_overrides.team_id, 2)
            GROUP BY person_distinct_id_overrides.distinct_id
-           HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-        WHERE and(equals(events.team_id, 2), ifNull(greater(timestamp, toDateTime64('2023-10-01 06:00:00.000000', 6, 'UTC')), 0), ifNull(less(timestamp, toDateTime64('2023-10-02 06:00:00.000000', 6, 'UTC')), 0))
+           HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.events___distinct_id, events__override.distinct_id)
+        WHERE and(ifNull(greater(timestamp, toDateTime64('2023-10-01 06:00:00.000000', 6, 'UTC')), 0), ifNull(less(timestamp, toDateTime64('2023-10-02 06:00:00.000000', 6, 'UTC')), 0))
         ORDER BY timestamp DESC
         LIMIT 1001)) AS e
   LEFT JOIN
@@ -366,8 +421,8 @@
                                                                              ORDER BY timestamp ASC ROWS UNBOUNDED PRECEDING) AS session_id_flip_index
      FROM
        (SELECT events.uuid AS uuid,
-               if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               if(not(empty(events__override.distinct_id)), events__override.person_id, events.event_person_id) AS person_id,
+               events.timestamp AS timestamp,
                events.event AS event,
                events.properties AS properties,
                events.distinct_id AS distinct_id,
@@ -375,15 +430,26 @@
                events.`$session_id` AS session_id,
                lagInFrame(events.`$session_id`, 1) OVER (PARTITION BY person_id
                                                          ORDER BY timestamp ASC) AS prev_session_id
-        FROM events
+        FROM
+          (SELECT events.uuid AS uuid,
+                  events.person_id AS event_person_id,
+                  toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                  events.event AS event,
+                  events.properties AS properties,
+                  events.distinct_id AS distinct_id,
+                  events.elements_chain AS elements_chain,
+                  events.`$session_id` AS `$session_id`,
+                  events.distinct_id AS events___distinct_id
+           FROM events
+           WHERE equals(events.team_id, 2)) AS events
         LEFT OUTER JOIN
           (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
            FROM person_distinct_id_overrides
            WHERE equals(person_distinct_id_overrides.team_id, 2)
            GROUP BY person_distinct_id_overrides.distinct_id
-           HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-        WHERE and(equals(events.team_id, 2), ifNull(greater(timestamp, toDateTime64('2023-10-01 06:00:00.000000', 6, 'UTC')), 0), ifNull(less(timestamp, toDateTime64('2023-10-02 06:00:00.000000', 6, 'UTC')), 0), ifNull(equals(person_id, '00000000-0000-0000-0000-000000000000'), 0))
+           HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.events___distinct_id, events__override.distinct_id)
+        WHERE and(ifNull(greater(timestamp, toDateTime64('2023-10-01 06:00:00.000000', 6, 'UTC')), 0), ifNull(less(timestamp, toDateTime64('2023-10-02 06:00:00.000000', 6, 'UTC')), 0), ifNull(equals(person_id, '00000000-0000-0000-0000-000000000000'), 0))
         ORDER BY timestamp DESC
         LIMIT 1001)) AS e
   LEFT JOIN
@@ -434,8 +500,8 @@
                                                                              ORDER BY timestamp ASC ROWS UNBOUNDED PRECEDING) AS session_id_flip_index
      FROM
        (SELECT events.uuid AS uuid,
-               if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               if(not(empty(events__override.distinct_id)), events__override.person_id, events.event_person_id) AS person_id,
+               events.timestamp AS timestamp,
                events.event AS event,
                events.properties AS properties,
                events.distinct_id AS distinct_id,
@@ -443,15 +509,26 @@
                events.`$session_id` AS session_id,
                lagInFrame(events.`$session_id`, 1) OVER (PARTITION BY person_id
                                                          ORDER BY timestamp ASC) AS prev_session_id
-        FROM events
+        FROM
+          (SELECT events.uuid AS uuid,
+                  events.person_id AS event_person_id,
+                  toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                  events.event AS event,
+                  events.properties AS properties,
+                  events.distinct_id AS distinct_id,
+                  events.elements_chain AS elements_chain,
+                  events.`$session_id` AS `$session_id`,
+                  events.distinct_id AS events___distinct_id
+           FROM events
+           WHERE equals(events.team_id, 2)) AS events
         LEFT OUTER JOIN
           (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
            FROM person_distinct_id_overrides
            WHERE equals(person_distinct_id_overrides.team_id, 2)
            GROUP BY person_distinct_id_overrides.distinct_id
-           HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-        WHERE and(equals(events.team_id, 2), ifNull(greater(timestamp, toDateTime64('2023-10-01 06:00:00.000000', 6, 'UTC')), 0), ifNull(less(timestamp, toDateTime64('2023-10-02 06:00:00.000000', 6, 'UTC')), 0))
+           HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.events___distinct_id, events__override.distinct_id)
+        WHERE and(ifNull(greater(timestamp, toDateTime64('2023-10-01 06:00:00.000000', 6, 'UTC')), 0), ifNull(less(timestamp, toDateTime64('2023-10-02 06:00:00.000000', 6, 'UTC')), 0))
         ORDER BY timestamp DESC
         LIMIT 1001)) AS e
   LEFT JOIN
