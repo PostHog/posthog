@@ -24,6 +24,7 @@ from posthog.hogql.database.schema.person_distinct_ids import (
 )
 from posthog.hogql.database.schema.sessions_v1 import join_events_table_to_sessions_table, SessionsTableV1
 from posthog.hogql.database.schema.util.where_clause_extractor import WhereClauseExtractor
+from posthog.hogql.visitor import clone_expr
 
 
 class EventsPersonSubTable(VirtualTable):
@@ -146,9 +147,17 @@ class EventsLazy(LazyTable):
         extractor = WhereClauseExtractor(context)
         extractor.add_local_tables(table_to_add)
         where = extractor.get_inner_where(node)
-        return ast.SelectQuery(
-            select=select_fields, select_from=ast.JoinExpr(table=ast.Field(chain=["raw_events"])), where=where
+
+        select = ast.SelectQuery(
+            select=select_fields,
+            select_from=ast.JoinExpr(
+                table=ast.Field(chain=["raw_events"]),
+                sample=clone_expr(node.select_from.sample, clear_types=True, clear_locations=True),
+            ),
+            where=where,
         )
+        node.select_from.sample = None
+        return select
 
     def to_printed_clickhouse(self, context):
         return "events_lazy"
