@@ -4,8 +4,8 @@ use anyhow::Result;
 use async_trait::async_trait;
 use sqlx::{
     pool::PoolConnection,
-    postgres::{PgPoolOptions, PgRow},
-    PgPool, Postgres,
+    postgres::{PgPool, PgPoolOptions, PgRow},
+    Postgres,
 };
 use thiserror::Error;
 use tokio::time::timeout;

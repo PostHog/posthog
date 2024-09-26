@@ -94,6 +94,8 @@ pub enum FlagError {
     RedisUnavailable,
     #[error("database unavailable")]
     DatabaseUnavailable,
+    #[error("Database error: {0}")]
+    DatabaseError(String),
     #[error("Timed out while fetching data")]
     TimeoutError,
     #[error("No group type mappings")]
@@ -162,6 +164,13 @@ impl IntoResponse for FlagError {
                     "Our database service is currently unavailable. This is likely a temporary issue. Please try again later.".to_string(),
                 )
             }
+            FlagError::DatabaseError(msg) => {
+                tracing::error!("Database error: {}", msg);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "A database error occurred. Please try again later or contact support if the problem persists.".to_string(),
+                )
+            }
             FlagError::TimeoutError => {
                 tracing::error!("Timeout error: {:?}", self);
                 (
@@ -217,7 +226,7 @@ impl From<sqlx::Error> for FlagError {
         println!("sqlx error: {}", e);
         match e {
             sqlx::Error::RowNotFound => FlagError::TokenValidationError,
-            _ => FlagError::DatabaseUnavailable,
+            _ => FlagError::DatabaseError(e.to_string()),
         }
     }
 }

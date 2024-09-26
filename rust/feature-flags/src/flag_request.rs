@@ -160,6 +160,7 @@ impl FlagRequest {
         redis_client: Arc<dyn RedisClient + Send + Sync>,
         pg_client: Arc<dyn DatabaseClient + Send + Sync>,
     ) -> Result<FeatureFlagList, FlagError> {
+        // TODO add a cache hit/miss counter
         match FeatureFlagList::from_redis(redis_client.clone(), team_id).await {
             Ok(flags) => Ok(flags),
             Err(_) => match FeatureFlagList::from_pg(pg_client, team_id).await {

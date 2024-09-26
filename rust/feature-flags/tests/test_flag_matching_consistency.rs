@@ -121,6 +121,7 @@ async fn it_is_consistent_with_rollout_calculation_for_simple_flags() {
             None,
             None,
             None,
+            None,
         )
         .get_match(&flags[0], None)
         .await
@@ -1216,6 +1217,7 @@ async fn it_is_consistent_with_rollout_calculation_for_multivariate_flags() {
             1,
             postgres_reader,
             postgres_writer,
+            None,
             None,
             None,
             None,

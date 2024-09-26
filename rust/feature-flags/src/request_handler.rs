@@ -100,6 +100,8 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
         person_property_overrides,
         group_property_overrides,
         groups,
+        // TODO add hash key override
+        None,
     )
     .await;
 
@@ -199,6 +201,7 @@ pub async fn evaluate_feature_flags(
     person_property_overrides: Option<HashMap<String, Value>>,
     group_property_overrides: Option<HashMap<String, HashMap<String, Value>>>,
     groups: Option<HashMap<String, Value>>,
+    hash_key_override: Option<String>,
 ) -> FlagsResponse {
     let group_type_mapping_cache = GroupTypeMappingCache::new(team_id, postgres_reader.clone());
     let mut feature_flag_matcher = FeatureFlagMatcher::new(
@@ -209,12 +212,14 @@ pub async fn evaluate_feature_flags(
         Some(group_type_mapping_cache),
         None,
         groups,
+        None,
     );
     feature_flag_matcher
-        .evaluate_feature_flags(
+        .evaluate_all_feature_flags(
             feature_flags_from_cache_or_pg,
             person_property_overrides,
             group_property_overrides,
+            hash_key_override,
         )
         .await
 }
@@ -381,6 +386,7 @@ mod tests {
             Some(person_properties),
             None,
             None,
+            None,
         )
         .await;
 
@@ -540,6 +546,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .await;
 
@@ -640,6 +647,7 @@ mod tests {
             None,
             Some(group_property_overrides),
             Some(groups),
+            None,
         )
         .await;
 
@@ -698,6 +706,7 @@ mod tests {
             feature_flag_list,
             postgres_reader,
             postgres_writer,
+            None,
             None,
             None,
             None,
