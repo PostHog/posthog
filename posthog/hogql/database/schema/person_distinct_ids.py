@@ -44,6 +44,29 @@ def select_from_person_distinct_ids_table(requested_fields: dict[str, list[str |
     return select
 
 
+def lazy_join_with_person_distinct_ids_table(
+    join_to_add: LazyJoinToAdd,
+    context: HogQLContext,
+    node: SelectQuery,
+):
+    from posthog.hogql import ast
+
+    if not join_to_add.fields_accessed:
+        raise ResolutionError("No fields requested from person_distinct_ids")
+    join_expr = ast.JoinExpr(table=select_from_person_distinct_ids_table(join_to_add.fields_accessed))
+    join_expr.join_type = "INNER JOIN"
+    join_expr.alias = join_to_add.to_table
+    join_expr.constraint = ast.JoinConstraint(
+        expr=ast.CompareOperation(
+            op=ast.CompareOperationOp.Eq,
+            left=ast.Field(chain=[join_to_add.from_table, "distinct_id"]),
+            right=ast.Field(chain=[join_to_add.to_table, "distinct_id"]),
+        ),
+        constraint_type="ON",
+    )
+    return join_expr
+
+
 def join_with_person_distinct_ids_table(
     join_to_add: LazyJoinToAdd,
     context: HogQLContext,
