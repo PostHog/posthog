@@ -2852,7 +2852,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             )
             self.assertEqual(
                 response_placeholder.json(),
-                self.validation_error_response("Placeholders, such as {team_id}, are not supported in this context"),
+                self.validation_error_response("Unresolved placeholder: {team_id}"),
             )
 
     @also_test_with_materialized_columns(event_properties=["int_value"], person_properties=["fish"])

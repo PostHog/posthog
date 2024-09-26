@@ -4665,11 +4665,14 @@
                 "failure_count": {
                     "type": "number"
                 },
+                "key": {
+                    "type": "string"
+                },
                 "success_count": {
                     "type": "number"
                 }
             },
-            "required": ["success_count", "failure_count"],
+            "required": ["key", "success_count", "failure_count"],
             "type": "object"
         },
         "ExperimentVariantTrendResult": {
