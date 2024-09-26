@@ -702,7 +702,10 @@ class Placeholder(Expr):
 
     @property
     def chain(self) -> list[str | int] | None:
-        return self.expr.chain if isinstance(self.expr, Field) else None
+        expr = self.expr
+        while isinstance(expr, Alias):
+            expr = expr.expr
+        return expr.chain if isinstance(expr, Field) else None
 
     @property
     def field(self) -> str | None:
