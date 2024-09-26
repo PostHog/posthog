@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, Any
 from unittest.mock import MagicMock, patch
 import dateutil
 
@@ -61,7 +61,7 @@ class TestTimeSeriesTrendsAlerts(APIBaseTest, ClickhouseDestroyTablesMixin):
 
         return alert
 
-    def create_time_series_trend_insight(self, breakdown: Optional[BreakdownFilter] = None):
+    def create_time_series_trend_insight(self, breakdown: Optional[BreakdownFilter] = None) -> dict[str, Any]:
         query_dict = TrendsQuery(
             series=[
                 EventsNode(
@@ -96,7 +96,7 @@ class TestTimeSeriesTrendsAlerts(APIBaseTest, ClickhouseDestroyTablesMixin):
 
         return insight
 
-    def test_alert_properties(self, mock_send_breaches: MagicMock, mock_send_errors: MagicMock):
+    def test_alert_properties(self, mock_send_breaches: MagicMock, mock_send_errors: MagicMock) -> None:
         insight = self.create_time_series_trend_insight()
         alert = self.create_alert(insight, series_index=0, lower=1)
 
@@ -118,7 +118,7 @@ class TestTimeSeriesTrendsAlerts(APIBaseTest, ClickhouseDestroyTablesMixin):
         assert alert_check.state == AlertState.FIRING
         assert alert_check.error is None
 
-    def test_trend_high_threshold_breached(self, mock_send_breaches: MagicMock, mock_send_errors: MagicMock):
+    def test_trend_high_threshold_breached(self, mock_send_breaches: MagicMock, mock_send_errors: MagicMock) -> None:
         insight = self.create_time_series_trend_insight()
         alert = self.create_alert(insight, series_index=0, upper=1)
 
@@ -148,7 +148,7 @@ class TestTimeSeriesTrendsAlerts(APIBaseTest, ClickhouseDestroyTablesMixin):
         assert alert_check.state == AlertState.FIRING
         assert alert_check.error is None
 
-    def test_trend_no_threshold_breached(self, mock_send_breaches: MagicMock, mock_send_errors: MagicMock):
+    def test_trend_no_threshold_breached(self, mock_send_breaches: MagicMock, mock_send_errors: MagicMock) -> None:
         insight = self.create_time_series_trend_insight()
         alert = self.create_alert(insight, series_index=0, lower=0, upper=2)
 
@@ -175,7 +175,7 @@ class TestTimeSeriesTrendsAlerts(APIBaseTest, ClickhouseDestroyTablesMixin):
     # TODO: support breakdowns
     def test_trend_with_single_breakdown_threshold_breached(
         self, mock_send_breaches: MagicMock, mock_send_errors: MagicMock
-    ):
+    ) -> None:
         insight = self.create_time_series_trend_insight(
             breakdown=BreakdownFilter(breakdown_type="event", breakdown="$browser")
         )

@@ -64,7 +64,9 @@ class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
     def get_breach_description(self, mock_send_notifications_for_breaches: MagicMock, call_index: int) -> list[str]:
         return mock_send_notifications_for_breaches.call_args_list[call_index].args[1]
 
-    def test_alert_is_not_triggered_when_disabled(self, mock_send_notifications_for_breaches: MagicMock, *args) -> None:
+    def test_alert_is_not_triggered_when_disabled(
+        self, mock_send_notifications_for_breaches: MagicMock, mock_send_errors: MagicMock
+    ) -> None:
         self.set_thresholds(lower=1)
 
         self.client.patch(f"/api/projects/{self.team.id}/alerts/{self.alert['id']}", data={"enabled": False})
@@ -74,7 +76,7 @@ class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
         assert mock_send_notifications_for_breaches.call_count == 0
 
     def test_alert_is_triggered_for_values_above_higher_threshold(
-        self, mock_send_notifications_for_breaches: MagicMock, *args
+        self, mock_send_notifications_for_breaches: MagicMock, mock_send_errors: MagicMock
     ) -> None:
         self.set_thresholds(upper=0)
 
@@ -97,7 +99,7 @@ class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
         assert "The trend value (1) is above the upper threshold (0.0)" in anomalies_descriptions[0]
 
     def test_alert_is_not_triggered_for_events_beyond_interval(
-        self, mock_send_notifications_for_breaches: MagicMock, *args
+        self, mock_send_notifications_for_breaches: MagicMock, mock_send_errors: MagicMock
     ) -> None:
         self.set_thresholds(upper=0)
 
@@ -114,7 +116,7 @@ class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
         assert mock_send_notifications_for_breaches.call_count == 0
 
     def test_alert_is_triggered_for_value_below_lower_threshold(
-        self, mock_send_notifications_for_breaches: MagicMock, *args
+        self, mock_send_notifications_for_breaches: MagicMock, mock_send_errors: MagicMock
     ) -> None:
         self.set_thresholds(lower=1)
 
@@ -125,7 +127,7 @@ class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
         assert "The trend value (0) is below the lower threshold (1.0)" in anomalies
 
     def test_alert_triggers_but_does_not_send_notification_during_firing(
-        self, mock_send_notifications_for_breaches: MagicMock, *args
+        self, mock_send_notifications_for_breaches: MagicMock, mock_send_errors: MagicMock
     ) -> None:
         self.set_thresholds(lower=1)
 
@@ -171,7 +173,7 @@ class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
             assert AlertCheck.objects.filter(alert_configuration=self.alert["id"]).count() == 0
 
     def test_alert_is_set_to_not_firing_when_disabled(
-        self, mock_send_notifications_for_breaches: MagicMock, *args
+        self, mock_send_notifications_for_breaches: MagicMock, mock_send_errors: MagicMock
     ) -> None:
         self.set_thresholds(lower=1)
 
@@ -192,7 +194,7 @@ class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
         assert AlertConfiguration.objects.get(pk=self.alert["id"]).state == AlertState.NOT_FIRING
 
     def test_alert_is_set_to_not_firing_when_threshold_changes(
-        self, mock_send_notifications_for_breaches: MagicMock, *args
+        self, mock_send_notifications_for_breaches: MagicMock, mock_send_errors: MagicMock
     ) -> None:
         self.set_thresholds(lower=1)
 
@@ -209,7 +211,7 @@ class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
         assert AlertConfiguration.objects.get(pk=self.alert["id"]).state == AlertState.NOT_FIRING
 
     def test_alert_is_not_triggered_for_normal_values(
-        self, mock_send_notifications_for_breaches: MagicMock, *args
+        self, mock_send_notifications_for_breaches: MagicMock, mock_send_errors: MagicMock
     ) -> None:
         self.set_thresholds(lower=0, upper=1)
 
@@ -291,7 +293,9 @@ class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
                 assert latest_alert_check.state == AlertState.ERRORED
                 assert latest_alert_check.error["message"] == "Some error"
 
-    def test_alert_with_insight_with_filter(self, mock_send_notifications_for_breaches: MagicMock, *args) -> None:
+    def test_alert_with_insight_with_filter(
+        self, mock_send_notifications_for_breaches: MagicMock, mock_send_errors: MagicMock
+    ) -> None:
         insight = self.dashboard_api.create_insight(
             data={"name": "insight", "filters": {"events": [{"id": "$pageview"}], "display": "BoldNumber"}}
         )[1]
@@ -306,7 +310,7 @@ class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
         assert "The trend value (0) is below the lower threshold (1.0)" in anomalies
 
     @patch("posthog.tasks.alerts.checks.EmailMessage")
-    def test_send_emails(self, MockEmailMessage: MagicMock, *args) -> None:
+    def test_send_emails(self, MockEmailMessage: MagicMock, mock_send_errors: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
         alert = AlertConfiguration.objects.get(pk=self.alert["id"])
         _send_notifications_for_breaches(alert, ["first anomaly description", "second anomaly description"])

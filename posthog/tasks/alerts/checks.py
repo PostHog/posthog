@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta, UTC
-from typing import Optional
+from typing import Optional, cast
 from dateutil.relativedelta import relativedelta
 
 from celery import shared_task
@@ -270,6 +270,7 @@ def _calculate_date_range_override_for_alert(query: TrendsQuery) -> Optional[dic
 
 def _aggregate_insight_result_value(alert: AlertConfiguration, query: TrendsQuery, results: InsightResult) -> float:
     if alert.config.type == "TrendsAlertConfig":
+        alert.config = cast(TrendsAlertConfig, alert.config)
         series_index = alert.config.series_index
         result = results.result[series_index]
 
