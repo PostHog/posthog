@@ -121,8 +121,8 @@ class Database(BaseModel):
     raw_person_distinct_id_overrides: RawPersonDistinctIdOverridesTable = RawPersonDistinctIdOverridesTable()
     raw_sessions: Union[RawSessionsTableV1, RawSessionsTableV2] = RawSessionsTableV1()
 
-    events_lazy: EventsLazy = EventsLazy()
-    events: EventsTable = EventsTable()
+    events: EventsLazy = EventsLazy()
+    raw_events: EventsTable = EventsTable()
 
     # system tables
     numbers: NumbersTable = NumbersTable()
@@ -193,13 +193,13 @@ class Database(BaseModel):
 
 
 def _use_person_properties_from_events(database: Database) -> None:
-    for table in (database.events_lazy,):  # database.events,
+    for table in (database.events,):  # database.events,
         table.fields["person"] = FieldTraverser(chain=["poe"])
         table.fields["person"] = FieldTraverser(chain=["poe"])
 
 
 def _use_person_id_from_person_overrides(database: Database) -> None:
-    for table in (database.events_lazy,):  # database.events,
+    for table in (database.events,):  # database.events,
         table.fields["event_person_id"] = StringDatabaseField(name="person_id")
         table.fields["override"] = LazyJoin(
             from_field=["distinct_id"],
@@ -233,7 +233,7 @@ def create_hogql_database(
     database = Database(timezone=team.timezone, week_start_day=team.week_start_day)
 
     # can add events back here for normal behavior
-    for table in (database.events_lazy,):
+    for table in (database.events,):
         if modifiers.personsOnEventsMode == PersonsOnEventsMode.DISABLED:
             # no change
             table.fields["person"] = FieldTraverser(chain=["pdi", "person"])

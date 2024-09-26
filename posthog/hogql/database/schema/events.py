@@ -1,6 +1,8 @@
 from typing import Any
 
 from posthog.hogql import ast
+from posthog.hogql.ast import SelectQuery
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import (
     VirtualTable,
     StringDatabaseField,
@@ -13,6 +15,7 @@ from posthog.hogql.database.models import (
     FieldTraverser,
     FieldOrTable,
     LazyTable,
+    LazyTableToAdd,
 )
 from posthog.hogql.database.schema.groups import GroupsTable, join_with_group_n_table
 from posthog.hogql.database.schema.person_distinct_ids import (
@@ -132,43 +135,26 @@ class EventsLazy(LazyTable):
 
     def lazy_select(
         self,
-        table_to_add: "LazyTableToAdd",
-        context: "HogQLContext",
-        node: "SelectQuery",
+        table_to_add: LazyTableToAdd,
+        context: HogQLContext,
+        node: SelectQuery,
     ) -> Any:
-        """
-        # Ripped from persons.py
-            if context.modifiers.optimizeJoinedFilters:
-        extractor = WhereClauseExtractor(context)
-        extractor.add_local_tables(join_or_table)
-        where = extractor.get_inner_where(node)
-        if where and select.where:
-            select.where = And(exprs=[select.where, where])
-        elif where:
-            select.where = where
-
-        return select
-        """
-
-        # new_node = clone_expr(node, clear_types=True, clear_locations=True)
-        # if node.select
-        # new_node.select_from = ast.JoinExpr(table=ast.Field(chain=["events"]))
         select_fields: list[ast.Expr] = []
         for name, chain in table_to_add.fields_accessed.items():
-            select_fields.append(ast.Alias(alias=name, expr=ast.Field(chain=["events", *chain])))
+            select_fields.append(ast.Alias(alias=name, expr=ast.Field(chain=["raw_events", *chain])))
 
         extractor = WhereClauseExtractor(context)
         extractor.add_local_tables(table_to_add)
         where = extractor.get_inner_where(node)
         return ast.SelectQuery(
-            select=select_fields, select_from=ast.JoinExpr(table=ast.Field(chain=["events"])), where=where
+            select=select_fields, select_from=ast.JoinExpr(table=ast.Field(chain=["raw_events"])), where=where
         )
 
     def to_printed_clickhouse(self, context):
         return "events_lazy"
 
     def to_printed_hogql(self):
-        return "events_lazy"
+        return "events"
 
 
 REAL_FIELDS = {
@@ -203,4 +189,4 @@ class EventsTable(Table):
         return "events"
 
     def to_printed_hogql(self):
-        return "events"
+        return "raw_events"
