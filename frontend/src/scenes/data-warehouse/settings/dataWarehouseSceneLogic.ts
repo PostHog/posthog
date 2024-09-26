@@ -183,7 +183,7 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
         ],
         nonMaterializedViews: [
             (s) => [s.views, s.dataWarehouseSavedQueryMapById],
-            (views, dataWarehouseSavedQueryMapById): DatabaseSchemaViewTable[] => {
+            (views, dataWarehouseSavedQueryMapById): DatabaseSchemaTable[] => {
                 return views
                     .filter((view) => !dataWarehouseSavedQueryMapById[view.id]?.status)
                     .map((view) => ({
