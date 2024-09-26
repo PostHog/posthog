@@ -69,33 +69,18 @@ def execute_hogql_query(
             select_query = parse_select(str(query), timings=timings)
 
     with timings.measure("replace_placeholders"):
-        placeholders_in_query = find_placeholders(select_query)
-        placeholders = placeholders or {}
+        placeholders = placeholders or {}  # default to {} if no arg
+        finder = find_placeholders(select_query)
 
-        if "filters" in placeholders and filters is not None:
-            raise ValueError(
-                f"Query contains 'filters' placeholder, yet filters are also provided as a standalone query parameter."
-            )
-        if "filters" in placeholders_in_query or any(
-            placeholder and placeholder.startswith("filters.") for placeholder in placeholders_in_query
-        ):
+        # Need to use the "filters" system to replace a few special placeholders
+        if finder.has_filters:
+            if "filters" in placeholders and filters is not None:
+                raise ValueError(f"Query contains 'filters' both as placeholder and as a query parameter.")
             select_query = replace_filters(select_query, filters, team)
 
-            leftover_placeholders: list[str] = []
-            for placeholder in placeholders_in_query:
-                if placeholder is None:
-                    raise ValueError("Placeholder expressions are not yet supported")
-                if placeholder != "filters" and not placeholder.startswith("filters."):
-                    leftover_placeholders.append(placeholder)
-
-            placeholders_in_query = leftover_placeholders
-
-        if len(placeholders_in_query) > 0:
-            if len(placeholders) == 0:
-                raise ValueError(
-                    f"Query contains placeholders, but none were provided. Placeholders in query: {', '.join(s for s in placeholders_in_query if s is not None)}"
-                )
-            select_query = replace_placeholders(select_query, placeholders)
+        # If there are placeholders remaining
+        if len(finder.field_strings) > 0 or finder.has_expr_placeholders:
+            select_query = cast(ast.SelectQuery, replace_placeholders(select_query, placeholders))
 
     with timings.measure("max_limit"):
         select_queries = (
