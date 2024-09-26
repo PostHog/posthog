@@ -421,23 +421,29 @@
                                               min(latest_2) OVER (PARTITION BY aggregation_target
                                                                   ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) AS latest_2
                     FROM
-                      (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
-                              if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
-                              if(equals(e.event, 'step one'), 1, 0) AS step_0,
+                      (SELECT e.timestamp AS timestamp,
+                              if(not(empty(e__override.distinct_id)), e__override.person_id, e.event_person_id) AS aggregation_target,
+                              if(ifNull(equals(e.event, 'step one'), 0), 1, 0) AS step_0,
                               if(ifNull(equals(step_0, 1), 0), timestamp, NULL) AS latest_0,
-                              if(equals(e.event, 'step two'), 1, 0) AS step_1,
+                              if(ifNull(equals(e.event, 'step two'), 0), 1, 0) AS step_1,
                               if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1,
-                              if(equals(e.event, 'step three'), 1, 0) AS step_2,
+                              if(ifNull(equals(e.event, 'step three'), 0), 1, 0) AS step_2,
                               if(ifNull(equals(step_2, 1), 0), timestamp, NULL) AS latest_2
-                       FROM events AS e
+                       FROM
+                         (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                                 events.person_id AS event_person_id,
+                                 events.event AS event,
+                                 events.distinct_id AS e___distinct_id
+                          FROM events
+                          WHERE equals(events.team_id, 2)) AS e
                        LEFT OUTER JOIN
                          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                                  person_distinct_id_overrides.distinct_id AS distinct_id
                           FROM person_distinct_id_overrides
                           WHERE equals(person_distinct_id_overrides.team_id, 2)
                           GROUP BY person_distinct_id_overrides.distinct_id
-                          HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-                       WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-04-30 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-05-07 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('step one', 'step three', 'step two'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))))
+                          HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.e___distinct_id, e__override.distinct_id)
+                       WHERE and(and(and(ifNull(greaterOrEquals(e.timestamp, toDateTime64('2021-04-30 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(e.timestamp, toDateTime64('2021-05-07 23:59:59.999999', 6, 'UTC')), 0)), ifNull(in(e.event, tuple('step one', 'step three', 'step two')), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))))
            WHERE ifNull(equals(step_0, 1), 0))
         GROUP BY aggregation_target,
                  entrance_period_start)
@@ -513,23 +519,29 @@
                                               min(latest_2) OVER (PARTITION BY aggregation_target
                                                                   ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) AS latest_2
                     FROM
-                      (SELECT toTimeZone(e.timestamp, 'US/Pacific') AS timestamp,
-                              if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
-                              if(equals(e.event, 'step one'), 1, 0) AS step_0,
+                      (SELECT e.timestamp AS timestamp,
+                              if(not(empty(e__override.distinct_id)), e__override.person_id, e.event_person_id) AS aggregation_target,
+                              if(ifNull(equals(e.event, 'step one'), 0), 1, 0) AS step_0,
                               if(ifNull(equals(step_0, 1), 0), timestamp, NULL) AS latest_0,
-                              if(equals(e.event, 'step two'), 1, 0) AS step_1,
+                              if(ifNull(equals(e.event, 'step two'), 0), 1, 0) AS step_1,
                               if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1,
-                              if(equals(e.event, 'step three'), 1, 0) AS step_2,
+                              if(ifNull(equals(e.event, 'step three'), 0), 1, 0) AS step_2,
                               if(ifNull(equals(step_2, 1), 0), timestamp, NULL) AS latest_2
-                       FROM events AS e
+                       FROM
+                         (SELECT toTimeZone(events.timestamp, 'US/Pacific') AS timestamp,
+                                 events.person_id AS event_person_id,
+                                 events.event AS event,
+                                 events.distinct_id AS e___distinct_id
+                          FROM events
+                          WHERE equals(events.team_id, 2)) AS e
                        LEFT OUTER JOIN
                          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                                  person_distinct_id_overrides.distinct_id AS distinct_id
                           FROM person_distinct_id_overrides
                           WHERE equals(person_distinct_id_overrides.team_id, 2)
                           GROUP BY person_distinct_id_overrides.distinct_id
-                          HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-                       WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'US/Pacific'), toDateTime64('2021-04-30 00:00:00.000000', 6, 'US/Pacific')), lessOrEquals(toTimeZone(e.timestamp, 'US/Pacific'), toDateTime64('2021-05-07 23:59:59.999999', 6, 'US/Pacific'))), in(e.event, tuple('step one', 'step three', 'step two'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))))
+                          HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.e___distinct_id, e__override.distinct_id)
+                       WHERE and(and(and(ifNull(greaterOrEquals(e.timestamp, toDateTime64('2021-04-30 00:00:00.000000', 6, 'US/Pacific')), 0), ifNull(lessOrEquals(e.timestamp, toDateTime64('2021-05-07 23:59:59.999999', 6, 'US/Pacific')), 0)), ifNull(in(e.event, tuple('step one', 'step three', 'step two')), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))))
            WHERE ifNull(equals(step_0, 1), 0))
         GROUP BY aggregation_target,
                  entrance_period_start)
@@ -605,23 +617,29 @@
                                               min(latest_2) OVER (PARTITION BY aggregation_target
                                                                   ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) AS latest_2
                     FROM
-                      (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
-                              if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
-                              if(equals(e.event, 'step one'), 1, 0) AS step_0,
+                      (SELECT e.timestamp AS timestamp,
+                              if(not(empty(e__override.distinct_id)), e__override.person_id, e.event_person_id) AS aggregation_target,
+                              if(ifNull(equals(e.event, 'step one'), 0), 1, 0) AS step_0,
                               if(ifNull(equals(step_0, 1), 0), timestamp, NULL) AS latest_0,
-                              if(equals(e.event, 'step two'), 1, 0) AS step_1,
+                              if(ifNull(equals(e.event, 'step two'), 0), 1, 0) AS step_1,
                               if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1,
-                              if(equals(e.event, 'step three'), 1, 0) AS step_2,
+                              if(ifNull(equals(e.event, 'step three'), 0), 1, 0) AS step_2,
                               if(ifNull(equals(step_2, 1), 0), timestamp, NULL) AS latest_2
-                       FROM events AS e
+                       FROM
+                         (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                                 events.person_id AS event_person_id,
+                                 events.event AS event,
+                                 events.distinct_id AS e___distinct_id
+                          FROM events
+                          WHERE equals(events.team_id, 2)) AS e
                        LEFT OUTER JOIN
                          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                                  person_distinct_id_overrides.distinct_id AS distinct_id
                           FROM person_distinct_id_overrides
                           WHERE equals(person_distinct_id_overrides.team_id, 2)
                           GROUP BY person_distinct_id_overrides.distinct_id
-                          HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-                       WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-05-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-05-07 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('step one', 'step three', 'step two'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))))
+                          HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.e___distinct_id, e__override.distinct_id)
+                       WHERE and(and(and(ifNull(greaterOrEquals(e.timestamp, toDateTime64('2021-05-01 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(e.timestamp, toDateTime64('2021-05-07 23:59:59.999999', 6, 'UTC')), 0)), ifNull(in(e.event, tuple('step one', 'step three', 'step two')), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))))
            WHERE ifNull(equals(step_0, 1), 0))
         GROUP BY aggregation_target,
                  entrance_period_start)
