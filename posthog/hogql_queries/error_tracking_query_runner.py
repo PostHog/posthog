@@ -129,7 +129,7 @@ class ErrorTrackingQueryRunner(QueryRunner):
         if self.query.searchQuery:
             # TODO: Refine this so it only searches the frames inside $exception_list
             props_to_search = ["$exception_list", "$exception_stack_trace_raw", "$exception_type", "$exception_message"]
-            or_exprs = []
+            or_exprs: list[ast.Expr] = []
             for prop in props_to_search:
                 or_exprs.append(
                     ast.CompareOperation(
@@ -144,11 +144,13 @@ class ErrorTrackingQueryRunner(QueryRunner):
                         right=ast.Constant(value=0),
                     )
                 )
-            exprs.append(
-                ast.Or(
-                    exprs=or_exprs,
+
+            if or_exprs:
+                exprs.append(
+                    ast.Or(
+                        exprs=or_exprs,
+                    )
                 )
-            )
 
         return ast.And(exprs=exprs)
 

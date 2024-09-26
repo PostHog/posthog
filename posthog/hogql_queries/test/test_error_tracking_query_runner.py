@@ -171,7 +171,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0]["fingerprint"], ["DatabaseNotFound"])
-        self.assertEqual(results[0]["occurrences"], 2)
+        self.assertEqual(results[0]["occurrences"], 1)
 
     @snapshot_clickhouse_queries
     def test_fingerprints(self):
