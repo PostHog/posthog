@@ -231,11 +231,25 @@
   '''
   
   SELECT team_id,
-         COUNT() as count
-  FROM events
-  WHERE event = 'survey sent'
+         SUM(count) as count
+  FROM app_metrics2
+  WHERE metric_name IN ('succeeded',
+                        'failed')
     AND timestamp between '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
-  GROUP BY team_id
+  GROUP BY team_id,
+           metric_name
+  '''
+# ---
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.22
+  '''
+  
+  SELECT team_id,
+         SUM(count) as count
+  FROM app_metrics2
+  WHERE metric_name IN ('http_fetch')
+    AND timestamp between '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
+  GROUP BY team_id,
+           metric_name
   '''
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.3
