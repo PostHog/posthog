@@ -11,17 +11,13 @@ import {
 } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { AnimationType } from 'lib/animations/animations'
-import { Animation } from 'lib/components/Animation/Animation'
 import { BuilderHog3 } from 'lib/components/hedgehogs'
 import { supportLogic } from 'lib/components/Support/supportLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { IconErrorOutline, IconOpenInNew } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyNumber } from 'lib/utils'
 import posthog from 'posthog-js'
 import { useEffect, useState } from 'react'
@@ -85,7 +81,7 @@ function humanFileSize(size: number): string {
     return (+(size / Math.pow(1024, i))).toFixed(2) + ' ' + ['B', 'kB', 'MB', 'GB', 'TB'][i]
 }
 
-export function InsightLoadingStateWithLoadingBar({
+export function InsightLoadingState({
     queryId,
     insightProps,
 }: {
@@ -131,7 +127,7 @@ export function InsightLoadingStateWithLoadingBar({
     return (
         <div className="insight-empty-state warning">
             <div className="empty-state-inner">
-                <p className="mx-auto text-center">Crunching through hogloads of data...</p>
+                <p className="mx-auto text-center font-medium italic">Crunching through hogloads of data…</p>
                 <LoadingBar />
                 <p className="mx-auto text-center text-xs">
                     {rowsRead > 0 && bytesRead > 0 && (
@@ -148,11 +144,9 @@ export function InsightLoadingStateWithLoadingBar({
                         </>
                     )}
                 </p>
-                <div className="p-4 rounded bg-bg-3000 flex gap-x-2 max-w-120">
-                    <div className="flex">
-                        <IconInfo className="w-4 h-4" />
-                    </div>
-                    <p className="text-xs m-0 leading-5">
+                <div className="flex items-center p-4 rounded bg-bg-3000 gap-x-3 max-w-120">
+                    <IconInfo className="text-xl shrink-0" />
+                    <p className="text-xs m-0">
                         {suggestedSamplingPercentage && !samplingPercentage ? (
                             <span data-attr="insight-loading-waiting-message">
                                 Need to speed things up? Try reducing the date range, removing breakdowns, or turning on{' '}
@@ -170,55 +164,9 @@ export function InsightLoadingStateWithLoadingBar({
                     </p>
                 </div>
                 {queryId ? (
-                    <div className="text-muted text-xs mx-auto text-center mt-6">Query ID: {queryId}</div>
-                ) : null}
-            </div>
-        </div>
-    )
-}
-
-export function InsightLoadingState({
-    queryId,
-    insightProps,
-}: {
-    queryId?: string | null
-    insightProps: InsightLogicProps
-}): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
-    const { suggestedSamplingPercentage, samplingPercentage } = useValues(samplingFilterLogic(insightProps))
-
-    if (featureFlags[FEATURE_FLAGS.INSIGHT_LOADING_BAR]) {
-        return <InsightLoadingStateWithLoadingBar queryId={queryId} insightProps={insightProps} />
-    }
-
-    return (
-        <div className="insight-empty-state warning">
-            <Animation type={AnimationType.LaptopHog} />
-            <div className="empty-state-inner">
-                <p className="mx-auto text-center">Crunching through hogloads of data...</p>
-                <div className="p-4 rounded bg-bg-3000 flex gap-x-2 max-w-120">
-                    <div className="flex">
-                        <IconInfo className="w-4 h-4" />
+                    <div className="text-muted text-xs mx-auto text-center mt-5">
+                        Query ID: <span className="font-mono">{queryId}</span>
                     </div>
-                    <p className="text-xs m-0 leading-5">
-                        {suggestedSamplingPercentage && !samplingPercentage ? (
-                            <span data-attr="insight-loading-waiting-message">
-                                Need to speed things up? Try reducing the date range, removing breakdowns, or turning on{' '}
-                                <SamplingLink insightProps={insightProps} />.
-                            </span>
-                        ) : suggestedSamplingPercentage && samplingPercentage ? (
-                            <>
-                                Still waiting around? You must have lots of data! Kick it up a notch with{' '}
-                                <SamplingLink insightProps={insightProps} />. Or try reducing the date range and
-                                removing breakdowns.
-                            </>
-                        ) : (
-                            <>Need to speed things up? Try reducing the date range or removing breakdowns.</>
-                        )}
-                    </p>
-                </div>
-                {queryId ? (
-                    <div className="text-muted text-xs mx-auto text-center mt-6">Query ID: {queryId}</div>
                 ) : null}
             </div>
         </div>
@@ -237,11 +185,9 @@ export function InsightTimeoutState({ queryId }: { queryId?: string | null }): J
                     </div>
                     <h2 className="text-xl leading-tight mb-6">Your query took too long to complete</h2>
                 </>
-                <div className="p-4 rounded bg-bg-3000 flex gap-x-2 max-w-120">
-                    <div className="flex">
-                        <IconInfo className="w-4 h-4" />
-                    </div>
-                    <p className="text-xs m-0 leading-5">
+                <div className="flex items-center p-4 rounded bg-bg-3000 gap-x-3 max-w-120">
+                    <IconInfo className="text-xl shrink-0" />
+                    <p className="text-xs m-0">
                         <>
                             Sometimes this happens. Try refreshing the page, reducing the date range, or removing
                             breakdowns. If you're still having issues,{' '}
@@ -257,7 +203,9 @@ export function InsightTimeoutState({ queryId }: { queryId?: string | null }): J
                     </p>
                 </div>
                 {queryId ? (
-                    <div className="text-muted text-xs mx-auto text-center mt-6">Query ID: {queryId}</div>
+                    <div className="text-muted text-xs mx-auto text-center mt-5">
+                        Query ID: <span className="font-mono">{queryId}</span>
+                    </div>
                 ) : null}
             </div>
         </div>
@@ -309,7 +257,9 @@ export function InsightErrorState({ excludeDetail, title, query, queryId }: Insi
                         </ol>
                     </div>
                 )}
-                {queryId ? <div className="text-muted text-xs text-center">Query ID: {queryId}</div> : null}
+                <div className="text-muted text-xs text-center">
+                    Query ID: <span className="font-mono">{queryId}</span>
+                </div>
                 {query && (
                     <LemonButton
                         data-attr="insight-error-query"

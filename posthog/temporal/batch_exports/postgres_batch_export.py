@@ -670,6 +670,8 @@ class PostgresBatchExportWorkflow(PostHogWorkflow):
                 # A user added a unique constraint on their table, but batch exports (particularly events)
                 # can cause duplicates.
                 "UniqueViolation",
+                # Something changed in the target table's schema that we were not expecting.
+                "UndefinedColumn",
             ],
             finish_inputs=finish_inputs,
         )

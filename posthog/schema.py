@@ -503,6 +503,7 @@ class ExperimentVariantFunnelResult(BaseModel):
         extra="forbid",
     )
     failure_count: float
+    key: str
     success_count: float
 
 

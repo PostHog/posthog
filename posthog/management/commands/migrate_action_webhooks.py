@@ -13,12 +13,15 @@ from posthog.plugins.plugin_server_api import reload_all_hog_functions_on_worker
 
 # Maps to a string or a tuple of name and url
 mappings: dict[str, str | list[str]] = {
-    "[event]": ["{event.name}", "{event.url}"],
+    "[event]": ["{event.event}", "{event.url}"],
     "[event.link]": "{event.url}",
-    "[event.event]": "{event.name}",
+    "[event.event]": "{event.event}",
+    "[event.name]": "{event.event}",
     "[event.uuid]": "{event.uuid}",
     "[person]": ["{person.name}", "{person.url}"],
     "[person.link]": "{person.url}",
+    "[person.uuid]": "{person.id}",
+    "[user]": ["{person.name}", "{person.url}"],
     "[user.name]": "{person.name}",
     "[user.pathname]": "{event.properties.$pathname}",
     "[user.email]": "{person.properties.email}",
@@ -46,10 +49,10 @@ def convert_link(text: str, url: str, is_slack: bool) -> str:
 
 def convert_slack_message_format_to_hog(action: Action, is_slack: bool) -> tuple[str, str]:
     message_format = action.slack_message_format or "[action.name] triggered by [person]"
+    message_format = message_format.replace("{", "\\{")
     matches = re.findall(r"(\[[^\]]+\])", message_format)
     markdown = message_format
     text = message_format
-
     # Iterate over each match replacing it with the appropriate hog format
     for match in matches:
         content = match[1:-1]
@@ -60,8 +63,8 @@ def convert_slack_message_format_to_hog(action: Action, is_slack: bool) -> tuple
                 # For text we just replace it with the name
                 text = text.replace(match, mappings[match][0])
             else:
-                markdown = markdown.replace(match, f"{{{content}}}")
-                text = text.replace(match, f"{{{content}}}")
+                markdown = markdown.replace(match, str(mappings[match]))
+                text = text.replace(match, str(mappings[match]))
         elif match.startswith("[action."):
             # Action data is no longer available as it is just a filter hence we need to replace it with static values
             action_property = content.split(".")[1]
@@ -84,15 +87,17 @@ def convert_slack_message_format_to_hog(action: Action, is_slack: bool) -> tuple
                 text = text.replace(match, f"{{{content}}}")
         elif match.startswith("[user."):
             parts = content.split(".")
-            string = ".".join(["person", "properties", "$" + parts[1]])
-            for part in parts[2:]:
-                string += f".{part}"
+            string = ".".join(["person", "properties", "$" + parts[1], *parts[2:]])
+            markdown = markdown.replace(match, f"{{{string}}}")
+            text = text.replace(match, f"{{{string}}}")
+        elif match.startswith("[properties."):
+            parts = content.split(".")
+            string = ".".join(["event", *parts])
             markdown = markdown.replace(match, f"{{{string}}}")
             text = text.replace(match, f"{{{string}}}")
         else:
             markdown = markdown.replace(match, f"{{{content}}}")
             text = text.replace(match, f"{{{content}}}")
-
     print(  # noqa: T201
         f"[Action {action.id}] Converted message format:",
         {
@@ -106,12 +111,9 @@ def convert_slack_message_format_to_hog(action: Action, is_slack: bool) -> tuple
 
 def convert_to_hog_function(action: Action, inert=False) -> Optional[HogFunction]:
     webhook_url = action.team.slack_incoming_webhook
-
     if not webhook_url:
         return None
-
     message_markdown, message_text = convert_slack_message_format_to_hog(action, is_slack="slack" in webhook_url)
-
     if "slack" in webhook_url:
         body = {
             "text": message_text,
@@ -121,12 +123,10 @@ def convert_to_hog_function(action: Action, inert=False) -> Optional[HogFunction
         body = {
             "text": message_markdown,
         }
-
     hog_code = inert_fetch_print if inert else webhook_template.hog
     hog_name = f"Webhook for action {action.id} ({action.name})"
     if inert:
         hog_name = f"[CDP-TEST-HIDDEN] {hog_name}"
-
     hog_function = HogFunction(
         name=hog_name,
         description="Automatically migrated from legacy action webhooks",

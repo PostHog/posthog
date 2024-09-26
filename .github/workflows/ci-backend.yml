@@ -147,6 +147,20 @@ jobs:
               run: |
                   npm run schema:build:python && git diff --exit-code
 
+            - uses: actions/checkout@v4
+              with:
+                  repository: 'PostHog/posthog-cloud-infra'
+                  path: 'posthog-cloud-infra'
+                  token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
+
+            - name: Assert user_defined_function.xml is deployed to US
+              run: |
+                  cmp posthog/user_scripts/latest_user_defined_function.xml posthog-cloud-infra/ansible/us/clickhouse/config/common/user_defined_function.xml
+
+            - name: Assert user_defined_function.xml is deployed to EU
+              run: |
+                  cmp posthog/user_scripts/latest_user_defined_function.xml posthog-cloud-infra/ansible/eu/clickhouse/config/common/user_defined_function.xml
+
     check-migrations:
         needs: changes
         if: needs.changes.outputs.backend == 'true'

@@ -951,7 +951,7 @@ export enum SessionRecordingUsageType {
 }
 
 export enum SessionRecordingSidebarTab {
-    PERSON = 'person',
+    OVERVIEW = 'overview',
     INSPECTOR = 'inspector',
     DEBUGGER = 'debugger',
 }

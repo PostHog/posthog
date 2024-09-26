@@ -1,3 +1,4 @@
+import datetime
 import secrets
 import string
 import uuid
@@ -12,7 +13,6 @@ from django.db.backends.ddl_references import Statement
 from django.db.models.constraints import BaseConstraint
 from django.utils.text import slugify
 
-from posthog import datetime
 from posthog.constants import MAX_SLUG_LENGTH
 
 if TYPE_CHECKING:
