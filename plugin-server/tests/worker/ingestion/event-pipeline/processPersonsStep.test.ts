@@ -60,7 +60,30 @@ describe('processPersonsStep()', () => {
             expect.objectContaining({
                 id: expect.any(Number),
                 uuid: expect.any(String),
-                properties: { a: 5, $creator_event_uuid: expect.any(String) },
+                properties: {
+                    a: 5,
+                    $creator_event_uuid: expect.any(String),
+                    $initial_dclid: null,
+                    $initial_fbclid: null,
+                    $initial_gad_source: null,
+                    $initial_gbraid: null,
+                    $initial_gclid: null,
+                    $initial_gclsrc: null,
+                    $initial_igshid: null,
+                    $initial_li_fat_id: null,
+                    $initial_mc_cid: null,
+                    $initial_msclkid: null,
+                    $initial_rdt_cid: null,
+                    $initial_ttclid: null,
+                    $initial_twclid: null,
+                    $initial_utm_campaign: null,
+                    $initial_utm_content: null,
+                    $initial_utm_medium: null,
+                    $initial_utm_name: null,
+                    $initial_utm_source: null,
+                    $initial_utm_term: null,
+                    $initial_wbraid: null,
+                },
                 version: 0,
                 is_identified: false,
                 team_id: teamId,
@@ -109,6 +132,26 @@ describe('processPersonsStep()', () => {
                     someProp: 'value',
                     $creator_event_uuid: expect.any(String),
                     $browser: 'Chrome',
+                    $initial_dclid: null,
+                    $initial_fbclid: null,
+                    $initial_gad_source: null,
+                    $initial_gbraid: null,
+                    $initial_gclid: null,
+                    $initial_gclsrc: null,
+                    $initial_igshid: null,
+                    $initial_li_fat_id: null,
+                    $initial_mc_cid: null,
+                    $initial_msclkid: null,
+                    $initial_rdt_cid: null,
+                    $initial_ttclid: null,
+                    $initial_twclid: null,
+                    $initial_utm_campaign: null,
+                    $initial_utm_content: null,
+                    $initial_utm_medium: null,
+                    $initial_utm_name: null,
+                    $initial_utm_source: null,
+                    $initial_utm_term: null,
+                    $initial_wbraid: null,
                 },
                 version: 0,
                 is_identified: false,
@@ -118,5 +161,211 @@ describe('processPersonsStep()', () => {
         // Check PG state
         const persons = await fetchPostgresPersons(runner.hub.db, teamId)
         expect(persons).toEqual([resPerson])
+    })
+
+    it('only sets initial campaign params from the event that creates the Person', async () => {
+        const event1 = {
+            ...pluginEvent,
+            properties: {
+                utm_source: 'foo',
+                $browser: 'Chrome',
+            },
+        }
+        const event2 = {
+            ...pluginEvent,
+            properties: {
+                utm_medium: 'bar',
+                $browser: 'Chrome',
+            },
+        }
+
+        const processPerson = true
+        const [normalizedEvent1, timestamp1] = await normalizeEventStep(event1, processPerson)
+        await processPersonsStep(runner, normalizedEvent1, timestamp1, processPerson)
+        const [normalizedEvent2, timestamp2] = await normalizeEventStep(event2, processPerson)
+        const [_, resPerson2] = await processPersonsStep(runner, normalizedEvent2, timestamp2, processPerson)
+
+        expect(resPerson2).toEqual(
+            expect.objectContaining({
+                id: expect.any(Number),
+                uuid: expect.any(String),
+                properties: {
+                    $creator_event_uuid: expect.any(String),
+                    utm_source: 'foo',
+                    utm_medium: 'bar',
+                    $initial_browser: 'Chrome',
+                    $browser: 'Chrome',
+                    $initial_dclid: null,
+                    $initial_fbclid: null,
+                    $initial_gad_source: null,
+                    $initial_gbraid: null,
+                    $initial_gclid: null,
+                    $initial_gclsrc: null,
+                    $initial_igshid: null,
+                    $initial_li_fat_id: null,
+                    $initial_mc_cid: null,
+                    $initial_msclkid: null,
+                    $initial_rdt_cid: null,
+                    $initial_ttclid: null,
+                    $initial_twclid: null,
+                    $initial_utm_campaign: null,
+                    $initial_utm_content: null,
+                    $initial_utm_medium: null,
+                    $initial_utm_name: null,
+                    $initial_utm_source: 'foo',
+                    $initial_utm_term: null,
+                    $initial_wbraid: null,
+                },
+                version: 1,
+            })
+        )
+
+        // Check PG state
+        const persons = await fetchPostgresPersons(runner.hub.db, teamId)
+        expect(persons).toEqual([resPerson2])
+    })
+
+    // fails at utm_source is set from the upgrading event
+    it.failing('sets initial campaign params when upgrading user from anonymous to identified', async () => {
+        const event1 = {
+            ...pluginEvent,
+            properties: {
+                utm_source: 'foo',
+                $browser: 'Chrome',
+                $current_url: 'posthog.com/page1?utm_source=foo',
+            },
+        }
+        // posthog-js stores initial campaign params for anonymous users, and sends them if the user becomes identified
+        const event2 = {
+            ...pluginEvent,
+            properties: {
+                utm_source: 'bar',
+                utm_medium: 'baz',
+                $browser: 'Chrome',
+                $current_url: 'posthog.com/page2?utm_source=bar&utm_medium=baz',
+                $set_once: {
+                    $initial_utm_source: 'foo',
+                    $initial_current_url: 'posthog.com/page1?utm_source=foo',
+                },
+            },
+        }
+
+        const processPerson1 = false
+        const [normalizedEvent1, timestamp1] = await normalizeEventStep(event1, processPerson1)
+        await processPersonsStep(runner, normalizedEvent1, timestamp1, processPerson1)
+        const processPerson2 = true
+        const [normalizedEvent2, timestamp2] = await normalizeEventStep(event2, processPerson2)
+        const [_, resPerson2] = await processPersonsStep(runner, normalizedEvent2, timestamp2, processPerson2)
+
+        expect(resPerson2).toEqual(
+            expect.objectContaining({
+                id: expect.any(Number),
+                uuid: expect.any(String),
+                properties: {
+                    $creator_event_uuid: expect.any(String),
+                    utm_source: 'bar',
+                    utm_medium: 'baz',
+                    $initial_browser: 'Chrome',
+                    $browser: 'Chrome',
+                    $initial_current_url: 'posthog.com/page1?utm_source=foo',
+                    $current_url: 'posthog.com/page2?utm_source=bar&utm_medium=baz',
+                    $initial_dclid: null,
+                    $initial_fbclid: null,
+                    $initial_gad_source: null,
+                    $initial_gbraid: null,
+                    $initial_gclid: null,
+                    $initial_gclsrc: null,
+                    $initial_igshid: null,
+                    $initial_li_fat_id: null,
+                    $initial_mc_cid: null,
+                    $initial_msclkid: null,
+                    $initial_rdt_cid: null,
+                    $initial_ttclid: null,
+                    $initial_twclid: null,
+                    $initial_utm_campaign: null,
+                    $initial_utm_content: null,
+                    $initial_utm_medium: null, // fails because this is "baz"
+                    $initial_utm_name: null,
+                    $initial_utm_source: 'foo',
+                    $initial_utm_term: null,
+                    $initial_wbraid: null,
+                },
+                version: 0,
+            })
+        )
+
+        // Check PG state
+        const persons = await fetchPostgresPersons(runner.hub.db, teamId)
+        expect(persons).toEqual([resPerson2])
+    })
+
+    it.failing('ignores non-initial campaign params when upgrading user from anonymous to identified', async () => {
+        const event1 = {
+            ...pluginEvent,
+            properties: {
+                $browser: 'Chrome',
+                $current_url: 'posthog.com/page1',
+            },
+        }
+        // posthog-js stores initial campaign params for anonymous users, and sends them if the user becomes identified
+        const event2 = {
+            ...pluginEvent,
+            properties: {
+                utm_source: 'bar',
+                $browser: 'Chrome',
+                $current_url: 'posthog.com/page2?utm_source=bar',
+                $set_once: {
+                    $initial_current_url: 'posthog.com/page1',
+                },
+            },
+        }
+
+        const processPerson1 = false
+        const [normalizedEvent1, timestamp1] = await normalizeEventStep(event1, processPerson1)
+        await processPersonsStep(runner, normalizedEvent1, timestamp1, processPerson1)
+        const processPerson2 = true
+        const [normalizedEvent2, timestamp2] = await normalizeEventStep(event2, processPerson2)
+        const [_, resPerson2] = await processPersonsStep(runner, normalizedEvent2, timestamp2, processPerson2)
+
+        expect(resPerson2).toEqual(
+            expect.objectContaining({
+                id: expect.any(Number),
+                uuid: expect.any(String),
+                properties: {
+                    $creator_event_uuid: expect.any(String),
+                    // no $initial_utm_source
+                    utm_source: 'bar',
+                    $initial_browser: 'Chrome',
+                    $browser: 'Chrome',
+                    $initial_current_url: 'posthog.com/page1',
+                    $current_url: 'posthog.com/page2?utm_source=bar',
+                    $initial_dclid: null,
+                    $initial_fbclid: null,
+                    $initial_gad_source: null,
+                    $initial_gbraid: null,
+                    $initial_gclid: null,
+                    $initial_gclsrc: null,
+                    $initial_igshid: null,
+                    $initial_li_fat_id: null,
+                    $initial_mc_cid: null,
+                    $initial_msclkid: null,
+                    $initial_rdt_cid: null,
+                    $initial_ttclid: null,
+                    $initial_twclid: null,
+                    $initial_utm_campaign: null,
+                    $initial_utm_content: null,
+                    $initial_utm_medium: null,
+                    $initial_utm_name: null,
+                    $initial_utm_source: null, // fails because this is 'bar'
+                    $initial_utm_term: null,
+                    $initial_wbraid: null,
+                },
+                version: 0,
+            })
+        )
+
+        // Check PG state
+        const persons = await fetchPostgresPersons(runner.hub.db, teamId)
+        expect(persons).toEqual([resPerson2])
     })
 })

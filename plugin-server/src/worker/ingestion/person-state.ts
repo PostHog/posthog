@@ -11,7 +11,6 @@ import { DB } from '../../utils/db/db'
 import { PostgresUse, TransactionClient } from '../../utils/db/postgres'
 import {
     eventToPersonProperties,
-    initialCampaignParams,
     initialCampaignParamsDefault,
     initialEventToPersonProperties,
     timeoutGuard,
@@ -268,18 +267,15 @@ export class PersonState {
         }
         const uuid = uuidFromDistinctId(teamId, distinctIds[0].distinctId)
 
-        const props = {
+        // Set the initial campaign params to null, so that they cannot be set on future visits
+        propertiesOnce = {
             ...initialCampaignParamsDefault,
             ...propertiesOnce,
-            ...properties,
-            ...{ $creator_event_uuid: creatorEventUuid },
         }
+
+        const props = { ...propertiesOnce, ...properties, ...{ $creator_event_uuid: creatorEventUuid } }
         const propertiesLastOperation: Record<string, any> = {}
         const propertiesLastUpdatedAt: Record<string, any> = {}
-        initialCampaignParams.forEach((key) => {
-            propertiesLastOperation[key] = PropertyUpdateOperation.SetOnce
-            propertiesLastUpdatedAt[key] = createdAt
-        })
         Object.keys(propertiesOnce).forEach((key) => {
             propertiesLastOperation[key] = PropertyUpdateOperation.SetOnce
             propertiesLastUpdatedAt[key] = createdAt
