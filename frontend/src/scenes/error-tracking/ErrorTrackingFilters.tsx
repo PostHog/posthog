@@ -1,4 +1,4 @@
-import { LemonSelect } from '@posthog/lemon-ui'
+import { LemonInput, LemonSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { MemberSelect } from 'lib/components/MemberSelect'
@@ -13,19 +13,27 @@ import { errorTrackingLogic } from './errorTrackingLogic'
 import { errorTrackingSceneLogic } from './errorTrackingSceneLogic'
 
 export const FilterGroup = (): JSX.Element => {
-    const { filterGroup, filterTestAccounts } = useValues(errorTrackingLogic)
-    const { setFilterGroup, setFilterTestAccounts } = useActions(errorTrackingLogic)
+    const { filterGroup, filterTestAccounts, searchQuery } = useValues(errorTrackingLogic)
+    const { setFilterGroup, setFilterTestAccounts, setSearchQueryDebounced } = useActions(errorTrackingLogic)
 
     return (
         <div className="flex flex-1 items-center justify-between space-x-2">
-            <UniversalFilters
-                rootKey="error-tracking"
-                group={filterGroup}
-                taxonomicGroupTypes={[TaxonomicFilterGroupType.PersonProperties, TaxonomicFilterGroupType.Cohorts]}
-                onChange={setFilterGroup}
-            >
-                <RecordingsUniversalFilterGroup />
-            </UniversalFilters>
+            <div className="flex items-center gap-2">
+                <LemonInput
+                    type="search"
+                    placeholder="Search..."
+                    value={searchQuery}
+                    onChange={setSearchQueryDebounced}
+                />
+                <UniversalFilters
+                    rootKey="error-tracking"
+                    group={filterGroup}
+                    taxonomicGroupTypes={[TaxonomicFilterGroupType.PersonProperties, TaxonomicFilterGroupType.Cohorts]}
+                    onChange={setFilterGroup}
+                >
+                    <RecordingsUniversalFilterGroup />
+                </UniversalFilters>
+            </div>
             <div>
                 <TestAccountFilter
                     size="small"

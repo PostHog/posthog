@@ -40,6 +40,7 @@ export const errorTrackingLogic = kea<errorTrackingLogicType>([
         setFilterGroup: (filterGroup: UniversalFiltersGroup) => ({ filterGroup }),
         setFilterTestAccounts: (filterTestAccounts: boolean) => ({ filterTestAccounts }),
         setSearchQuery: (searchQuery: string) => ({ searchQuery }),
+        setSearchQueryDebounced: (searchQuery: string) => ({ searchQuery }),
         setSparklineSelectedPeriod: (period: string | null) => ({ period }),
         _setSparklineOptions: (options: SparklineOption[]) => ({ options }),
     }),
@@ -123,6 +124,10 @@ export const errorTrackingLogic = kea<errorTrackingLogicType>([
                 actions.setSparklineSelectedPeriod(null)
                 actions._setSparklineOptions([])
             }
+        },
+        setSearchQueryDebounced: async ({ searchQuery }, breakpoint) => {
+            await breakpoint(30)
+            actions.setSearchQuery(searchQuery)
         },
     })),
 ])

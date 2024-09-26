@@ -163,7 +163,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 fingerprint=None,
                 dateRange=DateRange(),
                 filterTestAccounts=True,
-                searchQuery="DatabaseNotFound",
+                searchQuery="databasenot",
             ),
         )
 

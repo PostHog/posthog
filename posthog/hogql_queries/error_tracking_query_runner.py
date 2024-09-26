@@ -127,30 +127,26 @@ class ErrorTrackingQueryRunner(QueryRunner):
             )
 
         if self.query.searchQuery:
+            # TODO: Refine this so it only searches the frames inside $exception_list
+            props_to_search = ["$exception_list", "$exception_stack_trace_raw", "$exception_type", "$exception_message"]
+            or_exprs = []
+            for prop in props_to_search:
+                or_exprs.append(
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.Gt,
+                        left=ast.Call(
+                            name="position",
+                            args=[
+                                ast.Call(name="lower", args=[ast.Field(chain=["properties", prop])]),
+                                ast.Call(name="lower", args=[ast.Constant(value=self.query.searchQuery)]),
+                            ],
+                        ),
+                        right=ast.Constant(value=0),
+                    )
+                )
             exprs.append(
                 ast.Or(
-                    exprs=[
-                        ast.CompareOperation(
-                            op=ast.CompareOperationOp.ILike,
-                            left=ast.Field(chain=["properties", "$exception_list"]),
-                            right=ast.Constant(value=self.query.searchQuery),
-                        ),
-                        ast.CompareOperation(
-                            op=ast.CompareOperationOp.ILike,
-                            left=ast.Field(chain=["properties", "$exception_stack_trace_raw"]),
-                            right=ast.Constant(value=self.query.searchQuery),
-                        ),
-                        ast.CompareOperation(
-                            op=ast.CompareOperationOp.ILike,
-                            left=ast.Field(chain=["properties", "$exception_message"]),
-                            right=ast.Constant(value=self.query.searchQuery),
-                        ),
-                        ast.CompareOperation(
-                            op=ast.CompareOperationOp.ILike,
-                            left=ast.Field(chain=["properties", "$exception_type"]),
-                            right=ast.Constant(value=self.query.searchQuery),
-                        ),
-                    ]
+                    exprs=or_exprs,
                 )
             )
 
