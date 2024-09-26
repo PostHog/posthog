@@ -1,5 +1,5 @@
 from django.test import override_settings
-from posthog.hogql_queries.experiment_trend_query_runner import ExperimentTrendQueryRunner
+from posthog.hogql_queries.experiments.experiment_trend_query_runner import ExperimentTrendQueryRunner
 from posthog.models.experiment import Experiment
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.schema import (

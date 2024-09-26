@@ -1,12 +1,10 @@
 import './Billing.scss'
 
-import { IconCheckCircle } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonInput, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Field, Form } from 'kea-forms'
 import { router } from 'kea-router'
-import { SurprisedHog } from 'lib/components/hedgehogs'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { dayjs } from 'lib/dayjs'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
@@ -32,16 +30,8 @@ export const scene: SceneExport = {
 }
 
 export function Billing(): JSX.Element {
-    const {
-        billing,
-        billingLoading,
-        isOnboarding,
-        showLicenseDirectInput,
-        isActivateLicenseSubmitting,
-        over20kAnnual,
-        isAnnualPlan,
-        billingError,
-    } = useValues(billingLogic)
+    const { billing, billingLoading, isOnboarding, showLicenseDirectInput, isActivateLicenseSubmitting, billingError } =
+        useValues(billingLogic)
     const { reportBillingShown } = useActions(billingLogic)
     const { preflight, isCloudOrDev } = useValues(preflightLogic)
     const { openSupportForm } = useActions(supportLogic)
@@ -225,53 +215,6 @@ export function Billing(): JSX.Element {
                         </div>
                     )}
                 </div>
-                {!isOnboarding && !isAnnualPlan && over20kAnnual && (
-                    <div className="bg-[var(--glass-bg-3000)] flex flex-row gap-2 relative pl-6 p-4 border rounded min-w-120 w-fit">
-                        <div className="flex flex-col pl-2 ">
-                            <h3>You've unlocked enterprise-grade perks:</h3>
-                            <ul className="pl-4">
-                                <li className="flex gap-2 items-center">
-                                    <IconCheckCircle className="text-success shrink-0" />
-                                    <span>
-                                        <strong>Save 20%</strong> by switching to up-front annual billing
-                                    </span>
-                                </li>
-                                <li className="flex gap-2 items-center">
-                                    <IconCheckCircle className="text-success shrink-0" />
-                                    <span>
-                                        Get <strong>discounts on bundled subscriptions</strong> to multiple products
-                                    </span>
-                                </li>
-                                <li className="flex gap-2 items-center">
-                                    <IconCheckCircle className="text-success shrink-0" />
-                                    <span>
-                                        Get <strong>customized training</strong> for you and your team
-                                    </span>
-                                </li>
-                                <li className="flex gap-2 items-center">
-                                    <IconCheckCircle className="text-success shrink-0" />
-                                    <span>
-                                        Get dedicated support via <strong>private Slack channel</strong>
-                                    </span>
-                                </li>
-                                <li className="flex gap-2 items-center">
-                                    <IconCheckCircle className="text-success shrink-0" />
-                                    <span>
-                                        We'll even send you <strong>awesome free merch</strong>
-                                    </span>
-                                </li>
-                            </ul>
-                            <div className="pt-1 self-start flex flex-row gap-1 mt-2">
-                                <LemonButton type="secondary" to="mailto:sales@posthog.com">
-                                    Let's chat
-                                </LemonButton>
-                            </div>
-                        </div>
-                        <div className="h-24 self-end -scale-x-100 -ml-20 -mb-2">
-                            <SurprisedHog className="max-h-full w-auto object-contain" />
-                        </div>
-                    </div>
-                )}
             </div>
 
             <LemonDivider className="mt-6 mb-8" />

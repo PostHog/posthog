@@ -265,10 +265,17 @@ export interface HogQLFilters {
     filterTestAccounts?: boolean
 }
 
+export interface HogQLVariable {
+    variableId: string
+    value?: any
+}
+
 export interface HogQLQuery extends DataNode<HogQLQueryResponse> {
     kind: NodeKind.HogQLQuery
     query: string
     filters?: HogQLFilters
+    /** Variables to be subsituted into the query */
+    variables?: Record<string, HogQLVariable>
     /** Constant values that can be referenced with the {placeholder} syntax in the query */
     values?: Record<string, any>
     /** @deprecated use modifiers.debug instead */
@@ -1566,6 +1573,7 @@ export interface ExperimentVariantTrendResult {
 }
 
 export interface ExperimentVariantFunnelResult {
+    key: string
     success_count: number
     failure_count: number
 }
