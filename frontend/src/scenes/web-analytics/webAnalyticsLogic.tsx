@@ -1085,7 +1085,12 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 }
 
                 const extendQuery = (query: QuerySchema): QuerySchema => {
-                    if (query.kind === NodeKind.DataTableNode && query.source.kind === NodeKind.WebStatsTableQuery) {
+                    if (
+                        query.kind === NodeKind.DataTableNode &&
+                        (query.source.kind === NodeKind.WebStatsTableQuery ||
+                            query.source.kind === NodeKind.WebExternalClicksTableQuery ||
+                            query.source.kind === NodeKind.WebGoalsQuery)
+                    ) {
                         return {
                             ...query,
                             source: {

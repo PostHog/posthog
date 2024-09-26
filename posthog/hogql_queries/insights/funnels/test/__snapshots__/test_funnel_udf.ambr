@@ -19,7 +19,7 @@
             rowNumberInBlock() AS row_number,
             breakdown AS final_prop
      FROM
-       (SELECT arrayJoin(aggregate_funnel_array(3, 15, 'first_touch', 'ordered', [[]], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))))) AS af_tuple,
+       (SELECT arrayJoin(aggregate_funnel_array_v0(3, 15, 'first_touch', 'ordered', [[]], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))))) AS af_tuple,
                af_tuple.1 AS af,
                af_tuple.2 AS breakdown,
                af_tuple.3 AS timings
@@ -195,7 +195,7 @@
             rowNumberInBlock() AS row_number,
             breakdown AS final_prop
      FROM
-       (SELECT arrayJoin(aggregate_funnel_array(3, 1209600, 'first_touch', 'ordered', [[]], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))))) AS af_tuple,
+       (SELECT arrayJoin(aggregate_funnel_array_v0(3, 1209600, 'first_touch', 'ordered', [[]], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))))) AS af_tuple,
                af_tuple.1 AS af,
                af_tuple.2 AS breakdown,
                af_tuple.3 AS timings
@@ -270,7 +270,7 @@
             rowNumberInBlock() AS row_number,
             breakdown AS final_prop
      FROM
-       (SELECT arrayJoin(aggregate_funnel_array(2, 1209600, 'first_touch', 'ordered', [[]], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))))) AS af_tuple,
+       (SELECT arrayJoin(aggregate_funnel_array_v0(2, 1209600, 'first_touch', 'ordered', [[]], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))))) AS af_tuple,
                af_tuple.1 AS af,
                af_tuple.2 AS breakdown,
                af_tuple.3 AS timings
@@ -330,7 +330,7 @@
             rowNumberInBlock() AS row_number,
             breakdown AS final_prop
      FROM
-       (SELECT arrayJoin(aggregate_funnel_array(3, 1209600, 'first_touch', 'ordered', [[]], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))))) AS af_tuple,
+       (SELECT arrayJoin(aggregate_funnel_array_v0(3, 1209600, 'first_touch', 'ordered', [[]], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))))) AS af_tuple,
                af_tuple.1 AS af,
                af_tuple.2 AS breakdown,
                af_tuple.3 AS timings
@@ -759,7 +759,7 @@
             rowNumberInBlock() AS row_number,
             breakdown AS final_prop
      FROM
-       (SELECT arrayJoin(aggregate_funnel_array(2, 1209600, 'first_touch', 'ordered', [[]], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))))) AS af_tuple,
+       (SELECT arrayJoin(aggregate_funnel_array_v0(2, 1209600, 'first_touch', 'ordered', [[]], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))))) AS af_tuple,
                af_tuple.1 AS af,
                af_tuple.2 AS breakdown,
                af_tuple.3 AS timings
@@ -814,7 +814,7 @@
             rowNumberInBlock() AS row_number,
             breakdown AS final_prop
      FROM
-       (SELECT arrayJoin(aggregate_funnel_array(2, 1209600, 'first_touch', 'ordered', [[]], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))))) AS af_tuple,
+       (SELECT arrayJoin(aggregate_funnel_array_v0(2, 1209600, 'first_touch', 'ordered', [[]], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))))) AS af_tuple,
                af_tuple.1 AS af,
                af_tuple.2 AS breakdown,
                af_tuple.3 AS timings
@@ -866,7 +866,7 @@
             rowNumberInBlock() AS row_number,
             if(ifNull(less(row_number, 25), 0), breakdown, ['Other']) AS final_prop
      FROM
-       (SELECT arrayJoin(aggregate_funnel_array(2, 1209600, 'first_touch', 'ordered', groupUniqArray(prop), arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), prop, arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))))) AS af_tuple,
+       (SELECT arrayJoin(aggregate_funnel_array_v0(2, 1209600, 'first_touch', 'ordered', groupUniqArray(prop), arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), prop, arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))))) AS af_tuple,
                af_tuple.1 AS af,
                af_tuple.2 AS breakdown,
                af_tuple.3 AS timings
@@ -934,7 +934,7 @@
             rowNumberInBlock() AS row_number,
             if(ifNull(less(row_number, 25), 0), breakdown, ['Other']) AS final_prop
      FROM
-       (SELECT arrayJoin(aggregate_funnel_array(2, 1209600, 'step_1', 'ordered', groupUniqArray(prop), arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), prop, arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))))) AS af_tuple,
+       (SELECT arrayJoin(aggregate_funnel_array_v0(2, 1209600, 'step_1', 'ordered', groupUniqArray(prop), arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), prop, arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))))) AS af_tuple,
                af_tuple.1 AS af,
                af_tuple.2 AS breakdown,
                af_tuple.3 AS timings
@@ -1009,7 +1009,7 @@
             rowNumberInBlock() AS row_number,
             if(ifNull(less(row_number, 25), 0), breakdown, ['Other']) AS final_prop
      FROM
-       (SELECT arrayJoin(aggregate_funnel_array(2, 1209600, 'first_touch', 'ordered', groupUniqArray(prop), arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), prop, arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))))) AS af_tuple,
+       (SELECT arrayJoin(aggregate_funnel_array_v0(2, 1209600, 'first_touch', 'ordered', groupUniqArray(prop), arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), prop, arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))))) AS af_tuple,
                af_tuple.1 AS af,
                af_tuple.2 AS breakdown,
                af_tuple.3 AS timings
@@ -1082,7 +1082,7 @@
             rowNumberInBlock() AS row_number,
             if(ifNull(less(row_number, 25), 0), breakdown, 'Other') AS final_prop
      FROM
-       (SELECT arrayJoin(aggregate_funnel(3, 1209600, 'first_touch', 'ordered', groupUniqArray(prop), arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), prop, arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))))) AS af_tuple,
+       (SELECT arrayJoin(aggregate_funnel_v0(3, 1209600, 'first_touch', 'ordered', groupUniqArray(prop), arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), prop, arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))))) AS af_tuple,
                af_tuple.1 AS af,
                af_tuple.2 AS breakdown,
                af_tuple.3 AS timings
@@ -1162,7 +1162,7 @@
             rowNumberInBlock() AS row_number,
             if(ifNull(less(row_number, 25), 0), breakdown, 'Other') AS final_prop
      FROM
-       (SELECT arrayJoin(aggregate_funnel(3, 1209600, 'first_touch', 'ordered', groupUniqArray(prop), arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), prop, arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))))) AS af_tuple,
+       (SELECT arrayJoin(aggregate_funnel_v0(3, 1209600, 'first_touch', 'ordered', groupUniqArray(prop), arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), prop, arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))))) AS af_tuple,
                af_tuple.1 AS af,
                af_tuple.2 AS breakdown,
                af_tuple.3 AS timings
@@ -1242,7 +1242,7 @@
             rowNumberInBlock() AS row_number,
             if(ifNull(less(row_number, 25), 0), breakdown, 'Other') AS final_prop
      FROM
-       (SELECT arrayJoin(aggregate_funnel(3, 1209600, 'first_touch', 'ordered', groupUniqArray(prop), arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), prop, arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))))) AS af_tuple,
+       (SELECT arrayJoin(aggregate_funnel_v0(3, 1209600, 'first_touch', 'ordered', groupUniqArray(prop), arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), prop, arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))))) AS af_tuple,
                af_tuple.1 AS af,
                af_tuple.2 AS breakdown,
                af_tuple.3 AS timings
@@ -1399,8 +1399,8 @@
                               prop_vals as prop
                        FROM
                          (SELECT e.timestamp as timestamp,
-                                 pdi.person_id as aggregation_target,
-                                 pdi.person_id as person_id,
+                                 if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                                 if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                                  if(event = 'sign up', 1, 0) as step_0,
                                  if(step_0 = 1, timestamp, null) as latest_0,
                                  if(event = 'play movie', 1, 0) as step_1,
@@ -1411,7 +1411,7 @@
                                  prop_basic as prop,
                                  argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
                           FROM events e
-                          INNER JOIN
+                          LEFT OUTER JOIN
                             (SELECT distinct_id,
                                     argMax(person_id, version) as person_id
                              FROM person_distinct_id2
@@ -1542,8 +1542,8 @@
                               prop_vals as prop
                        FROM
                          (SELECT e.timestamp as timestamp,
-                                 pdi.person_id as aggregation_target,
-                                 pdi.person_id as person_id,
+                                 if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                                 if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                                  if(event = 'sign up', 1, 0) as step_0,
                                  if(step_0 = 1, timestamp, null) as latest_0,
                                  if(event = 'play movie', 1, 0) as step_1,
@@ -1554,7 +1554,7 @@
                                  prop_basic as prop,
                                  argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
                           FROM events e
-                          INNER JOIN
+                          LEFT OUTER JOIN
                             (SELECT distinct_id,
                                     argMax(person_id, version) as person_id
                              FROM person_distinct_id2
@@ -1685,8 +1685,8 @@
                               prop_vals as prop
                        FROM
                          (SELECT e.timestamp as timestamp,
-                                 pdi.person_id as aggregation_target,
-                                 pdi.person_id as person_id,
+                                 if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                                 if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                                  if(event = 'sign up', 1, 0) as step_0,
                                  if(step_0 = 1, timestamp, null) as latest_0,
                                  if(event = 'play movie', 1, 0) as step_1,
@@ -1697,7 +1697,7 @@
                                  prop_basic as prop,
                                  argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
                           FROM events e
-                          INNER JOIN
+                          LEFT OUTER JOIN
                             (SELECT distinct_id,
                                     argMax(person_id, version) as person_id
                              FROM person_distinct_id2
@@ -1828,8 +1828,8 @@
                               prop_vals as prop
                        FROM
                          (SELECT e.timestamp as timestamp,
-                                 pdi.person_id as aggregation_target,
-                                 pdi.person_id as person_id,
+                                 if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                                 if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                                  if(event = 'sign up', 1, 0) as step_0,
                                  if(step_0 = 1, timestamp, null) as latest_0,
                                  if(event = 'play movie', 1, 0) as step_1,
@@ -1840,7 +1840,7 @@
                                  prop_basic as prop,
                                  argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
                           FROM events e
-                          INNER JOIN
+                          LEFT OUTER JOIN
                             (SELECT distinct_id,
                                     argMax(person_id, version) as person_id
                              FROM person_distinct_id2

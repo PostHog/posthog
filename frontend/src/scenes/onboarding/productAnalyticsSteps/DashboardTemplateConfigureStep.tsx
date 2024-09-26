@@ -17,6 +17,7 @@ import { iframedToolbarBrowserLogic } from 'lib/components/IframedToolbarBrowser
 import { useEffect, useRef, useState } from 'react'
 import { dashboardTemplateVariablesLogic } from 'scenes/dashboard/dashboardTemplateVariablesLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { onboardingLogic, OnboardingStepKey } from '../onboardingLogic'
 import { OnboardingStep } from '../OnboardingStep'
@@ -31,7 +32,7 @@ const UrlInput = ({ iframeRef }: { iframeRef: React.RefObject<HTMLIFrameElement>
     const { browserUrl, currentPath } = useValues(
         iframedToolbarBrowserLogic({ iframeRef, clearBrowserUrlOnUnmount: true })
     )
-    const { snippetHosts } = useValues(sdksLogic)
+    const { combinedSnippetAndLiveEventsHosts } = useValues(sdksLogic)
     const { addUrl } = useActions(authorizedUrlListLogic({ actionId: null, type: AuthorizedUrlListType.TOOLBAR_URLS }))
     const [inputValue, setInputValue] = useState(currentPath)
 
@@ -56,7 +57,7 @@ const UrlInput = ({ iframeRef }: { iframeRef: React.RefObject<HTMLIFrameElement>
                             <LemonInputSelect
                                 mode="single"
                                 value={[browserUrl || 'my-website.com']}
-                                options={snippetHosts.map((host) => ({ key: host, label: host }))}
+                                options={combinedSnippetAndLiveEventsHosts.map((host) => ({ key: host, label: host }))}
                                 allowCustomValues={false}
                                 onChange={(v) => {
                                     addUrl(v[0])
@@ -65,7 +66,7 @@ const UrlInput = ({ iframeRef }: { iframeRef: React.RefObject<HTMLIFrameElement>
                                 }}
                                 size="xsmall"
                                 transparentBackground
-                                borderless
+                                className="border-none"
                             />
                         </div>
                         /
@@ -86,7 +87,9 @@ const UrlInput = ({ iframeRef }: { iframeRef: React.RefObject<HTMLIFrameElement>
 
 export const SiteChooser = (): JSX.Element => {
     const iframeRef = useRef<HTMLIFrameElement>(null)
-    const { snippetHosts, hasSnippetEventsLoading } = useValues(sdksLogic)
+    const { combinedSnippetAndLiveEventsHosts, hasSnippetEventsLoading } = useValues(sdksLogic)
+    const { setStepKey } = useActions(onboardingLogic)
+    const { isCloud } = useValues(preflightLogic)
     const { setProposedBrowserUrl } = useActions(
         iframedToolbarBrowserLogic({
             iframeRef,
@@ -101,7 +104,6 @@ export const SiteChooser = (): JSX.Element => {
             automaticallyAuthorizeBrowserUrl: true,
         })
     )
-    const { setStepKey } = useActions(onboardingLogic)
 
     return (
         <>
@@ -122,15 +124,21 @@ export const SiteChooser = (): JSX.Element => {
                     <h2>Select where you want to track events from.</h2>
                     {hasSnippetEventsLoading ? (
                         <Spinner />
-                    ) : snippetHosts.length > 0 ? (
+                    ) : combinedSnippetAndLiveEventsHosts.length > 0 ? (
                         <>
                             <p>
-                                Not seeing the site you want?{' '}
-                                <Link onClick={() => setStepKey(OnboardingStepKey.INSTALL)}>Install posthog-js</Link> or
+                                Not seeing the site you want? Try clikcing around on your site to trigger a few events.
+                                If you haven't yet,{' '}
+                                <Link onClick={() => setStepKey(OnboardingStepKey.INSTALL)}>install posthog-js</Link> or
                                 the HTML snippet wherever you want to track events, then come back here.
                             </p>
+                            {isCloud && (
+                                <p className="text-muted italic">
+                                    Note: Sites must be served over HTTPS to be selected.
+                                </p>
+                            )}
                             <div className="space-y-2">
-                                {snippetHosts.map((host) => (
+                                {combinedSnippetAndLiveEventsHosts.map((host) => (
                                     <LemonButton
                                         key={`snippet-host-button-${host}`}
                                         type="tertiary"
@@ -243,7 +251,7 @@ export const OnboardingDashboardTemplateConfigureStep = ({
                     </div>
                 ) : (
                     <div className="grid grid-cols-6 space-x-6 min-h-[80vh]">
-                        <div className="col-span-4 relative">
+                        <div className="col-span-4 relative max-h-[100vh] overflow-y-hidden">
                             {browserUrl && iframeBanner?.level != 'error' ? (
                                 <div className="border border-1 border-border-bold rounded h-full w-full flex flex-col">
                                     <UrlInput iframeRef={iframeRef} />

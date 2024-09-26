@@ -46,14 +46,12 @@ export function ElementInfo(): JSX.Element | null {
 
     return (
         <>
-            {/* eslint-disable-next-line react/forbid-dom-props */}
-            <div className="p-3" style={{ borderLeft: '5px solid #8F98FF', background: 'hsla(235, 100%, 99%, 1)' }}>
+            <div className="p-3 border-l-[5px] border-l-[#8F98FF] bg-[hsla(235,100%,99%,1)]">
                 <h1 className="section-title">Selected Element</h1>
                 <ActionStep actionStep={actionStep} />
             </div>
             {position ? (
-                /* eslint-disable-next-line react/forbid-dom-props */
-                <div className="p-3" style={{ borderLeft: '5px solid #FF9870', background: 'hsla(19, 99%, 99%, 1)' }}>
+                <div className="p-3 border-l-[5px] border-l-[#FF9870] bg-[hsla(19,99%,99%,1)]">
                     <h1 className="section-title">Stats</h1>
                     <p>
                         <IconCalendar /> <u>{dateRange}</u>
@@ -80,8 +78,8 @@ export function ElementInfo(): JSX.Element | null {
                     </div>
                 </div>
             ) : null}
-            {/* eslint-disable-next-line react/forbid-dom-props */}
-            <div className="p-3" style={{ borderLeft: '5px solid #94D674', background: 'hsla(100, 74%, 98%, 1)' }}>
+            {}
+            <div className="p-3 border-l-[5px] border-l-[#94D674] bg-[hsla(100,74%,98%,1)]">
                 {!automaticActionCreationEnabled && (
                     <>
                         <h1 className="section-title">Actions ({activeMeta.actions.length})</h1>

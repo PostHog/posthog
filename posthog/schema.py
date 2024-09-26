@@ -522,6 +522,7 @@ class ExperimentVariantFunnelResult(BaseModel):
         extra="forbid",
     )
     failure_count: float
+    key: str
     success_count: float
 
 
@@ -725,6 +726,14 @@ class HogQLQueryModifiers(BaseModel):
     propertyGroupsMode: Optional[PropertyGroupsMode] = None
     s3TableUseInvalidColumns: Optional[bool] = None
     sessionTableVersion: Optional[SessionTableVersion] = None
+
+
+class HogQLVariable(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    value: Optional[Any] = None
+    variableId: str
 
 
 class HogQueryResponse(BaseModel):
@@ -3714,6 +3723,13 @@ class SessionRecordingType(BaseModel):
     mouse_activity_count: Optional[float] = Field(
         default=None, description="count of all mouse activity in the recording, not just clicks"
     )
+    ongoing: Optional[bool] = Field(
+        default=None,
+        description=(
+            "whether we have received data for this recording in the last 5 minutes (assumes the recording was loaded"
+            " from ClickHouse)\n*"
+        ),
+    )
     person: Optional[PersonType] = None
     recording_duration: float = Field(..., description="Length of recording in seconds.")
     snapshot_source: SnapshotSource
@@ -4414,6 +4430,9 @@ class HogQLQuery(BaseModel):
     response: Optional[HogQLQueryResponse] = None
     values: Optional[dict[str, Any]] = Field(
         default=None, description="Constant values that can be referenced with the {placeholder} syntax in the query"
+    )
+    variables: Optional[dict[str, HogQLVariable]] = Field(
+        default=None, description="Variables to be subsituted into the query"
     )
 
 

@@ -47,6 +47,7 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
         loaded,
         hogFunction,
         willReEnableOnSave,
+        willChangeEnabledOnSave,
         globalsWithInputs,
         showPaygate,
         hasAddon,
@@ -102,23 +103,34 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
 
     const saveButtons = (
         <>
-            <LemonButton
-                type="secondary"
-                htmlType="reset"
-                onClick={() => resetForm()}
-                disabledReason={
-                    !configurationChanged ? 'No changes' : isConfigurationSubmitting ? 'Saving in progress…' : undefined
-                }
-            >
-                Clear changes
-            </LemonButton>
+            {configurationChanged ? (
+                <LemonButton
+                    type="secondary"
+                    htmlType="reset"
+                    onClick={() => resetForm()}
+                    disabledReason={
+                        !configurationChanged
+                            ? 'No changes'
+                            : isConfigurationSubmitting
+                            ? 'Saving in progress…'
+                            : undefined
+                    }
+                >
+                    Clear changes
+                </LemonButton>
+            ) : null}
             <LemonButton
                 type="primary"
                 htmlType="submit"
                 onClick={submitConfiguration}
                 loading={isConfigurationSubmitting}
             >
-                {templateId ? 'Create' : willReEnableOnSave ? 'Save & re-enable' : 'Save'}
+                {templateId ? 'Create' : 'Save'}
+                {willReEnableOnSave
+                    ? ' & re-enable'
+                    : willChangeEnabledOnSave
+                    ? ` & ${configuration.enabled ? 'enable' : 'disable'}`
+                    : ''}
             </LemonButton>
         </>
     )
@@ -147,7 +159,7 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                 {hogFunction?.filters?.bytecode_error ? (
                     <div>
                         <LemonBanner type="error">
-                            <b>Error saving filters:</b> {hogFunction.filters.bytecode_error}. Please contact support.
+                            <b>Error saving filters:</b> {hogFunction.filters.bytecode_error}
                         </LemonBanner>
                     </div>
                 ) : null}

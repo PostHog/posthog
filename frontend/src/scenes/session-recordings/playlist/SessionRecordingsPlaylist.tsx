@@ -39,7 +39,8 @@ export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicPr
         activeSessionRecordingId,
         hasNext,
     } = useValues(logic)
-    const { maybeLoadSessionRecordings, summarizeSession, setSelectedRecordingId, setFilters } = useActions(logic)
+    const { maybeLoadSessionRecordings, summarizeSession, setSelectedRecordingId, setFilters, setShowOtherRecordings } =
+        useActions(logic)
 
     const { featureFlags } = useValues(featureFlagLogic)
     const isTestingSaved = featureFlags[FEATURE_FLAGS.SAVED_NOT_PINNED] === 'test'
@@ -108,6 +109,7 @@ export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicPr
                     title="Recordings"
                     embedded={!!notebookNode}
                     sections={sections}
+                    onChangeSections={(activeSections) => setShowOtherRecordings(activeSections.includes('other'))}
                     headerActions={[
                         {
                             key: 'settings',

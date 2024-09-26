@@ -28,5 +28,57 @@ describe('Encrypted fields', () => {
             const decrypted = encryptedFields.decrypt(encrypted)
             expect(decrypted).toEqual('test-case')
         })
+
+        it('should throw on decryption error', () => {
+            expect(() => encryptedFields.decrypt('NOT VALID')).toThrow()
+        })
+
+        it('should not throw on decryption error if option passed', () => {
+            expect(() => encryptedFields.decrypt('NOT VALID', { ignoreDecryptionErrors: true })).not.toThrow()
+            expect(encryptedFields.decrypt('NOT VALID', { ignoreDecryptionErrors: true })).toEqual('NOT VALID')
+        })
+
+        describe('decrypting objects', () => {
+            it('should decrypt an object', () => {
+                const exampleObject = {
+                    key: encryptedFields.encrypt('value'),
+                    missing: null,
+                    nested: {
+                        key: encryptedFields.encrypt('nested-value'),
+                    },
+                }
+                expect(encryptedFields.decryptObject(exampleObject)).toEqual({
+                    key: 'value',
+                    missing: null,
+                    nested: {
+                        key: 'nested-value',
+                    },
+                })
+            })
+
+            it('should throw on decryption error', () => {
+                expect(() =>
+                    encryptedFields.decryptObject({
+                        key: 'NOT VALID',
+                    })
+                ).toThrow()
+            })
+
+            it('should not throw on decryption error if option passed', () => {
+                const exampleObject = {
+                    key: 'not encrypted',
+                    missing: null,
+                    nested: {
+                        key: 'also not encrypted',
+                    },
+                }
+                expect(() =>
+                    encryptedFields.decryptObject(exampleObject, { ignoreDecryptionErrors: true })
+                ).not.toThrow()
+                expect(encryptedFields.decryptObject(exampleObject, { ignoreDecryptionErrors: true })).toEqual(
+                    exampleObject
+                )
+            })
+        })
     })
 })
