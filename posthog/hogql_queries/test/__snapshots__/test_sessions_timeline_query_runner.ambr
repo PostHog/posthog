@@ -36,7 +36,10 @@
                lagInFrame(events.`$session_id`, 1) OVER (PARTITION BY person_id
                                                          ORDER BY timestamp ASC) AS prev_session_id
         FROM
-          (SELECT events.uuid AS uuid,
+          (SELECT toTimeZone(events.person_created_at, 'UTC') AS person_created_at,
+                  events.person_properties AS person_properties,
+                  events.person_id AS person_id,
+                  events.uuid AS uuid,
                   events.person_id AS event_person_id,
                   toTimeZone(events.timestamp, 'UTC') AS timestamp,
                   events.event AS event,
@@ -44,7 +47,22 @@
                   events.distinct_id AS distinct_id,
                   events.elements_chain AS elements_chain,
                   events.`$session_id` AS `$session_id`,
-                  events.distinct_id AS events___distinct_id
+                  events.distinct_id AS events___distinct_id,
+                  events.`$group_0` AS `$group_0`,
+                  events.group0_properties AS group0_properties,
+                  events.group0_created_at AS group0_created_at,
+                  events.`$group_1` AS `$group_1`,
+                  events.group1_properties AS group1_properties,
+                  events.group1_created_at AS group1_created_at,
+                  events.`$group_2` AS `$group_2`,
+                  events.group2_properties AS group2_properties,
+                  events.group2_created_at AS group2_created_at,
+                  events.`$group_3` AS `$group_3`,
+                  events.group3_properties AS group3_properties,
+                  events.group3_created_at AS group3_created_at,
+                  events.`$group_4` AS `$group_4`,
+                  events.group4_properties AS group4_properties,
+                  events.group4_created_at AS group4_created_at
            FROM events
            WHERE equals(events.team_id, 2)) AS events
         LEFT OUTER JOIN
@@ -115,7 +133,10 @@
                lagInFrame(events.`$session_id`, 1) OVER (PARTITION BY person_id
                                                          ORDER BY timestamp ASC) AS prev_session_id
         FROM
-          (SELECT events.uuid AS uuid,
+          (SELECT toTimeZone(events.person_created_at, 'UTC') AS person_created_at,
+                  events.person_properties AS person_properties,
+                  events.person_id AS person_id,
+                  events.uuid AS uuid,
                   events.person_id AS event_person_id,
                   toTimeZone(events.timestamp, 'UTC') AS timestamp,
                   events.event AS event,
@@ -123,7 +144,22 @@
                   events.distinct_id AS distinct_id,
                   events.elements_chain AS elements_chain,
                   events.`$session_id` AS `$session_id`,
-                  events.distinct_id AS events___distinct_id
+                  events.distinct_id AS events___distinct_id,
+                  events.`$group_0` AS `$group_0`,
+                  events.group0_properties AS group0_properties,
+                  events.group0_created_at AS group0_created_at,
+                  events.`$group_1` AS `$group_1`,
+                  events.group1_properties AS group1_properties,
+                  events.group1_created_at AS group1_created_at,
+                  events.`$group_2` AS `$group_2`,
+                  events.group2_properties AS group2_properties,
+                  events.group2_created_at AS group2_created_at,
+                  events.`$group_3` AS `$group_3`,
+                  events.group3_properties AS group3_properties,
+                  events.group3_created_at AS group3_created_at,
+                  events.`$group_4` AS `$group_4`,
+                  events.group4_properties AS group4_properties,
+                  events.group4_created_at AS group4_created_at
            FROM events
            WHERE equals(events.team_id, 2)) AS events
         LEFT OUTER JOIN
@@ -194,7 +230,10 @@
                lagInFrame(events.`$session_id`, 1) OVER (PARTITION BY person_id
                                                          ORDER BY timestamp ASC) AS prev_session_id
         FROM
-          (SELECT events.uuid AS uuid,
+          (SELECT toTimeZone(events.person_created_at, 'UTC') AS person_created_at,
+                  events.person_properties AS person_properties,
+                  events.person_id AS person_id,
+                  events.uuid AS uuid,
                   events.person_id AS event_person_id,
                   toTimeZone(events.timestamp, 'UTC') AS timestamp,
                   events.event AS event,
@@ -202,7 +241,22 @@
                   events.distinct_id AS distinct_id,
                   events.elements_chain AS elements_chain,
                   events.`$session_id` AS `$session_id`,
-                  events.distinct_id AS events___distinct_id
+                  events.distinct_id AS events___distinct_id,
+                  events.`$group_0` AS `$group_0`,
+                  events.group0_properties AS group0_properties,
+                  events.group0_created_at AS group0_created_at,
+                  events.`$group_1` AS `$group_1`,
+                  events.group1_properties AS group1_properties,
+                  events.group1_created_at AS group1_created_at,
+                  events.`$group_2` AS `$group_2`,
+                  events.group2_properties AS group2_properties,
+                  events.group2_created_at AS group2_created_at,
+                  events.`$group_3` AS `$group_3`,
+                  events.group3_properties AS group3_properties,
+                  events.group3_created_at AS group3_created_at,
+                  events.`$group_4` AS `$group_4`,
+                  events.group4_properties AS group4_properties,
+                  events.group4_created_at AS group4_created_at
            FROM events
            WHERE equals(events.team_id, 2)) AS events
         LEFT OUTER JOIN
@@ -273,7 +327,10 @@
                lagInFrame(events.`$session_id`, 1) OVER (PARTITION BY person_id
                                                          ORDER BY timestamp ASC) AS prev_session_id
         FROM
-          (SELECT events.uuid AS uuid,
+          (SELECT toTimeZone(events.person_created_at, 'UTC') AS person_created_at,
+                  events.person_properties AS person_properties,
+                  events.person_id AS person_id,
+                  events.uuid AS uuid,
                   events.person_id AS event_person_id,
                   toTimeZone(events.timestamp, 'UTC') AS timestamp,
                   events.event AS event,
@@ -281,7 +338,22 @@
                   events.distinct_id AS distinct_id,
                   events.elements_chain AS elements_chain,
                   events.`$session_id` AS `$session_id`,
-                  events.distinct_id AS events___distinct_id
+                  events.distinct_id AS events___distinct_id,
+                  events.`$group_0` AS `$group_0`,
+                  events.group0_properties AS group0_properties,
+                  events.group0_created_at AS group0_created_at,
+                  events.`$group_1` AS `$group_1`,
+                  events.group1_properties AS group1_properties,
+                  events.group1_created_at AS group1_created_at,
+                  events.`$group_2` AS `$group_2`,
+                  events.group2_properties AS group2_properties,
+                  events.group2_created_at AS group2_created_at,
+                  events.`$group_3` AS `$group_3`,
+                  events.group3_properties AS group3_properties,
+                  events.group3_created_at AS group3_created_at,
+                  events.`$group_4` AS `$group_4`,
+                  events.group4_properties AS group4_properties,
+                  events.group4_created_at AS group4_created_at
            FROM events
            WHERE equals(events.team_id, 2)) AS events
         LEFT OUTER JOIN
@@ -352,7 +424,10 @@
                lagInFrame(events.`$session_id`, 1) OVER (PARTITION BY person_id
                                                          ORDER BY timestamp ASC) AS prev_session_id
         FROM
-          (SELECT events.uuid AS uuid,
+          (SELECT toTimeZone(events.person_created_at, 'UTC') AS person_created_at,
+                  events.person_properties AS person_properties,
+                  events.person_id AS person_id,
+                  events.uuid AS uuid,
                   events.person_id AS event_person_id,
                   toTimeZone(events.timestamp, 'UTC') AS timestamp,
                   events.event AS event,
@@ -360,7 +435,22 @@
                   events.distinct_id AS distinct_id,
                   events.elements_chain AS elements_chain,
                   events.`$session_id` AS `$session_id`,
-                  events.distinct_id AS events___distinct_id
+                  events.distinct_id AS events___distinct_id,
+                  events.`$group_0` AS `$group_0`,
+                  events.group0_properties AS group0_properties,
+                  events.group0_created_at AS group0_created_at,
+                  events.`$group_1` AS `$group_1`,
+                  events.group1_properties AS group1_properties,
+                  events.group1_created_at AS group1_created_at,
+                  events.`$group_2` AS `$group_2`,
+                  events.group2_properties AS group2_properties,
+                  events.group2_created_at AS group2_created_at,
+                  events.`$group_3` AS `$group_3`,
+                  events.group3_properties AS group3_properties,
+                  events.group3_created_at AS group3_created_at,
+                  events.`$group_4` AS `$group_4`,
+                  events.group4_properties AS group4_properties,
+                  events.group4_created_at AS group4_created_at
            FROM events
            WHERE equals(events.team_id, 2)) AS events
         LEFT OUTER JOIN
@@ -431,7 +521,10 @@
                lagInFrame(events.`$session_id`, 1) OVER (PARTITION BY person_id
                                                          ORDER BY timestamp ASC) AS prev_session_id
         FROM
-          (SELECT events.uuid AS uuid,
+          (SELECT toTimeZone(events.person_created_at, 'UTC') AS person_created_at,
+                  events.person_properties AS person_properties,
+                  events.person_id AS person_id,
+                  events.uuid AS uuid,
                   events.person_id AS event_person_id,
                   toTimeZone(events.timestamp, 'UTC') AS timestamp,
                   events.event AS event,
@@ -439,7 +532,22 @@
                   events.distinct_id AS distinct_id,
                   events.elements_chain AS elements_chain,
                   events.`$session_id` AS `$session_id`,
-                  events.distinct_id AS events___distinct_id
+                  events.distinct_id AS events___distinct_id,
+                  events.`$group_0` AS `$group_0`,
+                  events.group0_properties AS group0_properties,
+                  events.group0_created_at AS group0_created_at,
+                  events.`$group_1` AS `$group_1`,
+                  events.group1_properties AS group1_properties,
+                  events.group1_created_at AS group1_created_at,
+                  events.`$group_2` AS `$group_2`,
+                  events.group2_properties AS group2_properties,
+                  events.group2_created_at AS group2_created_at,
+                  events.`$group_3` AS `$group_3`,
+                  events.group3_properties AS group3_properties,
+                  events.group3_created_at AS group3_created_at,
+                  events.`$group_4` AS `$group_4`,
+                  events.group4_properties AS group4_properties,
+                  events.group4_created_at AS group4_created_at
            FROM events
            WHERE equals(events.team_id, 2)) AS events
         LEFT OUTER JOIN
@@ -510,7 +618,10 @@
                lagInFrame(events.`$session_id`, 1) OVER (PARTITION BY person_id
                                                          ORDER BY timestamp ASC) AS prev_session_id
         FROM
-          (SELECT events.uuid AS uuid,
+          (SELECT toTimeZone(events.person_created_at, 'UTC') AS person_created_at,
+                  events.person_properties AS person_properties,
+                  events.person_id AS person_id,
+                  events.uuid AS uuid,
                   events.person_id AS event_person_id,
                   toTimeZone(events.timestamp, 'UTC') AS timestamp,
                   events.event AS event,
@@ -518,7 +629,22 @@
                   events.distinct_id AS distinct_id,
                   events.elements_chain AS elements_chain,
                   events.`$session_id` AS `$session_id`,
-                  events.distinct_id AS events___distinct_id
+                  events.distinct_id AS events___distinct_id,
+                  events.`$group_0` AS `$group_0`,
+                  events.group0_properties AS group0_properties,
+                  events.group0_created_at AS group0_created_at,
+                  events.`$group_1` AS `$group_1`,
+                  events.group1_properties AS group1_properties,
+                  events.group1_created_at AS group1_created_at,
+                  events.`$group_2` AS `$group_2`,
+                  events.group2_properties AS group2_properties,
+                  events.group2_created_at AS group2_created_at,
+                  events.`$group_3` AS `$group_3`,
+                  events.group3_properties AS group3_properties,
+                  events.group3_created_at AS group3_created_at,
+                  events.`$group_4` AS `$group_4`,
+                  events.group4_properties AS group4_properties,
+                  events.group4_created_at AS group4_created_at
            FROM events
            WHERE equals(events.team_id, 2)) AS events
         LEFT OUTER JOIN

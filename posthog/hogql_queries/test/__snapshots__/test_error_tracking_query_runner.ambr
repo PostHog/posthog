@@ -10,15 +10,33 @@
          any(events.`properties___$exception_type`) AS exception_type,
          multiIf(has([['SyntaxError']], JSONExtract(ifNull(events.`properties___$exception_fingerprint`, '[]'), 'Array(String)')), ['SyntaxError'], has([['custom_fingerprint']], JSONExtract(ifNull(events.`properties___$exception_fingerprint`, '[]'), 'Array(String)')), ['custom_fingerprint'], JSONExtract(ifNull(events.`properties___$exception_fingerprint`, '[]'), 'Array(String)')) AS fingerprint
   FROM
-    (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_message'), ''), 'null'), '^"|"$', '') AS `properties___$exception_message`,
+    (SELECT toTimeZone(events.person_created_at, 'UTC') AS person_created_at,
+            events.person_properties AS person_properties,
+            events.person_id AS person_id,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_message'), ''), 'null'), '^"|"$', '') AS `properties___$exception_message`,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_type'), ''), 'null'), '^"|"$', '') AS `properties___$exception_type`,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', '') AS `properties___$exception_fingerprint`,
             events.`$session_id` AS `$session_id`,
             events.distinct_id AS distinct_id,
             toTimeZone(events.timestamp, 'UTC') AS timestamp,
-            events.event AS event
+            events.event AS event,
+            events.`$group_0` AS `$group_0`,
+            events.group0_properties AS group0_properties,
+            events.group0_created_at AS group0_created_at,
+            events.`$group_1` AS `$group_1`,
+            events.group1_properties AS group1_properties,
+            events.group1_created_at AS group1_created_at,
+            events.`$group_2` AS `$group_2`,
+            events.group2_properties AS group2_properties,
+            events.group2_created_at AS group2_created_at,
+            events.`$group_3` AS `$group_3`,
+            events.group3_properties AS group3_properties,
+            events.group3_created_at AS group3_created_at,
+            events.`$group_4` AS `$group_4`,
+            events.group4_properties AS group4_properties,
+            events.group4_created_at AS group4_created_at
      FROM events
-     WHERE and(equals(events.team_id, 2), ifNull(equals(event, '$exception'), 0), has([['SyntaxError'], ['custom_fingerprint']], JSONExtract(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), '[]'), 'Array(String)')))) AS events
+     WHERE equals(events.team_id, 2)) AS events
   WHERE and(ifNull(equals(events.event, '$exception'), 0), 1, has([['SyntaxError'], ['custom_fingerprint']], JSONExtract(ifNull(events.`properties___$exception_fingerprint`, '[]'), 'Array(String)')))
   GROUP BY fingerprint
   LIMIT 101
@@ -42,16 +60,34 @@
          any(events.`properties___$exception_type`) AS exception_type,
          JSONExtract(ifNull(events.`properties___$exception_fingerprint`, '[]'), 'Array(String)') AS fingerprint
   FROM
-    (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_message'), ''), 'null'), '^"|"$', '') AS `properties___$exception_message`,
+    (SELECT toTimeZone(events.person_created_at, 'UTC') AS person_created_at,
+            events.person_properties AS person_properties,
+            events.person_id AS person_id,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_message'), ''), 'null'), '^"|"$', '') AS `properties___$exception_message`,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_type'), ''), 'null'), '^"|"$', '') AS `properties___$exception_type`,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', '') AS `properties___$exception_fingerprint`,
             events.`$session_id` AS `$session_id`,
             events.distinct_id AS distinct_id,
             toTimeZone(events.timestamp, 'UTC') AS timestamp,
             events.event AS event,
-            events.person_id AS events___person_id
+            events.person_id AS events___person_id,
+            events.`$group_0` AS `$group_0`,
+            events.group0_properties AS group0_properties,
+            events.group0_created_at AS group0_created_at,
+            events.`$group_1` AS `$group_1`,
+            events.group1_properties AS group1_properties,
+            events.group1_created_at AS group1_created_at,
+            events.`$group_2` AS `$group_2`,
+            events.group2_properties AS group2_properties,
+            events.group2_created_at AS group2_created_at,
+            events.`$group_3` AS `$group_3`,
+            events.group3_properties AS group3_properties,
+            events.group3_created_at AS group3_created_at,
+            events.`$group_4` AS `$group_4`,
+            events.group4_properties AS group4_properties,
+            events.group4_created_at AS group4_created_at
      FROM events
-     WHERE and(equals(events.team_id, 2), ifNull(equals(event, '$exception'), 0))) AS events
+     WHERE equals(events.team_id, 2)) AS events
   LEFT JOIN
     (SELECT person.id AS id,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
@@ -84,16 +120,34 @@
          any(events.`properties___$exception_message`) AS description,
          any(events.`properties___$exception_type`) AS exception_type
   FROM
-    (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_message'), ''), 'null'), '^"|"$', '') AS `properties___$exception_message`,
+    (SELECT toTimeZone(events.person_created_at, 'UTC') AS person_created_at,
+            events.person_properties AS person_properties,
+            events.person_id AS person_id,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_message'), ''), 'null'), '^"|"$', '') AS `properties___$exception_message`,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_type'), ''), 'null'), '^"|"$', '') AS `properties___$exception_type`,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', '') AS `properties___$exception_fingerprint`,
             events.`$session_id` AS `$session_id`,
             events.distinct_id AS distinct_id,
             toTimeZone(events.timestamp, 'UTC') AS timestamp,
             events.event AS event,
-            events.person_id AS events___person_id
+            events.person_id AS events___person_id,
+            events.`$group_0` AS `$group_0`,
+            events.group0_properties AS group0_properties,
+            events.group0_created_at AS group0_created_at,
+            events.`$group_1` AS `$group_1`,
+            events.group1_properties AS group1_properties,
+            events.group1_created_at AS group1_created_at,
+            events.`$group_2` AS `$group_2`,
+            events.group2_properties AS group2_properties,
+            events.group2_created_at AS group2_created_at,
+            events.`$group_3` AS `$group_3`,
+            events.group3_properties AS group3_properties,
+            events.group3_created_at AS group3_created_at,
+            events.`$group_4` AS `$group_4`,
+            events.group4_properties AS group4_properties,
+            events.group4_created_at AS group4_created_at
      FROM events
-     WHERE and(equals(events.team_id, 2), ifNull(equals(event, '$exception'), 0), has([['SyntaxError']], JSONExtract(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), '[]'), 'Array(String)')))) AS events
+     WHERE equals(events.team_id, 2)) AS events
   LEFT JOIN
     (SELECT person.id AS id,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
@@ -165,15 +219,33 @@
          any(events.`properties___$exception_message`) AS description,
          any(events.`properties___$exception_type`) AS exception_type
   FROM
-    (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_message'), ''), 'null'), '^"|"$', '') AS `properties___$exception_message`,
+    (SELECT toTimeZone(events.person_created_at, 'UTC') AS person_created_at,
+            events.person_properties AS person_properties,
+            events.person_id AS person_id,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_message'), ''), 'null'), '^"|"$', '') AS `properties___$exception_message`,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_type'), ''), 'null'), '^"|"$', '') AS `properties___$exception_type`,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', '') AS `properties___$exception_fingerprint`,
             events.`$session_id` AS `$session_id`,
             events.distinct_id AS distinct_id,
             toTimeZone(events.timestamp, 'UTC') AS timestamp,
-            events.event AS event
+            events.event AS event,
+            events.`$group_0` AS `$group_0`,
+            events.group0_properties AS group0_properties,
+            events.group0_created_at AS group0_created_at,
+            events.`$group_1` AS `$group_1`,
+            events.group1_properties AS group1_properties,
+            events.group1_created_at AS group1_created_at,
+            events.`$group_2` AS `$group_2`,
+            events.group2_properties AS group2_properties,
+            events.group2_created_at AS group2_created_at,
+            events.`$group_3` AS `$group_3`,
+            events.group3_properties AS group3_properties,
+            events.group3_created_at AS group3_created_at,
+            events.`$group_4` AS `$group_4`,
+            events.group4_properties AS group4_properties,
+            events.group4_created_at AS group4_created_at
      FROM events
-     WHERE and(equals(events.team_id, 2), ifNull(equals(event, '$exception'), 0), has([['SyntaxError']], JSONExtract(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), '[]'), 'Array(String)')))) AS events
+     WHERE equals(events.team_id, 2)) AS events
   WHERE and(ifNull(equals(events.event, '$exception'), 0), 1, has([['SyntaxError']], JSONExtract(ifNull(events.`properties___$exception_fingerprint`, '[]'), 'Array(String)')))
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -196,16 +268,34 @@
          any(events.`properties___$exception_type`) AS exception_type,
          JSONExtract(ifNull(events.`properties___$exception_fingerprint`, '[]'), 'Array(String)') AS fingerprint
   FROM
-    (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_message'), ''), 'null'), '^"|"$', '') AS `properties___$exception_message`,
+    (SELECT toTimeZone(events.person_created_at, 'UTC') AS person_created_at,
+            events.person_properties AS person_properties,
+            events.person_id AS person_id,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_message'), ''), 'null'), '^"|"$', '') AS `properties___$exception_message`,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_type'), ''), 'null'), '^"|"$', '') AS `properties___$exception_type`,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', '') AS `properties___$exception_fingerprint`,
             events.`$session_id` AS `$session_id`,
             events.distinct_id AS distinct_id,
             toTimeZone(events.timestamp, 'UTC') AS timestamp,
             events.event AS event,
-            events.person_id AS events___person_id
+            events.person_id AS events___person_id,
+            events.`$group_0` AS `$group_0`,
+            events.group0_properties AS group0_properties,
+            events.group0_created_at AS group0_created_at,
+            events.`$group_1` AS `$group_1`,
+            events.group1_properties AS group1_properties,
+            events.group1_created_at AS group1_created_at,
+            events.`$group_2` AS `$group_2`,
+            events.group2_properties AS group2_properties,
+            events.group2_created_at AS group2_created_at,
+            events.`$group_3` AS `$group_3`,
+            events.group3_properties AS group3_properties,
+            events.group3_created_at AS group3_created_at,
+            events.`$group_4` AS `$group_4`,
+            events.group4_properties AS group4_properties,
+            events.group4_created_at AS group4_created_at
      FROM events
-     WHERE and(equals(events.team_id, 2), ifNull(equals(event, '$exception'), 0))) AS events
+     WHERE equals(events.team_id, 2)) AS events
   LEFT JOIN
     (SELECT person.id AS id,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
