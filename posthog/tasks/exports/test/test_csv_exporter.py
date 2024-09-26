@@ -773,7 +773,11 @@ class TestCSVExporter(APIBaseTest):
 
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
             csv_exporter.export_tabular(exported_asset)
-            content = object_storage.read(exported_asset.content_location)
+            if exported_asset.content_location is not None:
+                content = object_storage.read(exported_asset.content_location)
+            else:
+                raise ValueError("content_location is None")
+
             lines = (content or "").strip().split("\r\n")
             self.assertEqual(
                 lines,
@@ -853,7 +857,10 @@ class TestCSVExporter(APIBaseTest):
 
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
             csv_exporter.export_tabular(exported_asset)
-            content = object_storage.read(exported_asset.content_location)
+            if exported_asset.content_location is not None:
+                content = object_storage.read(exported_asset.content_location)
+            else:
+                raise ValueError("content_location is None")
             lines = (content or "").strip().split("\r\n")
             self.assertEqual(
                 lines,
