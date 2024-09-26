@@ -78,6 +78,7 @@ def hog_function_state_transition(hog_function_id: str, state: int) -> None:
         {
             "hog_function_id": hog_function_id,
             "hog_function_url": f"{settings.SITE_URL}/project/{hog_function.team.id}/pipeline/destinations/hog-{hog_function_id}",
+            "state": state,
         },
     )
 

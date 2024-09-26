@@ -183,7 +183,7 @@ def send_hog_function_disabled(hog_function_id: str) -> None:
     campaign_key: str = f"hog_function_disabled_{hog_function_id}_updated_at_{hog_function.updated_at}"
     message = EmailMessage(
         campaign_key=campaign_key,
-        subject=f"[Alert] {hog_function.name} has been disabled in project {team} due to a fatal error",
+        subject=f"[Alert] Destination '{hog_function.name}' has been disabled in project '{team}' due to high error rate",
         template_name="hog_function_disabled",
         template_context={"hog_function": hog_function, "team": team},
     )
