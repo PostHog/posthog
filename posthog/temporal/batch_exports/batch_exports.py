@@ -55,9 +55,11 @@ FROM
         interval_end={interval_end}
     ) AS persons
 FORMAT ArrowStream
--- This is half of configured MAX_MEMORY_USAGE for batch exports.
--- TODO: Make the setting available to all queries.
-SETTINGS max_bytes_before_external_group_by=50000000000
+SETTINGS
+    -- This is half of configured MAX_MEMORY_USAGE for batch exports.
+    -- TODO: Make the setting available to all queries.
+    max_bytes_before_external_group_by=50000000000,
+    max_bytes_before_external_sort=50000000000
 """
 
 SELECT_FROM_EVENTS_VIEW = Template(
