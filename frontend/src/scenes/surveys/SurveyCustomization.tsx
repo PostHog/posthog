@@ -111,6 +111,7 @@ export function Customization({ appearance, surveyQuestionItem, onAppearanceChan
                     value={appearance?.zIndex}
                     onChange={(zIndex) => onAppearanceChange({ ...appearance, zIndex })}
                     disabled={!surveysStylingAvailable}
+                    placeholder="z-index to position the survey popup"
                 />
                 {surveyQuestionItem.type === SurveyQuestionType.Open && (
                     <>
