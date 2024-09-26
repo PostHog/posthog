@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { useEffect, useState } from 'react'
-import { teamLogic } from 'scenes/teamLogic'
+import { projectLogic } from 'scenes/projectLogic'
 
 import { organizationLogic } from '../organizationLogic'
 
@@ -16,8 +16,8 @@ export function CreateProjectModal({
     onClose?: () => void
     inline?: boolean
 }): JSX.Element {
-    const { currentTeam, currentTeamLoading } = useValues(teamLogic)
-    const { createTeam } = useActions(teamLogic)
+    const { currentProject, currentProjectLoading } = useValues(projectLogic)
+    const { createProject } = useActions(projectLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { reportProjectCreationSubmitted } = useActions(eventUsageLogic)
     const [name, setName] = useState<string>('')
@@ -31,14 +31,14 @@ export function CreateProjectModal({
         }
     }
     const handleSubmit = (): void => {
-        createTeam({ name, is_demo: false })
+        createProject({ name })
         reportProjectCreationSubmitted(currentOrganization?.teams ? currentOrganization.teams.length : 0, name.length)
     }
 
     // Anytime the team changes close the modal as it indicates we have created a new team
     useEffect(() => {
         closeModal()
-    }, [currentTeam])
+    }, [currentProject])
 
     return (
         <LemonModal
@@ -47,7 +47,7 @@ export function CreateProjectModal({
             description={
                 <>
                     <p>
-                        Use Projects to organize your data into separate collections – for example, to create
+                        Use projects to organize your data into separate collections – for example, to create
                         separate environments for production / staging / local development.
                     </p>
                     <p>
@@ -70,7 +70,7 @@ export function CreateProjectModal({
                         <LemonButton
                             type="secondary"
                             onClick={onClose}
-                            disabledReason={currentTeamLoading ? 'Creating team...' : undefined}
+                            disabledReason={currentProjectLoading ? 'Creating team...' : undefined}
                         >
                             Cancel
                         </LemonButton>
@@ -78,7 +78,7 @@ export function CreateProjectModal({
                     <LemonButton
                         type="primary"
                         onClick={handleSubmit}
-                        loading={currentTeamLoading}
+                        loading={currentProjectLoading}
                         disabledReason={!name ? 'Think of a name!' : null}
                     >
                         Create project
@@ -88,7 +88,7 @@ export function CreateProjectModal({
             isOpen={isVisible}
             onClose={onClose}
             inline={inline}
-            closable={!currentTeamLoading}
+            closable={!currentProjectLoading}
         >
             <LemonField.Pure label="Project name">
                 <LemonInput
@@ -102,7 +102,7 @@ export function CreateProjectModal({
                             handleSubmit()
                         }
                     }}
-                    disabled={currentTeamLoading}
+                    disabled={currentProjectLoading}
                 />
             </LemonField.Pure>
         </LemonModal>
