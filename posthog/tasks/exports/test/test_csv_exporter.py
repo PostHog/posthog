@@ -711,24 +711,24 @@ class TestCSVExporter(APIBaseTest):
                 {
                     "event": "$pageview",
                     "properties": {"$browser": "Chrome", "$browser_version": 95},
-                    "timestamp": datetime(2024, 3, 22, 13, 44),
+                    "timestamp": datetime(2024, 5, 22, 13, 44),
                 },
                 {
                     "event": "$pageleave",
                     "properties": {"$browser": "Chrome", "$browser_version": 95},
-                    "timestamp": datetime(2024, 3, 22, 13, 45),
+                    "timestamp": datetime(2024, 5, 22, 13, 45),
                 },
             ],
             "person2": [
                 {
                     "event": "$pageview",
                     "properties": {"$browser": "Safari", "$browser_version": 11},
-                    "timestamp": datetime(2024, 3, 22, 13, 46),
+                    "timestamp": datetime(2024, 5, 22, 13, 46),
                 },
                 {
                     "event": "$pageview",
                     "properties": {"$browser": "Safari", "$browser_version": 11},
-                    "timestamp": datetime(2024, 3, 22, 13, 47),
+                    "timestamp": datetime(2024, 5, 22, 13, 47),
                 },
             ],
         }
@@ -756,7 +756,7 @@ class TestCSVExporter(APIBaseTest):
                         },
                     ],
                     "interval": "day",
-                    "dateRange": {"date_to": "2024-03-23", "date_from": "2024-03-22"},
+                    "dateRange": {"date_to": "2024-05-23", "date_from": "2024-05-22"},
                     "trendsFilter": {},
                     "breakdownFilter": {
                         "breakdowns": [
@@ -782,7 +782,7 @@ class TestCSVExporter(APIBaseTest):
             self.assertEqual(
                 lines,
                 [
-                    "series,$browser,$browser_version,22-Mar-2024,23-Mar-2024",
+                    "series,$browser,$browser_version,22-May-2024,23-May-2024",
                     "$pageview,Safari,11,2.0,0.0",
                     "$pageview,Chrome,95,1.0,0.0",
                     "$pageleave,Chrome,95,1.0,0.0",
