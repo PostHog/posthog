@@ -1,4 +1,5 @@
 import { kea } from 'kea'
+import { router } from 'kea-router'
 import api from 'lib/api'
 import { urls } from 'scenes/urls'
 
@@ -7,11 +8,15 @@ import type { paymentEntryLogicType } from './PaymentEntryLogicType'
 export const paymentEntryLogic = kea<paymentEntryLogicType>({
     path: ['scenes', 'billing', 'PaymentEntryLogic'],
 
+    connect: () => ({
+        actions: [router],
+    }),
+
     actions: {
         setClientSecret: (clientSecret) => ({ clientSecret }),
         setLoading: (loading) => ({ loading }),
         setError: (error) => ({ error }),
-        initiateAuthorization: (redirectPath: string) => ({ redirectPath }),
+        initiateAuthorization: (redirectPath: string | null) => ({ redirectPath }),
         pollAuthorizationStatus: true,
         setAuthorizationStatus: (status: string | null) => ({ status }),
         showPaymentEntryModal: true,
@@ -59,8 +64,8 @@ export const paymentEntryLogic = kea<paymentEntryLogicType>({
         ],
     },
 
-    listeners: ({ actions }) => ({
-        initiateAuthorization: async (redirectPath: string) => {
+    listeners: ({ actions, values }) => ({
+        initiateAuthorization: async ({ redirectPath }) => {
             actions.setLoading(true)
             actions.setError(null)
             try {
@@ -90,10 +95,10 @@ export const paymentEntryLogic = kea<paymentEntryLogicType>({
                     actions.setAuthorizationStatus(status)
 
                     if (status === 'success') {
-                        if (actions.redirectPath) {
-                            window.location.href = actions.redirectPath
+                        if (values.redirectPath) {
+                            window.location.pathname = values.redirectPath
                         } else {
-                            window.location.href = urls.organizationBilling()
+                            router.actions.push(urls.organizationBilling())
                         }
                         return
                     } else if (status === 'failed') {

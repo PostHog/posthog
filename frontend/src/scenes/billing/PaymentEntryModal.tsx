@@ -55,16 +55,16 @@ export const PaymentForm = (): JSX.Element => {
 }
 
 interface PaymentEntryModalProps {
-    redirectPath: string
+    redirectPath?: string | null
 }
 
-export const PaymentEntryModal = ({ redirectPath }: PaymentEntryModalProps): JSX.Element | null => {
+export const PaymentEntryModal = ({ redirectPath = null }: PaymentEntryModalProps): JSX.Element | null => {
     const { clientSecret, paymentEntryModalOpen } = useValues(paymentEntryLogic)
     const { hidePaymentEntryModal, initiateAuthorization } = useActions(paymentEntryLogic)
 
     useEffect(() => {
         initiateAuthorization(redirectPath)
-    }, [])
+    }, [redirectPath])
 
     return (
         <LemonModal
