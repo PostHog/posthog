@@ -20,6 +20,7 @@ from posthog.hogql.database.schema.person_distinct_ids import (
     lazy_join_with_person_distinct_ids_table,
 )
 from posthog.hogql.database.schema.sessions_v1 import join_events_table_to_sessions_table, SessionsTableV1
+from posthog.hogql.database.schema.util.where_clause_extractor import WhereClauseExtractor
 
 
 class EventsPersonSubTable(VirtualTable):
@@ -155,7 +156,13 @@ class EventsLazy(LazyTable):
         select_fields: list[ast.Expr] = []
         for name, chain in table_to_add.fields_accessed.items():
             select_fields.append(ast.Alias(alias=name, expr=ast.Field(chain=["events", *chain])))
-        return ast.SelectQuery(select=select_fields, select_from=ast.JoinExpr(table=ast.Field(chain=["events"])))
+
+        extractor = WhereClauseExtractor(context)
+        extractor.add_local_tables(table_to_add)
+        where = extractor.get_inner_where(node)
+        return ast.SelectQuery(
+            select=select_fields, select_from=ast.JoinExpr(table=ast.Field(chain=["events"])), where=where
+        )
 
     def to_printed_clickhouse(self, context):
         return "events_lazy"
@@ -176,6 +183,7 @@ REAL_FIELDS = {
     "$session_id": StringDatabaseField(name="$session_id"),
     "$window_id": StringDatabaseField(name="$window_id"),
     "person_id": StringDatabaseField(name="person_id"),
+    "event_person_id": StringDatabaseField(name="person_id"),
     "$group_0": StringDatabaseField(name="$group_0"),
     "$group_1": StringDatabaseField(name="$group_1"),
     "$group_2": StringDatabaseField(name="$group_2"),
