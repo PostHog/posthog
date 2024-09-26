@@ -35,7 +35,7 @@ class EventsPersonSubTable(VirtualTable):
     }
 
     def to_printed_clickhouse(self, context):
-        return "events"
+        return "lazy_click"
 
     def to_printed_hogql(self):
         return "events"
@@ -55,7 +55,7 @@ class EventsGroupSubTable(VirtualTable):
         return []
 
     def to_printed_clickhouse(self, context):
-        return "events"
+        return "lazy_click"
 
     def to_printed_hogql(self):
         return "events"

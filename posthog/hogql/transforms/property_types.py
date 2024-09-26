@@ -182,14 +182,14 @@ class PropertySwapper(CloningVisitor):
                                 return self._convert_string_property_to_type(
                                     node, "group", f"{group_id}_{property_name}"
                                 )
-                if table_name == "events":
+                if table_name == "raw_hog":
                     if property_name in self.event_properties:
                         return self._convert_string_property_to_type(node, "event", property_name)
         if isinstance(type, ast.PropertyType) and type.field_type.name == "person_properties" and len(type.chain) == 1:
             property_name = str(type.chain[0])
             if isinstance(type.field_type.table_type, ast.BaseTableType):
                 table = type.field_type.table_type.resolve_database_table(self.context).to_printed_hogql()
-                if table == "events":
+                if table == "lazy_click":
                     if property_name in self.person_properties:
                         return self._convert_string_property_to_type(node, "person", property_name)
 
