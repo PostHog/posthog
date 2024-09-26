@@ -4,8 +4,6 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-serde = { workspace = true }
-serde_json = { workspace = true }
 rdkafka = { workspace = true }
 tokio = { workspace = true }
 envconfig = {workspace = true }
@@ -14,7 +12,6 @@ tracing-subscriber = { workspace = true }
 health = { path = "../common/health" }
 axum = { workspace = true }
 metrics = { workspace = true }
-time = { workspace = true }
 common-metrics = { path = "../common/metrics" }
 common-alloc = { path = "../common/alloc" }
 common-types = { path = "../common/types" }

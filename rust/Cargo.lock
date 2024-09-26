@@ -752,7 +752,6 @@ name = "common-types"
 version = "0.1.0"
 dependencies = [
  "serde",
- "serde_json",
  "time",
  "uuid",
 ]
@@ -1106,10 +1105,7 @@ dependencies = [
  "health",
  "metrics",
  "rdkafka",
- "serde",
- "serde_json",
  "thiserror",
- "time",
  "tokio",
  "tracing",
  "tracing-subscriber",
