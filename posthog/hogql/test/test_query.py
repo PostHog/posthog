@@ -1,3 +1,5 @@
+import datetime
+
 import pytest
 from uuid import UUID
 
@@ -6,7 +8,6 @@ from django.test import override_settings
 from django.utils import timezone
 from freezegun import freeze_time
 
-from posthog import datetime
 from posthog.hogql import ast
 from posthog.hogql.errors import QueryError
 from posthog.hogql.property import property_to_expr

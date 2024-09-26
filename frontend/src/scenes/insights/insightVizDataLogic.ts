@@ -14,7 +14,7 @@ import { databaseTableListLogic } from 'scenes/data-management/database/database
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { sceneLogic } from 'scenes/sceneLogic'
-import { filterTestAccountsDefaultsLogic } from 'scenes/settings/project/filterTestAccountDefaultsLogic'
+import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
 import { BASE_MATH_DEFINITIONS } from 'scenes/trends/mathsLogic'
 
 import { actionsModel } from '~/models/actionsModel'
