@@ -267,6 +267,7 @@
         "eslint-plugin-jest": "^28.6.0",
         "eslint-plugin-posthog": "link:./eslint-rules",
         "eslint-plugin-react": "^7.33.2",
+        "eslint-plugin-react-hooks": "^4.6.2",
         "eslint-plugin-simple-import-sort": "^10.0.0",
         "eslint-plugin-storybook": "^0.6.15",
         "eslint-plugin-unused-imports": "^3.1.0",
