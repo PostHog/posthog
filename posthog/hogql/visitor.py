@@ -93,7 +93,7 @@ class TraversingVisitor(Visitor[None]):
         self.visit(node.type)
 
     def visit_placeholder(self, node: ast.Placeholder):
-        self.visit(node.type)
+        self.visit(node.expr)
 
     def visit_call(self, node: ast.Call):
         for expr in node.args:
@@ -498,7 +498,7 @@ class CloningVisitor(Visitor[Any]):
             start=None if self.clear_locations else node.start,
             end=None if self.clear_locations else node.end,
             type=None if self.clear_types else node.type,
-            chain=node.chain,
+            expr=self.visit(node.expr),
         )
 
     def visit_call(self, node: ast.Call):

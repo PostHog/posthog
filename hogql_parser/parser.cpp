@@ -2570,11 +2570,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
   }
 
   VISIT(Placeholder) {
-    auto nested_identifier_ctx = ctx->nestedIdentifier();
-    vector<string> nested =
-        nested_identifier_ctx ? any_cast<vector<string>>(visit(nested_identifier_ctx)) : vector<string>();
-
-    RETURN_NEW_AST_NODE("Placeholder", "{s:N}", "chain", X_PyList_FromStrings(nested));
+    RETURN_NEW_AST_NODE("Placeholder", "{s:N}", "expr", visitAsPyObject(ctx->columnExpr()));
   }
 
   VISIT_UNSUPPORTED(EnumValue)

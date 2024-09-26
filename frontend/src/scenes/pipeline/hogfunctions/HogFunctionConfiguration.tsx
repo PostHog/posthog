@@ -159,7 +159,7 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                 {hogFunction?.filters?.bytecode_error ? (
                     <div>
                         <LemonBanner type="error">
-                            <b>Error saving filters:</b> {hogFunction.filters.bytecode_error}. Please contact support.
+                            <b>Error saving filters:</b> {hogFunction.filters.bytecode_error}
                         </LemonBanner>
                     </div>
                 ) : null}
