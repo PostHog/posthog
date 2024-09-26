@@ -33,7 +33,7 @@
   
   SELECT events.event AS event, events.distinct_id AS distinct_id 
   FROM (
-  SELECT toTimeZone(events.person_created_at, %(hogql_val_0)s) AS person_created_at, events.person_properties AS person_properties, events.person_id AS person_id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_1)s), ''), 'null'), '^"|"$', '') AS properties___index, events.event AS event, events.distinct_id AS distinct_id 
+  SELECT toTimeZone(events.person_created_at, %(hogql_val_0)s) AS person_created_at, events.person_properties AS person_properties, events.person_id AS person_id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_1)s), ''), 'null'), '^"|"$', '') AS properties___index, events.event AS event, events.distinct_id AS distinct_id, events.`$group_0` AS `$group_0`, events.group0_properties AS group0_properties, events.group0_created_at AS group0_created_at, events.`$group_1` AS `$group_1`, events.group1_properties AS group1_properties, events.group1_created_at AS group1_created_at, events.`$group_2` AS `$group_2`, events.group2_properties AS group2_properties, events.group2_created_at AS group2_created_at, events.`$group_3` AS `$group_3`, events.group3_properties AS group3_properties, events.group3_created_at AS group3_created_at, events.`$group_4` AS `$group_4`, events.group4_properties AS group4_properties, events.group4_created_at AS group4_created_at 
   FROM events 
   WHERE equals(events.team_id, 420)) AS events 
   WHERE and(ifNull(equals(events.distinct_id, %(hogql_val_2)s), 0), ifNull(equals(events.properties___index, %(hogql_val_3)s), 0)) 
@@ -63,7 +63,7 @@
   
   SELECT events.event AS event, events.distinct_id AS distinct_id 
   FROM (
-  SELECT toTimeZone(events.person_created_at, %(hogql_val_0)s) AS person_created_at, events.person_properties AS person_properties, events.person_id AS person_id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_1)s), ''), 'null'), '^"|"$', '') AS properties___index, events.event AS event, events.distinct_id AS distinct_id, toTimeZone(events.timestamp, %(hogql_val_2)s) AS timestamp 
+  SELECT toTimeZone(events.person_created_at, %(hogql_val_0)s) AS person_created_at, events.person_properties AS person_properties, events.person_id AS person_id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_1)s), ''), 'null'), '^"|"$', '') AS properties___index, events.event AS event, events.distinct_id AS distinct_id, toTimeZone(events.timestamp, %(hogql_val_2)s) AS timestamp, events.`$group_0` AS `$group_0`, events.group0_properties AS group0_properties, events.group0_created_at AS group0_created_at, events.`$group_1` AS `$group_1`, events.group1_properties AS group1_properties, events.group1_created_at AS group1_created_at, events.`$group_2` AS `$group_2`, events.group2_properties AS group2_properties, events.group2_created_at AS group2_created_at, events.`$group_3` AS `$group_3`, events.group3_properties AS group3_properties, events.group3_created_at AS group3_created_at, events.`$group_4` AS `$group_4`, events.group4_properties AS group4_properties, events.group4_created_at AS group4_created_at 
   FROM events 
   WHERE equals(events.team_id, 420)) AS events 
   WHERE and(ifNull(equals(events.distinct_id, %(hogql_val_3)s), 0), and(ifNull(equals(events.properties___index, %(hogql_val_4)s), 0), ifNull(less(events.timestamp, toDateTime64('2020-01-02 00:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(events.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), 0))) 
@@ -93,7 +93,7 @@
   
   SELECT e.event AS event, e.distinct_id AS distinct_id 
   FROM (
-  SELECT toTimeZone(events.person_created_at, %(hogql_val_0)s) AS person_created_at, events.person_properties AS person_properties, events.person_id AS person_id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_1)s), ''), 'null'), '^"|"$', '') AS properties___random_uuid, events.event AS event, events.distinct_id AS distinct_id 
+  SELECT toTimeZone(events.person_created_at, %(hogql_val_0)s) AS person_created_at, events.person_properties AS person_properties, events.person_id AS person_id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_1)s), ''), 'null'), '^"|"$', '') AS properties___random_uuid, events.event AS event, events.distinct_id AS distinct_id, events.`$group_0` AS `$group_0`, events.group0_properties AS group0_properties, events.group0_created_at AS group0_created_at, events.`$group_1` AS `$group_1`, events.group1_properties AS group1_properties, events.group1_created_at AS group1_created_at, events.`$group_2` AS `$group_2`, events.group2_properties AS group2_properties, events.group2_created_at AS group2_created_at, events.`$group_3` AS `$group_3`, events.group3_properties AS group3_properties, events.group3_created_at AS group3_created_at, events.`$group_4` AS `$group_4`, events.group4_properties AS group4_properties, events.group4_created_at AS group4_created_at 
   FROM events 
   WHERE equals(events.team_id, 420)) AS e 
   WHERE ifNull(equals(e.properties___random_uuid, %(hogql_val_2)s), 0) 
@@ -176,13 +176,13 @@
   
   SELECT events.event AS event 
   FROM (
-  SELECT toTimeZone(events.person_created_at, %(hogql_val_0)s) AS person_created_at, events.person_properties AS person_properties, events.person_id AS person_id, events.event AS event 
+  SELECT toTimeZone(events.person_created_at, %(hogql_val_0)s) AS person_created_at, events.person_properties AS person_properties, events.person_id AS person_id, events.event AS event, events.`$group_0` AS `$group_0`, events.group0_properties AS group0_properties, events.group0_created_at AS group0_created_at, events.`$group_1` AS `$group_1`, events.group1_properties AS group1_properties, events.group1_created_at AS group1_created_at, events.`$group_2` AS `$group_2`, events.group2_properties AS group2_properties, events.group2_created_at AS group2_created_at, events.`$group_3` AS `$group_3`, events.group3_properties AS group3_properties, events.group3_created_at AS group3_created_at, events.`$group_4` AS `$group_4`, events.group4_properties AS group4_properties, events.group4_created_at AS group4_created_at 
   FROM events 
   WHERE equals(events.team_id, 420)) AS events 
   LIMIT 100 UNION ALL 
   SELECT events.event AS event 
   FROM (
-  SELECT toTimeZone(events.person_created_at, %(hogql_val_1)s) AS person_created_at, events.person_properties AS person_properties, events.person_id AS person_id, events.event AS event 
+  SELECT toTimeZone(events.person_created_at, %(hogql_val_1)s) AS person_created_at, events.person_properties AS person_properties, events.person_id AS person_id, events.event AS event, events.`$group_0` AS `$group_0`, events.group0_properties AS group0_properties, events.group0_created_at AS group0_created_at, events.`$group_1` AS `$group_1`, events.group1_properties AS group1_properties, events.group1_created_at AS group1_created_at, events.`$group_2` AS `$group_2`, events.group2_properties AS group2_properties, events.group2_created_at AS group2_created_at, events.`$group_3` AS `$group_3`, events.group3_properties AS group3_properties, events.group3_created_at AS group3_created_at, events.`$group_4` AS `$group_4`, events.group4_properties AS group4_properties, events.group4_created_at AS group4_created_at 
   FROM events 
   WHERE equals(events.team_id, 420)) AS events 
   LIMIT 100 
@@ -204,7 +204,7 @@
   
   SELECT e.event AS event, s.session_id AS session_id 
   FROM (
-  SELECT toTimeZone(events.person_created_at, %(hogql_val_0)s) AS person_created_at, events.person_properties AS person_properties, events.person_id AS person_id, nullIf(nullIf(events.`$session_id`, ''), 'null') AS `properties___$session_id`, events.event AS event 
+  SELECT toTimeZone(events.person_created_at, %(hogql_val_0)s) AS person_created_at, events.person_properties AS person_properties, events.person_id AS person_id, nullIf(nullIf(events.`$session_id`, ''), 'null') AS `properties___$session_id`, events.event AS event, events.`$group_0` AS `$group_0`, events.group0_properties AS group0_properties, events.group0_created_at AS group0_created_at, events.`$group_1` AS `$group_1`, events.group1_properties AS group1_properties, events.group1_created_at AS group1_created_at, events.`$group_2` AS `$group_2`, events.group2_properties AS group2_properties, events.group2_created_at AS group2_created_at, events.`$group_3` AS `$group_3`, events.group3_properties AS group3_properties, events.group3_created_at AS group3_created_at, events.`$group_4` AS `$group_4`, events.group4_properties AS group4_properties, events.group4_created_at AS group4_created_at 
   FROM events 
   WHERE equals(events.team_id, 420)) AS e LEFT JOIN (
   SELECT session_replay_events.session_id AS session_id 
@@ -242,7 +242,7 @@
   FROM session_replay_events 
   WHERE equals(session_replay_events.team_id, 420) 
   GROUP BY session_replay_events.session_id) AS s LEFT JOIN (
-  SELECT toTimeZone(events.person_created_at, %(hogql_val_0)s) AS person_created_at, events.person_properties AS person_properties, events.person_id AS person_id, nullIf(nullIf(events.`$session_id`, ''), 'null') AS `properties___$session_id`, events.event AS event 
+  SELECT toTimeZone(events.person_created_at, %(hogql_val_0)s) AS person_created_at, events.person_properties AS person_properties, events.person_id AS person_id, nullIf(nullIf(events.`$session_id`, ''), 'null') AS `properties___$session_id`, events.event AS event, events.`$group_0` AS `$group_0`, events.group0_properties AS group0_properties, events.group0_created_at AS group0_created_at, events.`$group_1` AS `$group_1`, events.group1_properties AS group1_properties, events.group1_created_at AS group1_created_at, events.`$group_2` AS `$group_2`, events.group2_properties AS group2_properties, events.group2_created_at AS group2_created_at, events.`$group_3` AS `$group_3`, events.group3_properties AS group3_properties, events.group3_created_at AS group3_created_at, events.`$group_4` AS `$group_4`, events.group4_properties AS group4_properties, events.group4_created_at AS group4_created_at 
   FROM events 
   WHERE equals(events.team_id, 420)) AS e ON equals(e.`properties___$session_id`, s.session_id) 
   WHERE isNotNull(e.`properties___$session_id`) 
@@ -272,7 +272,7 @@
   
   SELECT e.event AS event, s.session_id AS session_id 
   FROM (
-  SELECT toTimeZone(events.person_created_at, %(hogql_val_0)s) AS person_created_at, events.person_properties AS person_properties, events.person_id AS person_id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_1)s), ''), 'null'), '^"|"$', '') AS `properties___$$$session_id`, events.event AS event 
+  SELECT toTimeZone(events.person_created_at, %(hogql_val_0)s) AS person_created_at, events.person_properties AS person_properties, events.person_id AS person_id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_1)s), ''), 'null'), '^"|"$', '') AS `properties___$$$session_id`, events.event AS event, events.`$group_0` AS `$group_0`, events.group0_properties AS group0_properties, events.group0_created_at AS group0_created_at, events.`$group_1` AS `$group_1`, events.group1_properties AS group1_properties, events.group1_created_at AS group1_created_at, events.`$group_2` AS `$group_2`, events.group2_properties AS group2_properties, events.group2_created_at AS group2_created_at, events.`$group_3` AS `$group_3`, events.group3_properties AS group3_properties, events.group3_created_at AS group3_created_at, events.`$group_4` AS `$group_4`, events.group4_properties AS group4_properties, events.group4_created_at AS group4_created_at 
   FROM events 
   WHERE equals(events.team_id, 420)) AS e LEFT JOIN (
   SELECT session_replay_events.session_id AS session_id 
@@ -310,7 +310,7 @@
   FROM session_replay_events 
   WHERE equals(session_replay_events.team_id, 420) 
   GROUP BY session_replay_events.session_id) AS s LEFT JOIN (
-  SELECT toTimeZone(events.person_created_at, %(hogql_val_0)s) AS person_created_at, events.person_properties AS person_properties, events.person_id AS person_id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_1)s), ''), 'null'), '^"|"$', '') AS `properties___$$$session_id`, events.event AS event 
+  SELECT toTimeZone(events.person_created_at, %(hogql_val_0)s) AS person_created_at, events.person_properties AS person_properties, events.person_id AS person_id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_1)s), ''), 'null'), '^"|"$', '') AS `properties___$$$session_id`, events.event AS event, events.`$group_0` AS `$group_0`, events.group0_properties AS group0_properties, events.group0_created_at AS group0_created_at, events.`$group_1` AS `$group_1`, events.group1_properties AS group1_properties, events.group1_created_at AS group1_created_at, events.`$group_2` AS `$group_2`, events.group2_properties AS group2_properties, events.group2_created_at AS group2_created_at, events.`$group_3` AS `$group_3`, events.group3_properties AS group3_properties, events.group3_created_at AS group3_created_at, events.`$group_4` AS `$group_4`, events.group4_properties AS group4_properties, events.group4_created_at AS group4_created_at 
   FROM events 
   WHERE equals(events.team_id, 420)) AS e ON equals(e.`properties___$$$session_id`, s.session_id) 
   WHERE isNotNull(e.`properties___$$$session_id`) 
@@ -348,6 +348,13 @@
   WHERE equals(person_distinct_id_overrides.team_id, 420) 
   GROUP BY person_distinct_id_overrides.distinct_id 
   HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) 
+  SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.events___distinct_id, events__override.dis  FROM events 
+  WHERE equals(events.team_id, 420)) AS events LEFT OUTER JOIN (
+  SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id 
+  FROM person_distinct_id_overrides 
+  WHERE equals(person_distinct_id_overrides.team_id, 420) 
+  GROUP BY person_distinct_id_overrides.distinct_id 
+  HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) 
   SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.events___distinct_id, events__override.distinct_id) 
   WHERE ifNull(in(if(not(empty(events__override.distinct_id)), events__override.person_id, events.event_person_id), (
   SELECT cohortpeople.person_id AS person_id 
@@ -379,7 +386,7 @@
   
   SELECT events.event AS event, count(*) 
   FROM (
-  SELECT toTimeZone(events.person_created_at, %(hogql_val_0)s) AS person_created_at, events.person_properties AS person_properties, events.person_id AS person_id, events.event AS event 
+  SELECT toTimeZone(events.person_created_at, %(hogql_val_0)s) AS person_created_at, events.person_properties AS person_properties, events.person_id AS person_id, events.event AS event, events.`$group_0` AS `$group_0`, events.group0_properties AS group0_properties, events.group0_created_at AS group0_created_at, events.`$group_1` AS `$group_1`, events.group1_properties AS group1_properties, events.group1_created_at AS group1_created_at, events.`$group_2` AS `$group_2`, events.group2_properties AS group2_properties, events.group2_created_at AS group2_created_at, events.`$group_3` AS `$group_3`, events.group3_properties AS group3_properties, events.group3_created_at AS group3_created_at, events.`$group_4` AS `$group_4`, events.group4_properties AS group4_properties, events.group4_created_at AS group4_created_at 
   FROM events 
   WHERE equals(events.team_id, 420)) AS events 
   WHERE ifNull(in(events.person_id, (
@@ -412,7 +419,7 @@
   
   SELECT events.event AS event, count() 
   FROM (
-  SELECT toTimeZone(events.person_created_at, %(hogql_val_0)s) AS person_created_at, events.person_properties AS person_properties, events.person_id AS person_id, events.event AS event, events.person_id AS event_person_id, events.distinct_id AS events___distinct_id 
+  SELECT toTimeZone(events.person_created_at, %(hogql_val_0)s) AS person_created_at, events.person_properties AS person_properties, events.person_id AS person_id, events.event AS event, events.person_id AS event_person_id, events.distinct_id AS events___distinct_id, events.`$group_0` AS `$group_0`, events.group0_properties AS group0_properties, events.group0_created_at AS group0_created_at, events.`$group_1` AS `$group_1`, events.group1_properties AS group1_properties, events.group1_created_at AS group1_created_at, events.`$group_2` AS `$group_2`, events.group2_properties AS group2_properties, events.group2_created_at AS group2_created_at, events.`$group_3` AS `$group_3`, events.group3_properties AS group3_properties, events.group3_created_at AS group3_created_at, events.`$group_4` AS `$group_4`, events.group4_properties AS group4_properties, events.group4_created_at AS group4_created_at 
   FROM events 
   WHERE equals(events.team_id, 420)) AS events LEFT OUTER JOIN (
   SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id 
@@ -447,7 +454,7 @@
   
   SELECT events.event AS event, count(*) 
   FROM (
-  SELECT toTimeZone(events.person_created_at, %(hogql_val_0)s) AS person_created_at, events.person_properties AS person_properties, events.person_id AS person_id, events.event AS event 
+  SELECT toTimeZone(events.person_created_at, %(hogql_val_0)s) AS person_created_at, events.person_properties AS person_properties, events.person_id AS person_id, events.event AS event, events.`$group_0` AS `$group_0`, events.group0_properties AS group0_properties, events.group0_created_at AS group0_created_at, events.`$group_1` AS `$group_1`, events.group1_properties AS group1_properties, events.group1_created_at AS group1_created_at, events.`$group_2` AS `$group_2`, events.group2_properties AS group2_properties, events.group2_created_at AS group2_created_at, events.`$group_3` AS `$group_3`, events.group3_properties AS group3_properties, events.group3_created_at AS group3_created_at, events.`$group_4` AS `$group_4`, events.group4_properties AS group4_properties, events.group4_created_at AS group4_created_at 
   FROM events 
   WHERE equals(events.team_id, 420)) AS events 
   WHERE ifNull(in(events.person_id, (
@@ -476,20 +483,12 @@
   
   SELECT count(), events.event AS event 
   FROM (
-  SELECT toTimeZone(events.person_created_at, %(hogql_val_0)s) AS person_created_at, events.person_properties AS person_properties, events.person_id AS person_id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_1)s), ''), 'null'), '^"|"$', '') AS properties___random_uuid, events.event AS event 
-  FROM events 
-  WHERE equals(events.team_id, 420)) AS events 
-  WHERE ifNull(equals(events.properties___random_uuid, %(hogql_val_2)s), 0) 
-  GROUP BY events.event 
-  LIMIT 100 
-  SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0
-  
+  SELECT toTimeZone(events.person_created_at, %(hogql_val_0)s) AS person_created_at, events.person_properties AS person_properties, events.person_id AS person_id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql  
   -- HogQL
   
-  SELECT count(), event 
-  FROM events 
+  SELECT DISTINCT properties.sneaky_mail 
+  FROM persons 
   WHERE equals(properties.random_uuid, 'RANDOM_TEST_ID::UUID') 
-  GROUP BY event 
   LIMIT 100
   '''
 # ---
@@ -618,14 +617,13 @@
   WHERE equals(person_distinct_id2.team_id, 420) 
   GROUP BY person_distinct_id2.distinct_id 
   HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) 
-  SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.events___distinct_id, events__pdi.distinct_id) LEFT JOIN (
-  SELECT person.id AS id 
-  FROM person 
-  WHERE equals(person.team_id, 420) 
-  GROUP BY person.id 
-  HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, %(hogql_val_2)s), person.version), plus(now64(6, %(hogql_val_3)s), toIntervalDay(1))), 0)) 
-  SETTINGS optimize_aggregation_in_order=1) AS events__pdi__person ON equals(events__pdi.events__pdi___person_id, events__pdi__person.id) 
-  LIMIT 10 
+  SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.events___distinct_id, events_  FROM events 
+  WHERE equals(events.team_id, 420)) AS events INNER JOIN (
+  SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS events__pdi___person_id, argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id 
+  FROM person_distinct_id2 
+  WHERE equals(person_distinct_id2.team_id, 420) 
+  GROUP BY person_distinct_id2.distinct_id 
+  HAVING ifNull(equals(argMax(person_distinct_id2.is_delet  LIMIT 10 
   SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0
   
   -- HogQL
@@ -641,7 +639,7 @@
   
   SELECT events.event AS event, events.timestamp AS timestamp, events__pdi.distinct_id AS distinct_id, events__pdi__person.properties___sneaky_mail AS sneaky_mail 
   FROM (
-  SELECT toTimeZone(events.person_created_at, %(hogql_val_0)s) AS person_created_at, events.person_properties AS person_properties, events.person_id AS person_id, events.event AS event, toTimeZone(events.timestamp, %(hogql_val_1)s) AS timestamp, events.distinct_id AS events___distinct_id 
+  SELECT toTimeZone(events.person_created_at, %(hogql_val_0)s) AS person_created_at, events.person_properties AS person_properties, events.person_id AS person_id, events.event AS event, toTimeZone(events.timestamp, %(hogql_val_1)s) AS timestamp, events.distinct_id AS events___distinct_id, events.`$group_0` AS `$group_0`, events.group0_properties AS group0_properties, events.group0_created_at AS group0_created_at, events.`$group_1` AS `$group_1`, events.group1_properties AS group1_properties, events.group1_created_at AS group1_created_at, events.`$group_2` AS `$group_2`, events.group2_properties AS group2_properties, events.group2_created_at AS group2_created_at, events.`$group_3` AS `$group_3`, events.group3_properties AS group3_properties, events.group3_created_at AS group3_created_at, events.`$group_4` AS `$group_4`, events.group4_properties AS group4_properties, events.group4_created_at AS group4_created_at 
   FROM events 
   WHERE equals(events.team_id, 420)) AS events INNER JOIN (
   SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS events__pdi___person_id, argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id 
@@ -675,7 +673,7 @@
   
   SELECT e.event AS event, e.timestamp AS timestamp, e__pdi__person.properties___sneaky_mail AS sneaky_mail 
   FROM (
-  SELECT toTimeZone(events.person_created_at, %(hogql_val_0)s) AS person_created_at, events.person_properties AS person_properties, events.person_id AS person_id, events.event AS event, toTimeZone(events.timestamp, %(hogql_val_1)s) AS timestamp, events.distinct_id AS e___distinct_id 
+  SELECT toTimeZone(events.person_created_at, %(hogql_val_0)s) AS person_created_at, events.person_properties AS person_properties, events.person_id AS person_id, events.event AS event, toTimeZone(events.timestamp, %(hogql_val_1)s) AS timestamp, events.distinct_id AS e___distinct_id, events.`$group_0` AS `$group_0`, events.group0_properties AS group0_properties, events.group0_created_at AS group0_created_at, events.`$group_1` AS `$group_1`, events.group1_properties AS group1_properties, events.group1_created_at AS group1_created_at, events.`$group_2` AS `$group_2`, events.group2_properties AS group2_properties, events.group2_created_at AS group2_created_at, events.`$group_3` AS `$group_3`, events.group3_properties AS group3_properties, events.group3_created_at AS group3_created_at, events.`$group_4` AS `$group_4`, events.group4_properties AS group4_properties, events.group4_created_at AS group4_created_at 
   FROM events 
   WHERE equals(events.team_id, 420)) AS e INNER JOIN (
   SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS e__pdi___person_id, argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id 
@@ -709,7 +707,7 @@
   
   SELECT s__pdi__person.properties___sneaky_mail AS sneaky_mail, count() 
   FROM (
-  SELECT toTimeZone(events.person_created_at, %(hogql_val_0)s) AS person_created_at, events.person_properties AS person_properties, events.person_id AS person_id, events.distinct_id AS s___distinct_id 
+  SELECT toTimeZone(events.person_created_at, %(hogql_val_0)s) AS person_created_at, events.person_properties AS person_properties, events.person_id AS person_id, events.distinct_id AS s___distinct_id, events.`$group_0` AS `$group_0`, events.group0_properties AS group0_properties, events.group0_created_at AS group0_created_at, events.`$group_1` AS `$group_1`, events.group1_properties AS group1_properties, events.group1_created_at AS group1_created_at, events.`$group_2` AS `$group_2`, events.group2_properties AS group2_properties, events.group2_created_at AS group2_created_at, events.`$group_3` AS `$group_3`, events.group3_properties AS group3_properties, events.group3_created_at AS group3_created_at, events.`$group_4` AS `$group_4`, events.group4_properties AS group4_properties, events.group4_created_at AS group4_created_at 
   FROM events 
   WHERE equals(events.team_id, 420)) AS s INNER JOIN (
   SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS s__pdi___person_id, argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id 
@@ -745,7 +743,7 @@
   
   SELECT e.event AS event, e.timestamp AS timestamp, pdi.person_id AS person_id 
   FROM (
-  SELECT toTimeZone(events.person_created_at, %(hogql_val_0)s) AS person_created_at, events.person_properties AS person_properties, events.person_id AS person_id, events.distinct_id AS distinct_id, events.event AS event, toTimeZone(events.timestamp, %(hogql_val_1)s) AS timestamp 
+  SELECT toTimeZone(events.person_created_at, %(hogql_val_0)s) AS person_created_at, events.person_properties AS person_properties, events.person_id AS person_id, events.distinct_id AS distinct_id, events.event AS event, toTimeZone(events.timestamp, %(hogql_val_1)s) AS timestamp, events.`$group_0` AS `$group_0`, events.group0_properties AS group0_properties, events.group0_created_at AS group0_created_at, events.`$group_1` AS `$group_1`, events.group1_properties AS group1_properties, events.group1_created_at AS group1_created_at, events.`$group_2` AS `$group_2`, events.group2_properties AS group2_properties, events.group2_created_at AS group2_created_at, events.`$group_3` AS `$group_3`, events.group3_properties AS group3_properties, events.group3_created_at AS group3_created_at, events.`$group_4` AS `$group_4`, events.group4_properties AS group4_properties, events.group4_created_at AS group4_created_at 
   FROM events 
   WHERE equals(events.team_id, 420)) AS e INNER JOIN (
   SELECT person_distinct_id2.distinct_id AS distinct_id, argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id 
@@ -832,7 +830,7 @@
   
   SELECT e.event AS event, e.timestamp AS timestamp, pdi.distinct_id AS distinct_id, p.id AS id, p.properties___sneaky_mail AS sneaky_mail 
   FROM (
-  SELECT toTimeZone(events.person_created_at, %(hogql_val_0)s) AS person_created_at, events.person_properties AS person_properties, events.person_id AS person_id, events.distinct_id AS distinct_id, events.event AS event, toTimeZone(events.timestamp, %(hogql_val_1)s) AS timestamp 
+  SELECT toTimeZone(events.person_created_at, %(hogql_val_0)s) AS person_created_at, events.person_properties AS person_properties, events.person_id AS person_id, events.distinct_id AS distinct_id, events.event AS event, toTimeZone(events.timestamp, %(hogql_val_1)s) AS timestamp, events.`$group_0` AS `$group_0`, events.group0_properties AS group0_properties, events.group0_created_at AS group0_created_at, events.`$group_1` AS `$group_1`, events.group1_properties AS group1_properties, events.group1_created_at AS group1_created_at, events.`$group_2` AS `$group_2`, events.group2_properties AS group2_properties, events.group2_created_at AS group2_created_at, events.`$group_3` AS `$group_3`, events.group3_properties AS group3_properties, events.group3_created_at AS group3_created_at, events.`$group_4` AS `$group_4`, events.group4_properties AS group4_properties, events.group4_created_at AS group4_created_at 
   FROM events 
   WHERE equals(events.team_id, 420)) AS e LEFT JOIN (
   SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id 
@@ -888,7 +886,7 @@
   
   SELECT events.event AS event, events.timestamp AS timestamp, events__person.id AS id, events__person.properties___sneaky_mail AS sneaky_mail 
   FROM (
-  SELECT toTimeZone(events.person_created_at, %(hogql_val_0)s) AS person_created_at, events.person_properties AS person_properties, events.person_id AS person_id, events.event AS event, toTimeZone(events.timestamp, %(hogql_val_1)s) AS timestamp, events.person_id AS events___person_id 
+  SELECT toTimeZone(events.person_created_at, %(hogql_val_0)s) AS person_created_at, events.person_properties AS person_properties, events.person_id AS person_id, events.event AS event, toTimeZone(events.timestamp, %(hogql_val_1)s) AS timestamp, events.person_id AS events___person_id, events.`$group_0` AS `$group_0`, events.group0_properties AS group0_properties, events.group0_created_at AS group0_created_at, events.`$group_1` AS `$group_1`, events.group1_properties AS group1_properties, events.group1_created_at AS group1_created_at, events.`$group_2` AS `$group_2`, events.group2_properties AS group2_properties, events.group2_created_at AS group2_created_at, events.`$group_3` AS `$group_3`, events.group3_properties AS group3_properties, events.group3_created_at AS group3_created_at, events.`$group_4` AS `$group_4`, events.group4_properties AS group4_properties, events.group4_created_at AS group4_created_at 
   FROM events 
   WHERE equals(events.team_id, 420)) AS events LEFT JOIN (
   SELECT person.id AS id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_2)s), ''), 'null'), '^"|"$', '') AS properties___sneaky_mail 
@@ -916,7 +914,7 @@
   
   SELECT events.event AS event, events.timestamp AS timestamp, events.person_id AS id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, %(hogql_val_2)s), ''), 'null'), '^"|"$', '') AS sneaky_mail 
   FROM (
-  SELECT toTimeZone(events.person_created_at, %(hogql_val_0)s) AS person_created_at, events.person_properties AS person_properties, events.person_id AS person_id, events.event AS event, toTimeZone(events.timestamp, %(hogql_val_1)s) AS timestamp 
+  SELECT toTimeZone(events.person_created_at, %(hogql_val_0)s) AS person_created_at, events.person_properties AS person_properties, events.person_id AS person_id, events.event AS event, toTimeZone(events.timestamp, %(hogql_val_1)s) AS timestamp, events.`$group_0` AS `$group_0`, events.group0_properties AS group0_properties, events.group0_created_at AS group0_created_at, events.`$group_1` AS `$group_1`, events.group1_properties AS group1_properties, events.group1_created_at AS group1_created_at, events.`$group_2` AS `$group_2`, events.group2_properties AS group2_properties, events.group2_created_at AS group2_created_at, events.`$group_3` AS `$group_3`, events.group3_properties AS group3_properties, events.group3_created_at AS group3_created_at, events.`$group_4` AS `$group_4`, events.group4_properties AS group4_properties, events.group4_created_at AS group4_created_at 
   FROM events 
   WHERE equals(events.team_id, 420)) AS events 
   LIMIT 10 
@@ -935,7 +933,7 @@
   
   SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(s.person_properties, %(hogql_val_1)s), ''), 'null'), '^"|"$', '') AS sneaky_mail, count() 
   FROM (
-  SELECT toTimeZone(events.person_created_at, %(hogql_val_0)s) AS person_created_at, events.person_properties AS person_properties, events.person_id AS person_id 
+  SELECT toTimeZone(events.person_created_at, %(hogql_val_0)s) AS person_created_at, events.person_properties AS person_properties, events.person_id AS person_id, events.`$group_0` AS `$group_0`, events.group0_properties AS group0_properties, events.group0_created_at AS group0_created_at, events.`$group_1` AS `$group_1`, events.group1_properties AS group1_properties, events.group1_created_at AS group1_created_at, events.`$group_2` AS `$group_2`, events.group2_properties AS group2_properties, events.group2_created_at AS group2_created_at, events.`$group_3` AS `$group_3`, events.group3_properties AS group3_properties, events.group3_created_at AS group3_created_at, events.`$group_4` AS `$group_4`, events.group4_properties AS group4_properties, events.group4_created_at AS group4_created_at 
   FROM events 
   WHERE equals(events.team_id, 420)) AS s 
   GROUP BY replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(s.person_properties, %(hogql_val_2)s), ''), 'null'), '^"|"$', '') 
@@ -958,7 +956,7 @@
   FROM (
   SELECT count() AS count, events.event AS event 
   FROM (
-  SELECT toTimeZone(events.person_created_at, %(hogql_val_0)s) AS person_created_at, events.person_properties AS person_properties, events.person_id AS person_id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_1)s), ''), 'null'), '^"|"$', '') AS properties___random_uuid, events.event AS event 
+  SELECT toTimeZone(events.person_created_at, %(hogql_val_0)s) AS person_created_at, events.person_properties AS person_properties, events.person_id AS person_id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_1)s), ''), 'null'), '^"|"$', '') AS properties___random_uuid, events.event AS event, events.`$group_0` AS `$group_0`, events.group0_properties AS group0_properties, events.group0_created_at AS group0_created_at, events.`$group_1` AS `$group_1`, events.group1_properties AS group1_properties, events.group1_created_at AS group1_created_at, events.`$group_2` AS `$group_2`, events.group2_properties AS group2_properties, events.group2_created_at AS group2_created_at, events.`$group_3` AS `$group_3`, events.group3_properties AS group3_properties, events.group3_created_at AS group3_created_at, events.`$group_4` AS `$group_4`, events.group4_properties AS group4_properties, events.group4_created_at AS group4_created_at 
   FROM events 
   WHERE equals(events.team_id, 420)) AS events 
   WHERE ifNull(equals(events.properties___random_uuid, %(hogql_val_2)s), 0) 
@@ -987,7 +985,7 @@
   FROM (
   SELECT count(*) AS count, events.event AS event 
   FROM (
-  SELECT toTimeZone(events.person_created_at, %(hogql_val_0)s) AS person_created_at, events.person_properties AS person_properties, events.person_id AS person_id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_1)s), ''), 'null'), '^"|"$', '') AS properties___random_uuid, events.event AS event 
+  SELECT toTimeZone(events.person_created_at, %(hogql_val_0)s) AS person_created_at, events.person_properties AS person_properties, events.person_id AS person_id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_1)s), ''), 'null'), '^"|"$', '') AS properties___random_uuid, events.event AS event, events.`$group_0` AS `$group_0`, events.group0_properties AS group0_properties, events.group0_created_at AS group0_created_at, events.`$group_1` AS `$group_1`, events.group1_properties AS group1_properties, events.group1_created_at AS group1_created_at, events.`$group_2` AS `$group_2`, events.group2_properties AS group2_properties, events.group2_created_at AS group2_created_at, events.`$group_3` AS `$group_3`, events.group3_properties AS group3_properties, events.group3_created_at AS group3_created_at, events.`$group_4` AS `$group_4`, events.group4_properties AS group4_properties, events.group4_created_at AS group4_created_at 
   FROM events 
   WHERE equals(events.team_id, 420)) AS events 
   WHERE ifNull(equals(events.properties___random_uuid, %(hogql_val_2)s), 0) 
@@ -1018,7 +1016,7 @@
   FROM (
   SELECT events.properties___index AS col_a, events.event AS col_b, count() AS col_c 
   FROM (
-  SELECT toTimeZone(events.person_created_at, %(hogql_val_0)s) AS person_created_at, events.person_properties AS person_properties, events.person_id AS person_id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_1)s), ''), 'null'), '^"|"$', '') AS properties___index, events.event AS event 
+  SELECT toTimeZone(events.person_created_at, %(hogql_val_0)s) AS person_created_at, events.person_properties AS person_properties, events.person_id AS person_id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_1)s), ''), 'null'), '^"|"$', '') AS properties___index, events.event AS event, events.`$group_0` AS `$group_0`, events.group0_properties AS group0_properties, events.group0_created_at AS group0_created_at, events.`$group_1` AS `$group_1`, events.group1_properties AS group1_properties, events.group1_created_at AS group1_created_at, events.`$group_2` AS `$group_2`, events.group2_properties AS group2_properties, events.group2_created_at AS group2_created_at, events.`$group_3` AS `$group_3`, events.group3_properties AS group3_properties, events.group3_created_at AS group3_created_at, events.`$group_4` AS `$group_4`, events.group4_properties AS group4_properties, events.group4_created_at AS group4_created_at 
   FROM events 
   WHERE equals(events.team_id, 420)) AS events 
   GROUP BY events.properties___index, events.event) 
@@ -1053,7 +1051,7 @@
   FROM (
   SELECT events.properties___index AS col_a, events.event AS col_b, count() AS col_c 
   FROM (
-  SELECT toTimeZone(events.person_created_at, %(hogql_val_0)s) AS person_created_at, events.person_properties AS person_properties, events.person_id AS person_id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_1)s), ''), 'null'), '^"|"$', '') AS properties___index, events.event AS event 
+  SELECT toTimeZone(events.person_created_at, %(hogql_val_0)s) AS person_created_at, events.person_properties AS person_properties, events.person_id AS person_id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_1)s), ''), 'null'), '^"|"$', '') AS properties___index, events.event AS event, events.`$group_0` AS `$group_0`, events.group0_properties AS group0_properties, events.group0_created_at AS group0_created_at, events.`$group_1` AS `$group_1`, events.group1_properties AS group1_properties, events.group1_created_at AS group1_created_at, events.`$group_2` AS `$group_2`, events.group2_properties AS group2_properties, events.group2_created_at AS group2_created_at, events.`$group_3` AS `$group_3`, events.group3_properties AS group3_properties, events.group3_created_at AS group3_created_at, events.`$group_4` AS `$group_4`, events.group4_properties AS group4_properties, events.group4_created_at AS group4_created_at 
   FROM events 
   WHERE equals(events.team_id, 420)) AS events 
   GROUP BY events.properties___index, events.event) AS PIVOT_TABLE_COL_ABC 
@@ -1092,7 +1090,7 @@
   FROM (
   SELECT events.properties___index AS col_a, events.event AS col_b, count() AS col_c 
   FROM (
-  SELECT toTimeZone(events.person_created_at, %(hogql_val_0)s) AS person_created_at, events.person_properties AS person_properties, events.person_id AS person_id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_1)s), ''), 'null'), '^"|"$', '') AS properties___index, events.event AS event 
+  SELECT toTimeZone(events.person_created_at, %(hogql_val_0)s) AS person_created_at, events.person_properties AS person_properties, events.person_id AS person_id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_1)s), ''), 'null'), '^"|"$', '') AS properties___index, events.event AS event, events.`$group_0` AS `$group_0`, events.group0_properties AS group0_properties, events.group0_created_at AS group0_created_at, events.`$group_1` AS `$group_1`, events.group1_properties AS group1_properties, events.group1_created_at AS group1_created_at, events.`$group_2` AS `$group_2`, events.group2_properties AS group2_properties, events.group2_created_at AS group2_created_at, events.`$group_3` AS `$group_3`, events.group3_properties AS group3_properties, events.group3_created_at AS group3_created_at, events.`$group_4` AS `$group_4`, events.group4_properties AS group4_properties, events.group4_created_at AS group4_created_at 
   FROM events 
   WHERE equals(events.team_id, 420)) AS events 
   GROUP BY events.properties___index, events.event) AS PIVOT_TABLE_COL_ABC 

@@ -154,9 +154,9 @@ class EventsLazy(LazyTable):
         for name, chain in real_fields.items():
             select_fields.append(ast.Alias(alias=name, expr=ast.Field(chain=["raw_events", *chain])))
 
-        extractor = WhereClauseExtractor(context)
-        extractor.add_local_tables(table_to_add)
-        where = extractor.get_inner_where(node)
+        # extractor = WhereClauseExtractor(context)
+        # extractor.add_local_tables(table_to_add)
+        # where = extractor.get_inner_where(node)
 
         # always load person properties (in the future just do this for POE modes)
         select = ast.SelectQuery(

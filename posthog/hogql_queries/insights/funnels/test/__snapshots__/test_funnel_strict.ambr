@@ -268,12 +268,30 @@
                               prop_basic AS prop,
                               argMinIf(prop, timestamp, notEmpty(arrayFilter(x -> notEmpty(x), prop))) OVER (PARTITION BY aggregation_target) AS prop_vals
                        FROM
-                         (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$browser'), ''), 'null'), '^"|"$', '') AS `properties___$browser`,
+                         (SELECT toTimeZone(events.person_created_at, 'UTC') AS person_created_at,
+                                 events.person_properties AS person_properties,
+                                 events.person_id AS person_id,
+                                 replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$browser'), ''), 'null'), '^"|"$', '') AS `properties___$browser`,
                                  replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$version'), ''), 'null'), '^"|"$', '') AS `properties___$version`,
                                  toTimeZone(events.timestamp, 'UTC') AS timestamp,
                                  events.person_id AS event_person_id,
                                  events.event AS event,
-                                 events.distinct_id AS e___distinct_id
+                                 events.distinct_id AS e___distinct_id,
+                                 events.`$group_0` AS `$group_0`,
+                                 events.group0_properties AS group0_properties,
+                                 events.group0_created_at AS group0_created_at,
+                                 events.`$group_1` AS `$group_1`,
+                                 events.group1_properties AS group1_properties,
+                                 events.group1_created_at AS group1_created_at,
+                                 events.`$group_2` AS `$group_2`,
+                                 events.group2_properties AS group2_properties,
+                                 events.group2_created_at AS group2_created_at,
+                                 events.`$group_3` AS `$group_3`,
+                                 events.group3_properties AS group3_properties,
+                                 events.group3_created_at AS group3_created_at,
+                                 events.`$group_4` AS `$group_4`,
+                                 events.group4_properties AS group4_properties,
+                                 events.group4_created_at AS group4_created_at
                           FROM events
                           WHERE equals(events.team_id, 2)) AS e
                        LEFT OUTER JOIN
@@ -390,10 +408,27 @@
                               prop_basic AS prop,
                               argMinIf(prop, timestamp, isNotNull(prop)) OVER (PARTITION BY aggregation_target) AS prop_vals
                        FROM
-                         (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                         (SELECT toTimeZone(events.person_created_at, 'UTC') AS person_created_at,
+                                 events.person_properties AS person_properties,
+                                 events.person_id AS person_id,
+                                 toTimeZone(events.timestamp, 'UTC') AS timestamp,
                                  events.`$group_0` AS `$group_0`,
                                  events.event AS event,
-                                 events.`$group_0` AS `e___$group_0`
+                                 events.`$group_0` AS `e___$group_0`,
+                                 events.group0_properties AS group0_properties,
+                                 events.group0_created_at AS group0_created_at,
+                                 events.`$group_1` AS `$group_1`,
+                                 events.group1_properties AS group1_properties,
+                                 events.group1_created_at AS group1_created_at,
+                                 events.`$group_2` AS `$group_2`,
+                                 events.group2_properties AS group2_properties,
+                                 events.group2_created_at AS group2_created_at,
+                                 events.`$group_3` AS `$group_3`,
+                                 events.group3_properties AS group3_properties,
+                                 events.group3_created_at AS group3_created_at,
+                                 events.`$group_4` AS `$group_4`,
+                                 events.group4_properties AS group4_properties,
+                                 events.group4_created_at AS group4_created_at
                           FROM events
                           WHERE equals(events.team_id, 2)) AS e
                        LEFT JOIN
@@ -511,10 +546,27 @@
                               prop_basic AS prop,
                               argMinIf(prop, timestamp, isNotNull(prop)) OVER (PARTITION BY aggregation_target) AS prop_vals
                        FROM
-                         (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                         (SELECT toTimeZone(events.person_created_at, 'UTC') AS person_created_at,
+                                 events.person_properties AS person_properties,
+                                 events.person_id AS person_id,
+                                 toTimeZone(events.timestamp, 'UTC') AS timestamp,
                                  events.`$group_0` AS `$group_0`,
                                  events.event AS event,
-                                 events.`$group_0` AS `e___$group_0`
+                                 events.`$group_0` AS `e___$group_0`,
+                                 events.group0_properties AS group0_properties,
+                                 events.group0_created_at AS group0_created_at,
+                                 events.`$group_1` AS `$group_1`,
+                                 events.group1_properties AS group1_properties,
+                                 events.group1_created_at AS group1_created_at,
+                                 events.`$group_2` AS `$group_2`,
+                                 events.group2_properties AS group2_properties,
+                                 events.group2_created_at AS group2_created_at,
+                                 events.`$group_3` AS `$group_3`,
+                                 events.group3_properties AS group3_properties,
+                                 events.group3_created_at AS group3_created_at,
+                                 events.`$group_4` AS `$group_4`,
+                                 events.group4_properties AS group4_properties,
+                                 events.group4_created_at AS group4_created_at
                           FROM events
                           WHERE equals(events.team_id, 2)) AS e
                        LEFT JOIN
@@ -632,11 +684,29 @@
                               prop_basic AS prop,
                               argMinIf(prop, timestamp, isNotNull(prop)) OVER (PARTITION BY aggregation_target) AS prop_vals
                        FROM
-                         (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                         (SELECT toTimeZone(events.person_created_at, 'UTC') AS person_created_at,
+                                 events.person_properties AS person_properties,
+                                 events.person_id AS person_id,
+                                 toTimeZone(events.timestamp, 'UTC') AS timestamp,
                                  events.person_id AS event_person_id,
                                  events.event AS event,
                                  events.`$group_0` AS `e___$group_0`,
-                                 events.distinct_id AS e___distinct_id
+                                 events.distinct_id AS e___distinct_id,
+                                 events.`$group_0` AS `$group_0`,
+                                 events.group0_properties AS group0_properties,
+                                 events.group0_created_at AS group0_created_at,
+                                 events.`$group_1` AS `$group_1`,
+                                 events.group1_properties AS group1_properties,
+                                 events.group1_created_at AS group1_created_at,
+                                 events.`$group_2` AS `$group_2`,
+                                 events.group2_properties AS group2_properties,
+                                 events.group2_created_at AS group2_created_at,
+                                 events.`$group_3` AS `$group_3`,
+                                 events.group3_properties AS group3_properties,
+                                 events.group3_created_at AS group3_created_at,
+                                 events.`$group_4` AS `$group_4`,
+                                 events.group4_properties AS group4_properties,
+                                 events.group4_created_at AS group4_created_at
                           FROM events
                           WHERE equals(events.team_id, 2)) AS e
                        LEFT OUTER JOIN
@@ -1223,12 +1293,30 @@
                               prop_basic AS prop,
                               argMinIf(prop, timestamp, notEmpty(arrayFilter(x -> notEmpty(x), prop))) OVER (PARTITION BY aggregation_target) AS prop_vals
                        FROM
-                         (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$version'), ''), 'null'), '^"|"$', '') AS `properties___$version`,
+                         (SELECT toTimeZone(events.person_created_at, 'UTC') AS person_created_at,
+                                 events.person_properties AS person_properties,
+                                 events.person_id AS person_id,
+                                 replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$version'), ''), 'null'), '^"|"$', '') AS `properties___$version`,
                                  replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$browser'), ''), 'null'), '^"|"$', '') AS `properties___$browser`,
                                  toTimeZone(events.timestamp, 'UTC') AS timestamp,
                                  events.person_id AS event_person_id,
                                  events.event AS event,
-                                 events.distinct_id AS e___distinct_id
+                                 events.distinct_id AS e___distinct_id,
+                                 events.`$group_0` AS `$group_0`,
+                                 events.group0_properties AS group0_properties,
+                                 events.group0_created_at AS group0_created_at,
+                                 events.`$group_1` AS `$group_1`,
+                                 events.group1_properties AS group1_properties,
+                                 events.group1_created_at AS group1_created_at,
+                                 events.`$group_2` AS `$group_2`,
+                                 events.group2_properties AS group2_properties,
+                                 events.group2_created_at AS group2_created_at,
+                                 events.`$group_3` AS `$group_3`,
+                                 events.group3_properties AS group3_properties,
+                                 events.group3_created_at AS group3_created_at,
+                                 events.`$group_4` AS `$group_4`,
+                                 events.group4_properties AS group4_properties,
+                                 events.group4_created_at AS group4_created_at
                           FROM events
                           WHERE equals(events.team_id, 2)) AS e
                        LEFT OUTER JOIN
@@ -1331,12 +1419,30 @@
                               prop_1 AS prop,
                               groupUniqArray(prop) OVER (PARTITION BY aggregation_target) AS prop_vals
                        FROM
-                         (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$version'), ''), 'null'), '^"|"$', '') AS `properties___$version`,
+                         (SELECT toTimeZone(events.person_created_at, 'UTC') AS person_created_at,
+                                 events.person_properties AS person_properties,
+                                 events.person_id AS person_id,
+                                 replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$version'), ''), 'null'), '^"|"$', '') AS `properties___$version`,
                                  replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$browser'), ''), 'null'), '^"|"$', '') AS `properties___$browser`,
                                  toTimeZone(events.timestamp, 'UTC') AS timestamp,
                                  events.person_id AS event_person_id,
                                  events.event AS event,
-                                 events.distinct_id AS e___distinct_id
+                                 events.distinct_id AS e___distinct_id,
+                                 events.`$group_0` AS `$group_0`,
+                                 events.group0_properties AS group0_properties,
+                                 events.group0_created_at AS group0_created_at,
+                                 events.`$group_1` AS `$group_1`,
+                                 events.group1_properties AS group1_properties,
+                                 events.group1_created_at AS group1_created_at,
+                                 events.`$group_2` AS `$group_2`,
+                                 events.group2_properties AS group2_properties,
+                                 events.group2_created_at AS group2_created_at,
+                                 events.`$group_3` AS `$group_3`,
+                                 events.group3_properties AS group3_properties,
+                                 events.group3_created_at AS group3_created_at,
+                                 events.`$group_4` AS `$group_4`,
+                                 events.group4_properties AS group4_properties,
+                                 events.group4_created_at AS group4_created_at
                           FROM events
                           WHERE equals(events.team_id, 2)) AS e
                        LEFT OUTER JOIN
@@ -1438,12 +1544,30 @@
                               prop_basic AS prop,
                               argMinIf(prop, timestamp, notEmpty(arrayFilter(x -> notEmpty(x), prop))) OVER (PARTITION BY aggregation_target) AS prop_vals
                        FROM
-                         (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$browser'), ''), 'null'), '^"|"$', '') AS `properties___$browser`,
+                         (SELECT toTimeZone(events.person_created_at, 'UTC') AS person_created_at,
+                                 events.person_properties AS person_properties,
+                                 events.person_id AS person_id,
+                                 replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$browser'), ''), 'null'), '^"|"$', '') AS `properties___$browser`,
                                  replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$version'), ''), 'null'), '^"|"$', '') AS `properties___$version`,
                                  toTimeZone(events.timestamp, 'UTC') AS timestamp,
                                  events.person_id AS event_person_id,
                                  events.event AS event,
-                                 events.distinct_id AS e___distinct_id
+                                 events.distinct_id AS e___distinct_id,
+                                 events.`$group_0` AS `$group_0`,
+                                 events.group0_properties AS group0_properties,
+                                 events.group0_created_at AS group0_created_at,
+                                 events.`$group_1` AS `$group_1`,
+                                 events.group1_properties AS group1_properties,
+                                 events.group1_created_at AS group1_created_at,
+                                 events.`$group_2` AS `$group_2`,
+                                 events.group2_properties AS group2_properties,
+                                 events.group2_created_at AS group2_created_at,
+                                 events.`$group_3` AS `$group_3`,
+                                 events.group3_properties AS group3_properties,
+                                 events.group3_created_at AS group3_created_at,
+                                 events.`$group_4` AS `$group_4`,
+                                 events.group4_properties AS group4_properties,
+                                 events.group4_created_at AS group4_created_at
                           FROM events
                           WHERE equals(events.team_id, 2)) AS e
                        LEFT OUTER JOIN
@@ -1560,10 +1684,27 @@
                               prop_basic AS prop,
                               argMinIf(prop, timestamp, isNotNull(prop)) OVER (PARTITION BY aggregation_target) AS prop_vals
                        FROM
-                         (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                         (SELECT toTimeZone(events.person_created_at, 'UTC') AS person_created_at,
+                                 events.person_properties AS person_properties,
+                                 events.person_id AS person_id,
+                                 toTimeZone(events.timestamp, 'UTC') AS timestamp,
                                  events.`$group_0` AS `$group_0`,
                                  events.event AS event,
-                                 events.`$group_0` AS `e___$group_0`
+                                 events.`$group_0` AS `e___$group_0`,
+                                 events.group0_properties AS group0_properties,
+                                 events.group0_created_at AS group0_created_at,
+                                 events.`$group_1` AS `$group_1`,
+                                 events.group1_properties AS group1_properties,
+                                 events.group1_created_at AS group1_created_at,
+                                 events.`$group_2` AS `$group_2`,
+                                 events.group2_properties AS group2_properties,
+                                 events.group2_created_at AS group2_created_at,
+                                 events.`$group_3` AS `$group_3`,
+                                 events.group3_properties AS group3_properties,
+                                 events.group3_created_at AS group3_created_at,
+                                 events.`$group_4` AS `$group_4`,
+                                 events.group4_properties AS group4_properties,
+                                 events.group4_created_at AS group4_created_at
                           FROM events
                           WHERE equals(events.team_id, 2)) AS e
                        LEFT JOIN
@@ -1681,10 +1822,27 @@
                               prop_basic AS prop,
                               argMinIf(prop, timestamp, isNotNull(prop)) OVER (PARTITION BY aggregation_target) AS prop_vals
                        FROM
-                         (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                         (SELECT toTimeZone(events.person_created_at, 'UTC') AS person_created_at,
+                                 events.person_properties AS person_properties,
+                                 events.person_id AS person_id,
+                                 toTimeZone(events.timestamp, 'UTC') AS timestamp,
                                  events.`$group_0` AS `$group_0`,
                                  events.event AS event,
-                                 events.`$group_0` AS `e___$group_0`
+                                 events.`$group_0` AS `e___$group_0`,
+                                 events.group0_properties AS group0_properties,
+                                 events.group0_created_at AS group0_created_at,
+                                 events.`$group_1` AS `$group_1`,
+                                 events.group1_properties AS group1_properties,
+                                 events.group1_created_at AS group1_created_at,
+                                 events.`$group_2` AS `$group_2`,
+                                 events.group2_properties AS group2_properties,
+                                 events.group2_created_at AS group2_created_at,
+                                 events.`$group_3` AS `$group_3`,
+                                 events.group3_properties AS group3_properties,
+                                 events.group3_created_at AS group3_created_at,
+                                 events.`$group_4` AS `$group_4`,
+                                 events.group4_properties AS group4_properties,
+                                 events.group4_created_at AS group4_created_at
                           FROM events
                           WHERE equals(events.team_id, 2)) AS e
                        LEFT JOIN
@@ -1802,11 +1960,29 @@
                               prop_basic AS prop,
                               argMinIf(prop, timestamp, isNotNull(prop)) OVER (PARTITION BY aggregation_target) AS prop_vals
                        FROM
-                         (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                         (SELECT toTimeZone(events.person_created_at, 'UTC') AS person_created_at,
+                                 events.person_properties AS person_properties,
+                                 events.person_id AS person_id,
+                                 toTimeZone(events.timestamp, 'UTC') AS timestamp,
                                  events.person_id AS event_person_id,
                                  events.event AS event,
                                  events.`$group_0` AS `e___$group_0`,
-                                 events.distinct_id AS e___distinct_id
+                                 events.distinct_id AS e___distinct_id,
+                                 events.`$group_0` AS `$group_0`,
+                                 events.group0_properties AS group0_properties,
+                                 events.group0_created_at AS group0_created_at,
+                                 events.`$group_1` AS `$group_1`,
+                                 events.group1_properties AS group1_properties,
+                                 events.group1_created_at AS group1_created_at,
+                                 events.`$group_2` AS `$group_2`,
+                                 events.group2_properties AS group2_properties,
+                                 events.group2_created_at AS group2_created_at,
+                                 events.`$group_3` AS `$group_3`,
+                                 events.group3_properties AS group3_properties,
+                                 events.group3_created_at AS group3_created_at,
+                                 events.`$group_4` AS `$group_4`,
+                                 events.group4_properties AS group4_properties,
+                                 events.group4_created_at AS group4_created_at
                           FROM events
                           WHERE equals(events.team_id, 2)) AS e
                        LEFT OUTER JOIN
