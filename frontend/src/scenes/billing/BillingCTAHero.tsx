@@ -36,7 +36,7 @@ export const BillingCTAHero = ({ product }: { product: BillingProductV2Type }): 
                     <p className="italic">P.S. You still keep the monthly free allotment for every product!</p>
                 </div>
                 <div className="flex justify-start space-x-2">
-                    {featureFlags[FEATURE_FLAGS.BILLING_PAYMENT_ENTRY_IN_APP] ? (
+                    {featureFlags[FEATURE_FLAGS.BILLING_PAYMENT_ENTRY_IN_APP] == 'test' ? (
                         <BillingUpgradeCTA
                             className="mt-4 inline-block"
                             type="primary"
