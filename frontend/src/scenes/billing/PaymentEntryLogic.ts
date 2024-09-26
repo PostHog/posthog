@@ -8,10 +8,6 @@ import type { paymentEntryLogicType } from './PaymentEntryLogicType'
 export const paymentEntryLogic = kea<paymentEntryLogicType>({
     path: ['scenes', 'billing', 'PaymentEntryLogic'],
 
-    connect: () => ({
-        actions: [router],
-    }),
-
     actions: {
         setClientSecret: (clientSecret) => ({ clientSecret }),
         setLoading: (loading) => ({ loading }),

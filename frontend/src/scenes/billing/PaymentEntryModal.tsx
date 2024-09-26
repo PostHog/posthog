@@ -6,7 +6,7 @@ import { useEffect } from 'react'
 
 import { paymentEntryLogic } from './PaymentEntryLogic'
 
-const stripePromise = loadStripe('')
+const stripePromise = loadStripe(window.STRIPE_PUBLIC_KEY!)
 
 export const PaymentForm = (): JSX.Element => {
     const { error, isLoading } = useValues(paymentEntryLogic)

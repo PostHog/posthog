@@ -39,6 +39,11 @@
         window.SENTRY_ENVIRONMENT = '{{ sentry_environment | escapejs }}';
     </script>
 {% endif %}
+{% if stripe_public_key %}
+    <script>
+        window.STRIPE_PUBLIC_KEY = '{{ stripe_public_key | escapejs }}';
+    </script>
+{% endif %}
 <script id='posthog-app-user-preload'>
     window.POSTHOG_APP_CONTEXT = JSON.parse("{{ posthog_app_context | escapejs }}");
     // Inject the expected location of JS bundle, use to allow the location of
