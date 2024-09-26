@@ -162,7 +162,15 @@ class BytecodeCompiler(Visitor):
     def visit_compare_operation(self, node: ast.CompareOperation):
         operation = COMPARE_OPERATIONS[node.op]
         if operation in [Operation.IN_COHORT, Operation.NOT_IN_COHORT]:
-            raise QueryError("Cohort operations are not supported")
+            cohort_name = ""
+            if isinstance(node.right, ast.Constant):
+                if isinstance(node.right.value, int):
+                    cohort_name = f" (cohort id={node.right.value})"
+                else:
+                    cohort_name = f" (cohort: {str(node.right.value)})"
+            raise QueryError(
+                f"Can't use cohorts in real-time filters. Please inline the relevant expressions{cohort_name}."
+            )
         return [*self.visit(node.right), *self.visit(node.left), operation]
 
     def visit_arithmetic_operation(self, node: ast.ArithmeticOperation):

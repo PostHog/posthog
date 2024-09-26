@@ -219,7 +219,7 @@ class TestBytecode(BaseTest):
     def test_bytecode_create_query_error(self):
         with self.assertRaises(QueryError) as e:
             to_bytecode("1 in cohort 2")
-        self.assertEqual(str(e.exception), "Cohort operations are not supported")
+        self.assertEqual(str(e.exception), "Can't use cohorts in real-time filters.")
 
         with self.assertRaises(QueryError) as e:
             execute_hog("globalVar := 1;")
