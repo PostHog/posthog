@@ -137,7 +137,6 @@ export const AllProductsPlanComparison = ({
     const { billing, redirectPath, timeRemainingInSeconds, timeTotalInSeconds } = useValues(billingLogic)
     const { ref: planComparisonRef } = useResizeObserver()
     const { reportBillingUpgradeClicked, reportBillingDowngradeClicked } = useActions(eventUsageLogic)
-    const currentPlanIndex = plans.findIndex((plan) => plan.current_plan)
     const { surveyID, comparisonModalHighlightedFeatureKey, billingProductLoading } = useValues(
         billingProductLogic({ product })
     )
@@ -152,6 +151,7 @@ export const AllProductsPlanComparison = ({
     if (plans?.length === 0) {
         return null
     }
+    const currentPlanIndex = plans.findIndex((plan) => plan.current_plan)
 
     const nonInclusionProducts = billing?.products.filter((p) => !p.inclusion_only) || []
     const inclusionProducts = billing?.products.filter((p) => !!p.inclusion_only) || []
