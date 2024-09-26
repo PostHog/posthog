@@ -28,7 +28,6 @@ export function AlertsModal(props: AlertsModalProps): JSX.Element {
     if (userLoading) {
         return <Spinner className="text-2xl" />
     }
-
     return (
         <LemonModal onClose={closeModal} isOpen={isOpen} width={600} simple title="">
             {!alertId ? (
