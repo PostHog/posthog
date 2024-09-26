@@ -172,8 +172,24 @@ def _convert_response_to_csv_data(data: Any) -> Generator[Any, None, None]:
         elif isinstance(first_result.get("data"), list):
             # TRENDS LIKE
             for index, item in enumerate(results):
-                line = {"series": item.get("label", f"Series #{index + 1}")}
+                line = {}
                 action = item.get("action")
+                # Used for legacy mode funnels
+                default_series_name = f"Series #{index + 1}"
+                line["series"] = item.get("label", default_series_name)
+                item_filter = item.get("filter")
+                if isinstance(item_filter, dict) and ("breakdown" in item_filter or "breakdowns" in item_filter):
+                    # Avoid using label as it includes breakdown values, and we will be showing breakdown values as separate columns
+                    if isinstance(action, dict):
+                        line["series"] = action.get("name", default_series_name)
+                    if "breakdown" in item_filter:
+                        breakdown = item_filter.get("breakdown")
+                        line[breakdown] = item["breakdown_value"]
+                    elif "breakdowns" in item_filter:
+                        breakdowns = item_filter.get("breakdowns", [])
+                        for breakdown_index, breakdown in enumerate(breakdowns):
+                            line[breakdown["property"]] = item["breakdown_value"][breakdown_index]
+
                 if isinstance(action, dict) and action.get("custom_name"):
                     line["custom name"] = action.get("custom_name")
                 if item.get("aggregated_value"):
