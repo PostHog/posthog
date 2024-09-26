@@ -4,7 +4,7 @@ import { Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { createdAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { urls } from 'scenes/urls'
 
@@ -72,7 +72,7 @@ export function Alerts({ alertId }: AlertsProps): JSX.Element {
                 )
             },
         },
-        createdAtColumn() as LemonTableColumn<AlertType, keyof AlertType | undefined>,
+        createdByColumn() as LemonTableColumn<AlertType, keyof AlertType | undefined>,
         {
             title: 'Insight',
             dataIndex: 'insight',
