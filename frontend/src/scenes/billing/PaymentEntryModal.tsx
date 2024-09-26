@@ -4,12 +4,11 @@ import { loadStripe } from '@stripe/stripe-js'
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { useHogfetti } from './Hogfetti'
 import { paymentEntryLogic } from './PaymentEntryLogic'
 
 const stripePromise = loadStripe(window.STRIPE_PUBLIC_KEY!)
 
-export const PaymentForm = ({ triggerConfetti }: { triggerConfetti: () => void }): JSX.Element => {
+export const PaymentForm = (): JSX.Element => {
     const { error, isLoading } = useValues(paymentEntryLogic)
     const { setError, hidePaymentEntryModal, pollAuthorizationStatus, setLoading } = useActions(paymentEntryLogic)
 
@@ -36,9 +35,6 @@ export const PaymentForm = ({ triggerConfetti }: { triggerConfetti: () => void }
             setError(result.error.message)
         } else {
             pollAuthorizationStatus()
-            triggerConfetti()
-            triggerConfetti()
-            triggerConfetti()
         }
     }
 
@@ -66,8 +62,6 @@ export const PaymentEntryModal = ({ redirectPath = null }: PaymentEntryModalProp
     const { clientSecret, paymentEntryModalOpen } = useValues(paymentEntryLogic)
     const { hidePaymentEntryModal, initiateAuthorization } = useActions(paymentEntryLogic)
 
-    const { triggerConfetti, HogfettiComponent } = useHogfetti()
-
     useEffect(() => {
         initiateAuthorization(redirectPath)
     }, [redirectPath])
@@ -81,10 +75,9 @@ export const PaymentEntryModal = ({ redirectPath = null }: PaymentEntryModalProp
             description="Your card will not be charged."
         >
             <div>
-                <HogfettiComponent />
                 {clientSecret ? (
                     <Elements stripe={stripePromise} options={{ clientSecret }}>
-                        <PaymentForm triggerConfetti={triggerConfetti} />
+                        <PaymentForm />
                     </Elements>
                 ) : (
                     <div className="min-h-40 flex justify-center items-center">
