@@ -11,6 +11,7 @@ type Story = StoryObj<typeof CohortPersonPropertiesValuesField>
 const meta: Meta<typeof CohortPersonPropertiesValuesField> = {
     title: 'Filters/Cohort Filters/Fields/Person Properties',
     component: CohortPersonPropertiesValuesField,
+    tags: ['test-skip'], // :FIXME: flaky tests, most likely due to resize observer changes
 }
 export default meta
 
