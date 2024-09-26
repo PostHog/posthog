@@ -1,6 +1,5 @@
 from typing import Any
 
-from hogql_parser import parse_select
 from posthog.hogql import ast
 from posthog.hogql.database.models import (
     VirtualTable,
@@ -18,11 +17,9 @@ from posthog.hogql.database.models import (
 from posthog.hogql.database.schema.groups import GroupsTable, join_with_group_n_table
 from posthog.hogql.database.schema.person_distinct_ids import (
     PersonDistinctIdsTable,
-    join_with_person_distinct_ids_table,
     lazy_join_with_person_distinct_ids_table,
 )
 from posthog.hogql.database.schema.sessions_v1 import join_events_table_to_sessions_table, SessionsTableV1
-from posthog.hogql.visitor import clone_expr
 
 
 class EventsPersonSubTable(VirtualTable):
@@ -192,35 +189,7 @@ REAL_FIELDS = {
 
 
 class EventsTable(Table):
-    fields: dict[str, FieldOrTable] = {
-        "uuid": StringDatabaseField(name="uuid"),
-        "event": StringDatabaseField(name="event"),
-        "properties": StringJSONDatabaseField(name="properties"),
-        "timestamp": DateTimeDatabaseField(name="timestamp"),
-        "team_id": IntegerDatabaseField(name="team_id"),
-        "distinct_id": StringDatabaseField(name="distinct_id"),
-        "elements_chain": StringDatabaseField(name="elements_chain"),
-        "created_at": DateTimeDatabaseField(name="created_at"),
-        "$session_id": StringDatabaseField(name="$session_id"),
-        "$window_id": StringDatabaseField(name="$window_id"),
-        "person_id": StringDatabaseField(name="person_id"),
-        # Person and group fields on the event itself. Should not be used directly.
-        "poe": EventsPersonSubTable(),
-        "goe_0": EventsGroupSubTable(group_index=0),
-        "goe_1": EventsGroupSubTable(group_index=1),
-        "goe_2": EventsGroupSubTable(group_index=2),
-        "goe_3": EventsGroupSubTable(group_index=3),
-        "goe_4": EventsGroupSubTable(group_index=4),
-        "$group_0": StringDatabaseField(name="$group_0"),
-        "$group_1": StringDatabaseField(name="$group_1"),
-        "$group_2": StringDatabaseField(name="$group_2"),
-        "$group_3": StringDatabaseField(name="$group_3"),
-        "$group_4": StringDatabaseField(name="$group_4"),
-        "elements_chain_href": StringDatabaseField(name="elements_chain_href"),
-        "elements_chain_texts": StringArrayDatabaseField(name="elements_chain_texts"),
-        "elements_chain_ids": StringArrayDatabaseField(name="elements_chain_ids"),
-        "elements_chain_elements": StringArrayDatabaseField(name="elements_chain_elements"),
-    }
+    fields: dict[str, FieldOrTable] = REAL_FIELDS
 
     def to_printed_clickhouse(self, context):
         return "events"
