@@ -6,7 +6,6 @@ edition = "2021"
 [dependencies]
 serde = { workspace = true }
 serde_json = { workspace = true }
-rdkafka = { workspace = true }
 tokio = { workspace = true }
 envconfig = {workspace = true }
 tracing = { workspace = true }
