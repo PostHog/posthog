@@ -12,7 +12,8 @@ from posthog.hogql.database.models import (
     StringJSONDatabaseField,
 )
 from posthog.hogql.database.s3_table import S3Table
-from posthog.hogql.database.schema.events import EventsTable, EventsLazy
+from posthog.hogql.database.schema.events import EventsTable
+from posthog.hogql.database.schema.events_virtual import EventsLazy
 from posthog.hogql.database.schema.persons import PersonsTable
 from posthog.hogql.errors import ImpossibleASTError, QueryError, ResolutionError
 from posthog.hogql.functions import find_hogql_posthog_function
@@ -350,9 +351,14 @@ class Resolver(CloningVisitor):
 
             # Look ahead if current is events table and next is s3 table, global join must be used for distributed query on external data to work
             if isinstance(node.type, ast.TableAliasType):
-                is_global = isinstance(node.type.table_type.table, EventsLazy) and self._is_next_s3(node.next_join)
+                is_global = (
+                    isinstance(node.type.table_type.table, EventsTable)
+                    or isinstance(node.type.table_type.table, EventsLazy)
+                ) and self._is_next_s3(node.next_join)
             else:
-                is_global = isinstance(node.type.table, EventsLazy) and self._is_next_s3(node.next_join)
+                is_global = (
+                    isinstance(node.type.table, EventsTable) or isinstance(node.type.table, EventsLazy)
+                ) and self._is_next_s3(node.next_join)
 
             if is_global:
                 node.next_join.join_type = "GLOBAL JOIN"

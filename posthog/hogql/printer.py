@@ -106,7 +106,10 @@ def prepare_ast_for_printing(
     settings: Optional[HogQLGlobalSettings] = None,
 ) -> ast.Expr | None:
     with context.timings.measure("create_hogql_database"):
-        context.database = context.database or create_hogql_database(context.team_id, context.modifiers, context.team)
+        use_virtual_events = not context.within_non_hogql_query
+        context.database = context.database or create_hogql_database(
+            context.team_id, context.modifiers, context.team, use_virtual_events
+        )
 
     context.modifiers = set_default_in_cohort_via(context.modifiers)
 

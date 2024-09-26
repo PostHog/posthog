@@ -13,7 +13,7 @@ from posthog.hogql.database.models import (
     LazyTableToAdd,
     LazyJoinToAdd,
 )
-from posthog.hogql.database.schema.events import EventsTable, EventsLazy
+from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.log_entries import ReplayConsoleLogsLogEntriesTable
 from posthog.hogql.database.schema.person_distinct_ids import (
     PersonDistinctIdsTable,
@@ -182,7 +182,7 @@ SESSION_REPLAY_EVENTS_COMMON_FIELDS: dict[str, FieldOrTable] = {
     "snapshot_source": StringDatabaseField(name="snapshot_source"),
     "events": LazyJoin(
         from_field=["session_id"],
-        join_table=EventsLazy(),
+        join_table=EventsTable(),
         join_function=join_with_events_table,
     ),
     # this is so that HogQL properties e.g. on test account filters can find the correct column

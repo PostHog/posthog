@@ -61,14 +61,29 @@
        (SELECT count() AS total,
                toStartOfDay(e.timestamp) AS day_start
         FROM
-          (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
+          (SELECT toTimeZone(events.person_created_at, 'UTC') AS person_created_at,
+                  events.person_properties AS person_properties,
+                  events.person_id AS person_id,
+                  toTimeZone(events.timestamp, 'UTC') AS timestamp,
                   events.event AS event,
                   events.person_id AS event_person_id,
                   events.person_id AS e___person_id,
                   events.distinct_id AS e___distinct_id,
-                  toTimeZone(events.person_created_at, 'UTC') AS person_created_at,
-                  events.person_properties AS person_properties,
-                  events.person_id AS person_id
+                  events.`$group_0` AS `$group_0`,
+                  events.group0_properties AS group0_properties,
+                  events.group0_created_at AS group0_created_at,
+                  events.`$group_1` AS `$group_1`,
+                  events.group1_properties AS group1_properties,
+                  events.group1_created_at AS group1_created_at,
+                  events.`$group_2` AS `$group_2`,
+                  events.group2_properties AS group2_properties,
+                  events.group2_created_at AS group2_created_at,
+                  events.`$group_3` AS `$group_3`,
+                  events.group3_properties AS group3_properties,
+                  events.group3_created_at AS group3_created_at,
+                  events.`$group_4` AS `$group_4`,
+                  events.group4_properties AS group4_properties,
+                  events.group4_created_at AS group4_created_at
            FROM events SAMPLE 1
            WHERE equals(events.team_id, 2)) AS e
         LEFT OUTER JOIN
@@ -167,13 +182,28 @@
        (SELECT count() AS total,
                toStartOfDay(e.timestamp) AS day_start
         FROM
-          (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
+          (SELECT toTimeZone(events.person_created_at, 'UTC') AS person_created_at,
+                  events.person_properties AS person_properties,
+                  events.person_id AS person_id,
+                  toTimeZone(events.timestamp, 'UTC') AS timestamp,
                   events.event AS event,
                   events.person_id AS event_person_id,
                   events.distinct_id AS e___distinct_id,
-                  toTimeZone(events.person_created_at, 'UTC') AS person_created_at,
-                  events.person_properties AS person_properties,
-                  events.person_id AS person_id
+                  events.`$group_0` AS `$group_0`,
+                  events.group0_properties AS group0_properties,
+                  events.group0_created_at AS group0_created_at,
+                  events.`$group_1` AS `$group_1`,
+                  events.group1_properties AS group1_properties,
+                  events.group1_created_at AS group1_created_at,
+                  events.`$group_2` AS `$group_2`,
+                  events.group2_properties AS group2_properties,
+                  events.group2_created_at AS group2_created_at,
+                  events.`$group_3` AS `$group_3`,
+                  events.group3_properties AS group3_properties,
+                  events.group3_created_at AS group3_created_at,
+                  events.`$group_4` AS `$group_4`,
+                  events.group4_properties AS group4_properties,
+                  events.group4_created_at AS group4_created_at
            FROM events SAMPLE 1
            WHERE equals(events.team_id, 2)) AS e
         LEFT OUTER JOIN
@@ -220,9 +250,27 @@
                   toStartOfDay(e.timestamp) AS day_start,
                   ifNull(nullIf(toString(e__group_0.properties___industry), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM
-             (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
+             (SELECT toTimeZone(events.person_created_at, 'UTC') AS person_created_at,
+                     events.person_properties AS person_properties,
+                     events.person_id AS person_id,
+                     toTimeZone(events.timestamp, 'UTC') AS timestamp,
                      events.event AS event,
-                     events.`$group_0` AS `e___$group_0`
+                     events.`$group_0` AS `e___$group_0`,
+                     events.`$group_0` AS `$group_0`,
+                     events.group0_properties AS group0_properties,
+                     events.group0_created_at AS group0_created_at,
+                     events.`$group_1` AS `$group_1`,
+                     events.group1_properties AS group1_properties,
+                     events.group1_created_at AS group1_created_at,
+                     events.`$group_2` AS `$group_2`,
+                     events.group2_properties AS group2_properties,
+                     events.group2_created_at AS group2_created_at,
+                     events.`$group_3` AS `$group_3`,
+                     events.group3_properties AS group3_properties,
+                     events.group3_created_at AS group3_created_at,
+                     events.`$group_4` AS `$group_4`,
+                     events.group4_properties AS group4_properties,
+                     events.group4_created_at AS group4_created_at
               FROM events SAMPLE 1
               WHERE equals(events.team_id, 2)) AS e
            LEFT JOIN
@@ -270,13 +318,30 @@
                e.`$session_id` AS `$session_id`,
                e.`$window_id` AS `$window_id`
         FROM
-          (SELECT events.person_id AS person_id,
+          (SELECT toTimeZone(events.person_created_at, 'UTC') AS person_created_at,
+                  events.person_properties AS person_properties,
+                  events.person_id AS person_id,
                   toTimeZone(events.timestamp, 'UTC') AS timestamp,
                   events.uuid AS uuid,
                   events.`$session_id` AS `$session_id`,
                   events.`$window_id` AS `$window_id`,
                   events.event AS event,
-                  events.`$group_0` AS `e___$group_0`
+                  events.`$group_0` AS `e___$group_0`,
+                  events.`$group_0` AS `$group_0`,
+                  events.group0_properties AS group0_properties,
+                  events.group0_created_at AS group0_created_at,
+                  events.`$group_1` AS `$group_1`,
+                  events.group1_properties AS group1_properties,
+                  events.group1_created_at AS group1_created_at,
+                  events.`$group_2` AS `$group_2`,
+                  events.group2_properties AS group2_properties,
+                  events.group2_created_at AS group2_created_at,
+                  events.`$group_3` AS `$group_3`,
+                  events.group3_properties AS group3_properties,
+                  events.group3_created_at AS group3_created_at,
+                  events.`$group_4` AS `$group_4`,
+                  events.group4_properties AS group4_properties,
+                  events.group4_created_at AS group4_created_at
            FROM events
            WHERE equals(events.team_id, 2)) AS e
         LEFT JOIN
@@ -300,7 +365,7 @@
                                                    FROM
                                                      (SELECT e.person_id AS actor_id, e.timestamp AS timestamp, e.uuid AS uuid, e.`$session_id` AS `$session_id`, e.`$window_id` AS `$window_id`
                                                       FROM
-                                                        (SELECT events.person_id AS person_id, toTimeZone(events.timestamp, 'UTC') AS timestamp, events.uuid AS uuid, events.`$session_id` AS `$session_id`, events.`$window_id` AS `$window_id`, events.event AS event, events.`$group_0` AS `e___$group_0`
+                                                        (SELECT toTimeZone(events.person_created_at, 'UTC') AS person_created_at, events.person_properties AS person_properties, events.person_id AS person_id, toTimeZone(events.timestamp, 'UTC') AS timestamp, events.uuid AS uuid, events.`$session_id` AS `$session_id`, events.`$window_id` AS `$window_id`, events.event AS event, events.`$group_0` AS `e___$group_0`, events.`$group_0` AS `$group_0`, events.group0_properties AS group0_properties, events.group0_created_at AS group0_created_at, events.`$group_1` AS `$group_1`, events.group1_properties AS group1_properties, events.group1_created_at AS group1_created_at, events.`$group_2` AS `$group_2`, events.group2_properties AS group2_properties, events.group2_created_at AS group2_created_at, events.`$group_3` AS `$group_3`, events.group3_properties AS group3_properties, events.group3_created_at AS group3_created_at, events.`$group_4` AS `$group_4`, events.group4_properties AS group4_properties, events.group4_created_at AS group4_created_at
                                                          FROM events
                                                          WHERE equals(events.team_id, 2)) AS e
                                                       LEFT JOIN
@@ -357,12 +422,27 @@
                   toStartOfDay(e.timestamp) AS day_start,
                   ifNull(nullIf(toString(e__group_0.properties___industry), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM
-             (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
+             (SELECT toTimeZone(events.person_created_at, 'UTC') AS person_created_at,
+                     events.person_properties AS person_properties,
+                     events.person_id AS person_id,
+                     toTimeZone(events.timestamp, 'UTC') AS timestamp,
                      events.event AS event,
                      events.`$group_0` AS `e___$group_0`,
-                     toTimeZone(events.person_created_at, 'UTC') AS person_created_at,
-                     events.person_properties AS person_properties,
-                     events.person_id AS person_id
+                     events.`$group_0` AS `$group_0`,
+                     events.group0_properties AS group0_properties,
+                     events.group0_created_at AS group0_created_at,
+                     events.`$group_1` AS `$group_1`,
+                     events.group1_properties AS group1_properties,
+                     events.group1_created_at AS group1_created_at,
+                     events.`$group_2` AS `$group_2`,
+                     events.group2_properties AS group2_properties,
+                     events.group2_created_at AS group2_created_at,
+                     events.`$group_3` AS `$group_3`,
+                     events.group3_properties AS group3_properties,
+                     events.group3_created_at AS group3_created_at,
+                     events.`$group_4` AS `$group_4`,
+                     events.group4_properties AS group4_properties,
+                     events.group4_created_at AS group4_created_at
               FROM events SAMPLE 1
               WHERE equals(events.team_id, 2)) AS e
            LEFT JOIN
@@ -413,14 +493,29 @@
                   toStartOfDay(e.timestamp) AS day_start,
                   ifNull(nullIf(toString(e.`properties___$current_url`), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM
-             (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', '') AS `properties___$current_url`,
+             (SELECT toTimeZone(events.person_created_at, 'UTC') AS person_created_at,
+                     events.person_properties AS person_properties,
+                     events.person_id AS person_id,
+                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', '') AS `properties___$current_url`,
                      replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$browser'), ''), 'null'), '^"|"$', '') AS `properties___$browser`,
                      replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$os'), ''), 'null'), '^"|"$', '') AS `properties___$os`,
                      toTimeZone(events.timestamp, 'UTC') AS timestamp,
                      events.event AS event,
-                     toTimeZone(events.person_created_at, 'UTC') AS person_created_at,
-                     events.person_properties AS person_properties,
-                     events.person_id AS person_id
+                     events.`$group_0` AS `$group_0`,
+                     events.group0_properties AS group0_properties,
+                     events.group0_created_at AS group0_created_at,
+                     events.`$group_1` AS `$group_1`,
+                     events.group1_properties AS group1_properties,
+                     events.group1_created_at AS group1_created_at,
+                     events.`$group_2` AS `$group_2`,
+                     events.group2_properties AS group2_properties,
+                     events.group2_created_at AS group2_created_at,
+                     events.`$group_3` AS `$group_3`,
+                     events.group3_properties AS group3_properties,
+                     events.group3_created_at AS group3_created_at,
+                     events.`$group_4` AS `$group_4`,
+                     events.group4_properties AS group4_properties,
+                     events.group4_created_at AS group4_created_at
               FROM events SAMPLE 1
               WHERE equals(events.team_id, 2)) AS e
            WHERE and(ifNull(greaterOrEquals(e.timestamp, toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-22 00:00:00', 6, 'UTC')))), 0), ifNull(lessOrEquals(e.timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'UTC'))), 0), ifNull(equals(e.event, 'sign up'), 0), or(ifNull(equals(e.`properties___$browser`, 'Firefox'), 0), ifNull(equals(e.`properties___$os`, 'Windows'), 0)), ifNull(equals(e.`properties___$os`, 'Mac'), 0))
@@ -463,14 +558,29 @@
                   toStartOfDay(e.timestamp) AS day_start,
                   ifNull(nullIf(toString(e.`properties___$current_url`), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM
-             (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', '') AS `properties___$current_url`,
+             (SELECT toTimeZone(events.person_created_at, 'UTC') AS person_created_at,
+                     events.person_properties AS person_properties,
+                     events.person_id AS person_id,
+                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', '') AS `properties___$current_url`,
                      replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$browser'), ''), 'null'), '^"|"$', '') AS `properties___$browser`,
                      replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$os'), ''), 'null'), '^"|"$', '') AS `properties___$os`,
                      toTimeZone(events.timestamp, 'UTC') AS timestamp,
                      events.event AS event,
-                     toTimeZone(events.person_created_at, 'UTC') AS person_created_at,
-                     events.person_properties AS person_properties,
-                     events.person_id AS person_id
+                     events.`$group_0` AS `$group_0`,
+                     events.group0_properties AS group0_properties,
+                     events.group0_created_at AS group0_created_at,
+                     events.`$group_1` AS `$group_1`,
+                     events.group1_properties AS group1_properties,
+                     events.group1_created_at AS group1_created_at,
+                     events.`$group_2` AS `$group_2`,
+                     events.group2_properties AS group2_properties,
+                     events.group2_created_at AS group2_created_at,
+                     events.`$group_3` AS `$group_3`,
+                     events.group3_properties AS group3_properties,
+                     events.group3_created_at AS group3_created_at,
+                     events.`$group_4` AS `$group_4`,
+                     events.group4_properties AS group4_properties,
+                     events.group4_created_at AS group4_created_at
               FROM events SAMPLE 1
               WHERE equals(events.team_id, 2)) AS e
            WHERE and(ifNull(greaterOrEquals(e.timestamp, toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-22 00:00:00', 6, 'UTC')))), 0), ifNull(lessOrEquals(e.timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'UTC'))), 0), ifNull(equals(e.event, 'sign up'), 0), and(ifNull(equals(e.`properties___$browser`, 'Firefox'), 0), ifNull(equals(e.`properties___$os`, 'Windows'), 0)), ifNull(equals(e.`properties___$os`, 'Mac'), 0))
@@ -513,14 +623,29 @@
                   toStartOfDay(e.timestamp) AS day_start,
                   ifNull(nullIf(toString(e.`properties___$current_url`), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
            FROM
-             (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', '') AS `properties___$current_url`,
+             (SELECT toTimeZone(events.person_created_at, 'UTC') AS person_created_at,
+                     events.person_properties AS person_properties,
+                     events.person_id AS person_id,
+                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', '') AS `properties___$current_url`,
                      replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$browser'), ''), 'null'), '^"|"$', '') AS `properties___$browser`,
                      replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$os'), ''), 'null'), '^"|"$', '') AS `properties___$os`,
                      toTimeZone(events.timestamp, 'UTC') AS timestamp,
                      events.event AS event,
-                     toTimeZone(events.person_created_at, 'UTC') AS person_created_at,
-                     events.person_properties AS person_properties,
-                     events.person_id AS person_id
+                     events.`$group_0` AS `$group_0`,
+                     events.group0_properties AS group0_properties,
+                     events.group0_created_at AS group0_created_at,
+                     events.`$group_1` AS `$group_1`,
+                     events.group1_properties AS group1_properties,
+                     events.group1_created_at AS group1_created_at,
+                     events.`$group_2` AS `$group_2`,
+                     events.group2_properties AS group2_properties,
+                     events.group2_created_at AS group2_created_at,
+                     events.`$group_3` AS `$group_3`,
+                     events.group3_properties AS group3_properties,
+                     events.group3_created_at AS group3_created_at,
+                     events.`$group_4` AS `$group_4`,
+                     events.group4_properties AS group4_properties,
+                     events.group4_created_at AS group4_created_at
               FROM events SAMPLE 1
               WHERE equals(events.team_id, 2)) AS e
            WHERE and(ifNull(greaterOrEquals(e.timestamp, toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-22 00:00:00', 6, 'UTC')))), 0), ifNull(lessOrEquals(e.timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'UTC'))), 0), ifNull(equals(e.event, 'sign up'), 0), or(ifNull(equals(e.`properties___$browser`, 'Firefox'), 0), ifNull(equals(e.`properties___$os`, 'Windows'), 0)), ifNull(equals(e.`properties___$os`, 'Mac'), 0))
@@ -563,14 +688,29 @@
                   toStartOfDay(e.timestamp) AS day_start,
                   ifNull(nullIf(toString(e.`properties___$current_url`), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
            FROM
-             (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', '') AS `properties___$current_url`,
+             (SELECT toTimeZone(events.person_created_at, 'UTC') AS person_created_at,
+                     events.person_properties AS person_properties,
+                     events.person_id AS person_id,
+                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', '') AS `properties___$current_url`,
                      replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$browser'), ''), 'null'), '^"|"$', '') AS `properties___$browser`,
                      replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$os'), ''), 'null'), '^"|"$', '') AS `properties___$os`,
                      toTimeZone(events.timestamp, 'UTC') AS timestamp,
                      events.event AS event,
-                     toTimeZone(events.person_created_at, 'UTC') AS person_created_at,
-                     events.person_properties AS person_properties,
-                     events.person_id AS person_id
+                     events.`$group_0` AS `$group_0`,
+                     events.group0_properties AS group0_properties,
+                     events.group0_created_at AS group0_created_at,
+                     events.`$group_1` AS `$group_1`,
+                     events.group1_properties AS group1_properties,
+                     events.group1_created_at AS group1_created_at,
+                     events.`$group_2` AS `$group_2`,
+                     events.group2_properties AS group2_properties,
+                     events.group2_created_at AS group2_created_at,
+                     events.`$group_3` AS `$group_3`,
+                     events.group3_properties AS group3_properties,
+                     events.group3_created_at AS group3_created_at,
+                     events.`$group_4` AS `$group_4`,
+                     events.group4_properties AS group4_properties,
+                     events.group4_created_at AS group4_created_at
               FROM events SAMPLE 1
               WHERE equals(events.team_id, 2)) AS e
            WHERE and(ifNull(greaterOrEquals(e.timestamp, toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-22 00:00:00', 6, 'UTC')))), 0), ifNull(lessOrEquals(e.timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'UTC'))), 0), ifNull(equals(e.event, 'sign up'), 0), and(ifNull(equals(e.`properties___$browser`, 'Firefox'), 0), ifNull(equals(e.`properties___$os`, 'Windows'), 0)), ifNull(equals(e.`properties___$os`, 'Mac'), 0))
@@ -620,14 +760,29 @@
                         if(not(empty(e__override.distinct_id)), e__override.person_id, e.event_person_id) AS actor_id,
                         ifNull(nullIf(toString(e.properties___key), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
                  FROM
-                   (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', '') AS properties___key,
+                   (SELECT toTimeZone(events.person_created_at, 'UTC') AS person_created_at,
+                           events.person_properties AS person_properties,
+                           events.person_id AS person_id,
+                           replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', '') AS properties___key,
                            toTimeZone(events.timestamp, 'UTC') AS timestamp,
                            events.person_id AS event_person_id,
                            events.event AS event,
                            events.distinct_id AS e___distinct_id,
-                           toTimeZone(events.person_created_at, 'UTC') AS person_created_at,
-                           events.person_properties AS person_properties,
-                           events.person_id AS person_id
+                           events.`$group_0` AS `$group_0`,
+                           events.group0_properties AS group0_properties,
+                           events.group0_created_at AS group0_created_at,
+                           events.`$group_1` AS `$group_1`,
+                           events.group1_properties AS group1_properties,
+                           events.group1_created_at AS group1_created_at,
+                           events.`$group_2` AS `$group_2`,
+                           events.group2_properties AS group2_properties,
+                           events.group2_created_at AS group2_created_at,
+                           events.`$group_3` AS `$group_3`,
+                           events.group3_properties AS group3_properties,
+                           events.group3_created_at AS group3_created_at,
+                           events.`$group_4` AS `$group_4`,
+                           events.group4_properties AS group4_properties,
+                           events.group4_created_at AS group4_created_at
                     FROM events SAMPLE 1
                     WHERE equals(events.team_id, 2)) AS e
                  LEFT OUTER JOIN
@@ -690,14 +845,29 @@
                         if(not(empty(e__override.distinct_id)), e__override.person_id, e.event_person_id) AS actor_id,
                         ifNull(nullIf(toString(e.properties___key), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
                  FROM
-                   (SELECT nullIf(nullIf(events.mat_key, ''), 'null') AS properties___key,
+                   (SELECT toTimeZone(events.person_created_at, 'UTC') AS person_created_at,
+                           events.person_properties AS person_properties,
+                           events.person_id AS person_id,
+                           nullIf(nullIf(events.mat_key, ''), 'null') AS properties___key,
                            toTimeZone(events.timestamp, 'UTC') AS timestamp,
                            events.person_id AS event_person_id,
                            events.event AS event,
                            events.distinct_id AS e___distinct_id,
-                           toTimeZone(events.person_created_at, 'UTC') AS person_created_at,
-                           events.person_properties AS person_properties,
-                           events.person_id AS person_id
+                           events.`$group_0` AS `$group_0`,
+                           events.group0_properties AS group0_properties,
+                           events.group0_created_at AS group0_created_at,
+                           events.`$group_1` AS `$group_1`,
+                           events.group1_properties AS group1_properties,
+                           events.group1_created_at AS group1_created_at,
+                           events.`$group_2` AS `$group_2`,
+                           events.group2_properties AS group2_properties,
+                           events.group2_created_at AS group2_created_at,
+                           events.`$group_3` AS `$group_3`,
+                           events.group3_properties AS group3_properties,
+                           events.group3_created_at AS group3_created_at,
+                           events.`$group_4` AS `$group_4`,
+                           events.group4_properties AS group4_properties,
+                           events.group4_created_at AS group4_created_at
                     FROM events SAMPLE 1
                     WHERE equals(events.team_id, 2)) AS e
                  LEFT OUTER JOIN
@@ -784,15 +954,30 @@
                         if(not(empty(e__override.distinct_id)), e__override.person_id, e.event_person_id) AS actor_id,
                         ifNull(nullIf(toString(e.properties___key), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
                  FROM
-                   (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', '') AS properties___key,
+                   (SELECT toTimeZone(events.person_created_at, 'UTC') AS person_created_at,
+                           events.person_properties AS person_properties,
+                           events.person_id AS person_id,
+                           replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', '') AS properties___key,
                            toTimeZone(events.timestamp, 'UTC') AS timestamp,
                            events.person_id AS event_person_id,
                            events.event AS event,
                            events.person_id AS e___person_id,
                            events.distinct_id AS e___distinct_id,
-                           toTimeZone(events.person_created_at, 'UTC') AS person_created_at,
-                           events.person_properties AS person_properties,
-                           events.person_id AS person_id
+                           events.`$group_0` AS `$group_0`,
+                           events.group0_properties AS group0_properties,
+                           events.group0_created_at AS group0_created_at,
+                           events.`$group_1` AS `$group_1`,
+                           events.group1_properties AS group1_properties,
+                           events.group1_created_at AS group1_created_at,
+                           events.`$group_2` AS `$group_2`,
+                           events.group2_properties AS group2_properties,
+                           events.group2_created_at AS group2_created_at,
+                           events.`$group_3` AS `$group_3`,
+                           events.group3_properties AS group3_properties,
+                           events.group3_created_at AS group3_created_at,
+                           events.`$group_4` AS `$group_4`,
+                           events.group4_properties AS group4_properties,
+                           events.group4_created_at AS group4_created_at
                     FROM events SAMPLE 1
                     WHERE equals(events.team_id, 2)) AS e
                  LEFT OUTER JOIN
@@ -860,13 +1045,28 @@
                   toStartOfDay(e.timestamp) AS day_start,
                   ifNull(nullIf(toString(e.properties___key), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM
-             (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', '') AS properties___key,
+             (SELECT toTimeZone(events.person_created_at, 'UTC') AS person_created_at,
+                     events.person_properties AS person_properties,
+                     events.person_id AS person_id,
+                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', '') AS properties___key,
                      toTimeZone(events.timestamp, 'UTC') AS timestamp,
                      events.event AS event,
                      events.`$group_0` AS `e___$group_0`,
-                     toTimeZone(events.person_created_at, 'UTC') AS person_created_at,
-                     events.person_properties AS person_properties,
-                     events.person_id AS person_id
+                     events.`$group_0` AS `$group_0`,
+                     events.group0_properties AS group0_properties,
+                     events.group0_created_at AS group0_created_at,
+                     events.`$group_1` AS `$group_1`,
+                     events.group1_properties AS group1_properties,
+                     events.group1_created_at AS group1_created_at,
+                     events.`$group_2` AS `$group_2`,
+                     events.group2_properties AS group2_properties,
+                     events.group2_created_at AS group2_created_at,
+                     events.`$group_3` AS `$group_3`,
+                     events.group3_properties AS group3_properties,
+                     events.group3_created_at AS group3_created_at,
+                     events.`$group_4` AS `$group_4`,
+                     events.group4_properties AS group4_properties,
+                     events.group4_created_at AS group4_created_at
               FROM events SAMPLE 1
               WHERE equals(events.team_id, 2)) AS e
            LEFT JOIN
@@ -926,15 +1126,30 @@
                   toStartOfDay(e.timestamp) AS day_start,
                   ifNull(nullIf(toString(e.properties___key), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM
-             (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', '') AS properties___key,
+             (SELECT toTimeZone(events.person_created_at, 'UTC') AS person_created_at,
+                     events.person_properties AS person_properties,
+                     events.person_id AS person_id,
+                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', '') AS properties___key,
                      events.person_id AS event_person_id,
                      toTimeZone(events.timestamp, 'UTC') AS timestamp,
                      events.event AS event,
                      events.`$group_0` AS `e___$group_0`,
                      events.distinct_id AS e___distinct_id,
-                     toTimeZone(events.person_created_at, 'UTC') AS person_created_at,
-                     events.person_properties AS person_properties,
-                     events.person_id AS person_id
+                     events.`$group_0` AS `$group_0`,
+                     events.group0_properties AS group0_properties,
+                     events.group0_created_at AS group0_created_at,
+                     events.`$group_1` AS `$group_1`,
+                     events.group1_properties AS group1_properties,
+                     events.group1_created_at AS group1_created_at,
+                     events.`$group_2` AS `$group_2`,
+                     events.group2_properties AS group2_properties,
+                     events.group2_created_at AS group2_created_at,
+                     events.`$group_3` AS `$group_3`,
+                     events.group3_properties AS group3_properties,
+                     events.group3_created_at AS group3_created_at,
+                     events.`$group_4` AS `$group_4`,
+                     events.group4_properties AS group4_properties,
+                     events.group4_created_at AS group4_created_at
               FROM events SAMPLE 1
               WHERE equals(events.team_id, 2)) AS e
            LEFT OUTER JOIN
@@ -986,14 +1201,74 @@
 # ---
 # name: TestTrends.test_dau_with_breakdown_filtering_with_sampling.1
   '''
-  /* celery:posthog.tasks.tasks.sync_insight_caching_state */
-  SELECT team_id,
-         date_diff('second', max(timestamp), now()) AS age
-  FROM events
-  WHERE timestamp > date_sub(DAY, 3, now())
-    AND timestamp < now()
-  GROUP BY team_id
-  ORDER BY age;
+  SELECT groupArray(1)(date)[1] AS date,
+                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
+                      if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
+  FROM
+    (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))))), 1))) AS date,
+            arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                           and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
+            breakdown_value AS breakdown_value,
+            rowNumberInAllBlocks() AS row_number
+     FROM
+       (SELECT sum(total) AS count,
+               day_start AS day_start,
+               breakdown_value AS breakdown_value
+        FROM
+          (SELECT count(DISTINCT if(not(empty(e__override.distinct_id)), e__override.person_id, e.event_person_id)) AS total,
+                  toStartOfDay(e.timestamp) AS day_start,
+                  ifNull(nullIf(toString(e.`properties___$some_property`), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+           FROM
+             (SELECT toTimeZone(events.person_created_at, 'UTC') AS person_created_at,
+                     events.person_properties AS person_properties,
+                     events.person_id AS person_id,
+                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$some_property'), ''), 'null'), '^"|"$', '') AS `properties___$some_property`,
+                     events.person_id AS event_person_id,
+                     toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                     events.event AS event,
+                     events.distinct_id AS e___distinct_id,
+                     events.`$group_0` AS `$group_0`,
+                     events.group0_properties AS group0_properties,
+                     events.group0_created_at AS group0_created_at,
+                     events.`$group_1` AS `$group_1`,
+                     events.group1_properties AS group1_properties,
+                     events.group1_created_at AS group1_created_at,
+                     events.`$group_2` AS `$group_2`,
+                     events.group2_properties AS group2_properties,
+                     events.group2_created_at AS group2_created_at,
+                     events.`$group_3` AS `$group_3`,
+                     events.group3_properties AS group3_properties,
+                     events.group3_created_at AS group3_created_at,
+                     events.`$group_4` AS `$group_4`,
+                     events.group4_properties AS group4_properties,
+                     events.group4_created_at AS group4_created_at
+              FROM events SAMPLE 1.0
+              WHERE equals(events.team_id, 2)) AS e
+           LEFT OUTER JOIN
+             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                     person_distinct_id_overrides.distinct_id AS distinct_id
+              FROM person_distinct_id_overrides
+              WHERE equals(person_distinct_id_overrides.team_id, 2)
+              GROUP BY person_distinct_id_overrides.distinct_id
+              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.e___distinct_id, e__override.distinct_id)
+           WHERE and(ifNull(greaterOrEquals(e.timestamp, toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), 0), ifNull(lessOrEquals(e.timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0), ifNull(equals(e.event, 'sign up'), 0))
+           GROUP BY day_start,
+                    breakdown_value)
+        GROUP BY day_start,
+                 breakdown_value
+        ORDER BY day_start ASC, breakdown_value ASC)
+     GROUP BY breakdown_value
+     ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC)
+  WHERE isNotNull(breakdown_value)
+  GROUP BY breakdown_value
+  ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
+  LIMIT 50000 SETTINGS readonly=2,
+                       max_execution_time=60,
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_dau_with_breakdown_filtering_with_sampling.10
@@ -1310,38 +1585,218 @@
 # ---
 # name: TestTrends.test_dau_with_breakdown_filtering_with_sampling.2
   '''
-  /* celery:posthog.tasks.tasks.sync_insight_caching_state */
-  SELECT team_id,
-         date_diff('second', max(timestamp), now()) AS age
-  FROM events
-  WHERE timestamp > date_sub(DAY, 3, now())
-    AND timestamp < now()
-  GROUP BY team_id
-  ORDER BY age;
+  SELECT groupArray(1)(date)[1] AS date,
+                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
+                      if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
+  FROM
+    (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))))), 1))) AS date,
+            arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                           and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
+            breakdown_value AS breakdown_value,
+            rowNumberInAllBlocks() AS row_number
+     FROM
+       (SELECT sum(total) AS count,
+               day_start AS day_start,
+               breakdown_value AS breakdown_value
+        FROM
+          (SELECT count(DISTINCT if(not(empty(e__override.distinct_id)), e__override.person_id, e.event_person_id)) AS total,
+                  toStartOfDay(e.timestamp) AS day_start,
+                  ifNull(nullIf(toString(e.`properties___$some_property`), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+           FROM
+             (SELECT toTimeZone(events.person_created_at, 'UTC') AS person_created_at,
+                     events.person_properties AS person_properties,
+                     events.person_id AS person_id,
+                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$some_property'), ''), 'null'), '^"|"$', '') AS `properties___$some_property`,
+                     events.person_id AS event_person_id,
+                     toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                     events.event AS event,
+                     events.distinct_id AS e___distinct_id,
+                     events.`$group_0` AS `$group_0`,
+                     events.group0_properties AS group0_properties,
+                     events.group0_created_at AS group0_created_at,
+                     events.`$group_1` AS `$group_1`,
+                     events.group1_properties AS group1_properties,
+                     events.group1_created_at AS group1_created_at,
+                     events.`$group_2` AS `$group_2`,
+                     events.group2_properties AS group2_properties,
+                     events.group2_created_at AS group2_created_at,
+                     events.`$group_3` AS `$group_3`,
+                     events.group3_properties AS group3_properties,
+                     events.group3_created_at AS group3_created_at,
+                     events.`$group_4` AS `$group_4`,
+                     events.group4_properties AS group4_properties,
+                     events.group4_created_at AS group4_created_at
+              FROM events SAMPLE 1.0
+              WHERE equals(events.team_id, 2)) AS e
+           LEFT OUTER JOIN
+             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                     person_distinct_id_overrides.distinct_id AS distinct_id
+              FROM person_distinct_id_overrides
+              WHERE equals(person_distinct_id_overrides.team_id, 2)
+              GROUP BY person_distinct_id_overrides.distinct_id
+              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.e___distinct_id, e__override.distinct_id)
+           WHERE and(ifNull(greaterOrEquals(e.timestamp, toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), 0), ifNull(lessOrEquals(e.timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0), ifNull(equals(e.event, 'sign up'), 0))
+           GROUP BY day_start,
+                    breakdown_value)
+        GROUP BY day_start,
+                 breakdown_value
+        ORDER BY day_start ASC, breakdown_value ASC)
+     GROUP BY breakdown_value
+     ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC)
+  WHERE isNotNull(breakdown_value)
+  GROUP BY breakdown_value
+  ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
+  LIMIT 50000 SETTINGS readonly=2,
+                       max_execution_time=60,
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_dau_with_breakdown_filtering_with_sampling.3
   '''
-  /* celery:posthog.tasks.tasks.sync_insight_caching_state */
-  SELECT team_id,
-         date_diff('second', max(timestamp), now()) AS age
-  FROM events
-  WHERE timestamp > date_sub(DAY, 3, now())
-    AND timestamp < now()
-  GROUP BY team_id
-  ORDER BY age;
+  SELECT groupArray(1)(date)[1] AS date,
+                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
+                      arrayMap(i -> if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', i), breakdown_value) AS breakdown_value
+  FROM
+    (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))))), 1))) AS date,
+            arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                           and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
+            breakdown_value AS breakdown_value,
+            rowNumberInAllBlocks() AS row_number
+     FROM
+       (SELECT sum(total) AS count,
+               day_start AS day_start,
+               [ifNull(toString(breakdown_value_1), '$$_posthog_breakdown_null_$$')] AS breakdown_value
+        FROM
+          (SELECT count(DISTINCT if(not(empty(e__override.distinct_id)), e__override.person_id, e.event_person_id)) AS total,
+                  toStartOfDay(e.timestamp) AS day_start,
+                  ifNull(nullIf(toString(e.`properties___$some_property`), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
+           FROM
+             (SELECT toTimeZone(events.person_created_at, 'UTC') AS person_created_at,
+                     events.person_properties AS person_properties,
+                     events.person_id AS person_id,
+                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$some_property'), ''), 'null'), '^"|"$', '') AS `properties___$some_property`,
+                     events.person_id AS event_person_id,
+                     toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                     events.event AS event,
+                     events.distinct_id AS e___distinct_id,
+                     events.`$group_0` AS `$group_0`,
+                     events.group0_properties AS group0_properties,
+                     events.group0_created_at AS group0_created_at,
+                     events.`$group_1` AS `$group_1`,
+                     events.group1_properties AS group1_properties,
+                     events.group1_created_at AS group1_created_at,
+                     events.`$group_2` AS `$group_2`,
+                     events.group2_properties AS group2_properties,
+                     events.group2_created_at AS group2_created_at,
+                     events.`$group_3` AS `$group_3`,
+                     events.group3_properties AS group3_properties,
+                     events.group3_created_at AS group3_created_at,
+                     events.`$group_4` AS `$group_4`,
+                     events.group4_properties AS group4_properties,
+                     events.group4_created_at AS group4_created_at
+              FROM events SAMPLE 1.0
+              WHERE equals(events.team_id, 2)) AS e
+           LEFT OUTER JOIN
+             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                     person_distinct_id_overrides.distinct_id AS distinct_id
+              FROM person_distinct_id_overrides
+              WHERE equals(person_distinct_id_overrides.team_id, 2)
+              GROUP BY person_distinct_id_overrides.distinct_id
+              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.e___distinct_id, e__override.distinct_id)
+           WHERE and(ifNull(greaterOrEquals(e.timestamp, toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), 0), ifNull(lessOrEquals(e.timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0), ifNull(equals(e.event, 'sign up'), 0))
+           GROUP BY day_start,
+                    breakdown_value_1)
+        GROUP BY day_start,
+                 breakdown_value_1
+        ORDER BY day_start ASC, breakdown_value ASC)
+     GROUP BY breakdown_value
+     ORDER BY if(has(breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(has(breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC)
+  WHERE arrayExists(x -> isNotNull(x), breakdown_value)
+  GROUP BY breakdown_value
+  ORDER BY if(has(breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(has(breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
+  LIMIT 50000 SETTINGS readonly=2,
+                       max_execution_time=60,
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_dau_with_breakdown_filtering_with_sampling.4
   '''
-  /* celery:posthog.tasks.tasks.sync_insight_caching_state */
-  SELECT team_id,
-         date_diff('second', max(timestamp), now()) AS age
-  FROM events
-  WHERE timestamp > date_sub(DAY, 3, now())
-    AND timestamp < now()
-  GROUP BY team_id
-  ORDER BY age;
+  SELECT groupArray(1)(date)[1] AS date,
+                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
+                      arrayMap(i -> if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', i), breakdown_value) AS breakdown_value
+  FROM
+    (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))))), 1))) AS date,
+            arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                           and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
+            breakdown_value AS breakdown_value,
+            rowNumberInAllBlocks() AS row_number
+     FROM
+       (SELECT sum(total) AS count,
+               day_start AS day_start,
+               [ifNull(toString(breakdown_value_1), '$$_posthog_breakdown_null_$$')] AS breakdown_value
+        FROM
+          (SELECT count(DISTINCT if(not(empty(e__override.distinct_id)), e__override.person_id, e.event_person_id)) AS total,
+                  toStartOfDay(e.timestamp) AS day_start,
+                  ifNull(nullIf(toString(e.`properties___$some_property`), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
+           FROM
+             (SELECT toTimeZone(events.person_created_at, 'UTC') AS person_created_at,
+                     events.person_properties AS person_properties,
+                     events.person_id AS person_id,
+                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$some_property'), ''), 'null'), '^"|"$', '') AS `properties___$some_property`,
+                     events.person_id AS event_person_id,
+                     toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                     events.event AS event,
+                     events.distinct_id AS e___distinct_id,
+                     events.`$group_0` AS `$group_0`,
+                     events.group0_properties AS group0_properties,
+                     events.group0_created_at AS group0_created_at,
+                     events.`$group_1` AS `$group_1`,
+                     events.group1_properties AS group1_properties,
+                     events.group1_created_at AS group1_created_at,
+                     events.`$group_2` AS `$group_2`,
+                     events.group2_properties AS group2_properties,
+                     events.group2_created_at AS group2_created_at,
+                     events.`$group_3` AS `$group_3`,
+                     events.group3_properties AS group3_properties,
+                     events.group3_created_at AS group3_created_at,
+                     events.`$group_4` AS `$group_4`,
+                     events.group4_properties AS group4_properties,
+                     events.group4_created_at AS group4_created_at
+              FROM events SAMPLE 1.0
+              WHERE equals(events.team_id, 2)) AS e
+           LEFT OUTER JOIN
+             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                     person_distinct_id_overrides.distinct_id AS distinct_id
+              FROM person_distinct_id_overrides
+              WHERE equals(person_distinct_id_overrides.team_id, 2)
+              GROUP BY person_distinct_id_overrides.distinct_id
+              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.e___distinct_id, e__override.distinct_id)
+           WHERE and(ifNull(greaterOrEquals(e.timestamp, toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), 0), ifNull(lessOrEquals(e.timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0), ifNull(equals(e.event, 'sign up'), 0))
+           GROUP BY day_start,
+                    breakdown_value_1)
+        GROUP BY day_start,
+                 breakdown_value_1
+        ORDER BY day_start ASC, breakdown_value ASC)
+     GROUP BY breakdown_value
+     ORDER BY if(has(breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(has(breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC)
+  WHERE arrayExists(x -> isNotNull(x), breakdown_value)
+  GROUP BY breakdown_value
+  ORDER BY if(has(breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(has(breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
+  LIMIT 50000 SETTINGS readonly=2,
+                       max_execution_time=60,
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_dau_with_breakdown_filtering_with_sampling.5

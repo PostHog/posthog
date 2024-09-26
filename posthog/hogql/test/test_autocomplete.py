@@ -2,7 +2,7 @@ from typing import Optional
 from posthog.hogql.autocomplete import get_hogql_autocomplete
 from posthog.hogql.database.database import Database, create_hogql_database
 from posthog.hogql.database.models import StringDatabaseField
-from posthog.hogql.database.schema.events import EventsTable, EventsLazy
+from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.persons import PERSONS_FIELDS
 from posthog.models.property_definition import PropertyDefinition
 from posthog.schema import HogQLAutocomplete, HogQLAutocompleteResponse, HogLanguage, HogQLQuery, Kind
@@ -155,7 +155,7 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
         query = "select , (select id from persons) as blah from events"
         results = self._select(query=query, start=7, end=7)
 
-        keys = list(EventsLazy().fields.keys())
+        keys = list(EventsTable().fields.keys())
 
         for index, key in enumerate(keys):
             assert results.suggestions[index].label == key

@@ -30,7 +30,8 @@ from posthog.hogql.database.models import (
 )
 from posthog.hogql.database.schema.channel_type import create_initial_channel_type, create_initial_domain_type
 from posthog.hogql.database.schema.cohort_people import CohortPeople, RawCohortPeople
-from posthog.hogql.database.schema.events import EventsTable, EventsLazy
+from posthog.hogql.database.schema.events import EventsTable
+from posthog.hogql.database.schema.events_virtual import EventsLazy, RawEvents
 from posthog.hogql.database.schema.groups import GroupsTable, RawGroupsTable
 from posthog.hogql.database.schema.heatmaps import HeatmapsTable
 from posthog.hogql.database.schema.log_entries import (
@@ -120,8 +121,9 @@ class Database(BaseModel):
     raw_person_distinct_id_overrides: RawPersonDistinctIdOverridesTable = RawPersonDistinctIdOverridesTable()
     raw_sessions: Union[RawSessionsTableV1, RawSessionsTableV2] = RawSessionsTableV1()
 
-    events: EventsLazy = EventsLazy()
-    raw_events: EventsTable = EventsTable()
+    events: EventsTable = EventsTable()
+
+    raw_events: EventsTable = RawEvents()
 
     # system tables
     numbers: NumbersTable = NumbersTable()
@@ -146,13 +148,17 @@ class Database(BaseModel):
     _timezone: Optional[str]
     _week_start_day: Optional[WeekStartDay]
 
-    def __init__(self, timezone: Optional[str] = None, week_start_day: Optional[WeekStartDay] = None):
+    def __init__(
+        self, timezone: Optional[str] = None, week_start_day: Optional[WeekStartDay] = None, virtual_events=False
+    ):
         super().__init__()
         try:
             self._timezone = str(ZoneInfo(timezone)) if timezone else None
         except ZoneInfoNotFoundError:
             raise ValueError(f"Unknown timezone: '{str(timezone)}'")
         self._week_start_day = week_start_day
+        if virtual_events:
+            self.events = EventsLazy()
 
     def get_timezone(self) -> str:
         return self._timezone or "UTC"
@@ -216,7 +222,10 @@ def _use_person_id_from_person_overrides(database: Database) -> None:
 
 
 def create_hogql_database(
-    team_id: int, modifiers: Optional[HogQLQueryModifiers] = None, team_arg: Optional["Team"] = None
+    team_id: int,
+    modifiers: Optional[HogQLQueryModifiers] = None,
+    team_arg: Optional["Team"] = None,
+    virtual_events=False,
 ) -> Database:
     from posthog.models import Team
     from posthog.hogql.database.s3_table import S3Table
@@ -229,7 +238,7 @@ def create_hogql_database(
 
     team = team_arg or Team.objects.get(pk=team_id)
     modifiers = create_default_modifiers_for_team(team, modifiers)
-    database = Database(timezone=team.timezone, week_start_day=team.week_start_day)
+    database = Database(timezone=team.timezone, week_start_day=team.week_start_day, virtual_events=virtual_events)
 
     for table in (database.events,):
         if modifiers.personsOnEventsMode == PersonsOnEventsMode.DISABLED:

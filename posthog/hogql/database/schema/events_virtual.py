@@ -1,3 +1,8 @@
+from typing import Any
+
+from posthog.hogql import ast
+from posthog.hogql.ast import SelectQuery
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import (
     VirtualTable,
     StringDatabaseField,
@@ -9,6 +14,8 @@ from posthog.hogql.database.models import (
     LazyJoin,
     FieldTraverser,
     FieldOrTable,
+    LazyTable,
+    LazyTableToAdd,
 )
 from posthog.hogql.database.schema.groups import GroupsTable, join_with_group_n_table
 from posthog.hogql.database.schema.person_distinct_ids import (
@@ -16,6 +23,7 @@ from posthog.hogql.database.schema.person_distinct_ids import (
     join_with_person_distinct_ids_table,
 )
 from posthog.hogql.database.schema.sessions_v1 import join_events_table_to_sessions_table, SessionsTableV1
+from posthog.hogql.visitor import clone_expr
 
 
 class EventsPersonSubTable(VirtualTable):
@@ -26,7 +34,7 @@ class EventsPersonSubTable(VirtualTable):
     }
 
     def to_printed_clickhouse(self, context):
-        return "events"
+        return "lazy_click"
 
     def to_printed_hogql(self):
         return "events"
@@ -46,13 +54,17 @@ class EventsGroupSubTable(VirtualTable):
         return []
 
     def to_printed_clickhouse(self, context):
-        return "events"
+        return "lazy_click"
 
     def to_printed_hogql(self):
         return "events"
 
 
-class EventsTable(Table):
+class EventsLazy(LazyTable):
+    """
+    A table that is replaced with a subquery returned from `lazy_select(requested_fields: Dict[name, chain], modifiers: HogQLQueryModifiers, node: SelectQuery)`
+    """
+
     fields: dict[str, FieldOrTable] = {
         "uuid": StringDatabaseField(name="uuid"),
         "event": StringDatabaseField(name="event"),
@@ -121,8 +133,80 @@ class EventsTable(Table):
         "elements_chain_elements": StringArrayDatabaseField(name="elements_chain_elements"),
     }
 
+    def lazy_select(
+        self,
+        table_to_add: LazyTableToAdd,
+        context: HogQLContext,
+        node: SelectQuery,
+    ) -> Any:
+        select_fields: list[ast.Expr] = []
+        real_fields = {
+            "person_created_at": ["person_created_at"],
+            "person_properties": ["person_properties"],
+            "person_id": ["person_id"],
+            **table_to_add.fields_accessed,
+        }
+        for i in range(5):
+            for key in (f"$group_{i}", f"group{i}_properties", f"group{i}_created_at"):
+                real_fields[key] = [key]
+        for name, chain in real_fields.items():
+            select_fields.append(ast.Alias(alias=name, expr=ast.Field(chain=["raw_events", *chain])))
+
+        # extractor = WhereClauseExtractor(context)
+        # extractor.add_local_tables(table_to_add)
+        # where = extractor.get_inner_where(node)
+
+        # always load person properties (in the future just do this for POE modes)
+        select = ast.SelectQuery(
+            select=select_fields,
+            select_from=ast.JoinExpr(
+                table=ast.Field(chain=["raw_events"]),
+                sample=clone_expr(node.select_from.sample, clear_types=True, clear_locations=True),
+            ),
+            # where=where,
+        )
+        node.select_from.sample = None
+        return select
+
     def to_printed_clickhouse(self, context):
         return "events"
 
     def to_printed_hogql(self):
         return "events"
+
+
+REAL_FIELDS = {
+    "uuid": StringDatabaseField(name="uuid"),
+    "event": StringDatabaseField(name="event"),
+    "properties": StringJSONDatabaseField(name="properties"),
+    "timestamp": DateTimeDatabaseField(name="timestamp"),
+    "team_id": IntegerDatabaseField(name="team_id"),
+    "distinct_id": StringDatabaseField(name="distinct_id"),
+    "elements_chain": StringDatabaseField(name="elements_chain"),
+    "created_at": DateTimeDatabaseField(name="created_at"),
+    "$session_id": StringDatabaseField(name="$session_id"),
+    "$window_id": StringDatabaseField(name="$window_id"),
+    "person_id": StringDatabaseField(name="person_id"),
+    "person_created_at": DateTimeDatabaseField(name="person_created_at"),
+    "person_properties": StringJSONDatabaseField(name="person_properties"),
+    "elements_chain_href": StringDatabaseField(name="elements_chain_href"),
+    "elements_chain_texts": StringArrayDatabaseField(name="elements_chain_texts"),
+    "elements_chain_ids": StringArrayDatabaseField(name="elements_chain_ids"),
+    "elements_chain_elements": StringArrayDatabaseField(name="elements_chain_elements"),
+    # Virtual
+    "event_person_id": StringDatabaseField(name="person_id"),
+}
+
+for i in range(5):
+    for key in (f"$group_{i}", f"group{i}_properties", f"group{i}_created_at"):
+        REAL_FIELDS[key] = StringDatabaseField(name=key)
+
+
+class RawEvents(Table):
+    fields: dict[str, FieldOrTable] = REAL_FIELDS
+
+    def to_printed_clickhouse(self, context):
+        return "events"
+
+    def to_printed_hogql(self):
+        return "raw_hog"
