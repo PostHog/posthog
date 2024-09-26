@@ -44,7 +44,10 @@ export const CreditCTAHero = (): JSX.Element | null => {
     }
 
     return (
-        <div className="flex relative justify-between items-start rounded-lg bg-white border mb-2 gap-2" ref={heroRef}>
+        <div
+            className="flex relative justify-between items-start rounded-lg bg-bg-light border mb-2 gap-2"
+            ref={heroRef}
+        >
             <div className="absolute top-2 right-2 z-10">
                 <LemonButton
                     icon={<IconX className="w-4 h-4" />}
