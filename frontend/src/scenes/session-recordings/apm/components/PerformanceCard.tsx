@@ -1,10 +1,11 @@
 import clsx from 'clsx'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyMilliseconds } from 'lib/utils'
 
 import { PerformanceEvent, RecordingEventType } from '~/types'
+
+import { OverviewGrid, OverviewGridItem } from '../../components/OverviewGrid'
 
 interface SummaryCardData {
     label: string
@@ -14,7 +15,7 @@ interface SummaryCardData {
 }
 
 const fcpSummary: SummaryCardData = {
-    label: 'First Contentful Paint',
+    label: 'FCP',
     description: (
         <div>
             The First Contentful Paint (FCP) metric measures the time from when the page starts loading to when any part
@@ -72,12 +73,12 @@ const pageLoadedSummary: SummaryCardData = {
 }
 
 const clsSummary: SummaryCardData = {
-    label: 'Cumulative layout shift',
+    label: 'CLS',
     description: (
         <div>
-            Cumulative layout shift measures the extent to which users encounter unexpected layout shifts, in which
-            elements of the page are moved in an unexpected way: that is, that are not the result of a user action like
-            pressing a button or part of an animation.{' '}
+            Cumulative layout shift (CLS) measures the extent to which users encounter unexpected layout shifts, in
+            which elements of the page are moved in an unexpected way: that is, that are not the result of a user action
+            like pressing a button or part of an animation.{' '}
             <Link disableClientSideRouting to="https://developer.mozilla.org/en-US/docs/Glossary/CLS" target="_blank">
                 Read more on developer.mozilla.org
             </Link>
@@ -89,7 +90,7 @@ const clsSummary: SummaryCardData = {
 }
 
 const lcpSummary: SummaryCardData = {
-    label: 'Largest Contentful Paint',
+    label: 'LCP',
     description: (
         <div>
             The Largest Contentful Paint (LCP) performance metric provides the render time of the largest image or text
@@ -109,12 +110,13 @@ const lcpSummary: SummaryCardData = {
 }
 
 const inpSummary: SummaryCardData = {
-    label: 'Interaction to next paint',
+    label: 'INP',
     description: (
         <div>
-            INP is a metric that assesses a page's overall responsiveness to user interactions by observing the latency
-            of all click, tap, and keyboard interactions that occur throughout the lifespan of a user's visit to a page.
-            The final INP value is the longest interaction observed, ignoring outliers.{' '}
+            Interaction to next paint (INP) is a metric that assesses a page's overall responsiveness to user
+            interactions by observing the latency of all click, tap, and keyboard interactions that occur throughout the
+            lifespan of a user's visit to a page. The final INP value is the longest interaction observed, ignoring
+            outliers.{' '}
             <Link disableClientSideRouting to="https://web.dev/articles/inp" target="_blank">
                 Read more on web.dev
             </Link>
@@ -158,25 +160,6 @@ export function PerformanceDuration({
     )
 }
 
-function PerformanceCard(props: {
-    benchmarks: number[]
-    description: JSX.Element
-    label: string
-    value: number | undefined
-    loading: boolean
-}): JSX.Element {
-    return (
-        <Tooltip title={props.description}>
-            <div className="flex-1 p-2 text-center">
-                <div className="text-sm">{props.label}</div>
-                <div className="text-lg font-semibold">
-                    <PerformanceDuration {...props} />
-                </div>
-            </div>
-        </Tooltip>
-    )
-}
-
 function itemToPerformanceValues(item: PerformanceEvent): {
     cls?: number
     lcp?: number
@@ -212,18 +195,17 @@ export function PerformanceCardRow({ item }: { item: PerformanceEvent }): JSX.El
     const performanceValues = itemToPerformanceValues(item)
 
     return (
-        <div className="grid grid-cols-3 place-items-center">
+        <OverviewGrid>
             {Object.entries(summaryMapping).map(([key, summary]) => (
-                <PerformanceCard
-                    key={key}
-                    benchmarks={summary.scoreBenchmarks}
-                    description={summary.description}
-                    label={summary.label}
-                    value={performanceValues[key]}
-                    loading={summary.allowLoadingIndicator && !performanceValues.loaded}
-                />
+                <OverviewGridItem key={key} description={summary.description} label={summary.label}>
+                    <PerformanceDuration
+                        benchmarks={summary.scoreBenchmarks}
+                        value={performanceValues[key]}
+                        loading={summary.allowLoadingIndicator && !performanceValues.loaded}
+                    />
+                </OverviewGridItem>
             ))}
-        </div>
+        </OverviewGrid>
     )
 }
 
