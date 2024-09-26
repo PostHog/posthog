@@ -1,3 +1,4 @@
+import { CyclotronMetricsConfig, initCyclotronMetrics } from '@posthog/cyclotron'
 import * as Sentry from '@sentry/node'
 import fs from 'fs'
 import { Server } from 'http'
@@ -503,6 +504,16 @@ export async function startPluginsServer(
             })
         })
 
+        if (cyclotronInUse(await setupHub())) {
+            const labels = new Map()
+            labels.set('plugin_server_version', version)
+            labels.set('plugin_server_mode', serverConfig.PLUGIN_SERVER_MODE)
+            const config: CyclotronMetricsConfig = {
+                defaultLabels: labels,
+            }
+            initCyclotronMetrics(config)
+        }
+
         return serverInstance
     } catch (error) {
         Sentry.captureException(error)
@@ -561,4 +572,12 @@ function runStartupProfiles(config: PluginsServerConfig) {
             status.info('🩺', `Wrote heap profile to disk`)
         }, config.STARTUP_PROFILE_DURATION_SECONDS * 1000)
     }
+}
+
+function cyclotronInUse(hub: Hub): boolean {
+    const urlSet = hub.CYCLOTRON_DATABASE_URL ? true : false
+    const cdpProcessedEvents = hub.capabilities.cdpProcessedEvents ? true : false
+    const cdpCyclotronWorker = hub.capabilities.cdpCyclotronWorker ? true : false
+
+    return (urlSet && cdpProcessedEvents) || cdpCyclotronWorker
 }

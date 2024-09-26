@@ -391,12 +391,7 @@ export function emitCyclotronMetrics() {
         const name = measurement.name
         const type = measurement.type
 
-        // The TS library seem to demand you declare labels up-front (for some reason?),
-        // but we have know good way of knowing the set of labels used up-front, so
-        // idk what to do here really - recreate the metric each time? That seems...
-        // not good, maybe not feasible for histograms. Ingoring this problem for now,
-        // will return to it later (maybe get some help)
-        // let labels = measurement.labels
+        const labels = measurement.labels
 
         if (type === 'counter') {
             const value = measurement.value as number
@@ -409,7 +404,7 @@ export function emitCyclotronMetrics() {
                 CYCLOTRON_COUNTERS.set(name, counter)
             }
             counter.reset()
-            counter.inc(value)
+            counter.inc(labels as any, value)
         }
 
         if (type === 'gauge') {
@@ -422,7 +417,7 @@ export function emitCyclotronMetrics() {
                 })
                 CYCLOTRON_GAUGES.set(name, gauge)
             }
-            gauge.set(value)
+            gauge.set(labels as any, value)
         }
 
         if (type === 'histogram') {
@@ -437,7 +432,7 @@ export function emitCyclotronMetrics() {
                 CYCLOTRON_HISTOGRAMS.set(name, histogram)
             }
             for (let i = 0; i < value.length; i++) {
-                histogram.observe(value[i])
+                histogram.observe(labels as any, value[i])
             }
         }
     }

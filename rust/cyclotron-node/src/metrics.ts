@@ -2,8 +2,7 @@
 const cyclotron = require('../index.node')
 
 export type CyclotronMetricsConfig = {
-    defaultLabels: Map<string, string>,
-    histogramBounds: number[],
+    defaultLabels: Map<string, string>
 }
 
 export type CyclotronMetricsReport = {
