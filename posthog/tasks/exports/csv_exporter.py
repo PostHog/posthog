@@ -179,7 +179,8 @@ def _convert_response_to_csv_data(data: Any) -> Generator[Any, None, None]:
                 line["series"] = item.get("label", default_series_name)
                 item_filter = item.get("filter")
                 if isinstance(item_filter, dict) and ("breakdown" in item_filter or "breakdowns" in item_filter):
-                    # Avoid using label as it includes breakdown values, and we will be showing breakdown values as separate columns
+                    # `label` includes breakdown values, replace it with `name`
+                    # as we will be showing breakdown values using separate columns
                     if isinstance(action, dict):
                         line["series"] = action.get("name", default_series_name)
                     if "breakdown" in item_filter:
