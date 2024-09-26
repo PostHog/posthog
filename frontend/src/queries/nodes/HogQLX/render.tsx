@@ -1,6 +1,11 @@
-import { Link } from '@posthog/lemon-ui'
+import { LemonButton, Link } from '@posthog/lemon-ui'
+import { useActions } from 'kea'
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { Sparkline } from 'lib/components/Sparkline'
+import { IconPlayCircle } from 'lib/lemon-ui/icons'
+import { SessionPlayerModal } from 'scenes/session-recordings/player/modal/SessionPlayerModal'
+import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
+import { urls } from 'scenes/urls'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 
@@ -36,6 +41,30 @@ export function renderHogQLX(value: any): JSX.Element {
             return (
                 <ErrorBoundary>
                     <Sparkline className="h-8" {...props} data={data ?? []} type={type} />
+                </ErrorBoundary>
+            )
+        } else if (tag === 'RecordingButton') {
+            const { sessionId, ...props } = rest
+            const { openSessionPlayer } = useActions(sessionPlayerModalLogic)
+            return (
+                <ErrorBoundary>
+                    <LemonButton
+                        type="primary"
+                        size="xsmall"
+                        sideIcon={<IconPlayCircle />}
+                        data-attr="hog-ql-view-recording-button"
+                        {...props}
+                        to={urls.replaySingle(sessionId)}
+                        onClick={(e) => {
+                            e.preventDefault()
+                            if (sessionId) {
+                                openSessionPlayer({ id: sessionId })
+                            }
+                        }}
+                    >
+                        View recording
+                    </LemonButton>
+                    <SessionPlayerModal />
                 </ErrorBoundary>
             )
         } else if (tag === 'a') {
