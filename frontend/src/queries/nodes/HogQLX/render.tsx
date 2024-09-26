@@ -61,6 +61,7 @@ export function renderHogQLX(value: any): JSX.Element {
                                 openSessionPlayer({ id: sessionId })
                             }
                         }}
+                        className="inline-block"
                     >
                         View recording
                     </LemonButton>
