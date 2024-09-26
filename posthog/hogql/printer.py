@@ -1294,7 +1294,8 @@ class _Printer(Visitor):
         while isinstance(table, ast.TableAliasType):
             table = table.table_type
 
-        if isinstance(table, ast.TableType):
+        # LOOK HERE
+        if isinstance(table, ast.TableType) or isinstance(table, ast.LazyTableType):
             if self.dialect == "clickhouse":
                 table_name = table.table.to_printed_clickhouse(self.context)
             else:
@@ -1395,7 +1396,10 @@ class _Printer(Visitor):
         raise ImpossibleASTError("Unexpected ast.LazyJoinType. Make sure LazyJoinResolver has run on the AST.")
 
     def visit_lazy_table_type(self, type: ast.LazyJoinType):
-        raise ImpossibleASTError("Unexpected ast.LazyTableType. Make sure LazyJoinResolver has run on the AST.")
+        return self.visit_table_type(type)
+
+        # return self.visit(type.table_type)
+        # raise ImpossibleASTError("Unexpected ast.LazyTableType. Make sure LazyJoinResolver has run on the AST.")
 
     def visit_field_traverser_type(self, type: ast.FieldTraverserType):
         raise ImpossibleASTError("Unexpected ast.FieldTraverserType. This should have been resolved.")

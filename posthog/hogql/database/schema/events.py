@@ -1,3 +1,4 @@
+import itertools
 from typing import Any
 
 from posthog.hogql import ast
@@ -141,13 +142,23 @@ class EventsLazy(LazyTable):
         node: SelectQuery,
     ) -> Any:
         select_fields: list[ast.Expr] = []
-        for name, chain in table_to_add.fields_accessed.items():
+        real_fields = {
+            "person_created_at": ["person_created_at"],
+            "person_properties": ["person_properties"],
+            "person_id": ["person_id"],
+            **table_to_add.fields_accessed,
+        }
+        for i in range(5):
+            for key in (f"$group_{i}", f"group{i}_properties", f"group{i}_created_at"):
+                real_fields[key] = [key]
+        for name, chain in real_fields.items():
             select_fields.append(ast.Alias(alias=name, expr=ast.Field(chain=["raw_events", *chain])))
 
         extractor = WhereClauseExtractor(context)
         extractor.add_local_tables(table_to_add)
         where = extractor.get_inner_where(node)
 
+        # always load person properties (in the future just do this for POE modes)
         select = ast.SelectQuery(
             select=select_fields,
             select_from=ast.JoinExpr(
@@ -160,7 +171,7 @@ class EventsLazy(LazyTable):
         return select
 
     def to_printed_clickhouse(self, context):
-        return "lazy_click"
+        return "events"
 
     def to_printed_hogql(self):
         return "events"
@@ -178,17 +189,19 @@ REAL_FIELDS = {
     "$session_id": StringDatabaseField(name="$session_id"),
     "$window_id": StringDatabaseField(name="$window_id"),
     "person_id": StringDatabaseField(name="person_id"),
-    "event_person_id": StringDatabaseField(name="person_id"),
-    "$group_0": StringDatabaseField(name="$group_0"),
-    "$group_1": StringDatabaseField(name="$group_1"),
-    "$group_2": StringDatabaseField(name="$group_2"),
-    "$group_3": StringDatabaseField(name="$group_3"),
-    "$group_4": StringDatabaseField(name="$group_4"),
+    "person_created_at": DateTimeDatabaseField(name="person_created_at"),
+    "person_properties": StringJSONDatabaseField(name="person_properties"),
     "elements_chain_href": StringDatabaseField(name="elements_chain_href"),
     "elements_chain_texts": StringArrayDatabaseField(name="elements_chain_texts"),
     "elements_chain_ids": StringArrayDatabaseField(name="elements_chain_ids"),
     "elements_chain_elements": StringArrayDatabaseField(name="elements_chain_elements"),
+    # Virtual
+    "event_person_id": StringDatabaseField(name="person_id"),
 }
+
+for i in range(5):
+    for key in (f"$group_{i}", f"group{i}_properties", f"group{i}_created_at"):
+        REAL_FIELDS[key] = StringDatabaseField(name=key)
 
 
 class EventsTable(Table):

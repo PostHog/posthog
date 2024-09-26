@@ -231,7 +231,6 @@ def create_hogql_database(
     modifiers = create_default_modifiers_for_team(team, modifiers)
     database = Database(timezone=team.timezone, week_start_day=team.week_start_day)
 
-    # can add events back here for normal behavior
     for table in (database.events,):
         if modifiers.personsOnEventsMode == PersonsOnEventsMode.DISABLED:
             # no change
