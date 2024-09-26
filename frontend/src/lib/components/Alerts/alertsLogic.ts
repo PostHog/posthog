@@ -10,8 +10,8 @@ import { ChartDisplayType, InsightLogicProps, InsightShortId } from '~/types'
 import type { alertsLogicType } from './alertsLogicType'
 
 export interface AlertsLogicProps {
-    insightId?: number
-    insightShortId?: InsightShortId
+    insightId: number
+    insightShortId: InsightShortId
     insightLogicProps: InsightLogicProps
 }
 
@@ -42,9 +42,6 @@ export const alertsLogic = kea<alertsLogicType>([
         alerts: {
             __default: [] as AlertType[],
             loadAlerts: async () => {
-                if (!props.insightId) {
-                    return []
-                }
                 const response = await api.alerts.list(props.insightId)
                 return response.results
             },
@@ -65,9 +62,7 @@ export const alertsLogic = kea<alertsLogicType>([
 
     listeners(({ actions, values, props }) => ({
         deleteAlert: async ({ id }) => {
-            if (props.insightId) {
-                await api.alerts.delete(props.insightId, id)
-            }
+            await api.alerts.delete(props.insightId, id)
         },
         setQuery: ({ query }) => {
             if (values.alerts.length === 0 || areAlertsSupportedForInsight(query)) {
