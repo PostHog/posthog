@@ -13,15 +13,11 @@ import { asDisplay } from './person-utils'
 import { personLogic } from './personLogic'
 
 export type PersonPreviewProps = {
-    distinctId: string | undefined
+    distinctId: string
     onClose?: () => void
 }
 
 export function PersonPreview(props: PersonPreviewProps): JSX.Element | null {
-    if (!props.distinctId) {
-        return null
-    }
-
     const { person, personLoading } = useValues(personLogic({ id: props.distinctId }))
 
     if (personLoading) {
