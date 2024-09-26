@@ -1832,17 +1832,17 @@
   
       -- count
       sumIf(1, event='$pageview') as pageview_count,
-      uniqState(if(event='$pageview', uuid, NULL)) as pageview_uniq,
+      uniqState(CAST(if(event='$pageview', uuid, NULL) AS Nullable(UUID))) as pageview_uniq,
       sumIf(1, event='$autocapture') as autocapture_count,
-      uniqState(if(event='$autocapture', uuid, NULL)) as autocapture_uniq,
+      uniqState(CAST(if(event='$autocapture', uuid, NULL) AS Nullable(UUID))) as autocapture_uniq,
       sumIf(1, event='$screen') as screen_count,
-      uniqState(if(event='$screen', uuid, NULL)) as screen_uniq,
+      uniqState(CAST(if(event='$screen', uuid, NULL) AS Nullable(UUID))) as screen_uniq,
   
       -- replay
       false as maybe_has_session_replay,
   
       -- perf
-      uniqUpToState(1)(if(event='$pageview' OR event='$screen' OR event='$autocapture', uuid, NULL)) as page_screen_autocapture_uniq_up_to,
+      uniqUpToState(1)(CAST(if(event='$pageview' OR event='$screen' OR event='$autocapture', uuid, NULL) AS Nullable(UUID))) as page_screen_autocapture_uniq_up_to,
   
       -- web vitals
       argMinState(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$web_vitals_LCP_value'), ''), 'null'), '^"|"$', ''), 'Float64'), timestamp) as vitals_lcp
