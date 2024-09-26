@@ -1523,6 +1523,8 @@ class _Printer(Visitor):
             return node.type.is_nullable(self.context)
         elif isinstance(node, ast.Alias):
             return self._is_nullable(node.expr)
+        elif isinstance(node, ast.Call) and node.name == "toDateTime":
+            return any(self._is_nullable(arg) for arg in node.args)
 
         # we don't know if it's nullable, so we assume it can be
         return True
