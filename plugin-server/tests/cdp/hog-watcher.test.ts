@@ -294,7 +294,6 @@ describe('HogWatcher', () => {
                 await reallyAdvanceTime(1000)
                 expect((await watcher.getState('id1')).state).toEqual(HogWatcherState.disabledIndefinitely)
 
-                console.log('mockCeleryApplyAsync.mock.calls', mockCeleryApplyAsync.mock.calls)
                 expect(mockCeleryApplyAsync).toHaveBeenCalledTimes(3)
                 expect(mockCeleryApplyAsync.mock.calls[2]).toEqual([
                     CELERY_TASK_ID,
