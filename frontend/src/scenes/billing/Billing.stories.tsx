@@ -4,6 +4,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { mswDecorator, setFeatureFlags, useStorybookMocks } from '~/mocks/browser'
 import { billingJson } from '~/mocks/fixtures/_billing'
 import billingJsonWith100PercentDiscount from '~/mocks/fixtures/_billing_with_100_percent_discount.json'
+import billingJsonWithCredits from '~/mocks/fixtures/_billing_with_credits.json'
 import billingJsonWithDiscount from '~/mocks/fixtures/_billing_with_discount.json'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
 import organizationCurrent from '~/mocks/fixtures/api/organizations/@current/@current.json'
@@ -51,6 +52,18 @@ export const BillingWithDiscount = (): JSX.Element => {
         get: {
             '/api/billing/': {
                 ...billingJsonWithDiscount,
+            },
+        },
+    })
+
+    return <Billing />
+}
+
+export const BillingWithCredits = (): JSX.Element => {
+    useStorybookMocks({
+        get: {
+            '/api/billing/': {
+                ...billingJsonWithCredits,
             },
         },
     })

@@ -174,7 +174,8 @@ export function Billing(): JSX.Element {
                                                                 {humanFriendlyCurrency(billing.discount_amount_usd)}
                                                             </strong>
                                                         </Tooltip>{' '}
-                                                        remaining credits applied to your bill.
+                                                        remaining credits applied to your bill. These credits are valid
+                                                        until {billing?.amount_off_expires_at?.format('LL')}.
                                                     </p>
                                                 </div>
                                             )}
