@@ -698,3 +698,169 @@ class TestCSVExporter(APIBaseTest):
                 lines,
                 ["series,22-Mar-2024", "Formula ((B/A)*100),100.0"],
             )
+
+    @patch("posthog.models.exported_asset.UUIDT")
+    def test_csv_exporter_trends_query_with_breakdowns(self, mocked_uuidt: Any) -> None:
+        _create_person(
+            distinct_ids=[f"user_1"],
+            team=self.team,
+        )
+
+        events_by_person = {
+            "person1": [
+                {
+                    "event": "$pageview",
+                    "properties": {"$browser": "Chrome", "$browser_version": 95},
+                    "timestamp": datetime(2024, 3, 22, 13, 44),
+                },
+                {
+                    "event": "$pageleave",
+                    "properties": {"$browser": "Chrome", "$browser_version": 95},
+                    "timestamp": datetime(2024, 3, 22, 13, 45),
+                },
+            ],
+            "person2": [
+                {
+                    "event": "$pageview",
+                    "properties": {"$browser": "Safari", "$browser_version": 11},
+                    "timestamp": datetime(2024, 3, 22, 13, 46),
+                },
+                {
+                    "event": "$pageview",
+                    "properties": {"$browser": "Safari", "$browser_version": 11},
+                    "timestamp": datetime(2024, 3, 22, 13, 47),
+                },
+            ],
+        }
+        journeys_for(events_by_person, self.team)
+        flush_persons_and_events()
+
+        exported_asset = ExportedAsset(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.CSV,
+            export_context={
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [
+                        {
+                            "kind": "EventsNode",
+                            "math": "total",
+                            "name": "$pageview",
+                            "event": "$pageview",
+                        },
+                        {
+                            "kind": "EventsNode",
+                            "math": "total",
+                            "name": "$pageleave",
+                            "event": "$pageleave",
+                        },
+                    ],
+                    "interval": "day",
+                    "dateRange": {"date_to": "2024-03-23", "date_from": "2024-03-22"},
+                    "trendsFilter": {},
+                    "breakdownFilter": {
+                        "breakdowns": [
+                            {"property": "$browser", "type": "event"},
+                            {"property": "$browser_version", "type": "event"},
+                        ],
+                        "breakdown_type": "event",
+                    },
+                }
+            },
+        )
+        exported_asset.save()
+        mocked_uuidt.return_value = "a-guid"
+
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
+            csv_exporter.export_tabular(exported_asset)
+            content = object_storage.read(exported_asset.content_location)
+            lines = (content or "").strip().split("\r\n")
+            self.assertEqual(
+                lines,
+                [
+                    "series,$browser,$browser_version,22-Mar-2024,23-Mar-2024",
+                    "$pageview,Safari,11,2.0,0.0",
+                    "$pageview,Chrome,95,1.0,0.0",
+                    "$pageleave,Chrome,95,1.0,0.0",
+                ],
+            )
+
+    @patch("posthog.models.exported_asset.UUIDT")
+    def test_csv_exporter_trends_query_with_breakdown(self, mocked_uuidt: Any) -> None:
+        _create_person(
+            distinct_ids=[f"user_1"],
+            team=self.team,
+        )
+
+        events_by_person = {
+            "person1": [
+                {
+                    "event": "$pageview",
+                    "properties": {"$browser": "Chrome", "$browser_version": 95},
+                    "timestamp": datetime(2024, 4, 22, 13, 44),
+                },
+                {
+                    "event": "$pageleave",
+                    "properties": {"$browser": "Chrome", "$browser_version": 95},
+                    "timestamp": datetime(2024, 4, 22, 13, 45),
+                },
+            ],
+            "person2": [
+                {
+                    "event": "$pageview",
+                    "properties": {"$browser": "Safari", "$browser_version": 11},
+                    "timestamp": datetime(2024, 4, 22, 13, 46),
+                },
+                {
+                    "event": "$pageview",
+                    "properties": {"$browser": "Safari", "$browser_version": 11},
+                    "timestamp": datetime(2024, 4, 22, 13, 47),
+                },
+            ],
+        }
+        journeys_for(events_by_person, self.team)
+        flush_persons_and_events()
+
+        exported_asset = ExportedAsset(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.CSV,
+            export_context={
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [
+                        {
+                            "kind": "EventsNode",
+                            "math": "total",
+                            "name": "$pageview",
+                            "event": "$pageview",
+                        },
+                        {
+                            "kind": "EventsNode",
+                            "math": "total",
+                            "name": "$pageleave",
+                            "event": "$pageleave",
+                        },
+                    ],
+                    "interval": "day",
+                    "dateRange": {"date_to": "2024-04-23", "date_from": "2024-04-22"},
+                    "trendsFilter": {},
+                    "breakdownFilter": {"breakdown": "$browser_version", "breakdown_type": "event"},
+                }
+            },
+        )
+        exported_asset.save()
+        mocked_uuidt.return_value = "a-guid"
+
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
+            csv_exporter.export_tabular(exported_asset)
+            content = object_storage.read(exported_asset.content_location)
+            lines = (content or "").strip().split("\r\n")
+            self.assertEqual(
+                lines,
+                [
+                    "series,$browser_version,22-Apr-2024,23-Apr-2024",
+                    "$pageview,11,2.0,0.0",
+                    "$pageview,95,1.0,0.0",
+                    "$pageleave,95,1.0,0.0",
+                ],
+            )
