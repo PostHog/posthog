@@ -658,7 +658,7 @@
 # name: TestBreakdowns.test_breakdown_numeric_hogql
   '''
   
-  SELECT length(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', '')) AS value,
+  SELECT length(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', '')) AS value,
          count(*) as count
   FROM events e
   WHERE team_id = 2
@@ -700,7 +700,7 @@
                     day_start
            UNION ALL SELECT count(*) as total,
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
-                            transform(ifNull(length(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', '')), 9007199254740990), ([9007199254740990, 19, 9007199254740991]), ([9007199254740990, 19, 9007199254740991]), 9007199254740991) as breakdown_value
+                            transform(ifNull(length(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', '')), 9007199254740990), ([9007199254740990, 19, 9007199254740991]), ([9007199254740990, 19, 9007199254740991]), 9007199254740991) as breakdown_value
            FROM events e
            WHERE e.team_id = 2
              AND event = 'watched movie'
@@ -719,7 +719,7 @@
 # name: TestBreakdowns.test_breakdown_numeric_hogql_hide_other
   '''
   
-  SELECT length(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', '')) AS value,
+  SELECT length(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', '')) AS value,
          count(*) as count
   FROM events e
   WHERE team_id = 2
@@ -761,13 +761,13 @@
                     day_start
            UNION ALL SELECT count(*) as total,
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
-                            transform(ifNull(length(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', '')), 9007199254740990), ([9007199254740990, 19]), ([9007199254740990, 19]), 9007199254740991) as breakdown_value
+                            transform(ifNull(length(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', '')), 9007199254740990), ([9007199254740990, 19]), ([9007199254740990, 19]), 9007199254740991) as breakdown_value
            FROM events e
            WHERE e.team_id = 2
              AND event = 'watched movie'
              AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')), 'UTC')
              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
-             AND transform(ifNull(length(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', '')), 9007199254740990), ([9007199254740990, 19]), ([9007199254740990, 19]), 9007199254740991) in ([9007199254740990, 19])
+             AND transform(ifNull(length(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', '')), 9007199254740990), ([9007199254740990, 19]), ([9007199254740990, 19]), 9007199254740991) in ([9007199254740990, 19])
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,
@@ -781,7 +781,7 @@
 # name: TestBreakdowns.test_breakdown_numeric_hogql_hide_other.2
   '''
   
-  SELECT length(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', '')) AS value,
+  SELECT length(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', '')) AS value,
          count(*) as count
   FROM events e
   WHERE team_id = 2
@@ -823,13 +823,13 @@
                     day_start
            UNION ALL SELECT count(*) as total,
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
-                            transform(ifNull(length(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', '')), 9007199254740990), ([9007199254740990, 19, 20]), ([9007199254740990, 19, 20]), 9007199254740991) as breakdown_value
+                            transform(ifNull(length(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', '')), 9007199254740990), ([9007199254740990, 19, 20]), ([9007199254740990, 19, 20]), 9007199254740991) as breakdown_value
            FROM events e
            WHERE e.team_id = 2
              AND event = 'watched movie'
              AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')), 'UTC')
              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
-             AND transform(ifNull(length(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', '')), 9007199254740990), ([9007199254740990, 19, 20]), ([9007199254740990, 19, 20]), 9007199254740991) in ([9007199254740990, 19, 20])
+             AND transform(ifNull(length(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', '')), 9007199254740990), ([9007199254740990, 19, 20]), ([9007199254740990, 19, 20]), 9007199254740991) in ([9007199254740990, 19, 20])
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,
@@ -843,7 +843,7 @@
 # name: TestBreakdowns.test_breakdown_string_hogql
   '''
   
-  SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', '') AS value,
+  SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', '') AS value,
          count(*) as count
   FROM events e
   WHERE team_id = 2
@@ -885,7 +885,7 @@
                     day_start
            UNION ALL SELECT count(*) as total,
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
-                            transform(ifNull(nullIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '$$_posthog_breakdown_null_$$'), (['$$_posthog_breakdown_null_$$', 'https://example.com', '$$_posthog_breakdown_other_$$']), (['$$_posthog_breakdown_null_$$', 'https://example.com', '$$_posthog_breakdown_other_$$']), '$$_posthog_breakdown_other_$$') as breakdown_value
+                            transform(ifNull(nullIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '$$_posthog_breakdown_null_$$'), (['$$_posthog_breakdown_null_$$', 'https://example.com', '$$_posthog_breakdown_other_$$']), (['$$_posthog_breakdown_null_$$', 'https://example.com', '$$_posthog_breakdown_other_$$']), '$$_posthog_breakdown_other_$$') as breakdown_value
            FROM events e
            WHERE e.team_id = 2
              AND event = 'watched movie'
@@ -904,7 +904,7 @@
 # name: TestBreakdowns.test_breakdown_string_hogql_hide_other
   '''
   
-  SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', '') AS value,
+  SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', '') AS value,
          count(*) as count
   FROM events e
   WHERE team_id = 2
@@ -946,13 +946,13 @@
                     day_start
            UNION ALL SELECT count(*) as total,
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
-                            transform(ifNull(nullIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '$$_posthog_breakdown_null_$$'), (['$$_posthog_breakdown_null_$$', 'https://example.com']), (['$$_posthog_breakdown_null_$$', 'https://example.com']), '$$_posthog_breakdown_other_$$') as breakdown_value
+                            transform(ifNull(nullIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '$$_posthog_breakdown_null_$$'), (['$$_posthog_breakdown_null_$$', 'https://example.com']), (['$$_posthog_breakdown_null_$$', 'https://example.com']), '$$_posthog_breakdown_other_$$') as breakdown_value
            FROM events e
            WHERE e.team_id = 2
              AND event = 'watched movie'
              AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')), 'UTC')
              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
-             AND transform(ifNull(nullIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '$$_posthog_breakdown_null_$$'), (['$$_posthog_breakdown_null_$$', 'https://example.com']), (['$$_posthog_breakdown_null_$$', 'https://example.com']), '$$_posthog_breakdown_other_$$') in (['$$_posthog_breakdown_null_$$', 'https://example.com'])
+             AND transform(ifNull(nullIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '$$_posthog_breakdown_null_$$'), (['$$_posthog_breakdown_null_$$', 'https://example.com']), (['$$_posthog_breakdown_null_$$', 'https://example.com']), '$$_posthog_breakdown_other_$$') in (['$$_posthog_breakdown_null_$$', 'https://example.com'])
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,
@@ -966,7 +966,7 @@
 # name: TestBreakdowns.test_breakdown_string_hogql_hide_other.2
   '''
   
-  SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', '') AS value,
+  SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', '') AS value,
          count(*) as count
   FROM events e
   WHERE team_id = 2
@@ -1008,13 +1008,13 @@
                     day_start
            UNION ALL SELECT count(*) as total,
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
-                            transform(ifNull(nullIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '$$_posthog_breakdown_null_$$'), (['$$_posthog_breakdown_null_$$', 'https://example.com', 'https://example.com/']), (['$$_posthog_breakdown_null_$$', 'https://example.com', 'https://example.com/']), '$$_posthog_breakdown_other_$$') as breakdown_value
+                            transform(ifNull(nullIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '$$_posthog_breakdown_null_$$'), (['$$_posthog_breakdown_null_$$', 'https://example.com', 'https://example.com/']), (['$$_posthog_breakdown_null_$$', 'https://example.com', 'https://example.com/']), '$$_posthog_breakdown_other_$$') as breakdown_value
            FROM events e
            WHERE e.team_id = 2
              AND event = 'watched movie'
              AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')), 'UTC')
              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
-             AND transform(ifNull(nullIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '$$_posthog_breakdown_null_$$'), (['$$_posthog_breakdown_null_$$', 'https://example.com', 'https://example.com/']), (['$$_posthog_breakdown_null_$$', 'https://example.com', 'https://example.com/']), '$$_posthog_breakdown_other_$$') in (['$$_posthog_breakdown_null_$$', 'https://example.com', 'https://example.com/'])
+             AND transform(ifNull(nullIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '$$_posthog_breakdown_null_$$'), (['$$_posthog_breakdown_null_$$', 'https://example.com', 'https://example.com/']), (['$$_posthog_breakdown_null_$$', 'https://example.com', 'https://example.com/']), '$$_posthog_breakdown_other_$$') in (['$$_posthog_breakdown_null_$$', 'https://example.com', 'https://example.com/'])
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,
