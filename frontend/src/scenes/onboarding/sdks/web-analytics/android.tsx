@@ -5,7 +5,7 @@ import { SDKInstallAndroidInstructions, SDKInstallAndroidTrackScreenInstructions
 export function AndroidInstructions(): JSX.Element {
     return (
         <>
-            <SDKInstallAndroidInstructions includeReplay={true} />
+            <SDKInstallAndroidInstructions includeReplay={false} />
             <WebAnalyticsMobileFinalSteps />
             <SDKInstallAndroidTrackScreenInstructions />
         </>

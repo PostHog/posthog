@@ -5,7 +5,7 @@ import { SDKInstallIOSInstructions, SDKInstallIOSTrackScreenInstructions } from 
 export function iOSInstructions(): JSX.Element {
     return (
         <>
-            <SDKInstallIOSInstructions includeReplay={true} />
+            <SDKInstallIOSInstructions includeReplay={false} />
             <WebAnalyticsMobileFinalSteps />
             <SDKInstallIOSTrackScreenInstructions />
         </>
