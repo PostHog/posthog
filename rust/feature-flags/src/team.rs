@@ -207,10 +207,8 @@ mod tests {
         let target_token = "xxxx".to_string();
 
         match Team::from_pg(client.clone(), target_token.clone()).await {
-            Err(FlagError::TokenValidationError) => (),
-            _ => panic!("Expected TokenValidationError"),
+            Err(FlagError::RowNotFound) => (),
+            _ => panic!("Expected RowNotFound"),
         };
     }
-
-    // TODO: Handle cases where db connection fails.
 }

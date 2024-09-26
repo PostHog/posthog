@@ -16,7 +16,7 @@ use std::{
     time::Duration,
 };
 use tokio::time::{sleep, timeout};
-use tracing::error;
+use tracing::{error, info};
 
 type TeamId = i32;
 type PostgresClientArc = Arc<dyn DatabaseClient + Send + Sync>;
@@ -261,7 +261,7 @@ impl FeatureFlagMatcher {
         group_property_overrides: Option<HashMap<String, HashMap<String, Value>>>,
         hash_key_override: Option<String>,
     ) -> FlagsResponse {
-        let mut error_occurred = false;
+        let mut evaluation_error_occurred = false;
 
         if let Some(hash_key) = hash_key_override {
             let target_distinct_ids = vec![self.distinct_id.clone(), hash_key.clone()];
@@ -285,17 +285,19 @@ impl FeatureFlagMatcher {
                         )
                         .await
                         {
+                            // TODO add sentry exception tracking
                             error!("Failed to set feature flag hash key overrides: {:?}", e);
-                            error_occurred = true;
+                            evaluation_error_occurred = true;
                         }
                     }
                 }
                 Err(e) => {
+                    // TODO add sentry exception tracking
                     error!(
                         "Failed to check if hash key override should be written: {:?}",
                         e
                     );
-                    error_occurred = true;
+                    evaluation_error_occurred = true;
                 }
             }
 
@@ -311,8 +313,9 @@ impl FeatureFlagMatcher {
                     self.hash_key_overrides.clone_from(&hash_key_overrides);
                 }
                 Err(e) => {
+                    // TODO add sentry exception tracking
                     error!("Failed to get feature flag hash key overrides: {:?}", e);
-                    error_occurred = true;
+                    evaluation_error_occurred = true;
                 }
             }
         }
@@ -327,7 +330,7 @@ impl FeatureFlagMatcher {
             .await;
 
         FlagsResponse {
-            error_while_computing_flags: error_occurred
+            error_while_computing_flags: evaluation_error_occurred
                 || flags_response.error_while_computing_flags,
             feature_flags: flags_response.feature_flags,
         }
@@ -397,6 +400,7 @@ impl FeatureFlagMatcher {
                 Ok(_) => {}
                 Err(e) => {
                     error_while_computing_flags = true;
+                    // TODO add sentry exception tracking
                     error!("Error fetching properties: {:?}", e);
                 }
             }
@@ -410,6 +414,7 @@ impl FeatureFlagMatcher {
                     }
                     Err(e) => {
                         error_while_computing_flags = true;
+                        // TODO add sentry exception tracking
                         error!(
                             "Error evaluating feature flag '{}' for distinct_id '{}': {:?}",
                             flag.key, self.distinct_id, e
@@ -1139,15 +1144,15 @@ async fn get_feature_flag_hash_key_overrides(
             WHERE team_id = $1 AND distinct_id = ANY($2)
         "#;
 
-    let person_and_distinct_ids: Vec<(i64, String)> = sqlx::query_as(query)
+    let person_and_distinct_ids: Vec<(i32, String)> = sqlx::query_as(query)
         .bind(team_id)
         .bind(&distinct_ids)
         .fetch_all(&mut *conn)
         .await?;
 
-    let person_id_to_distinct_id: HashMap<i64, String> =
+    let person_id_to_distinct_id: HashMap<i32, String> =
         person_and_distinct_ids.into_iter().collect();
-    let person_ids: Vec<i64> = person_id_to_distinct_id.keys().cloned().collect();
+    let person_ids: Vec<i32> = person_id_to_distinct_id.keys().cloned().collect();
 
     // Get hash key overrides
     let query = r#"
@@ -1156,7 +1161,7 @@ async fn get_feature_flag_hash_key_overrides(
             WHERE team_id = $1 AND person_id = ANY($2)
         "#;
 
-    let overrides: Vec<(String, String, i64)> = sqlx::query_as(query)
+    let overrides: Vec<(String, String, i32)> = sqlx::query_as(query)
         .bind(team_id)
         .bind(&person_ids)
         .fetch_all(&mut *conn)
@@ -1319,7 +1324,7 @@ async fn should_write_hash_key_override(
                     && retry < MAX_RETRIES - 1
                 {
                     // Retry logic for specific error
-                    error!(
+                    info!(
                         "Retrying set_feature_flag_hash_key_overrides due to person deletion: {:?}",
                         e
                     );
@@ -1348,12 +1353,14 @@ mod tests {
 
     use super::*;
     use crate::{
+        config::Config,
         flag_definitions::{
-            FlagFilters, MultivariateFlagOptions, MultivariateFlagVariant, OperatorType,
+            FeatureFlagRow, FlagFilters, MultivariateFlagOptions, MultivariateFlagVariant,
+            OperatorType,
         },
         test_utils::{
-            insert_new_team_in_pg, insert_person_for_team_in_pg, setup_pg_reader_client,
-            setup_pg_writer_client,
+            insert_flag_for_team_in_pg, insert_new_team_in_pg, insert_person_for_team_in_pg,
+            setup_pg_reader_client, setup_pg_writer_client,
         },
     };
 
@@ -3037,5 +3044,434 @@ mod tests {
             FeatureFlagMatchReason::OutOfRolloutBound
         );
         assert_eq!(result_another_id.condition_index, Some(2));
+    }
+
+    #[tokio::test]
+    async fn test_set_feature_flag_hash_key_overrides_success() {
+        let postgres_reader = setup_pg_reader_client(None).await;
+        let postgres_writer = setup_pg_writer_client(None).await;
+        let team = insert_new_team_in_pg(postgres_reader.clone())
+            .await
+            .unwrap();
+        let distinct_id = "user1".to_string();
+
+        // Insert person
+        insert_person_for_team_in_pg(postgres_reader.clone(), team.id, distinct_id.clone(), None)
+            .await
+            .unwrap();
+
+        // Create a feature flag with ensure_experience_continuity = true
+        let flag = create_test_flag(
+            None,
+            Some(team.id),
+            Some("Test Flag".to_string()),
+            Some("test_flag".to_string()),
+            Some(FlagFilters {
+                groups: vec![],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+            }),
+            Some(false), // not deleted
+            Some(true),  // active
+            Some(true),  // ensure_experience_continuity
+        );
+
+        // need to convert flag to FeatureFlagRow
+        let flag_row = FeatureFlagRow {
+            id: flag.id,
+            team_id: flag.team_id,
+            name: flag.name,
+            key: flag.key,
+            filters: json!(flag.filters),
+            deleted: flag.deleted,
+            active: flag.active,
+            ensure_experience_continuity: flag.ensure_experience_continuity,
+        };
+
+        // Insert the feature flag into the database
+        insert_flag_for_team_in_pg(postgres_writer.clone(), team.id, Some(flag_row))
+            .await
+            .unwrap();
+
+        // Attempt to set hash key override
+        let result = set_feature_flag_hash_key_overrides(
+            postgres_writer.clone(),
+            team.id,
+            vec![distinct_id.clone()],
+            "hash_key_2".to_string(),
+        )
+        .await
+        .unwrap();
+
+        assert!(result, "Hash key override should be set successfully");
+
+        // Retrieve the hash key overrides
+        let overrides = get_feature_flag_hash_key_overrides(
+            postgres_reader.clone(),
+            team.id,
+            vec![distinct_id.clone()],
+        )
+        .await
+        .unwrap();
+
+        assert!(
+            !overrides.is_empty(),
+            "At least one hash key override should be set"
+        );
+        assert_eq!(
+            overrides.get("test_flag"),
+            Some(&"hash_key_2".to_string()),
+            "Hash key override for 'test_flag' should match the set value"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_get_feature_flag_hash_key_overrides_success() {
+        let postgres_reader = setup_pg_reader_client(None).await;
+        let postgres_writer = setup_pg_writer_client(None).await;
+        let team = insert_new_team_in_pg(postgres_reader.clone())
+            .await
+            .unwrap();
+        let distinct_id = "user2".to_string();
+
+        // Insert person
+        insert_person_for_team_in_pg(postgres_reader.clone(), team.id, distinct_id.clone(), None)
+            .await
+            .unwrap();
+
+        // Create a feature flag with ensure_experience_continuity = true
+        let flag = create_test_flag(
+            None,
+            Some(team.id),
+            Some("Test Flag".to_string()),
+            Some("test_flag".to_string()),
+            Some(FlagFilters {
+                groups: vec![],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+            }),
+            Some(false), // not deleted
+            Some(true),  // active
+            Some(true),  // ensure_experience_continuity
+        );
+
+        // Convert flag to FeatureFlagRow
+        let flag_row = FeatureFlagRow {
+            id: flag.id,
+            team_id: flag.team_id,
+            name: flag.name,
+            key: flag.key,
+            filters: json!(flag.filters),
+            deleted: flag.deleted,
+            active: flag.active,
+            ensure_experience_continuity: flag.ensure_experience_continuity,
+        };
+
+        // Insert the feature flag into the database
+        insert_flag_for_team_in_pg(postgres_writer.clone(), team.id, Some(flag_row))
+            .await
+            .unwrap();
+
+        // Set hash key override
+        set_feature_flag_hash_key_overrides(
+            postgres_writer.clone(),
+            team.id,
+            vec![distinct_id.clone()],
+            "hash_key_2".to_string(),
+        )
+        .await
+        .unwrap();
+
+        // Retrieve hash key overrides
+        let overrides = get_feature_flag_hash_key_overrides(
+            postgres_reader.clone(),
+            team.id,
+            vec![distinct_id.clone()],
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            overrides.get("test_flag"),
+            Some(&"hash_key_2".to_string()),
+            "Hash key override should match the set value"
+        );
+    }
+    #[tokio::test]
+    async fn test_evaluate_feature_flags_with_experience_continuity() {
+        let postgres_reader = setup_pg_reader_client(None).await;
+        let postgres_writer = setup_pg_writer_client(None).await;
+        let team = insert_new_team_in_pg(postgres_reader.clone())
+            .await
+            .unwrap();
+        let distinct_id = "user3".to_string();
+
+        // Insert person
+        insert_person_for_team_in_pg(
+            postgres_reader.clone(),
+            team.id,
+            distinct_id.clone(),
+            Some(json!({"email": "user3@example.com"})),
+        )
+        .await
+        .unwrap();
+
+        // Create flag with experience continuity
+        let flag = create_test_flag(
+            None,
+            Some(team.id),
+            None,
+            Some("flag_continuity".to_string()),
+            Some(FlagFilters {
+                groups: vec![FlagGroupType {
+                    properties: Some(vec![PropertyFilter {
+                        key: "email".to_string(),
+                        value: json!("user3@example.com"),
+                        operator: None,
+                        prop_type: "person".to_string(),
+                        group_type_index: None,
+                    }]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                }],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+            }),
+            None,
+            None,
+            Some(true),
+        );
+
+        // Set hash key override
+        set_feature_flag_hash_key_overrides(
+            postgres_writer.clone(),
+            team.id,
+            vec![distinct_id.clone()],
+            "hash_key_continuity".to_string(),
+        )
+        .await
+        .unwrap();
+
+        let flags = FeatureFlagList {
+            flags: vec![flag.clone()],
+        };
+
+        let result = FeatureFlagMatcher::new(
+            distinct_id.clone(),
+            team.id,
+            postgres_reader.clone(),
+            postgres_writer.clone(),
+            None,
+            None,
+            None,
+            None,
+        )
+        .evaluate_all_feature_flags(flags, None, None, Some("hash_key_continuity".to_string()))
+        .await;
+
+        assert!(!result.error_while_computing_flags, "No error should occur");
+        assert_eq!(
+            result.feature_flags.get("flag_continuity"),
+            Some(&FlagValue::Boolean(true)),
+            "Flag should be evaluated as true with continuity"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_evaluate_feature_flags_with_continuity_missing_override() {
+        let postgres_reader = setup_pg_reader_client(None).await;
+        let postgres_writer = setup_pg_writer_client(None).await;
+        let team = insert_new_team_in_pg(postgres_reader.clone())
+            .await
+            .unwrap();
+        let distinct_id = "user4".to_string();
+
+        // Insert person
+        insert_person_for_team_in_pg(
+            postgres_reader.clone(),
+            team.id,
+            distinct_id.clone(),
+            Some(json!({"email": "user4@example.com"})),
+        )
+        .await
+        .unwrap();
+
+        // Create flag with experience continuity
+        let flag = create_test_flag(
+            None,
+            Some(team.id),
+            None,
+            Some("flag_continuity_missing".to_string()),
+            Some(FlagFilters {
+                groups: vec![FlagGroupType {
+                    properties: Some(vec![PropertyFilter {
+                        key: "email".to_string(),
+                        value: json!("user4@example.com"),
+                        operator: None,
+                        prop_type: "person".to_string(),
+                        group_type_index: None,
+                    }]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                }],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+            }),
+            None,
+            None,
+            Some(true),
+        );
+
+        let flags = FeatureFlagList {
+            flags: vec![flag.clone()],
+        };
+
+        let result = FeatureFlagMatcher::new(
+            distinct_id.clone(),
+            team.id,
+            postgres_reader.clone(),
+            postgres_writer.clone(),
+            None,
+            None,
+            None,
+            None,
+        )
+        .evaluate_all_feature_flags(flags, None, None, None)
+        .await;
+
+        assert!(!result.error_while_computing_flags, "No error should occur");
+        assert_eq!(
+            result.feature_flags.get("flag_continuity_missing"),
+            Some(&FlagValue::Boolean(true)),
+            "Flag should be evaluated as true even without continuity override"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_evaluate_all_feature_flags_mixed_continuity() {
+        let postgres_reader = setup_pg_reader_client(None).await;
+        let postgres_writer = setup_pg_writer_client(None).await;
+        let team = insert_new_team_in_pg(postgres_reader.clone())
+            .await
+            .unwrap();
+        let distinct_id = "user5".to_string();
+
+        // Insert person
+        insert_person_for_team_in_pg(
+            postgres_reader.clone(),
+            team.id,
+            distinct_id.clone(),
+            Some(json!({"email": "user5@example.com"})),
+        )
+        .await
+        .unwrap();
+
+        // Create flag with continuity
+        let flag_continuity = create_test_flag(
+            None,
+            Some(team.id),
+            None,
+            Some("flag_continuity_mix".to_string()),
+            Some(FlagFilters {
+                groups: vec![FlagGroupType {
+                    properties: Some(vec![PropertyFilter {
+                        key: "email".to_string(),
+                        value: json!("user5@example.com"),
+                        operator: None,
+                        prop_type: "person".to_string(),
+                        group_type_index: None,
+                    }]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                }],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+            }),
+            None,
+            None,
+            Some(true),
+        );
+
+        // Create flag without continuity
+        let flag_no_continuity = create_test_flag(
+            None,
+            Some(team.id),
+            None,
+            Some("flag_no_continuity_mix".to_string()),
+            Some(FlagFilters {
+                groups: vec![FlagGroupType {
+                    properties: Some(vec![PropertyFilter {
+                        key: "age".to_string(),
+                        value: json!(30),
+                        operator: Some(OperatorType::Gt),
+                        prop_type: "person".to_string(),
+                        group_type_index: None,
+                    }]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                }],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+            }),
+            None,
+            None,
+            Some(false),
+        );
+
+        // Set hash key override for the continuity flag
+        set_feature_flag_hash_key_overrides(
+            postgres_writer.clone(),
+            team.id,
+            vec![distinct_id.clone()],
+            "hash_key_mixed".to_string(),
+        )
+        .await
+        .unwrap();
+
+        let flags = FeatureFlagList {
+            flags: vec![flag_continuity.clone(), flag_no_continuity.clone()],
+        };
+
+        let result = FeatureFlagMatcher::new(
+            distinct_id.clone(),
+            team.id,
+            postgres_reader.clone(),
+            postgres_writer.clone(),
+            None,
+            None,
+            None,
+            None,
+        )
+        .evaluate_all_feature_flags(
+            flags,
+            Some(HashMap::from([("age".to_string(), json!(35))])),
+            None,
+            Some("hash_key_mixed".to_string()),
+        )
+        .await;
+
+        assert!(!result.error_while_computing_flags, "No error should occur");
+        assert_eq!(
+            result.feature_flags.get("flag_continuity_mix"),
+            Some(&FlagValue::Boolean(true)),
+            "Continuity flag should be evaluated as true"
+        );
+        assert_eq!(
+            result.feature_flags.get("flag_no_continuity_mix"),
+            Some(&FlagValue::Boolean(true)),
+            "Non-continuity flag should be evaluated based on properties"
+        );
     }
 }

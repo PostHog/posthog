@@ -297,7 +297,7 @@ pub async fn insert_person_for_team_in_pg(
     team_id: i32,
     distinct_id: String,
     properties: Option<Value>,
-) -> Result<(), Error> {
+) -> Result<i32, Error> {
     let payload = match properties {
         Some(value) => value,
         None => json!({
@@ -333,5 +333,11 @@ pub async fn insert_person_for_team_in_pg(
 
     assert_eq!(res.rows_affected(), 1);
 
-    Ok(())
+    // Return the person id
+    let person_id: i32 = sqlx::query_scalar("SELECT id FROM posthog_person WHERE uuid = $1")
+        .bind(uuid)
+        .fetch_one(&mut *conn)
+        .await?;
+
+    Ok(person_id)
 }
