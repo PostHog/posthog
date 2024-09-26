@@ -105,7 +105,7 @@ export function SDKInstallRNInstructions(props: RNSetupProps): JSX.Element {
                 </LemonBanner>
             ) : null}
             <h3>Install</h3>
-            <RNInstallSnippet />
+            <RNInstallSnippet {...props} />
             <h3>Configure</h3>
             <RNSetupSnippet {...props} />
         </>
