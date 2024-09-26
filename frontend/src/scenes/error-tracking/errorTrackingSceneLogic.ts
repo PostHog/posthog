@@ -1,4 +1,5 @@
 import { actions, connect, kea, path, reducers, selectors } from 'kea'
+import { forms } from 'kea-forms'
 import { subscriptions } from 'kea-subscriptions'
 
 import { DataTableNode, ErrorTrackingQuery } from '~/queries/schema'
@@ -19,6 +20,7 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
 
     actions({
         setOrder: (order: ErrorTrackingQuery['order']) => ({ order }),
+        setIsConfigurationModalOpen: (open: boolean) => ({ open }),
         setSelectedRowIndexes: (ids: number[]) => ({ ids }),
     }),
     reducers({
@@ -27,6 +29,12 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
             { persist: true },
             {
                 setOrder: (_, { order }) => order,
+            },
+        ],
+        isConfigurationModalOpen: [
+            false as boolean,
+            {
+                setIsConfigurationModalOpen: (_, { open }) => open,
             },
         ],
         selectedRowIndexes: [
@@ -54,5 +62,16 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
 
     subscriptions(({ actions }) => ({
         query: () => actions.setSelectedRowIndexes([]),
+    })),
+
+    forms(() => ({
+        uploadSourcemap: {
+            defaults: {
+                url: '',
+            } as { url: string },
+            submit: async ({ url }, breakpoint) => {
+                debugger
+            },
+        },
     })),
 ])

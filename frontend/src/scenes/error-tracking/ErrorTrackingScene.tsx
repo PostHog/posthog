@@ -1,8 +1,19 @@
 import { TZLabel } from '@posthog/apps-common'
-import { LemonButton, LemonCheckbox, LemonDivider, LemonSegmentedButton } from '@posthog/lemon-ui'
+import { IconGear } from '@posthog/icons'
+import {
+    LemonButton,
+    LemonCheckbox,
+    LemonDivider,
+    LemonInput,
+    LemonModal,
+    LemonSegmentedButton,
+} from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
+import { Form } from 'kea-forms'
 import { FeedbackNotice } from 'lib/components/FeedbackNotice'
+import { PageHeader } from 'lib/components/PageHeader'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -51,6 +62,8 @@ export function ErrorTrackingScene(): JSX.Element {
 
     return (
         <BindLogic logic={errorTrackingDataNodeLogic} props={{ query, key: insightVizDataNodeKey(insightProps) }}>
+            <Header />
+            <ConfigurationModal />
             <FeedbackNotice text="Error tracking is in closed alpha. Thanks for taking part! We'd love to hear what you think." />
             <ErrorTrackingFilters.FilterGroup />
             <LemonDivider className="mt-2" />
@@ -158,5 +171,52 @@ const AssigneeColumn: QueryContextColumnComponent = (props) => {
                 onChange={(assigneeId) => assignGroup(props.recordIndex, assigneeId)}
             />
         </div>
+    )
+}
+
+const Header = (): JSX.Element => {
+    const { setIsConfigurationModalOpen } = useActions(errorTrackingSceneLogic)
+
+    return (
+        <PageHeader
+            buttons={
+                <LemonButton type="secondary" icon={<IconGear />} onClick={() => setIsConfigurationModalOpen(true)}>
+                    Configure
+                </LemonButton>
+            }
+        />
+    )
+}
+
+const ConfigurationModal = (): JSX.Element => {
+    const { isConfigurationModalOpen, isUploadSourcemapSubmitting } = useValues(errorTrackingSceneLogic)
+    const { setIsConfigurationModalOpen } = useActions(errorTrackingSceneLogic)
+
+    return (
+        <LemonModal
+            title=""
+            onClose={() => setIsConfigurationModalOpen(false)}
+            isOpen={isConfigurationModalOpen}
+            simple
+        >
+            <Form logic={errorTrackingSceneLogic} formKey="uploadSourcemap" className="gap-1">
+                <LemonModal.Header>
+                    <h3>Upload sourcemap</h3>
+                </LemonModal.Header>
+                <LemonModal.Content className="space-y-2">
+                    <LemonField name="url" label="Sourcemap URL">
+                        <LemonInput fullWidth placeholder="https://static-assets.yourdomain.com/chunk-ABCDEFG.js.map" />
+                    </LemonField>
+                </LemonModal.Content>
+                <LemonModal.Footer>
+                    <LemonButton type="secondary" onClick={() => setIsConfigurationModalOpen(false)}>
+                        Cancel
+                    </LemonButton>
+                    <LemonButton type="primary" status="alt" htmlType="submit" loading={isUploadSourcemapSubmitting}>
+                        Upload
+                    </LemonButton>
+                </LemonModal.Footer>
+            </Form>
+        </LemonModal>
     )
 }
