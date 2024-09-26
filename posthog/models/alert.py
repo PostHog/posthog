@@ -1,5 +1,5 @@
 from datetime import datetime, UTC, timedelta
-from typing import Any, Optional
+from typing import Any, Optional, cast
 from dateutil.relativedelta import relativedelta
 
 
@@ -195,7 +195,7 @@ class AlertConfiguration(CreatedMetaFields, UUIDModel):
         # IMPORTANT: update next_check_at according to interval
         # ensure we don't recheck alert until the next interval is due
         self.next_check_at = (self.next_check_at or now) + alert_calculation_interval_to_relativedelta(
-            self.calculation_interval
+            cast(AlertCalculationInterval, self.calculation_interval)
         )
 
         if notify:

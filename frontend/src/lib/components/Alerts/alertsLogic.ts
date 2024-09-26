@@ -4,7 +4,7 @@ import api from 'lib/api'
 
 import { AlertState, AlertType } from '~/queries/schema'
 
-import { alertsLogicType } from './alertsLogicType'
+import type { alertsLogicType } from './alertsLogicType'
 
 export interface AlertsLogicProps {}
 

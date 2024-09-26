@@ -31,7 +31,7 @@ from posthog.schema import (
 from posthog.utils import get_from_dict_or_attr
 from posthog.caching.fetch_from_cache import InsightResult
 from posthog.clickhouse.client.limit import limit_concurrency
-from prometheus_client import Gauge
+from prometheus_client import Counter, Gauge
 from django.db.models import Q
 
 
@@ -45,7 +45,14 @@ DAILY_ALERTS_BACKLOG_GAUGE = Gauge(
     "Number of daily alerts that are not being checked in the last 24 hours.",
 )
 
+API_REQUESTS_ERROR_COUNTER = Counter(
+    "alerts_check_failures",
+    "Number of alert check errors that don't notify the user",
+)
+
+
 logger = structlog.get_logger(__name__)
+
 
 WRAPPER_NODE_KINDS = [NodeKind.DATA_TABLE_NODE, NodeKind.DATA_VISUALIZATION_NODE, NodeKind.INSIGHT_VIZ_NODE]
 
@@ -130,12 +137,17 @@ def daily_alerts_task() -> None:
     autoretry_for=(CHQueryErrorTooManySimultaneousQueries,),
     retry_backoff=1,
     retry_backoff_max=10,
-    max_retries=5,
+    max_retries=3,
     expires=60 * 60,
 )
 @limit_concurrency(5)  # Max 5 concurrent alert checks
 def check_alert_task(alert_id: str) -> None:
-    check_alert(alert_id)
+    try:
+        check_alert(alert_id)
+    except Exception as err:
+        API_REQUESTS_ERROR_COUNTER.inc()
+        capture_exception(Exception(f"Error checking alert, user wasn't notified: {err}"))
+        raise
 
 
 @shared_task(ignore_result=True)
