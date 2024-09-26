@@ -602,19 +602,6 @@ class GoalLine(BaseModel):
     value: float
 
 
-class HedgehogColorOptions(StrEnum):
-    GREEN = "green"
-    RED = "red"
-    BLUE = "blue"
-    PURPLE = "purple"
-    DARK = "dark"
-    LIGHT = "light"
-    SEPIA = "sepia"
-    INVERT = "invert"
-    INVERT_HUE = "invert-hue"
-    GREYSCALE = "greyscale"
-
-
 class HogCompileResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -800,15 +787,6 @@ class MatchedRecordingEvent(BaseModel):
         extra="forbid",
     )
     uuid: str
-
-
-class MinimalHedgehogConfig(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    accessories: list[str]
-    color: Optional[HedgehogColorOptions] = None
-    use_as_profile: bool
 
 
 class MultipleBreakdownType(StrEnum):
@@ -1424,20 +1402,6 @@ class TrendsQueryResponse(BaseModel):
     )
 
 
-class UserBasicType(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    distinct_id: str
-    email: str
-    first_name: str
-    hedgehog_config: Optional[MinimalHedgehogConfig] = None
-    id: float
-    is_email_verified: Optional[Any] = None
-    last_name: Optional[str] = None
-    uuid: str
-
-
 class ActionsPie(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1677,42 +1641,6 @@ class ActorsQueryResponse(BaseModel):
         default=None, description="Measured timings for different parts of the query generation process"
     )
     types: list[str]
-
-
-class AlertCheck(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    calculated_value: float
-    created_at: str
-    id: str
-    state: AlertState
-    targets_notified: bool
-
-
-class AlertTypeBase(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    condition: AlertCondition
-    config: TrendsAlertConfig
-    enabled: bool
-    insight: float
-    insight_short_id: str
-    name: str
-
-
-class AlertTypeWrite(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    condition: AlertCondition
-    config: TrendsAlertConfig
-    enabled: bool
-    insight: float
-    insight_short_id: str
-    name: str
-    subscribed_users: list[int]
 
 
 class Breakdown(BaseModel):
@@ -3886,35 +3814,6 @@ class WebTopClicksQuery(BaseModel):
     response: Optional[WebTopClicksQueryResponse] = None
     sampling: Optional[Sampling] = None
     useSessionsTable: Optional[bool] = None
-
-
-class Threshold(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    configuration: InsightThreshold
-
-
-class AlertType(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    calculation_interval: AlertCalculationInterval
-    checks: list[AlertCheck]
-    condition: AlertCondition
-    config: TrendsAlertConfig
-    created_at: str
-    created_by: UserBasicType
-    enabled: bool
-    id: str
-    insight: float
-    insight_short_id: str
-    last_checked_at: str
-    last_notified_at: str
-    name: str
-    state: AlertState
-    subscribed_users: list[UserBasicType]
-    threshold: Threshold
 
 
 class AnyResponseType(

@@ -119,7 +119,8 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         onClose={() => push(urls.insightAlerts(insight.short_id as InsightShortId))}
                         isOpen={!!alertId}
                         alertId={alertId === null || alertId === 'new' ? undefined : alertId}
-                        insight={insight}
+                        insightShortId={insight.short_id as InsightShortId}
+                        insightId={insight.id!}
                         onEditSuccess={loadAlerts}
                     />
                     <NewDashboardModal />

@@ -3,11 +3,11 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
-import { AlertType } from '~/queries/schema'
 import { getBreakdown, isInsightVizNode, isTrendsQuery } from '~/queries/utils'
 import { InsightLogicProps, InsightShortId } from '~/types'
 
 import type { insightAlertsLogicType } from './insightAlertsLogicType'
+import { AlertType } from './types'
 
 export interface InsightAlertsLogicProps {
     insightId: number

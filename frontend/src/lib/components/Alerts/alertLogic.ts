@@ -2,12 +2,11 @@ import { events, kea, key, path, props } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 
-import { AlertType } from '~/queries/schema'
-
 import type { alertLogicType } from './alertLogicType'
+import { AlertType } from './types'
 
 export interface AlertLogicProps {
-    alertId?: string
+    alertId?: AlertType['id'] | null
 }
 
 export const alertLogic = kea<alertLogicType>([
@@ -23,6 +22,7 @@ export const alertLogic = kea<alertLogicType>([
                     if (!props.alertId) {
                         return null
                     }
+
                     return await api.alerts.get(props.alertId)
                 },
             },

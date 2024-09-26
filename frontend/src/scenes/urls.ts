@@ -1,8 +1,9 @@
 import { combineUrl } from 'kea-router'
+import { AlertType } from 'lib/components/Alerts/types'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 
 import { ExportOptions } from '~/exporter/types'
-import { AlertType, DashboardFilter, HogQLFilters, Node } from '~/queries/schema'
+import { DashboardFilter, HogQLFilters, Node } from '~/queries/schema'
 import {
     ActionType,
     ActivityTab,

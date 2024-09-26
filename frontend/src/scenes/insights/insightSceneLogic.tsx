@@ -2,6 +2,7 @@ import { actions, BuiltLogic, connect, kea, listeners, path, reducers, selectors
 import { actionToUrl, beforeUnload, router, urlToAction } from 'kea-router'
 import { CombinedLocation } from 'kea-router/lib/utils'
 import { objectsEqual } from 'kea-test-utils'
+import { AlertType } from 'lib/components/Alerts/types'
 import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
 import { createEmptyInsight, insightLogic } from 'scenes/insights/insightLogic'
 import { insightLogicType } from 'scenes/insights/insightLogicType'
@@ -17,7 +18,7 @@ import { ActivityFilters } from '~/layout/navigation-3000/sidepanel/panels/activ
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { getDefaultQuery } from '~/queries/nodes/InsightViz/utils'
-import { AlertType, DashboardFilter, Node } from '~/queries/schema'
+import { DashboardFilter, Node } from '~/queries/schema'
 import { ActivityScope, Breadcrumb, InsightShortId, InsightType, ItemMode } from '~/types'
 
 import { insightDataLogic } from './insightDataLogic'

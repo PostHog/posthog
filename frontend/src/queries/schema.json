@@ -325,179 +325,13 @@
             "enum": ["hourly", "daily", "weekly", "monthly"],
             "type": "string"
         },
-        "AlertCheck": {
-            "additionalProperties": false,
-            "properties": {
-                "calculated_value": {
-                    "type": "number"
-                },
-                "created_at": {
-                    "type": "string"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "state": {
-                    "$ref": "#/definitions/AlertState"
-                },
-                "targets_notified": {
-                    "type": "boolean"
-                }
-            },
-            "required": ["id", "created_at", "calculated_value", "state", "targets_notified"],
-            "type": "object"
-        },
         "AlertCondition": {
             "additionalProperties": false,
             "type": "object"
         },
-        "AlertConfig": {
-            "$ref": "#/definitions/TrendsAlertConfig"
-        },
         "AlertState": {
             "enum": ["Firing", "Not firing", "Errored"],
             "type": "string"
-        },
-        "AlertType": {
-            "additionalProperties": false,
-            "properties": {
-                "calculation_interval": {
-                    "$ref": "#/definitions/AlertCalculationInterval"
-                },
-                "checks": {
-                    "items": {
-                        "$ref": "#/definitions/AlertCheck"
-                    },
-                    "type": "array"
-                },
-                "condition": {
-                    "$ref": "#/definitions/AlertCondition"
-                },
-                "config": {
-                    "$ref": "#/definitions/AlertConfig"
-                },
-                "created_at": {
-                    "type": "string"
-                },
-                "created_by": {
-                    "$ref": "#/definitions/UserBasicType"
-                },
-                "enabled": {
-                    "type": "boolean"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "insight": {
-                    "type": "number"
-                },
-                "insight_short_id": {
-                    "$ref": "#/definitions/InsightShortId"
-                },
-                "last_checked_at": {
-                    "type": "string"
-                },
-                "last_notified_at": {
-                    "type": "string"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "state": {
-                    "$ref": "#/definitions/AlertState"
-                },
-                "subscribed_users": {
-                    "items": {
-                        "$ref": "#/definitions/UserBasicType"
-                    },
-                    "type": "array"
-                },
-                "threshold": {
-                    "additionalProperties": false,
-                    "properties": {
-                        "configuration": {
-                            "$ref": "#/definitions/InsightThreshold"
-                        }
-                    },
-                    "required": ["configuration"],
-                    "type": "object"
-                }
-            },
-            "required": [
-                "calculation_interval",
-                "checks",
-                "condition",
-                "config",
-                "created_at",
-                "created_by",
-                "enabled",
-                "id",
-                "insight",
-                "insight_short_id",
-                "last_checked_at",
-                "last_notified_at",
-                "name",
-                "state",
-                "subscribed_users",
-                "threshold"
-            ],
-            "type": "object"
-        },
-        "AlertTypeBase": {
-            "additionalProperties": false,
-            "properties": {
-                "condition": {
-                    "$ref": "#/definitions/AlertCondition"
-                },
-                "config": {
-                    "$ref": "#/definitions/AlertConfig"
-                },
-                "enabled": {
-                    "type": "boolean"
-                },
-                "insight": {
-                    "type": "number"
-                },
-                "insight_short_id": {
-                    "$ref": "#/definitions/InsightShortId"
-                },
-                "name": {
-                    "type": "string"
-                }
-            },
-            "required": ["name", "condition", "enabled", "insight", "insight_short_id", "config"],
-            "type": "object"
-        },
-        "AlertTypeWrite": {
-            "additionalProperties": false,
-            "properties": {
-                "condition": {
-                    "$ref": "#/definitions/AlertCondition"
-                },
-                "config": {
-                    "$ref": "#/definitions/AlertConfig"
-                },
-                "enabled": {
-                    "type": "boolean"
-                },
-                "insight": {
-                    "type": "number"
-                },
-                "insight_short_id": {
-                    "$ref": "#/definitions/InsightShortId"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "subscribed_users": {
-                    "items": {
-                        "type": "integer"
-                    },
-                    "type": "array"
-                }
-            },
-            "required": ["condition", "config", "enabled", "insight", "insight_short_id", "name", "subscribed_users"],
-            "type": "object"
         },
         "AnyDataNode": {
             "anyOf": [
@@ -5638,10 +5472,6 @@
                 }
             ]
         },
-        "HedgehogColorOptions": {
-            "enum": ["green", "red", "blue", "purple", "dark", "light", "sepia", "invert", "invert-hue", "greyscale"],
-            "type": "string"
-        },
         "HogCompileResponse": {
             "additionalProperties": false,
             "properties": {
@@ -6942,32 +6772,6 @@
                     "$ref": "#/definitions/HogQLMathType"
                 }
             ]
-        },
-        "MinimalHedgehogConfig": {
-            "additionalProperties": false,
-            "properties": {
-                "accessories": {
-                    "items": {
-                        "type": "string"
-                    },
-                    "type": "array"
-                },
-                "color": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/HedgehogColorOptions"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ]
-                },
-                "use_as_profile": {
-                    "type": "boolean"
-                }
-            },
-            "required": ["use_as_profile", "color", "accessories"],
-            "type": "object"
         },
         "MultipleBreakdownOptions": {
             "additionalProperties": false,
@@ -10817,35 +10621,6 @@
                 }
             },
             "required": ["results"],
-            "type": "object"
-        },
-        "UserBasicType": {
-            "additionalProperties": false,
-            "properties": {
-                "distinct_id": {
-                    "type": "string"
-                },
-                "email": {
-                    "type": "string"
-                },
-                "first_name": {
-                    "type": "string"
-                },
-                "hedgehog_config": {
-                    "$ref": "#/definitions/MinimalHedgehogConfig"
-                },
-                "id": {
-                    "type": "number"
-                },
-                "is_email_verified": {},
-                "last_name": {
-                    "type": "string"
-                },
-                "uuid": {
-                    "type": "string"
-                }
-            },
-            "required": ["distinct_id", "email", "first_name", "id", "uuid"],
             "type": "object"
         },
         "VizSpecificOptions": {

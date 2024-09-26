@@ -7,9 +7,10 @@ import { ProfileBubbles } from 'lib/lemon-ui/ProfilePicture'
 import { pluralize } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
-import { AlertState, AlertType } from '~/queries/schema'
+import { AlertState } from '~/queries/schema'
 
 import { insightAlertsLogic, InsightAlertsLogicProps } from '../insightAlertsLogic'
+import { AlertType } from '../types'
 
 export function AlertStateIndicator({ alert }: { alert: AlertType }): JSX.Element {
     return alert.state === AlertState.NOT_FIRING ? (

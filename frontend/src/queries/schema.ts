@@ -36,7 +36,6 @@ import {
     SessionRecordingType,
     StickinessFilterType,
     TrendsFilterType,
-    UserBasicType,
 } from '~/types'
 
 export { ChartDisplayCategory }
@@ -1943,44 +1942,9 @@ export enum AlertCalculationInterval {
     MONTHLY = 'monthly',
 }
 
-export interface AlertCheck {
-    id: string
-    created_at: string
-    calculated_value: number
-    state: AlertState
-    targets_notified: boolean
-}
-
 export interface TrendsAlertConfig {
     type: 'TrendsAlertConfig'
     series_index: integer
-}
-
-export type AlertConfig = TrendsAlertConfig
-export interface AlertTypeBase {
-    name: string
-    condition: AlertCondition
-    enabled: boolean
-    insight: number
-    insight_short_id: InsightShortId
-    config: AlertConfig
-}
-
-export interface AlertTypeWrite extends AlertTypeBase {
-    subscribed_users: integer[]
-}
-
-export interface AlertType extends AlertTypeBase {
-    id: string
-    subscribed_users: UserBasicType[]
-    threshold: { configuration: InsightThreshold }
-    created_by: UserBasicType
-    created_at: string
-    state: AlertState
-    last_notified_at: string
-    last_checked_at: string
-    checks: AlertCheck[]
-    calculation_interval: AlertCalculationInterval
 }
 
 export interface HogCompileResponse {

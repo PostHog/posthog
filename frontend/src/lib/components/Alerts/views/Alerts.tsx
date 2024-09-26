@@ -1,14 +1,17 @@
 import { TZLabel } from '@posthog/apps-common'
 import { IconCheck } from '@posthog/icons'
+import { Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { createdAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { urls } from 'scenes/urls'
 
-import { AlertState, AlertType } from '../../../../queries/schema'
+import { AlertState } from '../../../../queries/schema'
+import { alertLogic } from '../alertLogic'
 import { alertsLogic } from '../alertsLogic'
+import { AlertType } from '../types'
 import { EditAlertModal } from './EditAlertModal'
 import { AlertStateIndicator } from './ManageAlertsModal'
 
@@ -20,6 +23,8 @@ export function Alerts({ alertId }: AlertsProps): JSX.Element {
     const { push } = useActions(router)
     const logic = alertsLogic()
     const { loadAlerts } = useActions(logic)
+
+    const { alert } = useValues(alertLogic({ alertId }))
 
     const { alertsSortedByState, alertsLoading } = useValues(logic)
 
@@ -68,7 +73,23 @@ export function Alerts({ alertId }: AlertsProps): JSX.Element {
             },
         },
         createdAtColumn() as LemonTableColumn<AlertType, keyof AlertType | undefined>,
-        createdByColumn() as LemonTableColumn<AlertType, keyof AlertType | undefined>,
+        {
+            title: 'Insight',
+            dataIndex: 'insight',
+            key: 'insight',
+            render: function renderInsightLink(insight: any) {
+                return (
+                    <LemonTableLink
+                        to={urls.insightView(insight.short_id)}
+                        title={
+                            <Tooltip title={insight.name}>
+                                <div>{insight.name}</div>
+                            </Tooltip>
+                        }
+                    />
+                )
+            },
+        },
         {
             title: 'Enabled',
             dataIndex: 'enabled',
@@ -80,12 +101,14 @@ export function Alerts({ alertId }: AlertsProps): JSX.Element {
     // TODO: add info here to sign up for alerts early access
     return (
         <>
-            {alertId && (
+            {alert && (
                 <EditAlertModal
                     onClose={() => push(urls.alerts())}
                     isOpen
-                    alertId={alertId}
-                    onEditSuccess={loadAlerts}
+                    alertId={alert.id}
+                    insightShortId={alert.insight.short_id}
+                    insightId={alert.insight.id}
+                    onEditSuccess={() => loadAlerts()}
                 />
             )}
 

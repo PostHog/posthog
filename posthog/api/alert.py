@@ -14,6 +14,7 @@ from posthog.models.alert import (
     are_alerts_supported_for_insight,
 )
 from posthog.schema import AlertState
+from posthog.api.insight import InsightBasicSerializer
 
 
 class ThresholdSerializer(serializers.ModelSerializer):
@@ -103,7 +104,6 @@ class AlertSerializer(serializers.ModelSerializer):
             "checks",
             "config",
             "calculation_interval",
-            "insight_short_id",
         ]
         read_only_fields = [
             "id",
@@ -112,12 +112,12 @@ class AlertSerializer(serializers.ModelSerializer):
             "last_notified_at",
             "last_checked_at",
             "next_check_at",
-            "insight_short_id",
         ]
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
         data["subscribed_users"] = UserBasicSerializer(instance.subscribed_users.all(), many=True, read_only=True).data
+        data["insight"] = InsightBasicSerializer(instance.insight).data
         return data
 
     def add_threshold(self, threshold_data, validated_data):

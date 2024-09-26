@@ -129,10 +129,6 @@ class AlertConfiguration(CreatedMetaFields, UUIDModel):
     last_checked_at = models.DateTimeField(null=True, blank=True)
     next_check_at = models.DateTimeField(null=True, blank=True)
 
-    @property
-    def insight_short_id(self) -> str:
-        return self.insight.short_id
-
     def __str__(self):
         return f"{self.name} (Team: {self.team})"
 

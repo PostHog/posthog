@@ -11,8 +11,6 @@ import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
 import { Variable } from '~/queries/nodes/DataVisualization/types'
 import {
-    AlertType,
-    AlertTypeWrite,
     DashboardFilter,
     DatabaseSerializedFieldType,
     ErrorTrackingGroup,
@@ -109,6 +107,7 @@ import {
     UserType,
 } from '~/types'
 
+import { AlertType, AlertTypeWrite } from './components/Alerts/types'
 import {
     ACTIVITY_PAGE_SIZE,
     DashboardPrivilegeLevel,
