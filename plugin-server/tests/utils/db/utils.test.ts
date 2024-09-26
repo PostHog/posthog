@@ -22,12 +22,6 @@ describe('personInitialAndUTMProperties()', () => {
             $app_name: 'my app',
             $app_namespace: 'com.posthog.myapp',
             $app_version: '1.2.3',
-            $set: {
-                $browser_version: 'manually $set value wins',
-            },
-            $set_once: {
-                $initial_os_version: 'manually $set_once value wins',
-            },
         }
 
         expect(personInitialAndUTMProperties(properties)).toMatchInlineSnapshot(`
@@ -63,7 +57,7 @@ describe('personInitialAndUTMProperties()', () => {
                 "$app_namespace": "com.posthog.myapp",
                 "$app_version": "1.2.3",
                 "$browser": "Chrome",
-                "$browser_version": "manually $set value wins",
+                "$browser_version": "95",
                 "$current_url": "https://test.com",
                 "$os": "Mac OS X",
                 "$os_version": "10.15.7",
@@ -84,7 +78,7 @@ describe('personInitialAndUTMProperties()', () => {
                 "$initial_gclid": "GOOGLE ADS ID",
                 "$initial_msclkid": "BING ADS ID",
                 "$initial_os": "Mac OS X",
-                "$initial_os_version": "manually $set_once value wins",
+                "$initial_os_version": "10.15.7",
                 "$initial_referrer": "https://google.com/?q=posthog",
                 "$initial_referring_domain": "https://google.com",
                 "$initial_utm_medium": "twitter",
@@ -131,5 +125,95 @@ describe('personInitialAndUTMProperties()', () => {
             $set_once: { $initial_os: 'Windows' },
             $set: { $os: 'Windows' },
         })
+    })
+
+    it('prioritises manual $set values', () => {
+        const properties = {
+            distinct_id: 2,
+            $os_version: '10.15.7',
+            $browser_version: '95',
+            $browser: 'Chrome',
+            $set: {
+                $browser_version: 'manually $set value wins',
+            },
+            $set_once: {
+                $initial_os_version: 'manually $set_once value wins',
+            },
+        }
+
+        expect(personInitialAndUTMProperties(properties)).toMatchInlineSnapshot(`
+            Object {
+              "$browser": "Chrome",
+              "$browser_version": "95",
+              "$os_version": "10.15.7",
+              "$set": Object {
+                "$browser": "Chrome",
+                "$browser_version": "manually $set value wins",
+                "$os_version": "10.15.7",
+              },
+              "$set_once": Object {
+                "$initial_browser": "Chrome",
+                "$initial_browser_version": "95",
+                "$initial_os_version": "manually $set_once value wins",
+              },
+              "distinct_id": 2,
+            }
+        `)
+    })
+
+    it('add initial campaign properties unless set_once initial properties are set', () => {
+        // baseline, ensure they are added
+        const properties1 = {
+            utm_medium: 'foo',
+        }
+        expect(personInitialAndUTMProperties(properties1)).toMatchInlineSnapshot(`
+            Object {
+              "$set": Object {
+                "utm_medium": "foo",
+              },
+              "$set_once": Object {
+                "$initial_utm_medium": "foo",
+              },
+              "utm_medium": "foo",
+            }
+        `)
+
+        // not add if set_once initial campaign properties are set
+        const properties2 = {
+            utm_medium: 'foo',
+            $set_once: {
+                $initial_utm_source: 'bar',
+            },
+        }
+        expect(personInitialAndUTMProperties(properties2)).toMatchInlineSnapshot(`
+            Object {
+              "$set": Object {
+                "utm_medium": "foo",
+              },
+              "$set_once": Object {
+                "$initial_utm_source": "bar",
+              },
+              "utm_medium": "foo",
+            }
+        `)
+
+        // not add if set_once initial campaign properties are set
+        const properties3 = {
+            utm_medium: 'foo',
+            $set_once: {
+                $initial_referring_domain: 'example.com',
+            },
+        }
+        expect(personInitialAndUTMProperties(properties3)).toMatchInlineSnapshot(`
+            Object {
+              "$set": Object {
+                "utm_medium": "foo",
+              },
+              "$set_once": Object {
+                "$initial_referring_domain": "example.com",
+              },
+              "utm_medium": "foo",
+            }
+        `)
     })
 })

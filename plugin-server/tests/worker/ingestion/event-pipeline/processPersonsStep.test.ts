@@ -226,7 +226,7 @@ describe('processPersonsStep()', () => {
     })
 
     // fails at utm_source is set from the upgrading event
-    it.failing('sets initial campaign params when upgrading user from anonymous to identified', async () => {
+    it('sets initial campaign params when upgrading user from anonymous to identified', async () => {
         const event1 = {
             ...pluginEvent,
             properties: {
@@ -284,7 +284,7 @@ describe('processPersonsStep()', () => {
                     $initial_twclid: null,
                     $initial_utm_campaign: null,
                     $initial_utm_content: null,
-                    $initial_utm_medium: null, // fails because this is "baz"
+                    $initial_utm_medium: null, // null is correct, rather than "baz"
                     $initial_utm_name: null,
                     $initial_utm_source: 'foo',
                     $initial_utm_term: null,
@@ -299,7 +299,7 @@ describe('processPersonsStep()', () => {
         expect(persons).toEqual([resPerson2])
     })
 
-    it.failing('ignores non-initial campaign params when upgrading user from anonymous to identified', async () => {
+    it('ignores non-initial campaign params when upgrading user from anonymous to identified', async () => {
         const event1 = {
             ...pluginEvent,
             properties: {
@@ -356,7 +356,7 @@ describe('processPersonsStep()', () => {
                     $initial_utm_content: null,
                     $initial_utm_medium: null,
                     $initial_utm_name: null,
-                    $initial_utm_source: null, // fails because this is 'bar'
+                    $initial_utm_source: null, // null is correct, rather than 'bar'
                     $initial_utm_term: null,
                     $initial_wbraid: null,
                 },
