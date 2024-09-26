@@ -105,6 +105,13 @@ export function Customization({ appearance, surveyQuestionItem, onAppearanceChan
                     onChange={(submitButtonTextColor) => onAppearanceChange({ ...appearance, submitButtonTextColor })}
                     disabled={!surveysStylingAvailable}
                 />
+
+                <div className="mt-2">Survey form zIndex</div>
+                <LemonInput
+                    value={appearance?.zIndex}
+                    onChange={(zIndex) => onAppearanceChange({ ...appearance, zIndex })}
+                    disabled={!surveysStylingAvailable}
+                />
                 {surveyQuestionItem.type === SurveyQuestionType.Open && (
                     <>
                         <div className="mt-2">Placeholder text</div>
