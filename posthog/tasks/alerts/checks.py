@@ -271,7 +271,7 @@ def _calculate_date_range_override_for_alert(query: TrendsQuery) -> Optional[dic
 def _aggregate_insight_result_value(alert: AlertConfiguration, query: TrendsQuery, results: InsightResult) -> float:
     if alert.config.type == "TrendsAlertConfig":
         alert.config = cast(TrendsAlertConfig, alert.config)
-        series_index = alert.config.series_index
+        series_index = cast(int, alert.config.series_index)
         result = results.result[series_index]
 
         if query.trendsFilter and query.trendsFilter.display in NON_TIME_SERIES_DISPLAY_TYPES:
