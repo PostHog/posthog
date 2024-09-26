@@ -1,5 +1,5 @@
 [package]
-name = "property-defs-rs"
+name = "error-tracking"
 version = "0.1.0"
 edition = "2021"
 
@@ -11,20 +11,15 @@ tokio = { workspace = true }
 envconfig = {workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
-sqlx = { workspace = true }
-futures = { workspace = true }
 health = { path = "../common/health" }
-time = { workspace = true }
 axum = { workspace = true }
-serve-metrics = { path = "../common/serve_metrics" }
 metrics = { workspace = true }
-chrono = { workspace = true }
-quick_cache = { workspace = true }
+time = { workspace = true }
 common-metrics = { path = "../common/metrics" }
 common-alloc = { path = "../common/alloc" }
+common-types = { path = "../common/types" }
 common-kafka = { path = "../common/kafka" }
-ahash = { workspace = true }
-uuid = { workspace = true }
+thiserror = { workspace = true }
 
 [lints]
 workspace = true
