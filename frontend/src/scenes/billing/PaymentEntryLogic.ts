@@ -1,5 +1,4 @@
 import { kea } from 'kea'
-import { router } from 'kea-router'
 import api from 'lib/api'
 import { urls } from 'scenes/urls'
 
@@ -94,7 +93,7 @@ export const paymentEntryLogic = kea<paymentEntryLogicType>({
                         if (values.redirectPath) {
                             window.location.pathname = values.redirectPath
                         } else {
-                            router.actions.push(urls.organizationBilling())
+                            window.location.pathname = urls.organizationBilling()
                         }
                         return
                     } else if (status === 'failed') {
