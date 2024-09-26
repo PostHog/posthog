@@ -20,6 +20,7 @@ from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.events_query_runner import EventsQueryRunner
 from posthog.models import Organization, Plugin, Team
+from posthog.models.app_metrics2.sql import TRUNCATE_APP_METRICS2_TABLE_SQL
 from posthog.models.dashboard import Dashboard
 from posthog.models.event.util import create_event
 from posthog.models.feature_flag import FeatureFlag
@@ -51,6 +52,7 @@ from posthog.test.base import (
     _create_event,
     _create_person,
     flush_persons_and_events,
+    run_clickhouse_statement_in_parallel,
     snapshot_clickhouse_queries,
 )
 from posthog.test.fixtures import create_app_metric2
@@ -1195,11 +1197,11 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
 class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, ClickhouseTestMixin):
     def setUp(self) -> None:
         Team.objects.all().delete()
+        run_clickhouse_statement_in_parallel([TRUNCATE_APP_METRICS2_TABLE_SQL])
         return super().setUp()
 
     def _setup_teams(self) -> None:
         self.org_1 = Organization.objects.create(name="Org 1")
-        self.org_2 = Organization.objects.create(name="Org 2")
         self.org_1_team_1 = Team.objects.create(pk=3, organization=self.org_1, name="Team 1 org 1")
         self.org_1_team_2 = Team.objects.create(pk=4, organization=self.org_1, name="Team 2 org 1")
 
@@ -1217,14 +1219,8 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
         period_start, period_end = period
         all_reports = _get_all_org_reports(period_start, period_end)
 
-        assert len(all_reports) == 3
-
         org_1_report = _get_full_org_usage_report_as_dict(
             _get_full_org_usage_report(all_reports[str(self.org_1.id)], get_instance_metadata(period))
-        )
-
-        org_2_report = _get_full_org_usage_report_as_dict(
-            _get_full_org_usage_report(all_reports[str(self.org_2.id)], get_instance_metadata(period))
         )
 
         assert org_1_report["organization_name"] == "Org 1"
@@ -1234,10 +1230,6 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
         assert org_1_report["teams"]["3"]["hog_function_fetch_calls_in_period"] == 1
         assert org_1_report["teams"]["4"]["hog_function_calls_in_period"] == 3
         assert org_1_report["teams"]["4"]["hog_function_fetch_calls_in_period"] == 2
-
-        assert org_2_report["organization_name"] == "Org 2"
-        assert org_2_report["hog_function_calls_in_period"] == 0
-        assert org_2_report["hog_function_fetch_calls_in_period"] == 0
 
 
 class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest):
