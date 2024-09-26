@@ -170,6 +170,8 @@ class ActionViewSet(
         from posthog.management.commands.migrate_action_webhooks import convert_to_hog_function
 
         hog_function = convert_to_hog_function(obj, inert=False)
+        if not hog_function:
+            return Response({"detail": "Failed to convert action to function"}, status=400)
         hog_function.save()
         hog_function_serializer = HogFunctionSerializer(hog_function, context=self.get_serializer_context())
         if obj.post_to_slack:

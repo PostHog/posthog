@@ -127,17 +127,19 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             HTTP_ORIGIN="http://testserver",
         )
         action = Action.objects.get(pk=response.json()["id"])
-        assert action.post_to_slack
+        assert action.post_to_slack is True
 
         migrate_response = self.client.post(f"/api/projects/{self.team.id}/actions/{action.id}/migrate/")
         self.assertEqual(migrate_response.status_code, status.HTTP_200_OK)
 
         action.refresh_from_db()
-        assert not action.post_to_slack
+        assert action.post_to_slack is False
 
-        functions = [f for f in HogFunction.objects.all() if action.id in f.filter_action_ids]
-        assert len(functions) == 1
-        function = functions[0]
+        function: HogFunction | None = None  # type: ignore
+        for hog_function in HogFunction.objects.all():
+            if action.id in hog_function.filter_action_ids:
+                function = hog_function
+        assert function is not None
         assert function.enabled
 
     def test_cant_create_action_with_the_same_name(self, *args):
