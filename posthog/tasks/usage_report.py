@@ -114,9 +114,12 @@ class UsageReportCounters:
     survey_responses_count_in_period: int
     # Data Warehouse
     rows_synced_in_period: int
+    # CDP Delivery
+    hog_function_calls_in_period: int
+    hog_function_fetch_calls_in_period: int
 
 
-# Instance metadata to be included in oveall report
+# Instance metadata to be included in overall report
 @dataclasses.dataclass
 class InstanceMetadata:
     deployment_infrastructure: str
@@ -626,6 +629,48 @@ def get_teams_with_rows_synced_in_period(begin: datetime, end: datetime) -> list
     )
 
 
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_hog_function_calls_in_period(
+    begin: datetime,
+    end: datetime,
+) -> list[tuple[int, int]]:
+    results = sync_execute(
+        """
+        SELECT team_id, SUM(count) as count
+        FROM app_metrics2
+        WHERE metric_name IN ('succeeded','failed') AND timestamp between %(begin)s AND %(end)s
+        GROUP BY team_id, metric_name
+    """,
+        {"begin": begin, "end": end},
+        workload=Workload.OFFLINE,
+        settings=CH_BILLING_SETTINGS,
+    )
+
+    return results
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_hog_function_fetch_calls_in_period(
+    begin: datetime,
+    end: datetime,
+) -> list[tuple[int, int]]:
+    results = sync_execute(
+        """
+        SELECT team_id, SUM(count) as count
+        FROM app_metrics2
+        WHERE metric_name IN ('http_fetch') AND timestamp between %(begin)s AND %(end)s
+        GROUP BY team_id, metric_name
+    """,
+        {"begin": begin, "end": end},
+        workload=Workload.OFFLINE,
+        settings=CH_BILLING_SETTINGS,
+    )
+
+    return results
+
+
 @shared_task(**USAGE_REPORT_TASK_KWARGS, max_retries=0)
 def capture_report(
     capture_event_name: str,
@@ -823,6 +868,12 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
             period_start, period_end
         ),
         "teams_with_rows_synced_in_period": get_teams_with_rows_synced_in_period(period_start, period_end),
+        "teams_with_hog_function_calls_in_period": get_teams_with_hog_function_calls_in_period(
+            period_start, period_end
+        ),
+        "teams_with_hog_function_fetch_calls_in_period": get_teams_with_hog_function_fetch_calls_in_period(
+            period_start, period_end
+        ),
     }
 
 
@@ -892,6 +943,8 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         event_explorer_api_duration_ms=all_data["teams_with_event_explorer_api_duration_ms"].get(team.id, 0),
         survey_responses_count_in_period=all_data["teams_with_survey_responses_count_in_period"].get(team.id, 0),
         rows_synced_in_period=all_data["teams_with_rows_synced_in_period"].get(team.id, 0),
+        hog_function_calls_in_period=all_data["teams_with_hog_function_calls_in_period"].get(team.id, 0),
+        hog_function_fetch_calls_in_period=all_data["teams_with_hog_function_fetch_calls_in_period"].get(team.id, 0),
     )
 
 
