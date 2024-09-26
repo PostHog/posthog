@@ -3,7 +3,6 @@ import { useActions } from 'kea'
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { Sparkline } from 'lib/components/Sparkline'
 import { IconPlayCircle } from 'lib/lemon-ui/icons'
-import { SessionPlayerModal } from 'scenes/session-recordings/player/modal/SessionPlayerModal'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import { urls } from 'scenes/urls'
 
@@ -64,7 +63,6 @@ export function renderHogQLX(value: any): JSX.Element {
                     >
                         View recording
                     </LemonButton>
-                    <SessionPlayerModal />
                 </ErrorBoundary>
             )
         } else if (tag === 'a') {
