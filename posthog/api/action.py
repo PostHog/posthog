@@ -3,6 +3,7 @@ from typing import Any, cast
 
 from django.db.models import Count
 from rest_framework import request, serializers, viewsets
+from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
@@ -16,6 +17,7 @@ from posthog.models import Action
 from posthog.models.action.action import ACTION_STEP_MATCHING_OPTIONS
 
 from .forbid_destroy_model import ForbidDestroyModel
+from .hog_function import HogFunctionSerializer
 from .tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 
 
@@ -160,3 +162,18 @@ class ActionViewSet(
             actions, many=True, context={"request": request}
         ).data  # type: ignore
         return Response({"results": actions_list})
+
+    @action(methods=["POST"], url_path="migrate", detail=True)
+    def migrate(self, request: request.Request, **kwargs):
+        obj = self.get_object()
+
+        from posthog.management.commands.migrate_action_webhooks import convert_to_hog_function
+
+        hog_function = convert_to_hog_function(obj, inert=False)
+        hog_function.save()
+        hog_function_serializer = HogFunctionSerializer(hog_function, context=self.get_serializer_context())
+        if obj.post_to_slack:
+            obj.post_to_slack = False
+            obj.save()
+
+        return Response(hog_function_serializer.data)
