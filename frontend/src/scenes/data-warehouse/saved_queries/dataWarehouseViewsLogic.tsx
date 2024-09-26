@@ -81,10 +81,12 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
         dataWarehouseSavedQueryMapById: [
             (s) => [s.dataWarehouseSavedQueries],
             (dataWarehouseSavedQueries) => {
-                return dataWarehouseSavedQueries.reduce((acc, cur) => {
-                    acc[cur.id] = cur
-                    return acc
-                }, {} as Record<string, DataWarehouseSavedQuery>)
+                return (
+                    dataWarehouseSavedQueries?.reduce((acc, cur) => {
+                        acc[cur.id] = cur
+                        return acc
+                    }, {} as Record<string, DataWarehouseSavedQuery>) ?? {}
+                )
             },
         ],
     }),
