@@ -24,9 +24,31 @@ export function parseHogQLX(value: any): any {
     return value.map((v) => parseHogQLX(v))
 }
 
+function ViewRecordingModalButton({ sessionId }: { sessionId: string }): JSX.Element {
+    const { openSessionPlayer } = useActions(sessionPlayerModalLogic)
+    return (
+        <ErrorBoundary>
+            <LemonButton
+                type="primary"
+                size="xsmall"
+                sideIcon={<IconPlayCircle />}
+                data-attr="hog-ql-view-recording-button"
+                to={urls.replaySingle(sessionId)}
+                onClick={(e) => {
+                    e.preventDefault()
+                    if (sessionId) {
+                        openSessionPlayer({ id: sessionId })
+                    }
+                }}
+            >
+                View recording
+            </LemonButton>
+        </ErrorBoundary>
+    )
+}
+
 export function renderHogQLX(value: any): JSX.Element {
     const object = parseHogQLX(value)
-    const { openSessionPlayer } = useActions(sessionPlayerModalLogic)
 
     if (typeof object === 'object') {
         if (Array.isArray(object)) {
@@ -45,26 +67,7 @@ export function renderHogQLX(value: any): JSX.Element {
             )
         } else if (tag === 'RecordingButton') {
             const { sessionId, ...props } = rest
-            return (
-                <ErrorBoundary>
-                    <LemonButton
-                        type="primary"
-                        size="xsmall"
-                        sideIcon={<IconPlayCircle />}
-                        data-attr="hog-ql-view-recording-button"
-                        {...props}
-                        to={urls.replaySingle(sessionId)}
-                        onClick={(e) => {
-                            e.preventDefault()
-                            if (sessionId) {
-                                openSessionPlayer({ id: sessionId })
-                            }
-                        }}
-                    >
-                        View recording
-                    </LemonButton>
-                </ErrorBoundary>
-            )
+            return <ViewRecordingModalButton sessionId={sessionId} {...props} />
         } else if (tag === 'a') {
             const { href, source, target } = rest
             return (
