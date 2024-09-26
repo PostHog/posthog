@@ -518,7 +518,7 @@ void hogqlparserParserInitialize() {
   	0,0,1069,1071,5,117,0,0,1070,1069,1,0,0,0,1070,1071,1,0,0,0,1071,1075,
   	1,0,0,0,1072,1073,5,131,0,0,1073,1075,5,150,0,0,1074,1047,1,0,0,0,1074,
   	1061,1,0,0,0,1074,1072,1,0,0,0,1075,1076,1,0,0,0,1076,1079,5,112,0,0,
-  	1077,1080,3,36,18,0,1078,1080,3,116,58,0,1079,1077,1,0,0,0,1079,1078,
+  	1077,1080,3,116,58,0,1078,1080,3,36,18,0,1079,1077,1,0,0,0,1079,1078,
   	1,0,0,0,1080,119,1,0,0,0,1081,1082,5,133,0,0,1082,1086,3,156,78,0,1083,
   	1085,3,122,61,0,1084,1083,1,0,0,0,1085,1088,1,0,0,0,1086,1084,1,0,0,0,
   	1086,1087,1,0,0,0,1087,1089,1,0,0,0,1088,1086,1,0,0,0,1089,1090,5,152,
@@ -8886,12 +8886,12 @@ tree::TerminalNode* HogQLParser::ColumnLambdaExprContext::RPAREN() {
   return getToken(HogQLParser::RPAREN, 0);
 }
 
-HogQLParser::BlockContext* HogQLParser::ColumnLambdaExprContext::block() {
-  return getRuleContext<HogQLParser::BlockContext>(0);
-}
-
 HogQLParser::ColumnExprContext* HogQLParser::ColumnLambdaExprContext::columnExpr() {
   return getRuleContext<HogQLParser::ColumnExprContext>(0);
+}
+
+HogQLParser::BlockContext* HogQLParser::ColumnLambdaExprContext::block() {
+  return getRuleContext<HogQLParser::BlockContext>(0);
 }
 
 std::vector<tree::TerminalNode *> HogQLParser::ColumnLambdaExprContext::COMMA() {
@@ -9011,13 +9011,13 @@ HogQLParser::ColumnLambdaExprContext* HogQLParser::columnLambdaExpr() {
     switch (getInterpreter<atn::ParserATNSimulator>()->adaptivePredict(_input, 136, _ctx)) {
     case 1: {
       setState(1077);
-      block();
+      columnExpr(0);
       break;
     }
 
     case 2: {
       setState(1078);
-      columnExpr(0);
+      block();
       break;
     }
 

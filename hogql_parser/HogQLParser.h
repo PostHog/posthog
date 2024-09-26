@@ -1872,8 +1872,8 @@ public:
     std::vector<IdentifierContext *> identifier();
     IdentifierContext* identifier(size_t i);
     antlr4::tree::TerminalNode *RPAREN();
-    BlockContext *block();
     ColumnExprContext *columnExpr();
+    BlockContext *block();
     std::vector<antlr4::tree::TerminalNode *> COMMA();
     antlr4::tree::TerminalNode* COMMA(size_t i);
 

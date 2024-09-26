@@ -215,7 +215,7 @@ columnLambdaExpr:
     |        identifier (COMMA identifier)* COMMA?
     | LPAREN RPAREN
     )
-    ARROW (block | columnExpr)
+    ARROW (columnExpr | block)
     ;
 
 

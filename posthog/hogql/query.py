@@ -81,7 +81,7 @@ def execute_hogql_query(
         ):
             select_query = replace_filters(select_query, filters, team)
 
-            leftover_placeholders: list[str | None] = []
+            leftover_placeholders: list[str] = []
             for placeholder in placeholders_in_query:
                 if placeholder is None:
                     raise ValueError("Placeholder expressions are not yet supported")

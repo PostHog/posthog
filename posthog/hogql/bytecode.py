@@ -718,7 +718,11 @@ class BytecodeCompiler(Visitor):
     def visit_function(self, node: ast.Function):
         # add an implicit return if none at the end of the function
         body = node.body
-        if isinstance(node.body, ast.Block):
+
+        # Sometimes blocks like `fn x() {foo}` get parsed as placeholders
+        if isinstance(body, ast.Placeholder):
+            body = ast.Block(declarations=[ast.ExprStatement(expr=body.expr), ast.ReturnStatement(expr=None)])
+        elif isinstance(node.body, ast.Block):
             if len(node.body.declarations) == 0 or not isinstance(node.body.declarations[-1], ast.ReturnStatement):
                 body = ast.Block(declarations=[*node.body.declarations, ast.ReturnStatement(expr=None)])
         elif not isinstance(node.body, ast.ReturnStatement):
@@ -745,7 +749,11 @@ class BytecodeCompiler(Visitor):
     def visit_lambda(self, node: ast.Lambda):
         # add an implicit return if none at the end of the function
         expr: ast.Expr | ast.Statement = node.expr
-        if isinstance(expr, ast.Block):
+
+        # Sometimes blocks like `x -> {foo}` get parsed as placeholders
+        if isinstance(expr, ast.Placeholder):
+            expr = ast.Block(declarations=[ast.ExprStatement(expr=expr.expr), ast.ReturnStatement(expr=None)])
+        elif isinstance(expr, ast.Block):
             if len(expr.declarations) == 0 or not isinstance(expr.declarations[-1], ast.ReturnStatement):
                 expr = ast.Block(declarations=[*expr.declarations, ast.ReturnStatement(expr=None)])
         elif not isinstance(expr, ast.ReturnStatement):
