@@ -26,6 +26,7 @@ export function parseHogQLX(value: any): any {
 
 export function renderHogQLX(value: any): JSX.Element {
     const object = parseHogQLX(value)
+    const { openSessionPlayer } = useActions(sessionPlayerModalLogic)
 
     if (typeof object === 'object') {
         if (Array.isArray(object)) {
@@ -44,7 +45,6 @@ export function renderHogQLX(value: any): JSX.Element {
             )
         } else if (tag === 'RecordingButton') {
             const { sessionId, ...props } = rest
-            const { openSessionPlayer } = useActions(sessionPlayerModalLogic)
             return (
                 <ErrorBoundary>
                     <LemonButton
