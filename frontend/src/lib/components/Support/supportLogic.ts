@@ -432,6 +432,30 @@ export const supportLogic = kea<supportLogicType>([
                                 ? 'email_support'
                                 : 'free_support',
                         },
+                        {
+                            id: 29601125007771, 
+                            value: `\nKind: ${kind}` +
+                            `\nTarget area: ${target_area}` +
+                            `\nReport event: http://go/ticketByUUID/${zendesk_ticket_uuid}` +
+                            getSessionReplayLink() +
+                            getCurrentLocationLink() +
+                            getDjangoAdminLink(
+                                userLogic.values.user,
+                                cloudRegion,
+                                organizationLogic.values.currentOrganization,
+                                teamLogic.values.currentTeam
+                            ) +
+                            (target_area === 'billing' || target_area === 'login' || target_area === 'onboarding'
+                                ? getBillingAdminLink(organizationLogic.values.currentOrganization)
+                                : '') +
+                            getSentryLink(cloudRegion, teamLogic.values.currentTeam) +
+                            (cloudRegion && teamLogic.values.currentTeam
+                                ? '\nPersons-on-events mode for project: ' +
+                                  (teamLogic.values.currentTeam.modifiers?.personsOnEventsMode ??
+                                      teamLogic.values.currentTeam.default_modifiers?.personsOnEventsMode ??
+                                      'unknown')
+                                : '')
+                        },
                     ],
                     comment: {
                         body:
