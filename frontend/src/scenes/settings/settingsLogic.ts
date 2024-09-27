@@ -6,7 +6,7 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import type { settingsLogicType } from './settingsLogicType'
-import { SettingsMap } from './SettingsMap'
+import { SETTINGS_MAP } from './SettingsMap'
 import { Setting, SettingId, SettingLevelId, SettingSection, SettingSectionId, SettingsLogicProps } from './types'
 
 export const settingsLogic = kea<settingsLogicType>([
@@ -18,7 +18,7 @@ export const settingsLogic = kea<settingsLogicType>([
     }),
 
     actions({
-        selectSection: (section: SettingSectionId) => ({ section }),
+        selectSection: (section: SettingSectionId, level: SettingLevelId) => ({ section, level }),
         selectLevel: (level: SettingLevelId) => ({ level }),
         selectSetting: (setting: string) => ({ setting }),
         openCompactNavigation: true,
@@ -30,7 +30,7 @@ export const settingsLogic = kea<settingsLogicType>([
             (props.settingLevelId ?? 'project') as SettingLevelId,
             {
                 selectLevel: (_, { level }) => level,
-                selectSection: (_, { section }) => SettingsMap.find((x) => x.id === section)?.level || 'user',
+                selectSection: (_, { level }) => level,
             },
         ],
         selectedSectionId: [
@@ -53,6 +53,17 @@ export const settingsLogic = kea<settingsLogicType>([
     })),
 
     selectors({
+        levels: [
+            (s) => [s.sections],
+            (sections): SettingLevelId[] => {
+                return sections.reduce<SettingLevelId[]>((acc, section) => {
+                    if (!acc.includes(section.level)) {
+                        acc.push(section.level)
+                    }
+                    return acc
+                }, [])
+            },
+        ],
         settingId: [
             () => [(_, props) => props],
             (props): SettingId | null => {
@@ -62,7 +73,7 @@ export const settingsLogic = kea<settingsLogicType>([
         sections: [
             (s) => [s.featureFlags],
             (featureFlags): SettingSection[] => {
-                return SettingsMap.filter((x) => {
+                const sections = SETTINGS_MAP.filter((x) => {
                     const isFlagConditionMet = !x.flag
                         ? true // No flag condition
                         : x.flag.startsWith('!')
@@ -70,6 +81,21 @@ export const settingsLogic = kea<settingsLogicType>([
                         : featureFlags[FEATURE_FLAGS[x.flag]] // Regular flag condition
                     return isFlagConditionMet
                 })
+                if (!featureFlags[FEATURE_FLAGS.ENVIRONMENTS]) {
+                    return sections
+                        .filter((section) => section.level !== 'project')
+                        .map((section) => ({
+                            ...section,
+                            id: section.id.replace('environment-', 'project-') as SettingSectionId,
+                            level: section.level === 'environment' ? 'project' : section.level,
+                            settings: section.settings.map((setting) => ({
+                                ...setting,
+                                title: setting.title.replace('environment', 'project'),
+                                id: setting.id.replace('environment-', 'project-') as SettingId,
+                            })),
+                        }))
+                }
+                return sections
             },
         ],
         selectedSection: [
