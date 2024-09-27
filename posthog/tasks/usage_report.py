@@ -660,7 +660,7 @@ def get_teams_with_hog_function_fetch_calls_in_period(
         """
         SELECT team_id, SUM(count) as count
         FROM app_metrics2
-        WHERE app_source='hog_function' AND metric_name IN ('http_fetch') AND timestamp between %(begin)s AND %(end)s
+        WHERE app_source='hog_function' AND metric_name IN ('fetch') AND timestamp between %(begin)s AND %(end)s
         GROUP BY team_id, metric_name
     """,
         {"begin": begin, "end": end},

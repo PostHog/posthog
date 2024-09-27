@@ -1220,8 +1220,8 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
 
         create_app_metric2(team_id=self.org_1_team_1.id, app_source="hog_function", metric_name="succeeded", count=2)
         create_app_metric2(team_id=self.org_1_team_2.id, app_source="hog_function", metric_name="failed", count=3)
-        create_app_metric2(team_id=self.org_1_team_1.id, app_source="hog_function", metric_name="http_fetch", count=1)
-        create_app_metric2(team_id=self.org_1_team_2.id, app_source="hog_function", metric_name="http_fetch", count=2)
+        create_app_metric2(team_id=self.org_1_team_1.id, app_source="hog_function", metric_name="fetch", count=1)
+        create_app_metric2(team_id=self.org_1_team_2.id, app_source="hog_function", metric_name="fetch", count=2)
 
         period = get_previous_day(at=now() + relativedelta(days=1))
         period_start, period_end = period

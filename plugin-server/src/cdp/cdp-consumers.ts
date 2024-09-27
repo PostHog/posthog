@@ -772,6 +772,17 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
     private async updateJobs(invocations: HogFunctionInvocationResult[]) {
         await Promise.all(
             invocations.map((item) => {
+                if (item.invocation.queue === 'fetch') {
+                    // Track a metric purely to say a fetch was attempted (this may be what we bill on in the future)
+                    this.produceAppMetric({
+                        team_id: item.invocation.teamId,
+                        app_source_id: item.invocation.hogFunction.id,
+                        metric_kind: 'other',
+                        metric_name: 'fetch',
+                        count: 1,
+                    })
+                }
+
                 const id = item.invocation.id
                 if (item.error) {
                     status.debug('⚡️', 'Updating job to failed', id)
