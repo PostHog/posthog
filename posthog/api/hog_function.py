@@ -3,8 +3,9 @@ from typing import Optional, cast
 import structlog
 from django_filters.rest_framework import DjangoFilterBackend
 from django.db.models import QuerySet
+from loginas.utils import is_impersonated_session
 
-from rest_framework import serializers, viewsets, exceptions
+from rest_framework import serializers, viewsets, exceptions, status
 from rest_framework.serializers import BaseSerializer
 from posthog.api.utils import action
 from rest_framework.request import Request
@@ -22,6 +23,8 @@ from posthog.cdp.services.icons import CDPIconsService
 from posthog.cdp.templates import HOG_FUNCTION_TEMPLATES_BY_ID
 from posthog.cdp.validation import compile_hog, generate_template_bytecode, validate_inputs, validate_inputs_schema
 from posthog.constants import AvailableFeature
+from posthog.models.activity_logging.activity_log import load_activity, log_activity, changes_between, Detail
+from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionState
 from posthog.plugins.plugin_server_api import create_hog_invocation_test
 
@@ -293,3 +296,66 @@ class HogFunctionViewSet(
             return Response({"status": "error"}, status=res.status_code)
 
         return Response(res.json())
+
+    @action(methods=["GET"], url_path="activity", detail=False, required_scopes=["activity_log:read"])
+    def all_activity(self, request: Request, **kwargs):
+        limit = int(request.query_params.get("limit", "10"))
+        page = int(request.query_params.get("page", "1"))
+
+        activity_page = load_activity(scope="HogFunction", team_id=self.team_id, limit=limit, page=page)
+
+        return activity_page_response(activity_page, limit, page, request)
+
+    @action(methods=["GET"], detail=True, required_scopes=["activity_log:read"])
+    def activity(self, request: Request, **kwargs):
+        limit = int(request.query_params.get("limit", "10"))
+        page = int(request.query_params.get("page", "1"))
+
+        item_id = kwargs["pk"]
+        if not HogFunction.objects.filter(id=item_id, team_id=self.team_id).exists():
+            return Response("", status=status.HTTP_404_NOT_FOUND)
+
+        activity_page = load_activity(
+            scope="HogFunction",
+            team_id=self.team_id,
+            item_ids=[str(item_id)],
+            limit=limit,
+            page=page,
+        )
+        return activity_page_response(activity_page, limit, page, request)
+
+    def perform_create(self, serializer):
+        serializer.save()
+        log_activity(
+            organization_id=self.organization.id,
+            team_id=self.team_id,
+            user=serializer.context["request"].user,
+            was_impersonated=is_impersonated_session(serializer.context["request"]),
+            item_id=serializer.instance.id,
+            scope="HogFunction",
+            activity="created",
+            detail=Detail(name=serializer.instance.name),
+        )
+
+    def perform_update(self, serializer):
+        instance_id = serializer.instance.id
+
+        try:
+            before_update = HogFunction.objects.get(pk=instance_id)
+        except HogFunction.DoesNotExist:
+            before_update = None
+
+        serializer.save()
+
+        changes = changes_between("HogFunction", previous=before_update, current=serializer.instance)
+
+        log_activity(
+            organization_id=self.organization.id,
+            team_id=self.team_id,
+            user=serializer.context["request"].user,
+            was_impersonated=is_impersonated_session(serializer.context["request"]),
+            item_id=instance_id,
+            scope="HogFunction",
+            activity="updated",
+            detail=Detail(changes=changes, name=serializer.instance.name),
+        )

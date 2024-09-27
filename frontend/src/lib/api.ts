@@ -353,6 +353,13 @@ class ApiRequest {
         return this.hogFunctions(teamId).addPathComponent(id)
     }
 
+    public hogFunctionActivity(id?: HogFunctionType['id'], teamId?: TeamType['id']): ApiRequest {
+        if (id) {
+            return this.hogFunction(id, teamId).addPathComponent('activity')
+        }
+        return this.hogFunctions(teamId).addPathComponent('activity')
+    }
+
     public hogFunctionTemplates(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('hog_function_templates')
     }
@@ -1083,6 +1090,11 @@ const api = {
                 },
                 [ActivityScope.SURVEY]: (props) => {
                     return new ApiRequest().surveyActivity((props.id ?? null) as string, teamId)
+                },
+                [ActivityScope.HOG_FUNCTION]: (props) => {
+                    return props.id
+                        ? new ApiRequest().hogFunctionActivity(String(props.id), teamId)
+                        : new ApiRequest().hogFunctionActivity(undefined, teamId)
                 },
             }
 

@@ -16,6 +16,7 @@ import { dataManagementActivityDescriber } from 'scenes/data-management/dataMana
 import { flagActivityDescriber } from 'scenes/feature-flags/activityDescriptions'
 import { notebookActivityDescriber } from 'scenes/notebooks/Notebook/notebookActivityDescriber'
 import { personActivityDescriber } from 'scenes/persons/activityDescriptions'
+import { hogFunctionActivityDescriber } from 'scenes/pipeline/hogfunctions/activityDescriptions'
 import { pluginActivityDescriber } from 'scenes/pipeline/pipelinePluginActivityDescriptions'
 import { insightActivityDescriber } from 'scenes/saved-insights/activityDescriptions'
 import { surveyActivityDescriber } from 'scenes/surveys/surveyActivityDescriber'
@@ -38,6 +39,8 @@ export const describerFor = (logItem?: ActivityLogItem): Describer | undefined =
         case ActivityScope.PLUGIN:
         case ActivityScope.PLUGIN_CONFIG:
             return pluginActivityDescriber
+        case ActivityScope.HOG_FUNCTION:
+            return hogFunctionActivityDescriber
         case ActivityScope.COHORT:
             return cohortActivityDescriber
         case ActivityScope.INSIGHT:

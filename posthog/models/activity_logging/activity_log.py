@@ -29,6 +29,7 @@ ActivityScope = Literal[
     "Insight",
     "Plugin",
     "PluginConfig",
+    "HogFunction",
     "DataManagement",
     "EventDefinition",
     "PropertyDefinition",
@@ -157,6 +158,11 @@ field_exclusions: dict[ActivityScope, list[str]] = {
         "is_calculating",
         "last_calculation",
         "errors_calculating",
+    ],
+    "HogFunction": [
+        "bytecode",
+        "encrypted_inputs",
+        "icon_url",
     ],
     "Notebook": [
         "text_content",
