@@ -64,23 +64,47 @@
                                               min(latest_2) OVER (PARTITION BY aggregation_target
                                                                   ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) AS latest_2
                     FROM
-                      (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
-                              if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
-                              if(equals(e.event, 'step one'), 1, 0) AS step_0,
+                      (SELECT e.timestamp AS timestamp,
+                              if(not(empty(e__override.distinct_id)), e__override.person_id, e.event_person_id) AS aggregation_target,
+                              if(ifNull(equals(e.event, 'step one'), 0), 1, 0) AS step_0,
                               if(ifNull(equals(step_0, 1), 0), timestamp, NULL) AS latest_0,
-                              if(equals(e.event, 'step two'), 1, 0) AS step_1,
+                              if(ifNull(equals(e.event, 'step two'), 0), 1, 0) AS step_1,
                               if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1,
-                              if(equals(e.event, 'step three'), 1, 0) AS step_2,
+                              if(ifNull(equals(e.event, 'step three'), 0), 1, 0) AS step_2,
                               if(ifNull(equals(step_2, 1), 0), timestamp, NULL) AS latest_2
-                       FROM events AS e
+                       FROM
+                         (SELECT toTimeZone(events.person_created_at, 'UTC') AS person_created_at,
+                                 events.person_properties AS person_properties,
+                                 events.person_id AS person_id,
+                                 toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                                 events.person_id AS event_person_id,
+                                 events.event AS event,
+                                 events.distinct_id AS e___distinct_id,
+                                 events.`$group_0` AS `$group_0`,
+                                 events.group0_properties AS group0_properties,
+                                 events.group0_created_at AS group0_created_at,
+                                 events.`$group_1` AS `$group_1`,
+                                 events.group1_properties AS group1_properties,
+                                 events.group1_created_at AS group1_created_at,
+                                 events.`$group_2` AS `$group_2`,
+                                 events.group2_properties AS group2_properties,
+                                 events.group2_created_at AS group2_created_at,
+                                 events.`$group_3` AS `$group_3`,
+                                 events.group3_properties AS group3_properties,
+                                 events.group3_created_at AS group3_created_at,
+                                 events.`$group_4` AS `$group_4`,
+                                 events.group4_properties AS group4_properties,
+                                 events.group4_created_at AS group4_created_at
+                          FROM events
+                          WHERE equals(events.team_id, 2)) AS e
                        LEFT OUTER JOIN
                          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                                  person_distinct_id_overrides.distinct_id AS distinct_id
                           FROM person_distinct_id_overrides
                           WHERE equals(person_distinct_id_overrides.team_id, 2)
                           GROUP BY person_distinct_id_overrides.distinct_id
-                          HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-                       WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-05-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-05-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('step one', 'step three', 'step two'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))))
+                          HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.e___distinct_id, e__override.distinct_id)
+                       WHERE and(and(and(ifNull(greaterOrEquals(e.timestamp, toDateTime64('2021-05-01 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(e.timestamp, toDateTime64('2021-05-14 23:59:59.999999', 6, 'UTC')), 0)), ifNull(in(e.event, tuple('step one', 'step three', 'step two')), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))))
            WHERE ifNull(equals(step_0, 1), 0)))
      GROUP BY aggregation_target,
               steps
@@ -160,23 +184,47 @@
                                                  min(latest_2) OVER (PARTITION BY aggregation_target
                                                                      ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) AS latest_2
                        FROM
-                         (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
-                                 if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
-                                 if(equals(e.event, 'step one'), 1, 0) AS step_0,
+                         (SELECT e.timestamp AS timestamp,
+                                 if(not(empty(e__override.distinct_id)), e__override.person_id, e.event_person_id) AS aggregation_target,
+                                 if(ifNull(equals(e.event, 'step one'), 0), 1, 0) AS step_0,
                                  if(ifNull(equals(step_0, 1), 0), timestamp, NULL) AS latest_0,
-                                 if(equals(e.event, 'step two'), 1, 0) AS step_1,
+                                 if(ifNull(equals(e.event, 'step two'), 0), 1, 0) AS step_1,
                                  if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1,
-                                 if(equals(e.event, 'step three'), 1, 0) AS step_2,
+                                 if(ifNull(equals(e.event, 'step three'), 0), 1, 0) AS step_2,
                                  if(ifNull(equals(step_2, 1), 0), timestamp, NULL) AS latest_2
-                          FROM events AS e
+                          FROM
+                            (SELECT toTimeZone(events.person_created_at, 'UTC') AS person_created_at,
+                                    events.person_properties AS person_properties,
+                                    events.person_id AS person_id,
+                                    toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                                    events.person_id AS event_person_id,
+                                    events.event AS event,
+                                    events.distinct_id AS e___distinct_id,
+                                    events.`$group_0` AS `$group_0`,
+                                    events.group0_properties AS group0_properties,
+                                    events.group0_created_at AS group0_created_at,
+                                    events.`$group_1` AS `$group_1`,
+                                    events.group1_properties AS group1_properties,
+                                    events.group1_created_at AS group1_created_at,
+                                    events.`$group_2` AS `$group_2`,
+                                    events.group2_properties AS group2_properties,
+                                    events.group2_created_at AS group2_created_at,
+                                    events.`$group_3` AS `$group_3`,
+                                    events.group3_properties AS group3_properties,
+                                    events.group3_created_at AS group3_created_at,
+                                    events.`$group_4` AS `$group_4`,
+                                    events.group4_properties AS group4_properties,
+                                    events.group4_created_at AS group4_created_at
+                             FROM events
+                             WHERE equals(events.team_id, 2)) AS e
                           LEFT OUTER JOIN
                             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                                     person_distinct_id_overrides.distinct_id AS distinct_id
                              FROM person_distinct_id_overrides
                              WHERE equals(person_distinct_id_overrides.team_id, 2)
                              GROUP BY person_distinct_id_overrides.distinct_id
-                             HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-                          WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-05-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-05-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('step one', 'step three', 'step two'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))))
+                             HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.e___distinct_id, e__override.distinct_id)
+                          WHERE and(and(and(ifNull(greaterOrEquals(e.timestamp, toDateTime64('2021-05-01 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(e.timestamp, toDateTime64('2021-05-14 23:59:59.999999', 6, 'UTC')), 0)), ifNull(in(e.event, tuple('step one', 'step three', 'step two')), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))))
               WHERE ifNull(equals(step_0, 1), 0)))
         GROUP BY aggregation_target,
                  steps
@@ -277,23 +325,52 @@
                                               min(latest_2) OVER (PARTITION BY aggregation_target
                                                                   ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) AS latest_2
                     FROM
-                      (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
-                              if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
-                              if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
+                      (SELECT e.timestamp AS timestamp,
+                              if(not(empty(e__override.distinct_id)), e__override.person_id, e.event_person_id) AS aggregation_target,
+                              if(ifNull(equals(e.event, 'user signed up'), 0), 1, 0) AS step_0,
                               if(ifNull(equals(step_0, 1), 0), timestamp, NULL) AS latest_0,
-                              if(and(equals(e.event, '$autocapture'), match(e.elements_chain, '(^|;)button(\\.|$|;|:)'), arrayExists(x -> ifNull(equals(x, 'Pay $10'), 0), e.elements_chain_texts)), 1, 0) AS step_1,
+                              if(and(ifNull(equals(e.event, '$autocapture'), 0), ifNull(match(e.elements_chain, '(^|;)button(\\.|$|;|:)'), isNull(e.elements_chain)
+                                                                                        and isNull('(^|;)button(\\.|$|;|:)')), arrayExists(x -> ifNull(equals(x, 'Pay $10'), 0), e.elements_chain_texts)), 1, 0) AS step_1,
                               if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1,
-                              if(and(equals(e.event, '$autocapture'), match(e.elements_chain, '(^|;)a(\\.|$|;|:)'), equals(e.elements_chain_href, '/movie')), 1, 0) AS step_2,
+                              if(and(ifNull(equals(e.event, '$autocapture'), 0), ifNull(match(e.elements_chain, '(^|;)a(\\.|$|;|:)'), isNull(e.elements_chain)
+                                                                                        and isNull('(^|;)a(\\.|$|;|:)')), ifNull(equals(e.elements_chain_href, '/movie'), 0)), 1, 0) AS step_2,
                               if(ifNull(equals(step_2, 1), 0), timestamp, NULL) AS latest_2
-                       FROM events AS e
+                       FROM
+                         (SELECT toTimeZone(events.person_created_at, 'UTC') AS person_created_at,
+                                 events.person_properties AS person_properties,
+                                 events.person_id AS person_id,
+                                 toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                                 events.person_id AS event_person_id,
+                                 events.event AS event,
+                                 events.elements_chain AS elements_chain,
+                                 events.elements_chain_texts AS elements_chain_texts,
+                                 events.elements_chain_href AS elements_chain_href,
+                                 events.distinct_id AS e___distinct_id,
+                                 events.`$group_0` AS `$group_0`,
+                                 events.group0_properties AS group0_properties,
+                                 events.group0_created_at AS group0_created_at,
+                                 events.`$group_1` AS `$group_1`,
+                                 events.group1_properties AS group1_properties,
+                                 events.group1_created_at AS group1_created_at,
+                                 events.`$group_2` AS `$group_2`,
+                                 events.group2_properties AS group2_properties,
+                                 events.group2_created_at AS group2_created_at,
+                                 events.`$group_3` AS `$group_3`,
+                                 events.group3_properties AS group3_properties,
+                                 events.group3_created_at AS group3_created_at,
+                                 events.`$group_4` AS `$group_4`,
+                                 events.group4_properties AS group4_properties,
+                                 events.group4_created_at AS group4_created_at
+                          FROM events
+                          WHERE equals(events.team_id, 2)) AS e
                        LEFT OUTER JOIN
                          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                                  person_distinct_id_overrides.distinct_id AS distinct_id
                           FROM person_distinct_id_overrides
                           WHERE equals(person_distinct_id_overrides.team_id, 2)
                           GROUP BY person_distinct_id_overrides.distinct_id
-                          HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-                       WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2011-12-25 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2012-01-01 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('$autocapture', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))))
+                          HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.e___distinct_id, e__override.distinct_id)
+                       WHERE and(and(and(ifNull(greaterOrEquals(e.timestamp, toDateTime64('2011-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(e.timestamp, toDateTime64('2012-01-01 23:59:59.999999', 6, 'UTC')), 0)), ifNull(in(e.event, tuple('$autocapture', 'user signed up')), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))))
            WHERE ifNull(equals(step_0, 1), 0)))
      GROUP BY aggregation_target,
               steps
@@ -363,24 +440,48 @@
                      min(latest_1) OVER (PARTITION BY aggregation_target
                                          ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) AS latest_1
               FROM
-                (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
-                        if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
-                        if(and(equals(e.event, 'user signed up'), ifNull(in(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id),
-                                                                              (SELECT cohortpeople.person_id AS person_id
-                                                                               FROM cohortpeople
-                                                                               WHERE and(equals(cohortpeople.team_id, 2), equals(cohortpeople.cohort_id, 2), equals(cohortpeople.version, 0)))), 0)), 1, 0) AS step_0,
+                (SELECT e.timestamp AS timestamp,
+                        if(not(empty(e__override.distinct_id)), e__override.person_id, e.event_person_id) AS aggregation_target,
+                        if(and(ifNull(equals(e.event, 'user signed up'), 0), ifNull(in(if(not(empty(e__override.distinct_id)), e__override.person_id, e.event_person_id),
+                                                                                         (SELECT cohortpeople.person_id AS person_id
+                                                                                          FROM cohortpeople
+                                                                                          WHERE and(equals(cohortpeople.team_id, 2), equals(cohortpeople.cohort_id, 2), equals(cohortpeople.version, 0)))), 0)), 1, 0) AS step_0,
                         if(ifNull(equals(step_0, 1), 0), timestamp, NULL) AS latest_0,
-                        if(equals(e.event, 'paid'), 1, 0) AS step_1,
+                        if(ifNull(equals(e.event, 'paid'), 0), 1, 0) AS step_1,
                         if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1
-                 FROM events AS e
+                 FROM
+                   (SELECT toTimeZone(events.person_created_at, 'UTC') AS person_created_at,
+                           events.person_properties AS person_properties,
+                           events.person_id AS person_id,
+                           toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                           events.person_id AS event_person_id,
+                           events.event AS event,
+                           events.distinct_id AS e___distinct_id,
+                           events.`$group_0` AS `$group_0`,
+                           events.group0_properties AS group0_properties,
+                           events.group0_created_at AS group0_created_at,
+                           events.`$group_1` AS `$group_1`,
+                           events.group1_properties AS group1_properties,
+                           events.group1_created_at AS group1_created_at,
+                           events.`$group_2` AS `$group_2`,
+                           events.group2_properties AS group2_properties,
+                           events.group2_created_at AS group2_created_at,
+                           events.`$group_3` AS `$group_3`,
+                           events.group3_properties AS group3_properties,
+                           events.group3_created_at AS group3_created_at,
+                           events.`$group_4` AS `$group_4`,
+                           events.group4_properties AS group4_properties,
+                           events.group4_created_at AS group4_created_at
+                    FROM events
+                    WHERE equals(events.team_id, 2)) AS e
                  LEFT OUTER JOIN
                    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                            person_distinct_id_overrides.distinct_id AS distinct_id
                     FROM person_distinct_id_overrides
                     WHERE equals(person_distinct_id_overrides.team_id, 2)
                     GROUP BY person_distinct_id_overrides.distinct_id
-                    HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-                 WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
+                    HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.e___distinct_id, e__override.distinct_id)
+                 WHERE and(and(and(ifNull(greaterOrEquals(e.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(e.timestamp, toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC')), 0)), ifNull(in(e.event, tuple('paid', 'user signed up')), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
            WHERE ifNull(equals(step_0, 1), 0)))
      GROUP BY aggregation_target,
               steps
@@ -461,22 +562,48 @@
                                               min(latest_2) OVER (PARTITION BY aggregation_target
                                                                   ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) AS latest_2
                     FROM
-                      (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
-                              if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
-                              if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
+                      (SELECT e.timestamp AS timestamp,
+                              if(not(empty(e__override.distinct_id)), e__override.person_id, e.event_person_id) AS aggregation_target,
+                              if(ifNull(equals(e.event, 'user signed up'), 0), 1, 0) AS step_0,
                               if(ifNull(equals(step_0, 1), 0), timestamp, NULL) AS latest_0,
-                              if(and(equals(e.event, '$pageview'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$current_url'), ''), 'null'), '^"|"$', ''), 'aloha.com'), 0)), 1, 0) AS step_1,
+                              if(and(ifNull(equals(e.event, '$pageview'), 0), ifNull(equals(e.`properties___$current_url`, 'aloha.com'), 0)), 1, 0) AS step_1,
                               if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1,
-                              if(and(equals(e.event, '$pageview'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$current_url'), ''), 'null'), '^"|"$', ''), 'aloha2.com'), 0)), 1, 0) AS step_2,
+                              if(and(ifNull(equals(e.event, '$pageview'), 0), ifNull(equals(e.`properties___$current_url`, 'aloha2.com'), 0)), 1, 0) AS step_2,
                               if(ifNull(equals(step_2, 1), 0), timestamp, NULL) AS latest_2
-                       FROM events AS e
+                       FROM
+                         (SELECT toTimeZone(events.person_created_at, 'UTC') AS person_created_at,
+                                 events.person_properties AS person_properties,
+                                 events.person_id AS person_id,
+                                 replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', '') AS `properties___$current_url`,
+                                 toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                                 events.person_id AS event_person_id,
+                                 events.event AS event,
+                                 events.person_id AS e___person_id,
+                                 events.distinct_id AS e___distinct_id,
+                                 events.`$group_0` AS `$group_0`,
+                                 events.group0_properties AS group0_properties,
+                                 events.group0_created_at AS group0_created_at,
+                                 events.`$group_1` AS `$group_1`,
+                                 events.group1_properties AS group1_properties,
+                                 events.group1_created_at AS group1_created_at,
+                                 events.`$group_2` AS `$group_2`,
+                                 events.group2_properties AS group2_properties,
+                                 events.group2_created_at AS group2_created_at,
+                                 events.`$group_3` AS `$group_3`,
+                                 events.group3_properties AS group3_properties,
+                                 events.group3_created_at AS group3_created_at,
+                                 events.`$group_4` AS `$group_4`,
+                                 events.group4_properties AS group4_properties,
+                                 events.group4_created_at AS group4_created_at
+                          FROM events
+                          WHERE equals(events.team_id, 2)) AS e
                        LEFT OUTER JOIN
                          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                                  person_distinct_id_overrides.distinct_id AS distinct_id
                           FROM person_distinct_id_overrides
                           WHERE equals(person_distinct_id_overrides.team_id, 2)
                           GROUP BY person_distinct_id_overrides.distinct_id
-                          HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                          HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.e___distinct_id, e__override.distinct_id)
                        LEFT JOIN
                          (SELECT person.id AS id,
                                  replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email,
@@ -487,8 +614,8 @@
                                                                             FROM person
                                                                             WHERE equals(person.team_id, 2)
                                                                             GROUP BY person.id
-                                                                            HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
-                       WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-07-01 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('$pageview', 'user signed up')), or(and(ifNull(ilike(e__person.properties___email, '%.com%'), 0), ifNull(equals(e__person.properties___age, '20'), 0)), or(ifNull(ilike(e__person.properties___email, '%.org%'), 0), ifNull(equals(e__person.properties___age, '28'), 0)))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))))
+                                                                            HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(e.e___person_id, e__person.id)
+                       WHERE and(and(and(ifNull(greaterOrEquals(e.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(e.timestamp, toDateTime64('2020-07-01 23:59:59.999999', 6, 'UTC')), 0)), ifNull(in(e.event, tuple('$pageview', 'user signed up')), 0), or(and(ifNull(ilike(e__person.properties___email, '%.com%'), 0), ifNull(equals(e__person.properties___age, '20'), 0)), or(ifNull(ilike(e__person.properties___email, '%.org%'), 0), ifNull(equals(e__person.properties___age, '28'), 0)))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))))
            WHERE ifNull(equals(step_0, 1), 0)))
      GROUP BY aggregation_target,
               steps
@@ -568,22 +695,48 @@
                                                  min(latest_2) OVER (PARTITION BY aggregation_target
                                                                      ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) AS latest_2
                        FROM
-                         (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
-                                 if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
-                                 if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
+                         (SELECT e.timestamp AS timestamp,
+                                 if(not(empty(e__override.distinct_id)), e__override.person_id, e.event_person_id) AS aggregation_target,
+                                 if(ifNull(equals(e.event, 'user signed up'), 0), 1, 0) AS step_0,
                                  if(ifNull(equals(step_0, 1), 0), timestamp, NULL) AS latest_0,
-                                 if(and(equals(e.event, '$pageview'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$current_url'), ''), 'null'), '^"|"$', ''), 'aloha.com'), 0)), 1, 0) AS step_1,
+                                 if(and(ifNull(equals(e.event, '$pageview'), 0), ifNull(equals(e.`properties___$current_url`, 'aloha.com'), 0)), 1, 0) AS step_1,
                                  if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1,
-                                 if(and(equals(e.event, '$pageview'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$current_url'), ''), 'null'), '^"|"$', ''), 'aloha2.com'), 0)), 1, 0) AS step_2,
+                                 if(and(ifNull(equals(e.event, '$pageview'), 0), ifNull(equals(e.`properties___$current_url`, 'aloha2.com'), 0)), 1, 0) AS step_2,
                                  if(ifNull(equals(step_2, 1), 0), timestamp, NULL) AS latest_2
-                          FROM events AS e
+                          FROM
+                            (SELECT toTimeZone(events.person_created_at, 'UTC') AS person_created_at,
+                                    events.person_properties AS person_properties,
+                                    events.person_id AS person_id,
+                                    replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', '') AS `properties___$current_url`,
+                                    toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                                    events.person_id AS event_person_id,
+                                    events.event AS event,
+                                    events.person_id AS e___person_id,
+                                    events.distinct_id AS e___distinct_id,
+                                    events.`$group_0` AS `$group_0`,
+                                    events.group0_properties AS group0_properties,
+                                    events.group0_created_at AS group0_created_at,
+                                    events.`$group_1` AS `$group_1`,
+                                    events.group1_properties AS group1_properties,
+                                    events.group1_created_at AS group1_created_at,
+                                    events.`$group_2` AS `$group_2`,
+                                    events.group2_properties AS group2_properties,
+                                    events.group2_created_at AS group2_created_at,
+                                    events.`$group_3` AS `$group_3`,
+                                    events.group3_properties AS group3_properties,
+                                    events.group3_created_at AS group3_created_at,
+                                    events.`$group_4` AS `$group_4`,
+                                    events.group4_properties AS group4_properties,
+                                    events.group4_created_at AS group4_created_at
+                             FROM events
+                             WHERE equals(events.team_id, 2)) AS e
                           LEFT OUTER JOIN
                             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                                     person_distinct_id_overrides.distinct_id AS distinct_id
                              FROM person_distinct_id_overrides
                              WHERE equals(person_distinct_id_overrides.team_id, 2)
                              GROUP BY person_distinct_id_overrides.distinct_id
-                             HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                             HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.e___distinct_id, e__override.distinct_id)
                           LEFT JOIN
                             (SELECT person.id AS id,
                                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email,
@@ -594,8 +747,8 @@
                                                                                FROM person
                                                                                WHERE equals(person.team_id, 2)
                                                                                GROUP BY person.id
-                                                                               HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
-                          WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-07-01 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('$pageview', 'user signed up')), or(and(ifNull(ilike(e__person.properties___email, '%.com%'), 0), ifNull(equals(e__person.properties___age, '20'), 0)), or(ifNull(ilike(e__person.properties___email, '%.org%'), 0), ifNull(equals(e__person.properties___age, '28'), 0)))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))))
+                                                                               HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(e.e___person_id, e__person.id)
+                          WHERE and(and(and(ifNull(greaterOrEquals(e.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(e.timestamp, toDateTime64('2020-07-01 23:59:59.999999', 6, 'UTC')), 0)), ifNull(in(e.event, tuple('$pageview', 'user signed up')), 0), or(and(ifNull(ilike(e__person.properties___email, '%.com%'), 0), ifNull(equals(e__person.properties___age, '20'), 0)), or(ifNull(ilike(e__person.properties___email, '%.org%'), 0), ifNull(equals(e__person.properties___age, '28'), 0)))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))))
               WHERE ifNull(equals(step_0, 1), 0)))
         GROUP BY aggregation_target,
                  steps
@@ -686,22 +839,48 @@
                                                  min(latest_2) OVER (PARTITION BY aggregation_target
                                                                      ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) AS latest_2
                        FROM
-                         (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
-                                 if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
-                                 if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
+                         (SELECT e.timestamp AS timestamp,
+                                 if(not(empty(e__override.distinct_id)), e__override.person_id, e.event_person_id) AS aggregation_target,
+                                 if(ifNull(equals(e.event, 'user signed up'), 0), 1, 0) AS step_0,
                                  if(ifNull(equals(step_0, 1), 0), timestamp, NULL) AS latest_0,
-                                 if(and(equals(e.event, '$pageview'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$current_url'), ''), 'null'), '^"|"$', ''), 'aloha.com'), 0)), 1, 0) AS step_1,
+                                 if(and(ifNull(equals(e.event, '$pageview'), 0), ifNull(equals(e.`properties___$current_url`, 'aloha.com'), 0)), 1, 0) AS step_1,
                                  if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1,
-                                 if(and(equals(e.event, '$pageview'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$current_url'), ''), 'null'), '^"|"$', ''), 'aloha2.com'), 0)), 1, 0) AS step_2,
+                                 if(and(ifNull(equals(e.event, '$pageview'), 0), ifNull(equals(e.`properties___$current_url`, 'aloha2.com'), 0)), 1, 0) AS step_2,
                                  if(ifNull(equals(step_2, 1), 0), timestamp, NULL) AS latest_2
-                          FROM events AS e
+                          FROM
+                            (SELECT toTimeZone(events.person_created_at, 'UTC') AS person_created_at,
+                                    events.person_properties AS person_properties,
+                                    events.person_id AS person_id,
+                                    replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', '') AS `properties___$current_url`,
+                                    toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                                    events.person_id AS event_person_id,
+                                    events.event AS event,
+                                    events.person_id AS e___person_id,
+                                    events.distinct_id AS e___distinct_id,
+                                    events.`$group_0` AS `$group_0`,
+                                    events.group0_properties AS group0_properties,
+                                    events.group0_created_at AS group0_created_at,
+                                    events.`$group_1` AS `$group_1`,
+                                    events.group1_properties AS group1_properties,
+                                    events.group1_created_at AS group1_created_at,
+                                    events.`$group_2` AS `$group_2`,
+                                    events.group2_properties AS group2_properties,
+                                    events.group2_created_at AS group2_created_at,
+                                    events.`$group_3` AS `$group_3`,
+                                    events.group3_properties AS group3_properties,
+                                    events.group3_created_at AS group3_created_at,
+                                    events.`$group_4` AS `$group_4`,
+                                    events.group4_properties AS group4_properties,
+                                    events.group4_created_at AS group4_created_at
+                             FROM events
+                             WHERE equals(events.team_id, 2)) AS e
                           LEFT OUTER JOIN
                             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                                     person_distinct_id_overrides.distinct_id AS distinct_id
                              FROM person_distinct_id_overrides
                              WHERE equals(person_distinct_id_overrides.team_id, 2)
                              GROUP BY person_distinct_id_overrides.distinct_id
-                             HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                             HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.e___distinct_id, e__override.distinct_id)
                           LEFT JOIN
                             (SELECT person.id AS id,
                                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email,
@@ -712,8 +891,8 @@
                                                                                FROM person
                                                                                WHERE equals(person.team_id, 2)
                                                                                GROUP BY person.id
-                                                                               HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
-                          WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-07-01 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('$pageview', 'user signed up')), or(and(ifNull(ilike(e__person.properties___email, '%.com%'), 0), ifNull(equals(e__person.properties___age, '20'), 0)), or(ifNull(ilike(e__person.properties___email, '%.org%'), 0), ifNull(equals(e__person.properties___age, '28'), 0)))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))))
+                                                                               HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(e.e___person_id, e__person.id)
+                          WHERE and(and(and(ifNull(greaterOrEquals(e.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(e.timestamp, toDateTime64('2020-07-01 23:59:59.999999', 6, 'UTC')), 0)), ifNull(in(e.event, tuple('$pageview', 'user signed up')), 0), or(and(ifNull(ilike(e__person.properties___email, '%.com%'), 0), ifNull(equals(e__person.properties___age, '20'), 0)), or(ifNull(ilike(e__person.properties___email, '%.org%'), 0), ifNull(equals(e__person.properties___age, '28'), 0)))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))))
               WHERE ifNull(equals(step_0, 1), 0)))
         GROUP BY aggregation_target,
                  steps
@@ -804,22 +983,48 @@
                                                  min(latest_2) OVER (PARTITION BY aggregation_target
                                                                      ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) AS latest_2
                        FROM
-                         (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
-                                 if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
-                                 if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
+                         (SELECT e.timestamp AS timestamp,
+                                 if(not(empty(e__override.distinct_id)), e__override.person_id, e.event_person_id) AS aggregation_target,
+                                 if(ifNull(equals(e.event, 'user signed up'), 0), 1, 0) AS step_0,
                                  if(ifNull(equals(step_0, 1), 0), timestamp, NULL) AS latest_0,
-                                 if(and(equals(e.event, '$pageview'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$current_url'), ''), 'null'), '^"|"$', ''), 'aloha.com'), 0)), 1, 0) AS step_1,
+                                 if(and(ifNull(equals(e.event, '$pageview'), 0), ifNull(equals(e.`properties___$current_url`, 'aloha.com'), 0)), 1, 0) AS step_1,
                                  if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1,
-                                 if(and(equals(e.event, '$pageview'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$current_url'), ''), 'null'), '^"|"$', ''), 'aloha2.com'), 0)), 1, 0) AS step_2,
+                                 if(and(ifNull(equals(e.event, '$pageview'), 0), ifNull(equals(e.`properties___$current_url`, 'aloha2.com'), 0)), 1, 0) AS step_2,
                                  if(ifNull(equals(step_2, 1), 0), timestamp, NULL) AS latest_2
-                          FROM events AS e
+                          FROM
+                            (SELECT toTimeZone(events.person_created_at, 'UTC') AS person_created_at,
+                                    events.person_properties AS person_properties,
+                                    events.person_id AS person_id,
+                                    replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', '') AS `properties___$current_url`,
+                                    toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                                    events.person_id AS event_person_id,
+                                    events.event AS event,
+                                    events.person_id AS e___person_id,
+                                    events.distinct_id AS e___distinct_id,
+                                    events.`$group_0` AS `$group_0`,
+                                    events.group0_properties AS group0_properties,
+                                    events.group0_created_at AS group0_created_at,
+                                    events.`$group_1` AS `$group_1`,
+                                    events.group1_properties AS group1_properties,
+                                    events.group1_created_at AS group1_created_at,
+                                    events.`$group_2` AS `$group_2`,
+                                    events.group2_properties AS group2_properties,
+                                    events.group2_created_at AS group2_created_at,
+                                    events.`$group_3` AS `$group_3`,
+                                    events.group3_properties AS group3_properties,
+                                    events.group3_created_at AS group3_created_at,
+                                    events.`$group_4` AS `$group_4`,
+                                    events.group4_properties AS group4_properties,
+                                    events.group4_created_at AS group4_created_at
+                             FROM events
+                             WHERE equals(events.team_id, 2)) AS e
                           LEFT OUTER JOIN
                             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                                     person_distinct_id_overrides.distinct_id AS distinct_id
                              FROM person_distinct_id_overrides
                              WHERE equals(person_distinct_id_overrides.team_id, 2)
                              GROUP BY person_distinct_id_overrides.distinct_id
-                             HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                             HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.e___distinct_id, e__override.distinct_id)
                           LEFT JOIN
                             (SELECT person.id AS id,
                                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email,
@@ -830,8 +1035,8 @@
                                                                                FROM person
                                                                                WHERE equals(person.team_id, 2)
                                                                                GROUP BY person.id
-                                                                               HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
-                          WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-07-01 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('$pageview', 'user signed up')), or(and(ifNull(ilike(e__person.properties___email, '%.com%'), 0), ifNull(equals(e__person.properties___age, '20'), 0)), or(ifNull(ilike(e__person.properties___email, '%.org%'), 0), ifNull(equals(e__person.properties___age, '28'), 0)))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))))
+                                                                               HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(e.e___person_id, e__person.id)
+                          WHERE and(and(and(ifNull(greaterOrEquals(e.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(e.timestamp, toDateTime64('2020-07-01 23:59:59.999999', 6, 'UTC')), 0)), ifNull(in(e.event, tuple('$pageview', 'user signed up')), 0), or(and(ifNull(ilike(e__person.properties___email, '%.com%'), 0), ifNull(equals(e__person.properties___age, '20'), 0)), or(ifNull(ilike(e__person.properties___email, '%.org%'), 0), ifNull(equals(e__person.properties___age, '28'), 0)))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))))
               WHERE ifNull(equals(step_0, 1), 0)))
         GROUP BY aggregation_target,
                  steps
@@ -901,24 +1106,48 @@
                      min(latest_1) OVER (PARTITION BY aggregation_target
                                          ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) AS latest_1
               FROM
-                (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
-                        if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
-                        if(and(equals(e.event, 'user signed up'), ifNull(in(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id),
-                                                                              (SELECT person_static_cohort.person_id AS person_id
-                                                                               FROM person_static_cohort
-                                                                               WHERE and(equals(person_static_cohort.team_id, 2), equals(person_static_cohort.cohort_id, 2)))), 0)), 1, 0) AS step_0,
+                (SELECT e.timestamp AS timestamp,
+                        if(not(empty(e__override.distinct_id)), e__override.person_id, e.event_person_id) AS aggregation_target,
+                        if(and(ifNull(equals(e.event, 'user signed up'), 0), ifNull(in(if(not(empty(e__override.distinct_id)), e__override.person_id, e.event_person_id),
+                                                                                         (SELECT person_static_cohort.person_id AS person_id
+                                                                                          FROM person_static_cohort
+                                                                                          WHERE and(equals(person_static_cohort.team_id, 2), equals(person_static_cohort.cohort_id, 2)))), 0)), 1, 0) AS step_0,
                         if(ifNull(equals(step_0, 1), 0), timestamp, NULL) AS latest_0,
-                        if(equals(e.event, 'paid'), 1, 0) AS step_1,
+                        if(ifNull(equals(e.event, 'paid'), 0), 1, 0) AS step_1,
                         if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1
-                 FROM events AS e
+                 FROM
+                   (SELECT toTimeZone(events.person_created_at, 'UTC') AS person_created_at,
+                           events.person_properties AS person_properties,
+                           events.person_id AS person_id,
+                           toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                           events.person_id AS event_person_id,
+                           events.event AS event,
+                           events.distinct_id AS e___distinct_id,
+                           events.`$group_0` AS `$group_0`,
+                           events.group0_properties AS group0_properties,
+                           events.group0_created_at AS group0_created_at,
+                           events.`$group_1` AS `$group_1`,
+                           events.group1_properties AS group1_properties,
+                           events.group1_created_at AS group1_created_at,
+                           events.`$group_2` AS `$group_2`,
+                           events.group2_properties AS group2_properties,
+                           events.group2_created_at AS group2_created_at,
+                           events.`$group_3` AS `$group_3`,
+                           events.group3_properties AS group3_properties,
+                           events.group3_created_at AS group3_created_at,
+                           events.`$group_4` AS `$group_4`,
+                           events.group4_properties AS group4_properties,
+                           events.group4_created_at AS group4_created_at
+                    FROM events
+                    WHERE equals(events.team_id, 2)) AS e
                  LEFT OUTER JOIN
                    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                            person_distinct_id_overrides.distinct_id AS distinct_id
                     FROM person_distinct_id_overrides
                     WHERE equals(person_distinct_id_overrides.team_id, 2)
                     GROUP BY person_distinct_id_overrides.distinct_id
-                    HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-                 WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
+                    HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.e___distinct_id, e__override.distinct_id)
+                 WHERE and(and(and(ifNull(greaterOrEquals(e.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(e.timestamp, toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC')), 0)), ifNull(in(e.event, tuple('paid', 'user signed up')), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
            WHERE ifNull(equals(step_0, 1), 0)))
      GROUP BY aggregation_target,
               steps
@@ -968,21 +1197,45 @@
                      min(latest_1) OVER (PARTITION BY aggregation_target
                                          ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) AS latest_1
               FROM
-                (SELECT toTimeZone(e.timestamp, 'US/Pacific') AS timestamp,
-                        if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
-                        if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
+                (SELECT e.timestamp AS timestamp,
+                        if(not(empty(e__override.distinct_id)), e__override.person_id, e.event_person_id) AS aggregation_target,
+                        if(ifNull(equals(e.event, 'user signed up'), 0), 1, 0) AS step_0,
                         if(ifNull(equals(step_0, 1), 0), timestamp, NULL) AS latest_0,
-                        if(equals(e.event, 'paid'), 1, 0) AS step_1,
+                        if(ifNull(equals(e.event, 'paid'), 0), 1, 0) AS step_1,
                         if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1
-                 FROM events AS e
+                 FROM
+                   (SELECT toTimeZone(events.person_created_at, 'US/Pacific') AS person_created_at,
+                           events.person_properties AS person_properties,
+                           events.person_id AS person_id,
+                           toTimeZone(events.timestamp, 'US/Pacific') AS timestamp,
+                           events.person_id AS event_person_id,
+                           events.event AS event,
+                           events.distinct_id AS e___distinct_id,
+                           events.`$group_0` AS `$group_0`,
+                           events.group0_properties AS group0_properties,
+                           events.group0_created_at AS group0_created_at,
+                           events.`$group_1` AS `$group_1`,
+                           events.group1_properties AS group1_properties,
+                           events.group1_created_at AS group1_created_at,
+                           events.`$group_2` AS `$group_2`,
+                           events.group2_properties AS group2_properties,
+                           events.group2_created_at AS group2_created_at,
+                           events.`$group_3` AS `$group_3`,
+                           events.group3_properties AS group3_properties,
+                           events.group3_created_at AS group3_created_at,
+                           events.`$group_4` AS `$group_4`,
+                           events.group4_properties AS group4_properties,
+                           events.group4_created_at AS group4_created_at
+                    FROM events
+                    WHERE equals(events.team_id, 2)) AS e
                  LEFT OUTER JOIN
                    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                            person_distinct_id_overrides.distinct_id AS distinct_id
                     FROM person_distinct_id_overrides
                     WHERE equals(person_distinct_id_overrides.team_id, 2)
                     GROUP BY person_distinct_id_overrides.distinct_id
-                    HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-                 WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'US/Pacific'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'US/Pacific')), lessOrEquals(toTimeZone(e.timestamp, 'US/Pacific'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'US/Pacific'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
+                    HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.e___distinct_id, e__override.distinct_id)
+                 WHERE and(and(and(ifNull(greaterOrEquals(e.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'US/Pacific')), 0), ifNull(lessOrEquals(e.timestamp, toDateTime64('2020-01-14 23:59:59.999999', 6, 'US/Pacific')), 0)), ifNull(in(e.event, tuple('paid', 'user signed up')), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
            WHERE ifNull(equals(step_0, 1), 0)))
      GROUP BY aggregation_target,
               steps
@@ -1059,24 +1312,50 @@
                            prop_vals AS prop_vals,
                            if(notEmpty(arrayFilter(x -> notEmpty(x), prop_vals)), prop_vals, ['']) AS prop
                     FROM
-                      (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
-                              if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
-                              if(equals(e.event, 'sign up'), 1, 0) AS step_0,
+                      (SELECT e.timestamp AS timestamp,
+                              if(not(empty(e__override.distinct_id)), e__override.person_id, e.event_person_id) AS aggregation_target,
+                              if(ifNull(equals(e.event, 'sign up'), 0), 1, 0) AS step_0,
                               if(ifNull(equals(step_0, 1), 0), timestamp, NULL) AS latest_0,
-                              if(and(equals(e.event, 'buy'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$version'), ''), 'null'), '^"|"$', ''), 'xyz'), 0)), 1, 0) AS step_1,
+                              if(and(ifNull(equals(e.event, 'buy'), 0), ifNull(equals(e.`properties___$version`, 'xyz'), 0)), 1, 0) AS step_1,
                               if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1,
-                              [ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$browser'), ''), 'null'), '^"|"$', '')), '')] AS prop_basic,
+                              [ifNull(toString(e.`properties___$browser`), '')] AS prop_basic,
                               prop_basic AS prop,
                               argMinIf(prop, timestamp, notEmpty(arrayFilter(x -> notEmpty(x), prop))) OVER (PARTITION BY aggregation_target) AS prop_vals
-                       FROM events AS e
+                       FROM
+                         (SELECT toTimeZone(events.person_created_at, 'UTC') AS person_created_at,
+                                 events.person_properties AS person_properties,
+                                 events.person_id AS person_id,
+                                 replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$version'), ''), 'null'), '^"|"$', '') AS `properties___$version`,
+                                 replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$browser'), ''), 'null'), '^"|"$', '') AS `properties___$browser`,
+                                 toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                                 events.person_id AS event_person_id,
+                                 events.event AS event,
+                                 events.distinct_id AS e___distinct_id,
+                                 events.`$group_0` AS `$group_0`,
+                                 events.group0_properties AS group0_properties,
+                                 events.group0_created_at AS group0_created_at,
+                                 events.`$group_1` AS `$group_1`,
+                                 events.group1_properties AS group1_properties,
+                                 events.group1_created_at AS group1_created_at,
+                                 events.`$group_2` AS `$group_2`,
+                                 events.group2_properties AS group2_properties,
+                                 events.group2_created_at AS group2_created_at,
+                                 events.`$group_3` AS `$group_3`,
+                                 events.group3_properties AS group3_properties,
+                                 events.group3_created_at AS group3_created_at,
+                                 events.`$group_4` AS `$group_4`,
+                                 events.group4_properties AS group4_properties,
+                                 events.group4_created_at AS group4_created_at
+                          FROM events
+                          WHERE equals(events.team_id, 2)) AS e
                        LEFT OUTER JOIN
                          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                                  person_distinct_id_overrides.distinct_id AS distinct_id
                           FROM person_distinct_id_overrides
                           WHERE equals(person_distinct_id_overrides.team_id, 2)
                           GROUP BY person_distinct_id_overrides.distinct_id
-                          HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-                       WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-08 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('buy', 'sign up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))))
+                          HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.e___distinct_id, e__override.distinct_id)
+                       WHERE and(and(and(ifNull(greaterOrEquals(e.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(e.timestamp, toDateTime64('2020-01-08 23:59:59.999999', 6, 'UTC')), 0)), ifNull(in(e.event, tuple('buy', 'sign up')), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))))
               WHERE ifNull(equals(step_0, 1), 0)))
         GROUP BY aggregation_target,
                  steps,
@@ -1158,26 +1437,52 @@
                            prop_vals AS prop_vals,
                            prop
                     FROM
-                      (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
-                              if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
-                              if(equals(e.event, 'sign up'), 1, 0) AS step_0,
+                      (SELECT e.timestamp AS timestamp,
+                              if(not(empty(e__override.distinct_id)), e__override.person_id, e.event_person_id) AS aggregation_target,
+                              if(ifNull(equals(e.event, 'sign up'), 0), 1, 0) AS step_0,
                               if(ifNull(equals(step_0, 1), 0), timestamp, NULL) AS latest_0,
-                              if(and(equals(e.event, 'buy'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$version'), ''), 'null'), '^"|"$', ''), 'xyz'), 0)), 1, 0) AS step_1,
+                              if(and(ifNull(equals(e.event, 'buy'), 0), ifNull(equals(e.`properties___$version`, 'xyz'), 0)), 1, 0) AS step_1,
                               if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1,
-                              [ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$browser'), ''), 'null'), '^"|"$', '')), '')] AS prop_basic,
+                              [ifNull(toString(e.`properties___$browser`), '')] AS prop_basic,
                               if(ifNull(equals(step_0, 1), 0), prop_basic, []) AS prop_0,
                               if(ifNull(equals(step_1, 1), 0), prop_basic, []) AS prop_1,
                               prop_1 AS prop,
                               groupUniqArray(prop) OVER (PARTITION BY aggregation_target) AS prop_vals
-                       FROM events AS e
+                       FROM
+                         (SELECT toTimeZone(events.person_created_at, 'UTC') AS person_created_at,
+                                 events.person_properties AS person_properties,
+                                 events.person_id AS person_id,
+                                 replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$version'), ''), 'null'), '^"|"$', '') AS `properties___$version`,
+                                 replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$browser'), ''), 'null'), '^"|"$', '') AS `properties___$browser`,
+                                 toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                                 events.person_id AS event_person_id,
+                                 events.event AS event,
+                                 events.distinct_id AS e___distinct_id,
+                                 events.`$group_0` AS `$group_0`,
+                                 events.group0_properties AS group0_properties,
+                                 events.group0_created_at AS group0_created_at,
+                                 events.`$group_1` AS `$group_1`,
+                                 events.group1_properties AS group1_properties,
+                                 events.group1_created_at AS group1_created_at,
+                                 events.`$group_2` AS `$group_2`,
+                                 events.group2_properties AS group2_properties,
+                                 events.group2_created_at AS group2_created_at,
+                                 events.`$group_3` AS `$group_3`,
+                                 events.group3_properties AS group3_properties,
+                                 events.group3_created_at AS group3_created_at,
+                                 events.`$group_4` AS `$group_4`,
+                                 events.group4_properties AS group4_properties,
+                                 events.group4_created_at AS group4_created_at
+                          FROM events
+                          WHERE equals(events.team_id, 2)) AS e
                        LEFT OUTER JOIN
                          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                                  person_distinct_id_overrides.distinct_id AS distinct_id
                           FROM person_distinct_id_overrides
                           WHERE equals(person_distinct_id_overrides.team_id, 2)
                           GROUP BY person_distinct_id_overrides.distinct_id
-                          HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-                       WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-08 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('buy', 'sign up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))) ARRAY
+                          HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.e___distinct_id, e__override.distinct_id)
+                       WHERE and(and(and(ifNull(greaterOrEquals(e.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(e.timestamp, toDateTime64('2020-01-08 23:59:59.999999', 6, 'UTC')), 0)), ifNull(in(e.event, tuple('buy', 'sign up')), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))) ARRAY
                     JOIN prop_vals AS prop
                     WHERE ifNull(notEquals(prop, []), isNotNull(prop)
                                  or isNotNull([]))))
@@ -1260,24 +1565,50 @@
                            prop_vals AS prop_vals,
                            if(notEmpty(arrayFilter(x -> notEmpty(x), prop_vals)), prop_vals, ['', '']) AS prop
                     FROM
-                      (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
-                              if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
-                              if(equals(e.event, 'sign up'), 1, 0) AS step_0,
+                      (SELECT e.timestamp AS timestamp,
+                              if(not(empty(e__override.distinct_id)), e__override.person_id, e.event_person_id) AS aggregation_target,
+                              if(ifNull(equals(e.event, 'sign up'), 0), 1, 0) AS step_0,
                               if(ifNull(equals(step_0, 1), 0), timestamp, NULL) AS latest_0,
-                              if(equals(e.event, 'buy'), 1, 0) AS step_1,
+                              if(ifNull(equals(e.event, 'buy'), 0), 1, 0) AS step_1,
                               if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1,
-                              [ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$browser'), ''), 'null'), '^"|"$', '')), ''), ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$version'), ''), 'null'), '^"|"$', '')), '')] AS prop_basic,
+                              [ifNull(toString(e.`properties___$browser`), ''), ifNull(toString(e.`properties___$version`), '')] AS prop_basic,
                               prop_basic AS prop,
                               argMinIf(prop, timestamp, notEmpty(arrayFilter(x -> notEmpty(x), prop))) OVER (PARTITION BY aggregation_target) AS prop_vals
-                       FROM events AS e
+                       FROM
+                         (SELECT toTimeZone(events.person_created_at, 'UTC') AS person_created_at,
+                                 events.person_properties AS person_properties,
+                                 events.person_id AS person_id,
+                                 replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$browser'), ''), 'null'), '^"|"$', '') AS `properties___$browser`,
+                                 replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$version'), ''), 'null'), '^"|"$', '') AS `properties___$version`,
+                                 toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                                 events.person_id AS event_person_id,
+                                 events.event AS event,
+                                 events.distinct_id AS e___distinct_id,
+                                 events.`$group_0` AS `$group_0`,
+                                 events.group0_properties AS group0_properties,
+                                 events.group0_created_at AS group0_created_at,
+                                 events.`$group_1` AS `$group_1`,
+                                 events.group1_properties AS group1_properties,
+                                 events.group1_created_at AS group1_created_at,
+                                 events.`$group_2` AS `$group_2`,
+                                 events.group2_properties AS group2_properties,
+                                 events.group2_created_at AS group2_created_at,
+                                 events.`$group_3` AS `$group_3`,
+                                 events.group3_properties AS group3_properties,
+                                 events.group3_created_at AS group3_created_at,
+                                 events.`$group_4` AS `$group_4`,
+                                 events.group4_properties AS group4_properties,
+                                 events.group4_created_at AS group4_created_at
+                          FROM events
+                          WHERE equals(events.team_id, 2)) AS e
                        LEFT OUTER JOIN
                          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                                  person_distinct_id_overrides.distinct_id AS distinct_id
                           FROM person_distinct_id_overrides
                           WHERE equals(person_distinct_id_overrides.team_id, 2)
                           GROUP BY person_distinct_id_overrides.distinct_id
-                          HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-                       WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-08 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('buy', 'sign up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))))
+                          HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.e___distinct_id, e__override.distinct_id)
+                       WHERE and(and(and(ifNull(greaterOrEquals(e.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(e.timestamp, toDateTime64('2020-01-08 23:59:59.999999', 6, 'UTC')), 0)), ifNull(in(e.event, tuple('buy', 'sign up')), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))))
               WHERE ifNull(equals(step_0, 1), 0)))
         GROUP BY aggregation_target,
                  steps,
@@ -1395,18 +1726,41 @@
                                  prop_vals AS prop_vals,
                                  prop_vals AS prop
                           FROM
-                            (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                            (SELECT e.timestamp AS timestamp,
                                     e.`$group_0` AS aggregation_target,
-                                    if(equals(e.event, 'sign up'), 1, 0) AS step_0,
+                                    if(ifNull(equals(e.event, 'sign up'), 0), 1, 0) AS step_0,
                                     if(ifNull(equals(step_0, 1), 0), timestamp, NULL) AS latest_0,
-                                    if(equals(e.event, 'play movie'), 1, 0) AS step_1,
+                                    if(ifNull(equals(e.event, 'play movie'), 0), 1, 0) AS step_1,
                                     if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1,
-                                    if(equals(e.event, 'buy'), 1, 0) AS step_2,
+                                    if(ifNull(equals(e.event, 'buy'), 0), 1, 0) AS step_2,
                                     if(ifNull(equals(step_2, 1), 0), timestamp, NULL) AS latest_2,
                                     ifNull(toString(e__group_0.properties___industry), '') AS prop_basic,
                                     prop_basic AS prop,
                                     argMinIf(prop, timestamp, isNotNull(prop)) OVER (PARTITION BY aggregation_target) AS prop_vals
-                             FROM events AS e
+                             FROM
+                               (SELECT toTimeZone(events.person_created_at, 'UTC') AS person_created_at,
+                                       events.person_properties AS person_properties,
+                                       events.person_id AS person_id,
+                                       toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                                       events.`$group_0` AS `$group_0`,
+                                       events.event AS event,
+                                       events.`$group_0` AS `e___$group_0`,
+                                       events.group0_properties AS group0_properties,
+                                       events.group0_created_at AS group0_created_at,
+                                       events.`$group_1` AS `$group_1`,
+                                       events.group1_properties AS group1_properties,
+                                       events.group1_created_at AS group1_created_at,
+                                       events.`$group_2` AS `$group_2`,
+                                       events.group2_properties AS group2_properties,
+                                       events.group2_created_at AS group2_created_at,
+                                       events.`$group_3` AS `$group_3`,
+                                       events.group3_properties AS group3_properties,
+                                       events.group3_created_at AS group3_created_at,
+                                       events.`$group_4` AS `$group_4`,
+                                       events.group4_properties AS group4_properties,
+                                       events.group4_created_at AS group4_created_at
+                                FROM events
+                                WHERE equals(events.team_id, 2)) AS e
                              LEFT JOIN
                                (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
                                        groups.group_type_index AS index,
@@ -1414,8 +1768,8 @@
                                 FROM groups
                                 WHERE and(equals(groups.team_id, 2), ifNull(equals(index, 0), 0))
                                 GROUP BY groups.group_type_index,
-                                         groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-                             WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-08 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('buy', 'play movie', 'sign up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0))))))))
+                                         groups.group_key) AS e__group_0 ON equals(e.`e___$group_0`, e__group_0.key)
+                             WHERE and(and(and(ifNull(greaterOrEquals(e.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(e.timestamp, toDateTime64('2020-01-08 23:59:59.999999', 6, 'UTC')), 0)), ifNull(in(e.event, tuple('buy', 'play movie', 'sign up')), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0))))))))
               WHERE ifNull(equals(step_0, 1), 0)))
         GROUP BY aggregation_target,
                  steps,
@@ -1533,18 +1887,41 @@
                                  prop_vals AS prop_vals,
                                  prop_vals AS prop
                           FROM
-                            (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                            (SELECT e.timestamp AS timestamp,
                                     e.`$group_0` AS aggregation_target,
-                                    if(equals(e.event, 'sign up'), 1, 0) AS step_0,
+                                    if(ifNull(equals(e.event, 'sign up'), 0), 1, 0) AS step_0,
                                     if(ifNull(equals(step_0, 1), 0), timestamp, NULL) AS latest_0,
-                                    if(equals(e.event, 'play movie'), 1, 0) AS step_1,
+                                    if(ifNull(equals(e.event, 'play movie'), 0), 1, 0) AS step_1,
                                     if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1,
-                                    if(equals(e.event, 'buy'), 1, 0) AS step_2,
+                                    if(ifNull(equals(e.event, 'buy'), 0), 1, 0) AS step_2,
                                     if(ifNull(equals(step_2, 1), 0), timestamp, NULL) AS latest_2,
                                     ifNull(toString(e__group_0.properties___industry), '') AS prop_basic,
                                     prop_basic AS prop,
                                     argMinIf(prop, timestamp, isNotNull(prop)) OVER (PARTITION BY aggregation_target) AS prop_vals
-                             FROM events AS e
+                             FROM
+                               (SELECT toTimeZone(events.person_created_at, 'UTC') AS person_created_at,
+                                       events.person_properties AS person_properties,
+                                       events.person_id AS person_id,
+                                       toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                                       events.`$group_0` AS `$group_0`,
+                                       events.event AS event,
+                                       events.`$group_0` AS `e___$group_0`,
+                                       events.group0_properties AS group0_properties,
+                                       events.group0_created_at AS group0_created_at,
+                                       events.`$group_1` AS `$group_1`,
+                                       events.group1_properties AS group1_properties,
+                                       events.group1_created_at AS group1_created_at,
+                                       events.`$group_2` AS `$group_2`,
+                                       events.group2_properties AS group2_properties,
+                                       events.group2_created_at AS group2_created_at,
+                                       events.`$group_3` AS `$group_3`,
+                                       events.group3_properties AS group3_properties,
+                                       events.group3_created_at AS group3_created_at,
+                                       events.`$group_4` AS `$group_4`,
+                                       events.group4_properties AS group4_properties,
+                                       events.group4_created_at AS group4_created_at
+                                FROM events
+                                WHERE equals(events.team_id, 2)) AS e
                              LEFT JOIN
                                (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
                                        groups.group_type_index AS index,
@@ -1552,8 +1929,8 @@
                                 FROM groups
                                 WHERE and(equals(groups.team_id, 2), ifNull(equals(index, 0), 0))
                                 GROUP BY groups.group_type_index,
-                                         groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-                             WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-08 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('buy', 'play movie', 'sign up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0))))))))
+                                         groups.group_key) AS e__group_0 ON equals(e.`e___$group_0`, e__group_0.key)
+                             WHERE and(and(and(ifNull(greaterOrEquals(e.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(e.timestamp, toDateTime64('2020-01-08 23:59:59.999999', 6, 'UTC')), 0)), ifNull(in(e.event, tuple('buy', 'play movie', 'sign up')), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0))))))))
               WHERE ifNull(equals(step_0, 1), 0)))
         GROUP BY aggregation_target,
                  steps,
@@ -1671,25 +2048,50 @@
                                  prop_vals AS prop_vals,
                                  prop_vals AS prop
                           FROM
-                            (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
-                                    if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
-                                    if(equals(e.event, 'sign up'), 1, 0) AS step_0,
+                            (SELECT e.timestamp AS timestamp,
+                                    if(not(empty(e__override.distinct_id)), e__override.person_id, e.event_person_id) AS aggregation_target,
+                                    if(ifNull(equals(e.event, 'sign up'), 0), 1, 0) AS step_0,
                                     if(ifNull(equals(step_0, 1), 0), timestamp, NULL) AS latest_0,
-                                    if(equals(e.event, 'play movie'), 1, 0) AS step_1,
+                                    if(ifNull(equals(e.event, 'play movie'), 0), 1, 0) AS step_1,
                                     if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1,
-                                    if(equals(e.event, 'buy'), 1, 0) AS step_2,
+                                    if(ifNull(equals(e.event, 'buy'), 0), 1, 0) AS step_2,
                                     if(ifNull(equals(step_2, 1), 0), timestamp, NULL) AS latest_2,
                                     ifNull(toString(e__group_0.properties___industry), '') AS prop_basic,
                                     prop_basic AS prop,
                                     argMinIf(prop, timestamp, isNotNull(prop)) OVER (PARTITION BY aggregation_target) AS prop_vals
-                             FROM events AS e
+                             FROM
+                               (SELECT toTimeZone(events.person_created_at, 'UTC') AS person_created_at,
+                                       events.person_properties AS person_properties,
+                                       events.person_id AS person_id,
+                                       toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                                       events.person_id AS event_person_id,
+                                       events.event AS event,
+                                       events.`$group_0` AS `e___$group_0`,
+                                       events.distinct_id AS e___distinct_id,
+                                       events.`$group_0` AS `$group_0`,
+                                       events.group0_properties AS group0_properties,
+                                       events.group0_created_at AS group0_created_at,
+                                       events.`$group_1` AS `$group_1`,
+                                       events.group1_properties AS group1_properties,
+                                       events.group1_created_at AS group1_created_at,
+                                       events.`$group_2` AS `$group_2`,
+                                       events.group2_properties AS group2_properties,
+                                       events.group2_created_at AS group2_created_at,
+                                       events.`$group_3` AS `$group_3`,
+                                       events.group3_properties AS group3_properties,
+                                       events.group3_created_at AS group3_created_at,
+                                       events.`$group_4` AS `$group_4`,
+                                       events.group4_properties AS group4_properties,
+                                       events.group4_created_at AS group4_created_at
+                                FROM events
+                                WHERE equals(events.team_id, 2)) AS e
                              LEFT OUTER JOIN
                                (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                                        person_distinct_id_overrides.distinct_id AS distinct_id
                                 FROM person_distinct_id_overrides
                                 WHERE equals(person_distinct_id_overrides.team_id, 2)
                                 GROUP BY person_distinct_id_overrides.distinct_id
-                                HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                                HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.e___distinct_id, e__override.distinct_id)
                              LEFT JOIN
                                (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
                                        groups.group_type_index AS index,
@@ -1697,8 +2099,8 @@
                                 FROM groups
                                 WHERE and(equals(groups.team_id, 2), ifNull(equals(index, 0), 0))
                                 GROUP BY groups.group_type_index,
-                                         groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-                             WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-08 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('buy', 'play movie', 'sign up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0))))))))
+                                         groups.group_key) AS e__group_0 ON equals(e.`e___$group_0`, e__group_0.key)
+                             WHERE and(and(and(ifNull(greaterOrEquals(e.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(e.timestamp, toDateTime64('2020-01-08 23:59:59.999999', 6, 'UTC')), 0)), ifNull(in(e.event, tuple('buy', 'play movie', 'sign up')), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0))))))))
               WHERE ifNull(equals(step_0, 1), 0)))
         GROUP BY aggregation_target,
                  steps,

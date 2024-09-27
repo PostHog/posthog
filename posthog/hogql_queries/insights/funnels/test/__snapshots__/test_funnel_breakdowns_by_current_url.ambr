@@ -60,24 +60,49 @@
                            prop_vals AS prop_vals,
                            if(notEmpty(arrayFilter(x -> notEmpty(x), prop_vals)), prop_vals, ['']) AS prop
                     FROM
-                      (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
-                              if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
-                              if(equals(e.event, 'watched movie'), 1, 0) AS step_0,
+                      (SELECT e.timestamp AS timestamp,
+                              if(not(empty(e__override.distinct_id)), e__override.person_id, e.event_person_id) AS aggregation_target,
+                              if(ifNull(equals(e.event, 'watched movie'), 0), 1, 0) AS step_0,
                               if(ifNull(equals(step_0, 1), 0), timestamp, NULL) AS latest_0,
-                              if(equals(e.event, 'terminate funnel'), 1, 0) AS step_1,
+                              if(ifNull(equals(e.event, 'terminate funnel'), 0), 1, 0) AS step_1,
                               if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1,
-                              [if(empty(replaceRegexpOne(ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$current_url'), ''), 'null'), '^"|"$', '')), ''), '[\\/?#]*$', '')), '/', replaceRegexpOne(ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$current_url'), ''), 'null'), '^"|"$', '')), ''), '[\\/?#]*$', ''))] AS prop_basic,
+                              [if(empty(replaceRegexpOne(ifNull(toString(e.`properties___$current_url`), ''), '[\\/?#]*$', '')), '/', replaceRegexpOne(ifNull(toString(e.`properties___$current_url`), ''), '[\\/?#]*$', ''))] AS prop_basic,
                               prop_basic AS prop,
                               argMinIf(prop, timestamp, notEmpty(arrayFilter(x -> notEmpty(x), prop))) OVER (PARTITION BY aggregation_target) AS prop_vals
-                       FROM events AS e
+                       FROM
+                         (SELECT toTimeZone(events.person_created_at, 'UTC') AS person_created_at,
+                                 events.person_properties AS person_properties,
+                                 events.person_id AS person_id,
+                                 replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', '') AS `properties___$current_url`,
+                                 toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                                 events.person_id AS event_person_id,
+                                 events.event AS event,
+                                 events.distinct_id AS e___distinct_id,
+                                 events.`$group_0` AS `$group_0`,
+                                 events.group0_properties AS group0_properties,
+                                 events.group0_created_at AS group0_created_at,
+                                 events.`$group_1` AS `$group_1`,
+                                 events.group1_properties AS group1_properties,
+                                 events.group1_created_at AS group1_created_at,
+                                 events.`$group_2` AS `$group_2`,
+                                 events.group2_properties AS group2_properties,
+                                 events.group2_created_at AS group2_created_at,
+                                 events.`$group_3` AS `$group_3`,
+                                 events.group3_properties AS group3_properties,
+                                 events.group3_created_at AS group3_created_at,
+                                 events.`$group_4` AS `$group_4`,
+                                 events.group4_properties AS group4_properties,
+                                 events.group4_created_at AS group4_created_at
+                          FROM events
+                          WHERE equals(events.team_id, 2)) AS e
                        LEFT OUTER JOIN
                          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                                  person_distinct_id_overrides.distinct_id AS distinct_id
                           FROM person_distinct_id_overrides
                           WHERE equals(person_distinct_id_overrides.team_id, 2)
                           GROUP BY person_distinct_id_overrides.distinct_id
-                          HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-                       WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-02 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-12 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('terminate funnel', 'watched movie'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))))
+                          HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.e___distinct_id, e__override.distinct_id)
+                       WHERE and(and(and(ifNull(greaterOrEquals(e.timestamp, toDateTime64('2020-01-02 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(e.timestamp, toDateTime64('2020-01-12 23:59:59.999999', 6, 'UTC')), 0)), ifNull(in(e.event, tuple('terminate funnel', 'watched movie')), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))))
               WHERE ifNull(equals(step_0, 1), 0)))
         GROUP BY aggregation_target,
                  steps,
@@ -157,24 +182,49 @@
                            prop_vals AS prop_vals,
                            if(notEmpty(arrayFilter(x -> notEmpty(x), prop_vals)), prop_vals, ['']) AS prop
                     FROM
-                      (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
-                              if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
-                              if(equals(e.event, 'watched movie'), 1, 0) AS step_0,
+                      (SELECT e.timestamp AS timestamp,
+                              if(not(empty(e__override.distinct_id)), e__override.person_id, e.event_person_id) AS aggregation_target,
+                              if(ifNull(equals(e.event, 'watched movie'), 0), 1, 0) AS step_0,
                               if(ifNull(equals(step_0, 1), 0), timestamp, NULL) AS latest_0,
-                              if(equals(e.event, 'terminate funnel'), 1, 0) AS step_1,
+                              if(ifNull(equals(e.event, 'terminate funnel'), 0), 1, 0) AS step_1,
                               if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1,
-                              [if(empty(replaceRegexpOne(ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$pathname'), ''), 'null'), '^"|"$', '')), ''), '[\\/?#]*$', '')), '/', replaceRegexpOne(ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$pathname'), ''), 'null'), '^"|"$', '')), ''), '[\\/?#]*$', ''))] AS prop_basic,
+                              [if(empty(replaceRegexpOne(ifNull(toString(e.`properties___$pathname`), ''), '[\\/?#]*$', '')), '/', replaceRegexpOne(ifNull(toString(e.`properties___$pathname`), ''), '[\\/?#]*$', ''))] AS prop_basic,
                               prop_basic AS prop,
                               argMinIf(prop, timestamp, notEmpty(arrayFilter(x -> notEmpty(x), prop))) OVER (PARTITION BY aggregation_target) AS prop_vals
-                       FROM events AS e
+                       FROM
+                         (SELECT toTimeZone(events.person_created_at, 'UTC') AS person_created_at,
+                                 events.person_properties AS person_properties,
+                                 events.person_id AS person_id,
+                                 replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '') AS `properties___$pathname`,
+                                 toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                                 events.person_id AS event_person_id,
+                                 events.event AS event,
+                                 events.distinct_id AS e___distinct_id,
+                                 events.`$group_0` AS `$group_0`,
+                                 events.group0_properties AS group0_properties,
+                                 events.group0_created_at AS group0_created_at,
+                                 events.`$group_1` AS `$group_1`,
+                                 events.group1_properties AS group1_properties,
+                                 events.group1_created_at AS group1_created_at,
+                                 events.`$group_2` AS `$group_2`,
+                                 events.group2_properties AS group2_properties,
+                                 events.group2_created_at AS group2_created_at,
+                                 events.`$group_3` AS `$group_3`,
+                                 events.group3_properties AS group3_properties,
+                                 events.group3_created_at AS group3_created_at,
+                                 events.`$group_4` AS `$group_4`,
+                                 events.group4_properties AS group4_properties,
+                                 events.group4_created_at AS group4_created_at
+                          FROM events
+                          WHERE equals(events.team_id, 2)) AS e
                        LEFT OUTER JOIN
                          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                                  person_distinct_id_overrides.distinct_id AS distinct_id
                           FROM person_distinct_id_overrides
                           WHERE equals(person_distinct_id_overrides.team_id, 2)
                           GROUP BY person_distinct_id_overrides.distinct_id
-                          HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-                       WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-02 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-12 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('terminate funnel', 'watched movie'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))))
+                          HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.e___distinct_id, e__override.distinct_id)
+                       WHERE and(and(and(ifNull(greaterOrEquals(e.timestamp, toDateTime64('2020-01-02 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(e.timestamp, toDateTime64('2020-01-12 23:59:59.999999', 6, 'UTC')), 0)), ifNull(in(e.event, tuple('terminate funnel', 'watched movie')), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))))
               WHERE ifNull(equals(step_0, 1), 0)))
         GROUP BY aggregation_target,
                  steps,

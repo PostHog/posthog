@@ -31,6 +31,7 @@ from posthog.hogql.database.models import (
 from posthog.hogql.database.schema.channel_type import create_initial_channel_type, create_initial_domain_type
 from posthog.hogql.database.schema.cohort_people import CohortPeople, RawCohortPeople
 from posthog.hogql.database.schema.events import EventsTable
+from posthog.hogql.database.schema.events_virtual import EventsLazy, RawEvents
 from posthog.hogql.database.schema.groups import GroupsTable, RawGroupsTable
 from posthog.hogql.database.schema.heatmaps import HeatmapsTable
 from posthog.hogql.database.schema.log_entries import (
@@ -98,7 +99,6 @@ class Database(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     # Users can query from the tables below
-    events: EventsTable = EventsTable()
     groups: GroupsTable = GroupsTable()
     persons: PersonsTable = PersonsTable()
     person_distinct_ids: PersonDistinctIdsTable = PersonDistinctIdsTable()
@@ -120,6 +120,10 @@ class Database(BaseModel):
     raw_cohort_people: RawCohortPeople = RawCohortPeople()
     raw_person_distinct_id_overrides: RawPersonDistinctIdOverridesTable = RawPersonDistinctIdOverridesTable()
     raw_sessions: Union[RawSessionsTableV1, RawSessionsTableV2] = RawSessionsTableV1()
+
+    events: EventsTable = EventsTable()
+
+    raw_events: EventsTable = RawEvents()
 
     # system tables
     numbers: NumbersTable = NumbersTable()
@@ -144,13 +148,17 @@ class Database(BaseModel):
     _timezone: Optional[str]
     _week_start_day: Optional[WeekStartDay]
 
-    def __init__(self, timezone: Optional[str] = None, week_start_day: Optional[WeekStartDay] = None):
+    def __init__(
+        self, timezone: Optional[str] = None, week_start_day: Optional[WeekStartDay] = None, virtual_events=False
+    ):
         super().__init__()
         try:
             self._timezone = str(ZoneInfo(timezone)) if timezone else None
         except ZoneInfoNotFoundError:
             raise ValueError(f"Unknown timezone: '{str(timezone)}'")
         self._week_start_day = week_start_day
+        if virtual_events:
+            self.events = EventsLazy()
 
     def get_timezone(self) -> str:
         return self._timezone or "UTC"
@@ -190,28 +198,34 @@ class Database(BaseModel):
 
 
 def _use_person_properties_from_events(database: Database) -> None:
-    database.events.fields["person"] = FieldTraverser(chain=["poe"])
+    for table in (database.events,):  # database.events,
+        table.fields["person"] = FieldTraverser(chain=["poe"])
+        table.fields["person"] = FieldTraverser(chain=["poe"])
 
 
 def _use_person_id_from_person_overrides(database: Database) -> None:
-    database.events.fields["event_person_id"] = StringDatabaseField(name="person_id")
-    database.events.fields["override"] = LazyJoin(
-        from_field=["distinct_id"],
-        join_table=PersonDistinctIdOverridesTable(),
-        join_function=join_with_person_distinct_id_overrides_table,
-    )
-    database.events.fields["person_id"] = ExpressionField(
-        name="person_id",
-        expr=parse_expr(
-            # NOTE: assumes `join_use_nulls = 0` (the default), as ``override.distinct_id`` is not Nullable
-            "if(not(empty(override.distinct_id)), override.person_id, event_person_id)",
-            start=None,
-        ),
-    )
+    for table in (database.events,):  # database.events,
+        table.fields["event_person_id"] = StringDatabaseField(name="person_id")
+        table.fields["override"] = LazyJoin(
+            from_field=["distinct_id"],
+            join_table=PersonDistinctIdOverridesTable(),
+            join_function=join_with_person_distinct_id_overrides_table,
+        )
+        table.fields["person_id"] = ExpressionField(
+            name="person_id",
+            expr=parse_expr(
+                # NOTE: assumes `join_use_nulls = 0` (the default), as ``override.distinct_id`` is not Nullable
+                "if(not(empty(override.distinct_id)), override.person_id, event_person_id)",
+                start=None,
+            ),
+        )
 
 
 def create_hogql_database(
-    team_id: int, modifiers: Optional[HogQLQueryModifiers] = None, team_arg: Optional["Team"] = None
+    team_id: int,
+    modifiers: Optional[HogQLQueryModifiers] = None,
+    team_arg: Optional["Team"] = None,
+    virtual_events=False,
 ) -> Database:
     from posthog.models import Team
     from posthog.hogql.database.s3_table import S3Table
@@ -224,29 +238,30 @@ def create_hogql_database(
 
     team = team_arg or Team.objects.get(pk=team_id)
     modifiers = create_default_modifiers_for_team(team, modifiers)
-    database = Database(timezone=team.timezone, week_start_day=team.week_start_day)
+    database = Database(timezone=team.timezone, week_start_day=team.week_start_day, virtual_events=virtual_events)
 
-    if modifiers.personsOnEventsMode == PersonsOnEventsMode.DISABLED:
-        # no change
-        database.events.fields["person"] = FieldTraverser(chain=["pdi", "person"])
-        database.events.fields["person_id"] = FieldTraverser(chain=["pdi", "person_id"])
+    for table in (database.events,):
+        if modifiers.personsOnEventsMode == PersonsOnEventsMode.DISABLED:
+            # no change
+            table.fields["person"] = FieldTraverser(chain=["pdi", "person"])
+            table.fields["person_id"] = FieldTraverser(chain=["pdi", "person_id"])
 
-    elif modifiers.personsOnEventsMode == PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS:
-        database.events.fields["person_id"] = StringDatabaseField(name="person_id")
-        _use_person_properties_from_events(database)
+        elif modifiers.personsOnEventsMode == PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS:
+            table.fields["person_id"] = StringDatabaseField(name="person_id")
+            _use_person_properties_from_events(database)
 
-    elif modifiers.personsOnEventsMode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS:
-        _use_person_id_from_person_overrides(database)
-        _use_person_properties_from_events(database)
-        database.events.fields["poe"].fields["id"] = database.events.fields["person_id"]
+        elif modifiers.personsOnEventsMode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS:
+            _use_person_id_from_person_overrides(database)
+            _use_person_properties_from_events(database)
+            table.fields["poe"].fields["id"] = table.fields["person_id"]
 
-    elif modifiers.personsOnEventsMode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED:
-        _use_person_id_from_person_overrides(database)
-        database.events.fields["person"] = LazyJoin(
-            from_field=["person_id"],
-            join_table=PersonsTable(),
-            join_function=join_with_persons_table,
-        )
+        elif modifiers.personsOnEventsMode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED:
+            _use_person_id_from_person_overrides(database)
+            table.fields["person"] = LazyJoin(
+                from_field=["person_id"],
+                join_table=PersonsTable(),
+                join_function=join_with_persons_table,
+            )
 
     if (
         modifiers.sessionTableVersion == SessionTableVersion.V2
