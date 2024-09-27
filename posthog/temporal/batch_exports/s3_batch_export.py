@@ -132,7 +132,7 @@ class IntermittentUploadPartTimeoutError(Exception):
 
 
 class EmptyS3EndpointURLError(Exception):
-    """Exception raised when an S3 endpoint URL is not `None` but empty string."""
+    """Exception raised when an S3 endpoint URL is empty string."""
 
     def __init__(self):
         super().__init__("Endpoint URL cannot be empty.")
