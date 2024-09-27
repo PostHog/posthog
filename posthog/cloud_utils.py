@@ -1,3 +1,4 @@
+import os
 from typing import TYPE_CHECKING, Any, Optional
 
 from django.conf import settings
@@ -14,6 +15,10 @@ instance_license_cached: Optional["License"] = None
 
 def is_cloud() -> bool:
     return bool(settings.CLOUD_DEPLOYMENT)
+
+
+def is_ci() -> bool:
+    return os.environ.get("GITHUB_ACTIONS") is not None
 
 
 def get_cached_instance_license() -> Optional["License"]:

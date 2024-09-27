@@ -23,7 +23,7 @@ import { SESSION_REPLAY_MINIMUM_DURATION_OPTIONS } from 'lib/constants'
 import { IconCancel, IconSelectEvents } from 'lib/lemon-ui/icons'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { objectsEqual } from 'lib/utils'
-import { sessionReplayLinkedFlagLogic } from 'scenes/settings/project/sessionReplayLinkedFlagLogic'
+import { sessionReplayLinkedFlagLogic } from 'scenes/settings/environment/sessionReplayLinkedFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
