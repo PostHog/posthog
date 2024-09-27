@@ -1,5 +1,3 @@
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { AdvertiseiOSReplay } from 'scenes/onboarding/sdks/product-analytics'
 
 import { SDKKey } from '~/types'
@@ -12,9 +10,7 @@ export function FeatureFlagsIOSInstructions(): JSX.Element {
         <>
             <SDKInstallIOSInstructions />
             <FlagImplementationSnippet sdkKey={SDKKey.IOS} />
-            <FlaggedFeature flag={FEATURE_FLAGS.SESSION_REPLAY_MOBILE_ONBOARDING} match={true}>
-                <AdvertiseiOSReplay context="product-analytics-onboarding" />
-            </FlaggedFeature>
+            <AdvertiseiOSReplay context="product-analytics-onboarding" />
         </>
     )
 }

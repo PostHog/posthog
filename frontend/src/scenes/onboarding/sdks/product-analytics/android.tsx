@@ -1,6 +1,4 @@
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
@@ -50,9 +48,7 @@ export function ProductAnalyticsAndroidInstructions(): JSX.Element {
             <h3>Send an Event</h3>
             <AndroidCaptureSnippet />
             <PersonModeEventPropertyInstructions />
-            <FlaggedFeature flag={FEATURE_FLAGS.SESSION_REPLAY_MOBILE_ONBOARDING} match={true}>
-                <AdvertiseAndroidReplay context="product-analytics-onboarding" />
-            </FlaggedFeature>
+            <AdvertiseAndroidReplay context="product-analytics-onboarding" />
         </>
     )
 }
