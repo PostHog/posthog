@@ -24,6 +24,8 @@ where
         }
     };
 
+    // TODO - we should have a dedicated URL for both this and the writer – the reader will read
+    // from the replica, and the writer will write to the main database.
     let postgres_reader = match get_pool(&config.read_database_url, config.max_pg_connections).await
     {
         Ok(client) => Arc::new(client),
@@ -34,6 +36,8 @@ where
     };
 
     let postgres_writer =
+        // TODO - we should have a dedicated URL for both this and the reader – the reader will read
+        // from the replica, and the writer will write to the main database.
         match get_pool(&config.write_database_url, config.max_pg_connections).await {
             Ok(client) => Arc::new(client),
             Err(e) => {
