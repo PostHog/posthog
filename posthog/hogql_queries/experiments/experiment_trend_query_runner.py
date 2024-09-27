@@ -17,7 +17,7 @@ from posthog.schema import (
     TrendsFilter,
     TrendsQuery,
 )
-from typing import Any
+from typing import Any, Optional
 import threading
 
 
@@ -164,7 +164,7 @@ class ExperimentTrendQueryRunner(QueryRunner):
         return prepared_exposure_query
 
     def calculate(self) -> ExperimentTrendQueryResponse:
-        shared_results = {"count_response": None, "exposure_response": None}
+        shared_results: dict[str, Optional[Any]] = {"count_response": None, "exposure_response": None}
         errors = []
 
         def run(query_runner: TrendsQueryRunner, result_key: str, is_parallel: bool):
@@ -189,11 +189,11 @@ class ExperimentTrendQueryRunner(QueryRunner):
                 threading.Thread(target=run, args=(self.count_query_runner, "count_response", True)),
                 threading.Thread(target=run, args=(self.exposure_query_runner, "exposure_response", True)),
             ]
-            [j.start() for j in jobs]
-            [j.join() for j in jobs]
+            [j.start() for j in jobs]  # type: ignore
+            [j.join() for j in jobs]  # type: ignore
 
         # Raise any errors raised in a separate thread
-        if len(errors) > 0:
+        if errors:
             raise errors[0]
 
         count_response = shared_results["count_response"]
