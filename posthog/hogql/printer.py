@@ -1520,9 +1520,8 @@ class _Printer(Visitor):
         elif isinstance(node, ast.Alias):
             return self._is_nullable(node.expr)
         elif isinstance(node.type, ast.FieldAliasType):
-            if field_type := resolve_field_type(node):
-                if isinstance(field_type, ast.FieldType):
-                    return field_type.is_nullable(self.context)
+            if (field_type := resolve_field_type(node)) and isinstance(field_type, ast.FieldType):
+                return field_type.is_nullable(self.context)
 
         # we don't know if it's nullable, so we assume it can be
         return True
