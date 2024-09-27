@@ -237,14 +237,18 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
                                                     children: 'Upgrade',
                                                 },
                                             }),
-                                        disabled: hasCohortFilters || migrationLoading,
+                                        disabledReason: hasCohortFilters
+                                            ? 'Can not upgrade because action has a cohort filter.'
+                                            : migrationLoading
+                                            ? 'Loading...'
+                                            : actionChanged
+                                            ? 'Please save the action first'
+                                            : undefined,
                                     }}
                                 >
                                     Action Webhooks have been replaced by the new and improved{' '}
                                     <b>Pipeline Destinations</b>.{' '}
-                                    {hasCohortFilters
-                                        ? 'Can not upgrade because action has a cohort filter.'
-                                        : 'Click to upgrade.'}
+                                    {!hasCohortFilters && !actionChanged ? 'Click to upgrade.' : ''}
                                 </LemonBanner>
                             </>
                         )}
