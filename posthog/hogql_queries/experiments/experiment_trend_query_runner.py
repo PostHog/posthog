@@ -164,13 +164,13 @@ class ExperimentTrendQueryRunner(QueryRunner):
         return prepared_exposure_query
 
     def calculate(self) -> ExperimentTrendQueryResponse:
-        count_response = None
-        exposure_response = None
+        shared_results = {"count_response": None, "exposure_response": None}
         errors = []
 
-        def run(query_runner: TrendsQueryRunner, is_parallel: bool):
+        def run(query_runner: TrendsQueryRunner, result_key: str, is_parallel: bool):
             try:
-                return query_runner.calculate()
+                result = query_runner.calculate()
+                shared_results[result_key] = result
             except Exception as e:
                 errors.append(e)
             finally:
@@ -182,22 +182,22 @@ class ExperimentTrendQueryRunner(QueryRunner):
 
         # This exists so that we're not spawning threads during unit tests
         if settings.IN_UNIT_TESTING:
-            count_response = run(self.count_query_runner, False)
-            exposure_response = run(self.exposure_query_runner, False)
+            run(self.count_query_runner, "count_response", False)
+            run(self.exposure_query_runner, "exposure_response", False)
         else:
             jobs = [
-                threading.Thread(target=run, args=(self.count_query_runner, True)),
-                threading.Thread(target=run, args=(self.exposure_query_runner, True)),
+                threading.Thread(target=run, args=(self.count_query_runner, "count_response", True)),
+                threading.Thread(target=run, args=(self.exposure_query_runner, "exposure_response", True)),
             ]
-            [j.start() for j in jobs]  # type: ignore
-            [j.join() for j in jobs]  # type: ignore
-
-            count_response = getattr(jobs[0], "result", None)
-            exposure_response = getattr(jobs[1], "result", None)
+            [j.start() for j in jobs]
+            [j.join() for j in jobs]
 
         # Raise any errors raised in a separate thread
         if len(errors) > 0:
             raise errors[0]
+
+        count_response = shared_results["count_response"]
+        exposure_response = shared_results["exposure_response"]
 
         if count_response is None or exposure_response is None:
             raise ValueError("One or both query runners failed to produce a response")
