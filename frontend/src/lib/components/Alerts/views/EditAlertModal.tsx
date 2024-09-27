@@ -75,7 +75,7 @@ export function EditAlertModal({
 }: EditAlertModalProps): JSX.Element {
     const { alert, alertLoading } = useValues(alertLogic({ alertId }))
 
-    const formLogicProps = { alert, insightId, onEditSuccess, onCreateSuccess: onClose, onDeleteSuccess: onClose }
+    const formLogicProps = { alert, insightId, onEditSuccess }
     const formLogic = alertFormLogic(formLogicProps)
     const { alertForm, isAlertFormSubmitting, alertFormChanged } = useValues(formLogic)
     const { deleteAlert } = useActions(formLogic)
