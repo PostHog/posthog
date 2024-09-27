@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+from posthog.geoip import get_geoip_properties
 import time
 from ipaddress import ip_address, ip_network
 from typing import Any, Optional, cast
@@ -39,6 +40,7 @@ from posthog.settings import SITE_URL, DEBUG, PROJECT_SWITCHING_TOKEN_ALLOWLIST
 from posthog.user_permissions import UserPermissions
 from .auth import PersonalAPIKeyAuthentication
 from .utils_cors import cors_response
+from posthog.utils import render_template
 
 ALWAYS_ALLOWED_ENDPOINTS = [
     "decide",
@@ -72,7 +74,7 @@ class AllowIPMiddleware:
     trusted_proxies: list[str] = []
 
     def __init__(self, get_response):
-        if not settings.ALLOWED_IP_BLOCKS:
+        if not settings.ALLOWED_IP_BLOCKS and not settings.BLOCKED_GEOIP_REGIONS:
             # this will make Django skip this middleware for all future requests
             raise MiddlewareNotUsed()
         self.ip_blocks = settings.ALLOWED_IP_BLOCKS
@@ -108,12 +110,14 @@ class AllowIPMiddleware:
         if request.path.split("/")[1] in ALWAYS_ALLOWED_ENDPOINTS:
             return response
         ip = self.extract_client_ip(request)
-        if ip and any(ip_address(ip) in ip_network(block, strict=False) for block in self.ip_blocks):
-            return response
-        return HttpResponse(
-            "Your IP is not allowed. Check your ALLOWED_IP_BLOCKS settings. If you are behind a proxy, you need to set TRUSTED_PROXIES. See https://posthog.com/docs/deployment/running-behind-proxy",
-            status=403,
-        )
+        if ip:
+            if settings.ALLOWED_IP_BLOCKS:
+                if any(ip_address(ip) in ip_network(block, strict=False) for block in self.ip_blocks):
+                    return response
+            elif settings.BLOCKED_GEOIP_REGIONS:
+                if get_geoip_properties(ip).get("$geoip_country_code", None) not in settings.BLOCKED_GEOIP_REGIONS:
+                    return response
+        return render_template("blocked.html", request, status_code=403)
 
 
 class CsrfOrKeyViewMiddleware(CsrfViewMiddleware):

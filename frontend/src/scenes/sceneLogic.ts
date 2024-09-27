@@ -5,7 +5,6 @@ import { BarStatus } from 'lib/components/CommandBar/types'
 import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { getAppContext } from 'lib/utils/getAppContext'
 import { addProjectIdIfMissing, removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import posthog from 'posthog-js'
 import { emptySceneParams, preloadedScenes, redirects, routes, sceneConfigurations } from 'scenes/scenes'
@@ -166,10 +165,6 @@ export const sceneLogic = kea<sceneLogicType>([
                 lemonToast.success('Organization has been deleted')
                 router.actions.push(urls.default())
                 return
-            }
-
-            if (getAppContext()?.is_region_blocked) {
-                // TODO: Later this is where we should redirect to a page to explain the region blocking
             }
 
             if (scene === Scene.Signup && preflight && !preflight.can_create_org) {
