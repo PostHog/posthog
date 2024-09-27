@@ -17,6 +17,8 @@ common-alloc = { path = "../common/alloc" }
 common-types = { path = "../common/types" }
 common-kafka = { path = "../common/kafka" }
 thiserror = { workspace = true }
+sqlx = { workspace = true }
+moka = { workspace = true }
 
 [lints]
 workspace = true

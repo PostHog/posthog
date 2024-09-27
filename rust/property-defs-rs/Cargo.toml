@@ -18,7 +18,7 @@ axum = { workspace = true }
 serve-metrics = { path = "../common/serve_metrics" }
 metrics = { workspace = true }
 chrono = { workspace = true }
-quick_cache = { workspace = true }
+moka = { workspace = true }
 common-metrics = { path = "../common/metrics" }
 common-alloc = { path = "../common/alloc" }
 common-kafka = { path = "../common/kafka" }
