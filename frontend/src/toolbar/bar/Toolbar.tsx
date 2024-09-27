@@ -95,7 +95,8 @@ export function ToolbarInfoMenu(): JSX.Element | null {
     const { visibleMenu, isDragging, menuProperties, minimized, isBlurred } = useValues(toolbarLogic)
     const { setMenu } = useActions(toolbarLogic)
     const { isAuthenticated } = useValues(toolbarConfigLogic)
-    const showExperiments = inStorybook() || inStorybookTestRunner() ? true : useToolbarFeatureFlag('web-experiments')
+    const showExperimentsFlag = useToolbarFeatureFlag('web-experiments')
+    const showExperiments = inStorybook() || inStorybookTestRunner() ? true : showExperimentsFlag
     const content = minimized ? null : visibleMenu === 'flags' ? (
         <FlagsToolbarMenu />
     ) : visibleMenu === 'heatmap' ? (
@@ -153,7 +154,8 @@ export function Toolbar(): JSX.Element | null {
     const { setVisibleMenu, toggleMinimized, onMouseOrTouchDown, setElement, setIsBlurred } = useActions(toolbarLogic)
     const { isAuthenticated, userIntent } = useValues(toolbarConfigLogic)
     const { authenticate } = useActions(toolbarConfigLogic)
-    const showExperiments = inStorybook() || inStorybookTestRunner() ? true : useToolbarFeatureFlag('web-experiments')
+    const showExperimentsFlag = useToolbarFeatureFlag('web-experiments')
+    const showExperiments = inStorybook() || inStorybookTestRunner() ? true : showExperimentsFlag
 
     useEffect(() => {
         setElement(ref.current)
