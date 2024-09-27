@@ -185,7 +185,6 @@ export const FEATURE_FLAGS = {
     REPLAY_ERROR_CLUSTERING: 'session-replay-error-clustering', // owner: #team-replay
     AUDIT_LOGS_ACCESS: 'audit-logs-access', // owner: #team-growth
     SUBSCRIBE_FROM_PAYGATE: 'subscribe-from-paygate', // owner: #team-growth
-    SESSION_REPLAY_MOBILE_ONBOARDING: 'session-replay-mobile-onboarding', // owner: #team-replay
     HEATMAPS_UI: 'heatmaps-ui', // owner: @benjackwhite
     THEME: 'theme', // owner: @aprilfools
     PROXY_AS_A_SERVICE: 'proxy-as-a-service', // owner: #team-infrastructure

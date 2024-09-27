@@ -8,11 +8,13 @@ import { urls } from 'scenes/urls'
 import { SDKInstructionsMap, SDKKey } from '~/types'
 
 import {
+    AndroidInstructions,
     AngularInstructions,
     AstroInstructions,
     BubbleInstructions,
     FramerInstructions,
     HTMLSnippetInstructions,
+    iOSInstructions,
     JSWebInstructions,
     NextJSInstructions,
     NuxtJSInstructions,
@@ -22,6 +24,7 @@ import {
     VueInstructions,
     WebflowInstructions,
 } from '.'
+import { RNInstructions } from './react-native'
 
 export const SessionReplaySDKInstructions: SDKInstructionsMap = {
     [SDKKey.JS_WEB]: JSWebInstructions,
@@ -37,6 +40,9 @@ export const SessionReplaySDKInstructions: SDKInstructionsMap = {
     [SDKKey.SVELTE]: SvelteInstructions,
     [SDKKey.VUE_JS]: VueInstructions,
     [SDKKey.WEBFLOW]: WebflowInstructions,
+    [SDKKey.IOS]: iOSInstructions,
+    [SDKKey.ANDROID]: AndroidInstructions,
+    [SDKKey.REACT_NATIVE]: RNInstructions,
 }
 
 export function AdvertiseMobileReplay({

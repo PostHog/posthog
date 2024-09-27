@@ -1,6 +1,3 @@
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
-import { FEATURE_FLAGS } from 'lib/constants'
-
 import { SDKKey } from '~/types'
 
 import { SDKInstallRNInstructions } from '../sdk-install-instructions'
@@ -12,9 +9,7 @@ export function FeatureFlagsRNInstructions(): JSX.Element {
         <>
             <SDKInstallRNInstructions />
             <FlagImplementationSnippet sdkKey={SDKKey.REACT_NATIVE} />
-            <FlaggedFeature flag={FEATURE_FLAGS.SESSION_REPLAY_MOBILE_ONBOARDING} match={true}>
-                <AdvertiseMobileReplay context="flags-onboarding" sdkKey={SDKKey.REACT_NATIVE} />
-            </FlaggedFeature>
+            <AdvertiseMobileReplay context="flags-onboarding" sdkKey={SDKKey.REACT_NATIVE} />
         </>
     )
 }

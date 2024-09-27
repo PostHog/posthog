@@ -1,6 +1,4 @@
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
-import { FEATURE_FLAGS } from 'lib/constants'
 
 import { SDKKey } from '~/types'
 
@@ -19,9 +17,7 @@ export function ProductAnalyticsIOSInstructions(): JSX.Element {
             <h3>Send an event</h3>
             <IOSCaptureSnippet />
             <PersonModeEventPropertyInstructions />
-            <FlaggedFeature flag={FEATURE_FLAGS.SESSION_REPLAY_MOBILE_ONBOARDING} match={true}>
-                <AdvertiseMobileReplay context="product-analytics-onboarding" sdkKey={SDKKey.IOS} />
-            </FlaggedFeature>
+            <AdvertiseMobileReplay context="product-analytics-onboarding" sdkKey={SDKKey.IOS} />
         </>
     )
 }
