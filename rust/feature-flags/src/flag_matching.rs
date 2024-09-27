@@ -178,7 +178,6 @@ pub struct FeatureFlagMatcher {
     group_type_mapping_cache: GroupTypeMappingCache,
     properties_cache: PropertiesCache,
     groups: HashMap<String, Value>,
-    hash_key_overrides: HashMap<String, String>,
 }
 
 const LONG_SCALE: u64 = 0xfffffffffffffff;
@@ -192,7 +191,6 @@ impl FeatureFlagMatcher {
         group_type_mapping_cache: Option<GroupTypeMappingCache>,
         properties_cache: Option<PropertiesCache>,
         groups: Option<HashMap<String, Value>>,
-        hash_key_overrides: Option<HashMap<String, String>>,
     ) -> Self {
         FeatureFlagMatcher {
             distinct_id,
@@ -203,7 +201,6 @@ impl FeatureFlagMatcher {
                 .unwrap_or_else(|| GroupTypeMappingCache::new(team_id, postgres_reader.clone())),
             properties_cache: properties_cache.unwrap_or_default(),
             groups: groups.unwrap_or_default(),
-            hash_key_overrides: hash_key_overrides.unwrap_or_default(),
         }
     }
 
@@ -250,6 +247,7 @@ impl FeatureFlagMatcher {
             feature_flags,
             person_property_overrides,
             group_property_overrides,
+            None, // if we don't have continuity, we don't care about hash key overrides
         )
         .await
     }
@@ -261,78 +259,80 @@ impl FeatureFlagMatcher {
         group_property_overrides: Option<HashMap<String, HashMap<String, Value>>>,
         hash_key_override: Option<String>,
     ) -> FlagsResponse {
-        let mut evaluation_error_occurred = false;
-
-        if let Some(hash_key) = hash_key_override {
-            let target_distinct_ids = vec![self.distinct_id.clone(), hash_key.clone()];
-
-            // Check if we should write the hash key override
-            match should_write_hash_key_override(
-                self.postgres_writer.clone(),
-                self.team_id,
-                self.distinct_id.clone(),
-                hash_key.clone(),
-            )
-            .await
-            {
-                Ok(should_write) => {
-                    if should_write {
-                        if let Err(e) = set_feature_flag_hash_key_overrides(
-                            self.postgres_writer.clone(),
-                            self.team_id,
-                            target_distinct_ids.clone(),
-                            hash_key,
-                        )
-                        .await
-                        {
-                            // TODO add sentry exception tracking
-                            error!("Failed to set feature flag hash key overrides: {:?}", e);
-                            evaluation_error_occurred = true;
-                        }
-                    }
-                }
-                Err(e) => {
-                    // TODO add sentry exception tracking
-                    error!(
-                        "Failed to check if hash key override should be written: {:?}",
-                        e
-                    );
-                    evaluation_error_occurred = true;
-                }
+        let (hash_key_overrides, initial_error) = match hash_key_override {
+            Some(hash_key) => {
+                let target_distinct_ids = vec![self.distinct_id.clone(), hash_key.clone()];
+                self.process_hash_key_override(hash_key, target_distinct_ids)
+                    .await
             }
+            None => (None, false), // If no hash key override is provided, we don't need to write an override, and we will use the distinct_id as the hash key
+        };
 
-            // Read back the hash key overrides from the database
-            match get_feature_flag_hash_key_overrides(
-                self.postgres_reader.clone(),
-                self.team_id,
-                target_distinct_ids,
-            )
-            .await
-            {
-                Ok(hash_key_overrides) => {
-                    self.hash_key_overrides.clone_from(&hash_key_overrides);
-                }
-                Err(e) => {
-                    // TODO add sentry exception tracking
-                    error!("Failed to get feature flag hash key overrides: {:?}", e);
-                    evaluation_error_occurred = true;
-                }
-            }
-        }
-
-        // Evaluate flags with overrides
         let flags_response = self
             .evaluate_flags_with_overrides(
                 feature_flags,
                 person_property_overrides,
                 group_property_overrides,
+                hash_key_overrides,
             )
             .await;
 
         FlagsResponse {
-            error_while_computing_flags: evaluation_error_occurred
+            error_while_computing_flags: initial_error
                 || flags_response.error_while_computing_flags,
             feature_flags: flags_response.feature_flags,
+        }
+    }
+
+    async fn process_hash_key_override(
+        &self,
+        hash_key: String,
+        target_distinct_ids: Vec<String>,
+    ) -> (Option<HashMap<String, String>>, bool) {
+        let should_write = match should_write_hash_key_override(
+            self.postgres_writer.clone(),
+            self.team_id,
+            self.distinct_id.clone(),
+            hash_key.clone(),
+        )
+        .await
+        {
+            Ok(should_write) => should_write,
+            Err(e) => {
+                error!(
+                    "Failed to check if hash key override should be written: {:?}",
+                    e
+                );
+                return (None, true);
+            }
+        };
+
+        if should_write {
+            if let Err(e) = set_feature_flag_hash_key_overrides(
+                self.postgres_writer.clone(),
+                self.team_id,
+                target_distinct_ids.clone(),
+                hash_key,
+            )
+            .await
+            {
+                error!("Failed to set feature flag hash key overrides: {:?}", e);
+                return (None, true);
+            }
+        }
+
+        match get_feature_flag_hash_key_overrides(
+            self.postgres_reader.clone(),
+            self.team_id,
+            target_distinct_ids,
+        )
+        .await
+        {
+            Ok(overrides) => (Some(overrides), false),
+            Err(e) => {
+                error!("Failed to get feature flag hash key overrides: {:?}", e);
+                (None, true)
+            }
         }
     }
 
@@ -341,6 +341,7 @@ impl FeatureFlagMatcher {
         feature_flags: FeatureFlagList,
         person_property_overrides: Option<HashMap<String, Value>>,
         group_property_overrides: Option<HashMap<String, HashMap<String, Value>>>,
+        hash_key_overrides: Option<HashMap<String, String>>,
     ) -> FlagsResponse {
         let mut result = HashMap::new();
         let mut error_while_computing_flags = false;
@@ -357,6 +358,7 @@ impl FeatureFlagMatcher {
                     flag,
                     &person_property_overrides,
                     &group_property_overrides,
+                    hash_key_overrides.clone(),
                 )
                 .await
             {
@@ -407,7 +409,10 @@ impl FeatureFlagMatcher {
 
             // Step 3: Evaluate remaining flags
             for flag in flags_needing_db_properties {
-                match self.get_match(&flag, None).await {
+                match self
+                    .get_match(&flag, None, hash_key_overrides.clone())
+                    .await
+                {
                     Ok(flag_match) => {
                         let flag_value = self.flag_match_to_value(&flag_match);
                         result.insert(flag.key.clone(), flag_value);
@@ -441,6 +446,7 @@ impl FeatureFlagMatcher {
         flag: &FeatureFlag,
         person_property_overrides: &Option<HashMap<String, Value>>,
         group_property_overrides: &Option<HashMap<String, HashMap<String, Value>>>,
+        hash_key_overrides: Option<HashMap<String, String>>,
     ) -> Result<Option<FeatureFlagMatch>, FlagError> {
         let flag_property_filters: Vec<PropertyFilter> = flag
             .get_conditions()
@@ -461,7 +467,10 @@ impl FeatureFlagMatcher {
         };
 
         match overrides {
-            Some(props) => self.get_match(flag, Some(props)).await.map(Some),
+            Some(props) => self
+                .get_match(flag, Some(props), hash_key_overrides)
+                .await
+                .map(Some),
             None => Ok(None),
         }
     }
@@ -539,8 +548,13 @@ impl FeatureFlagMatcher {
         &mut self,
         flag: &FeatureFlag,
         property_overrides: Option<HashMap<String, Value>>,
+        hash_key_overrides: Option<HashMap<String, String>>,
     ) -> Result<FeatureFlagMatch, FlagError> {
-        if self.hashed_identifier(flag).await?.is_empty() {
+        if self
+            .hashed_identifier(flag, hash_key_overrides.clone())
+            .await?
+            .is_empty()
+        {
             return Ok(FeatureFlagMatch {
                 matches: false,
                 variant: None,
@@ -557,7 +571,11 @@ impl FeatureFlagMatcher {
         if let Some(super_groups) = &flag.filters.super_groups {
             if !super_groups.is_empty() {
                 let super_condition_evaluation = self
-                    .is_super_condition_match(flag, property_overrides.clone())
+                    .is_super_condition_match(
+                        flag,
+                        property_overrides.clone(),
+                        hash_key_overrides.clone(),
+                    )
                     .await?;
 
                 if super_condition_evaluation.should_evaluate {
@@ -582,7 +600,12 @@ impl FeatureFlagMatcher {
 
         for (index, condition) in sorted_conditions {
             let (is_match, reason) = self
-                .is_condition_match(flag, condition, property_overrides.clone())
+                .is_condition_match(
+                    flag,
+                    condition,
+                    property_overrides.clone(),
+                    hash_key_overrides.clone(),
+                )
                 .await?;
 
             // Update highest_match and highest_index
@@ -601,7 +624,9 @@ impl FeatureFlagMatcher {
                     break; // Exit early if we've found a super condition match
                 }
 
-                let variant = self.get_matching_variant(flag).await?;
+                let variant = self
+                    .get_matching_variant(flag, hash_key_overrides.clone())
+                    .await?;
                 let payload = self.get_matching_payload(variant.as_deref(), flag);
 
                 return Ok(FeatureFlagMatch {
@@ -654,12 +679,15 @@ impl FeatureFlagMatcher {
         feature_flag: &FeatureFlag,
         condition: &FlagGroupType,
         property_overrides: Option<HashMap<String, Value>>,
+        hash_key_overrides: Option<HashMap<String, String>>,
     ) -> Result<(bool, FeatureFlagMatchReason), FlagError> {
         let rollout_percentage = condition.rollout_percentage.unwrap_or(100.0);
 
         if let Some(flag_property_filters) = &condition.properties {
             if flag_property_filters.is_empty() {
-                return self.check_rollout(feature_flag, rollout_percentage).await;
+                return self
+                    .check_rollout(feature_flag, rollout_percentage, hash_key_overrides)
+                    .await;
             }
 
             // NB: we can only evaluate group or person properties, not both
@@ -672,7 +700,8 @@ impl FeatureFlagMatcher {
             }
         }
 
-        self.check_rollout(feature_flag, rollout_percentage).await
+        self.check_rollout(feature_flag, rollout_percentage, hash_key_overrides)
+            .await
     }
 
     /// Get properties to check for a feature flag.
@@ -744,6 +773,7 @@ impl FeatureFlagMatcher {
         &mut self,
         feature_flag: &FeatureFlag,
         property_overrides: Option<HashMap<String, Value>>,
+        hash_key_overrides: Option<HashMap<String, String>>,
     ) -> Result<SuperConditionEvaluation, FlagError> {
         if let Some(first_condition) = feature_flag
             .filters
@@ -768,7 +798,12 @@ impl FeatureFlagMatcher {
                 });
 
             let (is_match, _) = self
-                .is_condition_match(feature_flag, first_condition, Some(person_properties))
+                .is_condition_match(
+                    feature_flag,
+                    first_condition,
+                    Some(person_properties),
+                    hash_key_overrides,
+                )
                 .await?;
 
             if has_relevant_super_condition_properties {
@@ -853,7 +888,11 @@ impl FeatureFlagMatcher {
     ///
     /// This function generates a hashed identifier for a feature flag based on the feature flag's group type index.
     /// If the feature flag is group-based, it fetches the group key; otherwise, it uses the distinct ID.
-    async fn hashed_identifier(&mut self, feature_flag: &FeatureFlag) -> Result<String, FlagError> {
+    async fn hashed_identifier(
+        &mut self,
+        feature_flag: &FeatureFlag,
+        hash_key_overrides: Option<HashMap<String, String>>,
+    ) -> Result<String, FlagError> {
         if let Some(group_type_index) = feature_flag.get_group_type_index() {
             // Group-based flag
             let group_key = self
@@ -869,8 +908,11 @@ impl FeatureFlagMatcher {
         } else {
             // Person-based flag
             // Use hash key overrides for experience continuity
-            if let Some(hash_key_override) = self.hash_key_overrides.get(&feature_flag.key) {
-                return Ok(hash_key_override.clone());
+            if let Some(hash_key_override) = hash_key_overrides
+                .as_ref()
+                .and_then(|h| h.get(&feature_flag.key))
+            {
+                Ok(hash_key_override.clone())
             } else {
                 Ok(self.distinct_id.clone())
             }
@@ -881,8 +923,15 @@ impl FeatureFlagMatcher {
     /// Given the same identifier and key, it'll always return the same float. These floats are
     /// uniformly distributed between 0 and 1, so if we want to show this feature to 20% of traffic
     /// we can do _hash(key, identifier) < 0.2
-    async fn get_hash(&mut self, feature_flag: &FeatureFlag, salt: &str) -> Result<f64, FlagError> {
-        let hashed_identifier = self.hashed_identifier(feature_flag).await?;
+    async fn get_hash(
+        &mut self,
+        feature_flag: &FeatureFlag,
+        salt: &str,
+        hash_key_overrides: Option<HashMap<String, String>>,
+    ) -> Result<f64, FlagError> {
+        let hashed_identifier = self
+            .hashed_identifier(feature_flag, hash_key_overrides)
+            .await?;
         if hashed_identifier.is_empty() {
             // Return a hash value that will make the flag evaluate to false
             // TODO make this cleaner – we should have a way to return a default value
@@ -913,8 +962,9 @@ impl FeatureFlagMatcher {
         &mut self,
         feature_flag: &FeatureFlag,
         rollout_percentage: f64,
+        hash_key_overrides: Option<HashMap<String, String>>,
     ) -> Result<(bool, FeatureFlagMatchReason), FlagError> {
-        let hash = self.get_hash(feature_flag, "").await?;
+        let hash = self.get_hash(feature_flag, "", hash_key_overrides).await?;
         if rollout_percentage == 100.0 || hash <= (rollout_percentage / 100.0) {
             Ok((true, FeatureFlagMatchReason::ConditionMatch))
         } else {
@@ -926,8 +976,11 @@ impl FeatureFlagMatcher {
     async fn get_matching_variant(
         &mut self,
         feature_flag: &FeatureFlag,
+        hash_key_overrides: Option<HashMap<String, String>>,
     ) -> Result<Option<String>, FlagError> {
-        let hash = self.get_hash(feature_flag, "variant").await?;
+        let hash = self
+            .get_hash(feature_flag, "variant", hash_key_overrides)
+            .await?;
         let mut cumulative_percentage = 0.0;
 
         for variant in feature_flag.get_variants() {
@@ -1131,10 +1184,10 @@ fn all_properties_match(
 async fn get_feature_flag_hash_key_overrides(
     postgres_reader: PostgresClientArc,
     team_id: TeamId,
-    distinct_ids: Vec<String>, // this will be a distinct_id and its hash_key_override
+    distinct_ids: Vec<String>, // this will be a typically be distinct_id and its hash_key_override
 ) -> Result<HashMap<String, String>, FlagError> {
-    let mut feature_flag_to_key_overrides = HashMap::new();
-
+    // can we avoid going to do the DB if
+    let mut feature_flag_hash_key_overrides = HashMap::new();
     let mut conn = postgres_reader.as_ref().get_connection().await?;
 
     // Get person_ids for the given distinct_ids
@@ -1178,10 +1231,10 @@ async fn get_feature_flag_hash_key_overrides(
     });
 
     for (feature_flag_key, hash_key, _) in sorted_overrides {
-        feature_flag_to_key_overrides.insert(feature_flag_key, hash_key);
+        feature_flag_hash_key_overrides.insert(feature_flag_key, hash_key);
     }
 
-    Ok(feature_flag_to_key_overrides)
+    Ok(feature_flag_hash_key_overrides)
 }
 
 async fn set_feature_flag_hash_key_overrides(
@@ -1312,7 +1365,7 @@ async fn should_write_hash_key_override(
                 .map_err(|e| FlagError::DatabaseError(format!("Query execution failed: {}", e)))?;
 
             // Determine if there are any flags with no overrides
-            Ok::<bool, FlagError>(rows.len() > 0)
+            Ok::<bool, FlagError>(!rows.is_empty())
         })
         .await;
 
@@ -1451,9 +1504,8 @@ mod tests {
             None,
             None,
             None,
-            None,
         );
-        let match_result = matcher.get_match(&flag, None).await.unwrap();
+        let match_result = matcher.get_match(&flag, None, None).await.unwrap();
         assert!(match_result.matches);
         assert_eq!(match_result.variant, None);
 
@@ -1465,9 +1517,8 @@ mod tests {
             None,
             None,
             None,
-            None,
         );
-        let match_result = matcher.get_match(&flag, None).await.unwrap();
+        let match_result = matcher.get_match(&flag, None, None).await.unwrap();
         assert!(!match_result.matches);
         assert_eq!(match_result.variant, None);
 
@@ -1479,9 +1530,8 @@ mod tests {
             None,
             None,
             None,
-            None,
         );
-        let match_result = matcher.get_match(&flag, None).await.unwrap();
+        let match_result = matcher.get_match(&flag, None, None).await.unwrap();
         assert!(!match_result.matches);
         assert_eq!(match_result.variant, None);
     }
@@ -1528,7 +1578,6 @@ mod tests {
             team.id,
             postgres_reader,
             postgres_writer,
-            None,
             None,
             None,
             None,
@@ -1605,7 +1654,6 @@ mod tests {
             Some(cache),
             None,
             Some(groups),
-            None,
         );
 
         let flags = FeatureFlagList {
@@ -1646,9 +1694,8 @@ mod tests {
             Some(cache),
             None,
             Some(groups),
-            None,
         );
-        let variant = matcher.get_matching_variant(&flag).await.unwrap();
+        let variant = matcher.get_matching_variant(&flag, None).await.unwrap();
         assert!(variant.is_some(), "No variant was selected");
         assert!(
             ["control", "test", "test2"].contains(&variant.unwrap().as_str()),
@@ -1674,10 +1721,9 @@ mod tests {
             None,
             None,
             None,
-            None,
         );
 
-        let variant = matcher.get_matching_variant(&flag).await.unwrap();
+        let variant = matcher.get_matching_variant(&flag, None).await.unwrap();
         assert!(variant.is_some());
         assert!(["control", "test", "test2"].contains(&variant.unwrap().as_str()));
     }
@@ -1721,10 +1767,9 @@ mod tests {
             None,
             None,
             None,
-            None,
         );
         let (is_match, reason) = matcher
-            .is_condition_match(&flag, &condition, None)
+            .is_condition_match(&flag, &condition, None, None)
             .await
             .unwrap();
         assert!(is_match);
@@ -1818,7 +1863,6 @@ mod tests {
             None,
             None,
             None,
-            None,
         );
 
         let result = matcher
@@ -1908,11 +1952,10 @@ mod tests {
             None,
             None,
             None,
-            None,
         );
 
         let result = matcher
-            .get_match(&flag, person_property_overrides.clone())
+            .get_match(&flag, person_property_overrides.clone(), None)
             .await
             .unwrap();
 
@@ -1949,7 +1992,6 @@ mod tests {
             team.id,
             postgres_reader.clone(),
             postgres_writer.clone(),
-            None,
             None,
             None,
             None,
@@ -1997,7 +2039,6 @@ mod tests {
             None,
             None,
             None,
-            None,
         );
 
         // First access should fetch from the database
@@ -2028,7 +2069,6 @@ mod tests {
             team.id,
             postgres_reader.clone(),
             postgres_writer.clone(),
-            None,
             None,
             None,
             None,
@@ -2154,9 +2194,8 @@ mod tests {
                     None,
                     None,
                     None,
-                    None,
                 );
-                matcher.get_match(&flag_clone, None).await.unwrap()
+                matcher.get_match(&flag_clone, None, None).await.unwrap()
             }));
         }
 
@@ -2231,10 +2270,9 @@ mod tests {
             None,
             None,
             None,
-            None,
         );
 
-        let result = matcher.get_match(&flag, None).await.unwrap();
+        let result = matcher.get_match(&flag, None, None).await.unwrap();
 
         assert!(result.matches);
     }
@@ -2273,10 +2311,9 @@ mod tests {
             None,
             None,
             None,
-            None,
         );
 
-        let result = matcher.get_match(&flag, None).await.unwrap();
+        let result = matcher.get_match(&flag, None, None).await.unwrap();
 
         assert!(!result.matches);
     }
@@ -2314,17 +2351,16 @@ mod tests {
             None,
             None,
             None,
-            None,
         );
 
-        let result = matcher.get_match(&flag, None).await.unwrap();
+        let result = matcher.get_match(&flag, None, None).await.unwrap();
 
         assert!(!result.matches);
 
         // Now set the rollout percentage to 100%
         flag.filters.groups[0].rollout_percentage = Some(100.0);
 
-        let result = matcher.get_match(&flag, None).await.unwrap();
+        let result = matcher.get_match(&flag, None, None).await.unwrap();
 
         assert!(result.matches);
     }
@@ -2366,7 +2402,6 @@ mod tests {
             None,
             None,
             None,
-            None,
         );
 
         let mut control_count = 0;
@@ -2376,7 +2411,7 @@ mod tests {
         // Run the test multiple times to simulate distribution
         for i in 0..1000 {
             matcher.distinct_id = format!("user_{}", i);
-            let variant = matcher.get_matching_variant(&flag).await.unwrap();
+            let variant = matcher.get_matching_variant(&flag, None).await.unwrap();
             match variant.as_deref() {
                 Some("control") => control_count += 1,
                 Some("test") => test_count += 1,
@@ -2445,10 +2480,9 @@ mod tests {
             None,
             None,
             None,
-            None,
         );
 
-        let result = matcher.get_match(&flag, None).await.unwrap();
+        let result = matcher.get_match(&flag, None, None).await.unwrap();
 
         assert!(!result.matches);
     }
@@ -2506,10 +2540,9 @@ mod tests {
             None,
             None,
             None,
-            None,
         );
 
-        let result = matcher.get_match(&flag, None).await.unwrap();
+        let result = matcher.get_match(&flag, None, None).await.unwrap();
 
         // The match should fail due to invalid data type
         assert!(!result.matches);
@@ -2581,10 +2614,12 @@ mod tests {
             None,
             None,
             None,
-            None,
         );
 
-        let result = matcher.get_match(&flag, person_overrides).await.unwrap();
+        let result = matcher
+            .get_match(&flag, person_overrides, None)
+            .await
+            .unwrap();
 
         assert!(result.matches);
     }
@@ -2622,11 +2657,10 @@ mod tests {
             None,
             None,
             None,
-            None,
         );
 
         let (is_match, reason) = matcher
-            .is_condition_match(&flag, &flag.filters.groups[0], None)
+            .is_condition_match(&flag, &flag.filters.groups[0], None, None)
             .await
             .unwrap();
 
@@ -2699,10 +2733,9 @@ mod tests {
             None,
             None,
             None,
-            None,
         );
 
-        let result = matcher.get_match(&flag, None).await.unwrap();
+        let result = matcher.get_match(&flag, None, None).await.unwrap();
 
         assert!(result.matches);
     }
@@ -2787,7 +2820,6 @@ mod tests {
             None,
             None,
             None,
-            None,
         );
 
         let mut matcher_example_id = FeatureFlagMatcher::new(
@@ -2795,7 +2827,6 @@ mod tests {
             team.id,
             postgres_reader.clone(),
             postgres_writer.clone(),
-            None,
             None,
             None,
             None,
@@ -2809,12 +2840,17 @@ mod tests {
             None,
             None,
             None,
-            None,
         );
 
-        let result_test_id = matcher_test_id.get_match(&flag, None).await.unwrap();
-        let result_example_id = matcher_example_id.get_match(&flag, None).await.unwrap();
-        let result_another_id = matcher_another_id.get_match(&flag, None).await.unwrap();
+        let result_test_id = matcher_test_id.get_match(&flag, None, None).await.unwrap();
+        let result_example_id = matcher_example_id
+            .get_match(&flag, None, None)
+            .await
+            .unwrap();
+        let result_another_id = matcher_another_id
+            .get_match(&flag, None, None)
+            .await
+            .unwrap();
 
         assert!(result_test_id.matches);
         assert!(result_test_id.reason == FeatureFlagMatchReason::SuperConditionValue);
@@ -2904,10 +2940,9 @@ mod tests {
             None,
             None,
             None,
-            None,
         );
 
-        let result = matcher.get_match(&flag, None).await.unwrap();
+        let result = matcher.get_match(&flag, None, None).await.unwrap();
 
         assert!(result.matches);
         assert_eq!(result.reason, FeatureFlagMatchReason::SuperConditionValue);
@@ -2994,7 +3029,6 @@ mod tests {
             None,
             None,
             None,
-            None,
         );
 
         let mut matcher_example_id = FeatureFlagMatcher::new(
@@ -3002,7 +3036,6 @@ mod tests {
             team.id,
             postgres_reader.clone(),
             postgres_writer.clone(),
-            None,
             None,
             None,
             None,
@@ -3016,12 +3049,17 @@ mod tests {
             None,
             None,
             None,
-            None,
         );
 
-        let result_test_id = matcher_test_id.get_match(&flag, None).await.unwrap();
-        let result_example_id = matcher_example_id.get_match(&flag, None).await.unwrap();
-        let result_another_id = matcher_another_id.get_match(&flag, None).await.unwrap();
+        let result_test_id = matcher_test_id.get_match(&flag, None, None).await.unwrap();
+        let result_example_id = matcher_example_id
+            .get_match(&flag, None, None)
+            .await
+            .unwrap();
+        let result_another_id = matcher_another_id
+            .get_match(&flag, None, None)
+            .await
+            .unwrap();
 
         assert!(!result_test_id.matches);
         assert_eq!(
@@ -3269,7 +3307,6 @@ mod tests {
             None,
             None,
             None,
-            None,
         )
         .evaluate_all_feature_flags(flags, None, None, Some("hash_key_continuity".to_string()))
         .await;
@@ -3338,7 +3375,6 @@ mod tests {
             team.id,
             postgres_reader.clone(),
             postgres_writer.clone(),
-            None,
             None,
             None,
             None,
@@ -3448,7 +3484,6 @@ mod tests {
             team.id,
             postgres_reader.clone(),
             postgres_writer.clone(),
-            None,
             None,
             None,
             None,

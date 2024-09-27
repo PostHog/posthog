@@ -225,9 +225,8 @@ pub async fn evaluate_feature_flags(context: FeatureFlagEvaluationContext) -> Fl
         context.postgres_reader,
         context.postgres_writer,
         Some(group_type_mapping_cache),
-        None,
+        None, // TODO maybe remove this from the matcher struct, since it's used internally but not passed around
         context.groups,
-        None,
     );
     feature_flag_matcher
         .evaluate_all_feature_flags(
