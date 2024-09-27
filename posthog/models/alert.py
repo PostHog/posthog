@@ -69,6 +69,19 @@ class ConditionValidator:
         return []
 
 
+class Alert(models.Model):
+    """
+    @deprecated("AlertConfiguration should be used instead.")
+    """
+
+    team = models.ForeignKey("Team", on_delete=models.CASCADE)
+    insight = models.ForeignKey("posthog.Insight", on_delete=models.CASCADE)
+
+    name = models.CharField(max_length=100)
+    target_value = models.TextField()
+    anomaly_condition = models.JSONField(default=dict)
+
+
 class Threshold(CreatedMetaFields, UUIDModel):
     """
     Threshold holds the configuration for a threshold. This can either be attached to an alert, or used as a standalone
@@ -105,7 +118,7 @@ class AlertConfiguration(CreatedMetaFields, UUIDModel):
     )
 
     # insight specific config for the alert
-    config = models.JSONField()
+    config = models.JSONField(default={"type": "TrendsAlertConfig", "series_index": 0})
 
     # how often to recalculate the alert
     CALCULATION_INTERVAL_CHOICES = [

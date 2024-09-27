@@ -33,6 +33,27 @@ from posthog.caching.fetch_from_cache import InsightResult
 from posthog.clickhouse.client.limit import limit_concurrency
 from prometheus_client import Counter, Gauge
 from django.db.models import Q
+from typing import TypedDict, NotRequired
+
+
+# TODO: move the TrendResult UI type to schema.ts and use that instead
+class TrendResult(TypedDict):
+    action: dict
+    actions: list[dict]
+    count: int
+    data: list[float]
+    days: list[str]
+    dates: list[str]
+    label: str
+    labels: list[str]
+    breakdown_value: str | int | list[str]
+    aggregated_value: NotRequired[float]
+    status: str | None
+    compare_label: str | None
+    compare: bool
+    persons_urls: list[dict]
+    persons: dict
+    filter: dict
 
 
 HOURLY_ALERTS_BACKLOG_GAUGE = Gauge(
@@ -271,8 +292,8 @@ def _calculate_date_range_override_for_alert(query: TrendsQuery) -> Optional[dic
 def _aggregate_insight_result_value(alert: AlertConfiguration, query: TrendsQuery, results: InsightResult) -> float:
     if alert.config.type == "TrendsAlertConfig":
         alert.config = cast(TrendsAlertConfig, alert.config)
-        series_index = cast(int, alert.config.series_index)
-        result = results.result[series_index]
+        series_index = alert.config.series_index
+        result = cast(TrendResult, results.result[series_index])
 
         if query.trendsFilter and query.trendsFilter.display in NON_TIME_SERIES_DISPLAY_TYPES:
             return result["aggregated_value"]
