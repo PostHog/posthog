@@ -144,7 +144,7 @@ export function EditAlertModal({
                                     <LemonSelect
                                         fullWidth
                                         data-attr="alertForm-series-index"
-                                        options={alertSeries.map(({ event }, index) => ({
+                                        options={alertSeries?.map(({ event }, index) => ({
                                             label: `${alphabet[index]} - ${event}`,
                                             value: index,
                                         }))}

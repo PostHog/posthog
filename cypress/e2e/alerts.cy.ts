@@ -29,6 +29,7 @@ describe('Alerts', () => {
         cy.contains('Create alert').click()
         cy.get('.Toastify__toast-body').should('contain', 'Alert created.')
         cy.url().should('not.include', '/new')
+        cy.get('[data-attr=alert-list-item]').contains('Alert name').should('exist')
 
         cy.contains('span', 'Close').click()
     }

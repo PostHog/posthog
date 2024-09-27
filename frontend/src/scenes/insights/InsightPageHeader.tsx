@@ -107,25 +107,29 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         insightProps={insightProps}
                         canEditInsight={canEditInsight}
                     />
-                    <ManageAlertsModal
-                        onClose={() => push(urls.insightView(insight.short_id as InsightShortId))}
-                        isOpen={insightMode === ItemMode.Alerts}
-                        insightLogicProps={insightLogicProps}
-                        insightId={insight.id as number}
-                        insightShortId={insight.short_id as InsightShortId}
-                    />
+                    {insightMode === ItemMode.Alerts && (
+                        <ManageAlertsModal
+                            onClose={() => push(urls.insightView(insight.short_id as InsightShortId))}
+                            isOpen={insightMode === ItemMode.Alerts}
+                            insightLogicProps={insightLogicProps}
+                            insightId={insight.id as number}
+                            insightShortId={insight.short_id as InsightShortId}
+                        />
+                    )}
 
-                    <EditAlertModal
-                        onClose={() => push(urls.insightAlerts(insight.short_id as InsightShortId))}
-                        isOpen={!!alertId}
-                        alertId={alertId === null || alertId === 'new' ? undefined : alertId}
-                        insightShortId={insight.short_id as InsightShortId}
-                        insightId={insight.id!}
-                        onEditSuccess={() => {
-                            loadAlerts()
-                            push(urls.insightAlerts(insight.short_id as InsightShortId))
-                        }}
-                    />
+                    {!!alertId && (
+                        <EditAlertModal
+                            onClose={() => push(urls.insightAlerts(insight.short_id as InsightShortId))}
+                            isOpen={!!alertId}
+                            alertId={alertId === null || alertId === 'new' ? undefined : alertId}
+                            insightShortId={insight.short_id as InsightShortId}
+                            insightId={insight.id!}
+                            onEditSuccess={() => {
+                                loadAlerts()
+                                push(urls.insightAlerts(insight.short_id as InsightShortId))
+                            }}
+                        />
+                    )}
                     <NewDashboardModal />
                 </>
             )}
