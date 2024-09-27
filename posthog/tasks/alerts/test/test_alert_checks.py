@@ -310,7 +310,9 @@ class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
         assert "The trend value (0) is below the lower threshold (1.0)" in anomalies
 
     @patch("posthog.tasks.alerts.checks.EmailMessage")
-    def test_send_emails(self, MockEmailMessage: MagicMock, mock_send_errors: MagicMock) -> None:
+    def test_send_emails(
+        self, MockEmailMessage: MagicMock, mock_send_notifications_for_breaches: MagicMock, mock_send_errors: MagicMock
+    ) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
         alert = AlertConfiguration.objects.get(pk=self.alert["id"])
         _send_notifications_for_breaches(alert, ["first anomaly description", "second anomaly description"])
