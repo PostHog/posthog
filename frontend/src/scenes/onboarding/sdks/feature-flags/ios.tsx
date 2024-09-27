@@ -1,8 +1,7 @@
-import { AdvertiseiOSReplay } from 'scenes/onboarding/sdks/product-analytics'
-
 import { SDKKey } from '~/types'
 
 import { SDKInstallIOSInstructions } from '../sdk-install-instructions'
+import { AdvertiseMobileReplay } from '../session-replay/SessionReplaySDKInstructions'
 import { FlagImplementationSnippet } from './flagImplementationSnippet'
 
 export function FeatureFlagsIOSInstructions(): JSX.Element {
@@ -10,7 +9,7 @@ export function FeatureFlagsIOSInstructions(): JSX.Element {
         <>
             <SDKInstallIOSInstructions />
             <FlagImplementationSnippet sdkKey={SDKKey.IOS} />
-            <AdvertiseiOSReplay context="product-analytics-onboarding" />
+            <AdvertiseMobileReplay context="product-analytics-onboarding" sdkKey={SDKKey.IOS} />
         </>
     )
 }

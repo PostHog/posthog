@@ -52,6 +52,7 @@ export const hogFunctionListLogic = kea<hogFunctionListLogicType>([
         deleteHogFunction: (hogFunction: HogFunctionType) => ({ hogFunction }),
         setFilters: (filters: Partial<HogFunctionListFilters>) => ({ filters }),
         resetFilters: true,
+        addHogFunction: (hogFunction: HogFunctionType) => ({ hogFunction }),
     }),
     reducers(({ props }) => ({
         filters: [
@@ -111,6 +112,9 @@ export const hogFunctionListLogic = kea<hogFunctionListLogicType>([
                         response,
                         ...hogFunctions.slice(hogFunctionIndex + 1),
                     ]
+                },
+                addHogFunction: ({ hogFunction }) => {
+                    return [hogFunction, ...values._hogFunctions]
                 },
             },
         ],
