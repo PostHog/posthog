@@ -19,6 +19,7 @@ from posthog.schema import (
     WebOverviewQuery,
     ActionConversionGoal,
     CustomEventConversionGoal,
+    SessionTableVersion,
 )
 
 
@@ -57,6 +58,7 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner):
                 to_data("sessions", "unit", self._unsample(row[4]), self._unsample(row[5])),
                 to_data("session duration", "duration_s", row[6], row[7]),
                 to_data("bounce rate", "percentage", row[8], row[9], is_increase_bad=True),
+                to_data("lcp_p90", "seconds", row[10], row[11], is_increase_bad=True),
             ]
 
         return WebOverviewQueryResponse(
@@ -215,6 +217,15 @@ HAVING and(
                     alias="is_bounce", expr=ast.Call(name="any", args=[ast.Field(chain=["session", "$is_bounce"])])
                 )
             )
+            lcp = (
+                ast.Constant(value=None)
+                if self.modifiers.sessionTableVersion == SessionTableVersion.V1
+                else ast.Call(name="any", args=[ast.Field(chain=["session", "$lcp"])])
+            )
+            if self.modifiers.sessionTableVersion != SessionTableVersion.V1:
+                parsed_select.select.append(ast.Alias(alias="lcp", expr=lcp))
+            else:
+                parsed_select.select.append(ast.Alias(alias="lcp", expr=lcp))
 
         return parsed_select
 
@@ -224,12 +235,13 @@ HAVING and(
         mid = self.query_date_range.date_from_as_hogql()
         end = self.query_date_range.date_to_as_hogql()
 
-        def current_period_aggregate(function_name, column_name, alias):
+        def current_period_aggregate(function_name, column_name, alias, params=None):
             if self.query.compare:
                 return ast.Alias(
                     alias=alias,
                     expr=ast.Call(
                         name=function_name + "If",
+                        params=params,
                         args=[
                             ast.Field(chain=[column_name]),
                             ast.Call(
@@ -253,12 +265,13 @@ HAVING and(
             else:
                 return ast.Alias(alias=alias, expr=ast.Call(name=function_name, args=[ast.Field(chain=[column_name])]))
 
-        def previous_period_aggregate(function_name, column_name, alias):
+        def previous_period_aggregate(function_name, column_name, alias, params=None):
             if self.query.compare:
                 return ast.Alias(
                     alias=alias,
                     expr=ast.Call(
                         name=function_name + "If",
+                        params=params,
                         args=[
                             ast.Field(chain=[column_name]),
                             ast.Call(
@@ -319,6 +332,8 @@ HAVING and(
                 previous_period_aggregate("avg", "session_duration", "prev_avg_duration_s"),
                 current_period_aggregate("avg", "is_bounce", "bounce_rate"),
                 previous_period_aggregate("avg", "is_bounce", "prev_bounce_rate"),
+                current_period_aggregate("quantiles", "lcp", "lcp_p90", params=90),
+                previous_period_aggregate("quantiles", "lcp", "prev_lcp_p90", params=90),
             ]
 
         query = ast.SelectQuery(
