@@ -279,9 +279,15 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         return super().validate(attrs)
 
     def create(self, validated_data: dict[str, Any], **kwargs) -> Team:
+        request = self.context["request"]
+        if "project_id" not in self.context:
+            raise exceptions.ValidationError(
+                "Environments must be created under a specific project. Send the POST request to /api/projects/<project_id>/environments/ instead."
+            )
+        if self.context["project_id"] not in [project.id for project in request.user.projects]:
+            raise exceptions.NotFound("Project not found.")
         validated_data["project_id"] = self.context["project_id"]
         serializers.raise_errors_on_nested_writes("create", self, validated_data)
-        request = self.context["request"]
 
         if "week_start_day" not in validated_data:
             country_code = get_geoip_properties(get_ip_address(request)).get("$geoip_country_code", None)
@@ -292,7 +298,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                 validated_data["week_start_day"] = 1 if week_start_day_for_user_ip_location == 1 else 0
 
         team = Team.objects.create_with_data(
-            initiating_user=self.context["request"].user,
+            initiating_user=request.user,
             organization=self.context["view"].organization,
             **validated_data,
         )

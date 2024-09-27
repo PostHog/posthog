@@ -412,7 +412,7 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         user = cast(User, self.request.user)
 
-        teams = list(project.teams.only("id").all())
+        teams = list(project.teams.only("id", "uuid", "name", "organization_id").all())
         delete_bulky_postgres_data(team_ids=[team.id for team in teams])
         delete_batch_exports(team_ids=[team.id for team in teams])
 
