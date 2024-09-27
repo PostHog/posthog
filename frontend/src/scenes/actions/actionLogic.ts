@@ -93,6 +93,10 @@ export const actionLogic = kea<actionLogicType>([
                 },
             ],
         ],
+        hasCohortFilters: [
+            (s) => [s.action],
+            (action) => action?.steps?.some((step) => step.properties?.find((p) => p.type === 'cohort')) ?? false,
+        ],
     }),
     listeners(({ actions, values }) => ({
         checkIsFinished: ({ action }) => {

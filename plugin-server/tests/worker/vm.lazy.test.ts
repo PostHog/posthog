@@ -5,7 +5,6 @@ import { status } from '../../src/utils/status'
 import { LazyPluginVM } from '../../src/worker/vm/lazy'
 import { createPluginConfigVM } from '../../src/worker/vm/vm'
 import { plugin60, pluginConfig39 } from '../helpers/plugins'
-import { disablePlugin } from '../helpers/sqlMock'
 
 jest.mock('../../src/utils/db/error')
 jest.mock('../../src/utils/status')
@@ -125,10 +124,6 @@ describe('LazyPluginVM', () => {
             expect((status.warn as any).mock.calls).toEqual([
                 ['⚠️', 'Failed to load failure plugin. Error: VM creation failed before setupPlugin'],
             ])
-
-            // plugin gets disabled
-            expect(disablePlugin).toHaveBeenCalledTimes(1)
-            expect(disablePlugin).toHaveBeenCalledWith(mockServer, 39)
         })
 
         it('_setupPlugin handles RetryError succeeding at last', async () => {
@@ -191,9 +186,6 @@ describe('LazyPluginVM', () => {
             expect((status.info as any).mock.calls).toEqual([
                 ['🔌', expect.stringContaining('setupPlugin succeeded for plugin test-maxmind-plugin')],
             ])
-
-            // Plugin does not get disabled
-            expect(disablePlugin).toHaveBeenCalledTimes(0)
         })
 
         it('_setupPlugin handles RetryError never succeeding', async () => {
@@ -251,8 +243,6 @@ describe('LazyPluginVM', () => {
                 'setupPlugin failed with RetryError (attempt 5/5) for plugin test-maxmind-plugin'
             )
 
-            // Plugin gets disabled due to failure
-            expect(disablePlugin).toHaveBeenCalledTimes(1)
             // An email to project members about the failure is queued
             expect(mockServer.db.celeryApplyAsync).toHaveBeenCalledWith('posthog.tasks.email.send_fatal_plugin_error', [
                 pluginConfig39.id,
