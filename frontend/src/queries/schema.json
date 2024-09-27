@@ -7451,8 +7451,6 @@
             "properties": {
                 "async": {
                     "deprecated": "Use `refresh` instead.",
-                    "description": "(Experimental) Whether to run the query asynchronously. Defaults to False. If True, the `id` of the query can be used to check the status and to cancel it.",
-                    "examples": [true],
                     "type": "boolean"
                 },
                 "client_query_id": {
@@ -7467,7 +7465,8 @@
                     "description": "Submit a JSON string representing a query for PostHog data analysis, for example a HogQL query.\n\nExample payload:\n\n```\n\n{\"query\": {\"kind\": \"HogQLQuery\", \"query\": \"select * from events limit 100\"}}\n\n```\n\nFor more details on HogQL queries, see the [PostHog HogQL documentation](/docs/hogql#api-access)."
                 },
                 "refresh": {
-                    "$ref": "#/definitions/RefreshType"
+                    "$ref": "#/definitions/RefreshType",
+                    "description": "Whether to refresh the insight, how aggresively, and if sync or async. The default `force_cache` value never refreshes. Other possible values are:\n- 'blocking' - calculate synchronously (returning only when the query is done), UNLESS there's very fresh data in the cache already\n- 'async' - kick off background calculation (returning immediately with a query status), UNLESS there's very fresh data in the cache already\n- 'force_blocking' - calculate synchronously (returning only when the query is done), even if there's very fresh data in the cache\n- 'force_async' - kick off background calculation (returning immediately with a query status), even if there's very fresh data in the cache\n- 'lazy_async' - only kick off background calculation if the data is visibly stale Background calculation can be tracked using the `query_status` response field."
                 }
             },
             "required": ["query"],

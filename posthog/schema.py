@@ -5963,15 +5963,7 @@ class QueryRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    async_: Optional[bool] = Field(
-        default=None,
-        alias="async",
-        description=(
-            "(Experimental) Whether to run the query asynchronously. Defaults to False. If True, the `id` of the query"
-            " can be used to check the status and to cancel it."
-        ),
-        examples=[True],
-    )
+    async_: Optional[bool] = Field(default=None, alias="async")
     client_query_id: Optional[str] = Field(
         default=None, description="Client provided query ID. Can be used to retrieve the status or cancel the query."
     )
@@ -6021,7 +6013,20 @@ class QueryRequest(BaseModel):
         ),
         discriminator="kind",
     )
-    refresh: Optional[Union[bool, str]] = None
+    refresh: Optional[Union[bool, str]] = Field(
+        default=None,
+        description=(
+            "Whether to refresh the insight, how aggresively, and if sync or async. The default `force_cache` value"
+            " never refreshes. Other possible values are:\n- 'blocking' - calculate synchronously (returning only when"
+            " the query is done), UNLESS there's very fresh data in the cache already\n- 'async' - kick off background"
+            " calculation (returning immediately with a query status), UNLESS there's very fresh data in the cache"
+            " already\n- 'force_blocking' - calculate synchronously (returning only when the query is done), even if"
+            " there's very fresh data in the cache\n- 'force_async' - kick off background calculation (returning"
+            " immediately with a query status), even if there's very fresh data in the cache\n- 'lazy_async' - only"
+            " kick off background calculation if the data is visibly stale Background calculation can be tracked using"
+            " the `query_status` response field."
+        ),
+    )
 
 
 class QuerySchemaRoot(
