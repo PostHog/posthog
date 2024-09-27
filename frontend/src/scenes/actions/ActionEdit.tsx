@@ -27,7 +27,7 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
         action: loadedAction,
     }
     const logic = actionEditLogic(logicProps)
-    const { action, actionLoading, actionChanged, migrationLoading } = useValues(logic)
+    const { action, actionLoading, actionChanged, migrationLoading, hasCohortFilters } = useValues(logic)
     const { submitAction, deleteAction, migrateToHogFunction } = useActions(logic)
     const { currentTeam } = useValues(teamLogic)
     const { tags } = useValues(tagsModel)
@@ -236,11 +236,14 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
                                                     children: 'Upgrade',
                                                 },
                                             }),
-                                        disabled: migrationLoading,
+                                        disabled: hasCohortFilters || migrationLoading,
                                     }}
                                 >
                                     Action Webhooks have been replaced by the new and improved{' '}
-                                    <b>Pipeline Destinations</b>. Click to upgrade.
+                                    <b>Pipeline Destinations</b>.{' '}
+                                    {hasCohortFilters
+                                        ? 'Can not upgrade because action has a cohort filter.'
+                                        : 'Click to upgrade.'}
                                 </LemonBanner>
                             </>
                         )}

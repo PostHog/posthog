@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, key, listeners, path, props, reducers } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { beforeUnload, router, urlToAction } from 'kea-router'
@@ -65,7 +65,6 @@ export const actionEditLogic = kea<actionEditLogicType>([
             },
         ],
     }),
-
     forms(({ actions, props }) => ({
         action: {
             defaults:
@@ -122,6 +121,13 @@ export const actionEditLogic = kea<actionEditLogicType>([
             },
         },
     })),
+
+    selectors({
+        hasCohortFilters: [
+            (s) => [s.action],
+            (action) => action?.steps?.some((step) => step.properties?.find((p) => p.type === 'cohort')) ?? false,
+        ],
+    }),
 
     loaders(({ actions, props, values }) => ({
         action: [
