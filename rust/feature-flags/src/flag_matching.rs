@@ -219,53 +219,21 @@ impl FeatureFlagMatcher {
             .iter()
             .any(|flag| flag.ensure_experience_continuity);
 
-        if flags_have_experience_continuity_enabled {
-            self.evaluate_flags_with_continuity(
-                feature_flags,
-                person_property_overrides,
-                group_property_overrides,
-                hash_key_override,
-            )
-            .await
-        } else {
-            self.evaluate_flags_without_continuity(
-                feature_flags,
-                person_property_overrides,
-                group_property_overrides,
-            )
-            .await
-        }
-    }
-
-    async fn evaluate_flags_without_continuity(
-        &mut self,
-        feature_flags: FeatureFlagList,
-        person_property_overrides: Option<HashMap<String, Value>>,
-        group_property_overrides: Option<HashMap<String, HashMap<String, Value>>>,
-    ) -> FlagsResponse {
-        self.evaluate_flags_with_overrides(
-            feature_flags,
-            person_property_overrides,
-            group_property_overrides,
-            None, // if we don't have continuity, we don't care about hash key overrides
-        )
-        .await
-    }
-
-    async fn evaluate_flags_with_continuity(
-        &mut self,
-        feature_flags: FeatureFlagList,
-        person_property_overrides: Option<HashMap<String, Value>>,
-        group_property_overrides: Option<HashMap<String, HashMap<String, Value>>>,
-        hash_key_override: Option<String>,
-    ) -> FlagsResponse {
-        let (hash_key_overrides, initial_error) = match hash_key_override {
-            Some(hash_key) => {
-                let target_distinct_ids = vec![self.distinct_id.clone(), hash_key.clone()];
-                self.process_hash_key_override(hash_key, target_distinct_ids)
-                    .await
+        // Process any hash key overrides
+        let (hash_key_overrides, initial_error) = if flags_have_experience_continuity_enabled {
+            match hash_key_override {
+                Some(hash_key) => {
+                    let target_distinct_ids = vec![self.distinct_id.clone(), hash_key.clone()];
+                    self.process_hash_key_override(hash_key, target_distinct_ids)
+                        .await
+                }
+                // if a flag has experience continuity enabled but no hash key override is provided,
+                // we don't need to write an override, we can just use the distinct_id
+                None => (None, false),
             }
-            None => (None, false), // If no hash key override is provided, we don't need to write an override, and we will use the distinct_id as the hash key
+        } else {
+            // if experience continuity is not enabled, we don't need to worry about hash key overrides
+            (None, false)
         };
 
         let flags_response = self
@@ -347,7 +315,7 @@ impl FeatureFlagMatcher {
         let mut error_while_computing_flags = false;
         let mut flags_needing_db_properties = Vec::new();
 
-        // Step 1: Evaluate flags that can be resolved with overrides
+        // Step 1: Evaluate flags with locally computable property overrides first
         for flag in &feature_flags.flags {
             if !flag.active || flag.deleted {
                 continue;
@@ -379,7 +347,7 @@ impl FeatureFlagMatcher {
             }
         }
 
-        // Step 2: Fetch and cache properties for remaining flags
+        // Step 2: Fetch and cache properties for remaining flags (just one DB lookup for all of relevant properties)
         if !flags_needing_db_properties.is_empty() {
             let group_type_indexes: HashSet<GroupTypeIndex> = flags_needing_db_properties
                 .iter()
@@ -407,7 +375,10 @@ impl FeatureFlagMatcher {
                 }
             }
 
-            // Step 3: Evaluate remaining flags
+            // Step 3: Evaluate remaining flags with cached properties
+            // At this point we've already done a round of flag evaluations with locally computable property overrides
+            // This step is for flags that couldn't be evaluated locally due to missing property values,
+            // so we do a single query to fetch all of the remaining properties, and then proceed with flag evaluations
             for flag in flags_needing_db_properties {
                 match self
                     .get_match(&flag, None, hash_key_overrides.clone())
