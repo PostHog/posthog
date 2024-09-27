@@ -293,7 +293,7 @@ def _aggregate_insight_result_value(alert: AlertConfiguration, query: TrendsQuer
     if alert.config.type == "TrendsAlertConfig":
         alert.config = cast(TrendsAlertConfig, alert.config)
         series_index = alert.config.series_index
-        result = cast(TrendResult, results.result[series_index])
+        result = cast(list[TrendResult], results.result)[series_index]
 
         if query.trendsFilter and query.trendsFilter.display in NON_TIME_SERIES_DISPLAY_TYPES:
             return result["aggregated_value"]

@@ -118,7 +118,7 @@ class AlertConfiguration(CreatedMetaFields, UUIDModel):
     )
 
     # insight specific config for the alert
-    config = models.JSONField(default={"type": "TrendsAlertConfig", "series_index": 0})
+    config = models.JSONField(default=dict, null=True, blank=True)
 
     # how often to recalculate the alert
     CALCULATION_INTERVAL_CHOICES = [
@@ -128,7 +128,11 @@ class AlertConfiguration(CreatedMetaFields, UUIDModel):
         (AlertCalculationInterval.MONTHLY, AlertCalculationInterval.MONTHLY.value),
     ]
     calculation_interval = models.CharField(
-        max_length=10, choices=CALCULATION_INTERVAL_CHOICES, default=AlertCalculationInterval.DAILY
+        max_length=10,
+        choices=CALCULATION_INTERVAL_CHOICES,
+        default=AlertCalculationInterval.DAILY,
+        null=True,
+        blank=True,
     )
 
     # The threshold to evaluate the alert against. If null, the alert must have other conditions to trigger.
