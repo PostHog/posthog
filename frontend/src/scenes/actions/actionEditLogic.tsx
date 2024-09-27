@@ -127,6 +127,14 @@ export const actionEditLogic = kea<actionEditLogicType>([
             (s) => [s.action],
             (action) => action?.steps?.some((step) => step.properties?.find((p) => p.type === 'cohort')) ?? false,
         ],
+        originalActionHasCohortFilters: [
+            () => [(_, p: ActionEditLogicProps) => p.action],
+            (action) => action?.steps?.some((step) => step.properties?.find((p) => p.type === 'cohort')) ?? false,
+        ],
+        showCohortDisablesFunctionsWarning: [
+            (s) => [s.hasCohortFilters, s.originalActionHasCohortFilters],
+            (hasCohortFilters, originalActionHasCohortFilters) => hasCohortFilters && !originalActionHasCohortFilters,
+        ],
     }),
 
     loaders(({ actions, props, values }) => ({
