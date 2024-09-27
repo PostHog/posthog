@@ -22,8 +22,6 @@ export interface AlertFormLogicProps {
     alert: AlertType | null
     insightId: QueryBasedInsightModel['id']
     onEditSuccess: () => void
-    onCreateSuccess?: () => void
-    onDeleteSuccess?: () => void
 }
 
 export const alertFormLogic = kea<alertFormLogicType>([
@@ -72,13 +70,18 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 try {
                     if (alert.id === undefined) {
                         const updatedAlert: AlertType = await api.alerts.create(payload)
+
                         lemonToast.success(`Alert created.`)
-                        props.onCreateSuccess?.()
+                        props.onEditSuccess()
+
                         return updatedAlert
                     }
 
                     const updatedAlert: AlertType = await api.alerts.update(alert.id, payload)
+
                     lemonToast.success(`Alert saved.`)
+                    props.onEditSuccess()
+
                     return updatedAlert
                 } catch (error: any) {
                     const field = error.data?.attr?.replace(/_/g, ' ')
@@ -89,7 +92,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
         },
     })),
 
-    listeners(({ props, values, actions }) => ({
+    listeners(({ props, values }) => ({
         deleteAlert: async () => {
             // deletion only allowed on created alert (which will have alertId)
             if (!values.alertForm.id) {
@@ -97,12 +100,6 @@ export const alertFormLogic = kea<alertFormLogicType>([
             }
             await api.alerts.delete(values.alertForm.id)
             props.onEditSuccess()
-            props.onDeleteSuccess?.()
-        },
-
-        submitAlertFormSuccess: () => {
-            props.onEditSuccess()
-            actions.resetAlertForm()
         },
     })),
 ])
