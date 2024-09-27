@@ -3,17 +3,13 @@
   '''
   
   SELECT team_id,
-         multiIf(event LIKE 'helicone%', 'helicone', event LIKE 'langfuse%', 'langfuse', event LIKE 'keywords_ai%', 'keywords_ai', event LIKE 'traceloop%', 'traceloop', 'other') AS integration,
+         multiIf(event LIKE 'helicone%', 'helicone_events', event LIKE 'langfuse%', 'langfuse_events', event LIKE 'keywords_ai%', 'keywords_ai_events', event LIKE 'traceloop%', 'traceloop_events', JSONExtractString(properties, '$lib') = 'web', 'web_events', JSONExtractString(properties, '$lib') = 'posthog-node', 'node_events', JSONExtractString(properties, '$lib') = 'posthog-android', 'android_events', JSONExtractString(properties, '$lib') = 'posthog-flutter', 'flutter_events', JSONExtractString(properties, '$lib') = 'posthog-ios', 'ios_events', JSONExtractString(properties, '$lib') = 'posthog-go', 'go_events', JSONExtractString(properties, '$lib') = 'posthog-java', 'java_events', JSONExtractString(properties, '$lib') = 'posthog-react-native', 'react_native_events', JSONExtractString(properties, '$lib') = 'posthog-ruby', 'ruby_events', JSONExtractString(properties, '$lib') = 'posthog-python', 'python_events', JSONExtractString(properties, '$lib') = 'posthog-php', 'php_events', 'other') AS metric,
          count(1) as count
   FROM events
   WHERE timestamp BETWEEN '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
-    AND (event LIKE 'helicone%'
-         OR event LIKE 'langfuse%'
-         OR event LIKE 'keywords_ai%'
-         OR event LIKE 'traceloop%')
   GROUP BY team_id,
-           integration
-  HAVING integration != 'other'
+           metric
+  HAVING metric != 'other'
   '''
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.1
@@ -217,17 +213,6 @@
   '''
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.20
-  '''
-  
-  SELECT team_id,
-         COUNT() as count
-  FROM events
-  WHERE event = 'survey sent'
-    AND timestamp between '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
-  GROUP BY team_id
-  '''
-# ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.21
   '''
   
   SELECT team_id,
