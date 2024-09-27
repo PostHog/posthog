@@ -12,6 +12,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { Link } from 'lib/lemon-ui/Link'
+import { ActionHogFunctions } from 'scenes/actions/ActionHogFunctions'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -62,7 +63,7 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
         </LemonButton>
     )
 
-    return (
+    const actionEditJSX = (
         <div className="action-edit-container">
             <Form logic={actionEditLogic} props={logicProps} formKey="action" enableFormOnSubmit>
                 <PageHeader
@@ -306,5 +307,12 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
                 ) : undefined}
             </Form>
         </div>
+    )
+
+    return (
+        <>
+            {actionEditJSX}
+            <ActionHogFunctions />
+        </>
     )
 }
