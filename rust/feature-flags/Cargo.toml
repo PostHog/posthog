@@ -38,6 +38,7 @@ strum = { version = "0.26", features = ["derive"] }
 health = { path = "../common/health" }
 common-metrics = { path = "../common/metrics" }
 tower = { workspace = true }
+derive_builder = "0.20.1"
 
 [lints]
 workspace = true

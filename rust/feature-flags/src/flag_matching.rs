@@ -1353,7 +1353,6 @@ mod tests {
 
     use super::*;
     use crate::{
-        config::Config,
         flag_definitions::{
             FeatureFlagRow, FlagFilters, MultivariateFlagOptions, MultivariateFlagVariant,
             OperatorType,

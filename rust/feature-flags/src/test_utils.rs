@@ -172,7 +172,7 @@ pub async fn setup_invalid_pg_client() -> Arc<dyn Client + Send + Sync> {
     Arc::new(MockPgClient)
 }
 
-pub async fn insert_new_team_in_pg(client: Arc<PgPool>) -> Result<Team, Error> {
+pub async fn insert_new_team_in_pg(client: Arc<dyn Client + Send + Sync>) -> Result<Team, Error> {
     const ORG_ID: &str = "019026a4be8000005bf3171d00629163";
 
     client.run_query(

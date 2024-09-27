@@ -120,7 +120,7 @@ impl FeatureFlag {
     }
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct FeatureFlagList {
     pub flags: Vec<FeatureFlag>,
 }
