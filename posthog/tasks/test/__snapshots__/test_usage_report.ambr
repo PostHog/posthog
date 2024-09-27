@@ -229,7 +229,8 @@
   SELECT team_id,
          SUM(count) as count
   FROM app_metrics2
-  WHERE metric_name IN ('succeeded',
+  WHERE app_source='hog_function'
+    AND metric_name IN ('succeeded',
                         'failed')
     AND timestamp between '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
   GROUP BY team_id,
@@ -242,7 +243,8 @@
   SELECT team_id,
          SUM(count) as count
   FROM app_metrics2
-  WHERE metric_name IN ('fetch')
+  WHERE app_source='hog_function'
+    AND metric_name IN ('fetch')
     AND timestamp between '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
   GROUP BY team_id,
            metric_name
