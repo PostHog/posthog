@@ -258,7 +258,7 @@ impl FeatureFlagMatcher {
         target_distinct_ids: Vec<String>,
     ) -> (Option<HashMap<String, String>>, bool) {
         let should_write = match should_write_hash_key_override(
-            self.postgres_writer.clone(),
+            self.postgres_reader.clone(),
             self.team_id,
             self.distinct_id.clone(),
             hash_key.clone(),
@@ -277,6 +277,7 @@ impl FeatureFlagMatcher {
 
         if should_write {
             if let Err(e) = set_feature_flag_hash_key_overrides(
+                // NB: this is the only method that writes to the database, so it's the only one that should use the writer
                 self.postgres_writer.clone(),
                 self.team_id,
                 target_distinct_ids.clone(),
@@ -1280,25 +1281,22 @@ async fn set_feature_flag_hash_key_overrides(
         }
     }
 
+    // If we get here, something went wrong
     Ok(false)
 }
 
 async fn should_write_hash_key_override(
-    postgres_writer: PostgresClientArc,
-    team_id: i32, // Replace with your actual TeamId type
+    postgres_reader: PostgresClientArc,
+    team_id: TeamId,
     distinct_id: String,
     hash_key_override: String,
 ) -> Result<bool, FlagError> {
-    // Define the timeout duration (e.g., 1 second)
     const QUERY_TIMEOUT: Duration = Duration::from_millis(1000);
-    // Define retry parameters
     const MAX_RETRIES: u32 = 2;
     const RETRY_DELAY: Duration = Duration::from_millis(100);
 
-    // Prepare the distinct_ids as per Python code
     let distinct_ids = vec![distinct_id, hash_key_override.clone()];
 
-    // Define the SQL query
     let query = r#"
         WITH target_person_ids AS (
             SELECT team_id, person_id 
@@ -1320,14 +1318,11 @@ async fn should_write_hash_key_override(
     "#;
 
     for retry in 0..MAX_RETRIES {
-        // Execute the query within a timeout
         let result = timeout(QUERY_TIMEOUT, async {
-            // Acquire a connection from the pool
-            let mut conn = postgres_writer.get_connection().await.map_err(|e| {
+            let mut conn = postgres_reader.get_connection().await.map_err(|e| {
                 FlagError::DatabaseError(format!("Failed to acquire connection: {}", e))
             })?;
 
-            // Execute the query with parameters
             let rows = sqlx::query(query)
                 .bind(team_id)
                 .bind(&distinct_ids)
@@ -1335,7 +1330,6 @@ async fn should_write_hash_key_override(
                 .await
                 .map_err(|e| FlagError::DatabaseError(format!("Query execution failed: {}", e)))?;
 
-            // Determine if there are any flags with no overrides
             Ok::<bool, FlagError>(!rows.is_empty())
         })
         .await;
@@ -1343,11 +1337,9 @@ async fn should_write_hash_key_override(
         match result {
             Ok(Ok(flags_present)) => return Ok(flags_present),
             Ok(Err(e)) => {
-                // Check if the error is due to foreign key constraint violation
                 if e.to_string().contains("violates foreign key constraint")
                     && retry < MAX_RETRIES - 1
                 {
-                    // Retry logic for specific error
                     info!(
                         "Retrying set_feature_flag_hash_key_overrides due to person deletion: {:?}",
                         e
