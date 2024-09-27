@@ -206,7 +206,7 @@
                      groups.group_type_index AS index,
                      groups.group_key AS key
               FROM groups
-              WHERE and(equals(groups.team_id, 2), ifNull(equals(index, 0), 0))
+              WHERE and(equals(groups.team_id, 2), equals(index, 0))
               GROUP BY groups.group_type_index,
                        groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
            WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'))
@@ -251,10 +251,10 @@
                   groups.group_type_index AS index,
                   groups.group_key AS key
            FROM groups
-           WHERE and(equals(groups.team_id, 2), ifNull(equals(index, 0), 0))
+           WHERE and(equals(groups.team_id, 2), equals(index, 0))
            GROUP BY groups.group_type_index,
                     groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-        WHERE and(equals(e.team_id, 2), ifNull(greaterOrEquals(timestamp, toDateTime64('2020-01-02 00:00:00.000000', 6, 'UTC')), 0), ifNull(less(timestamp, toDateTime64('2020-01-03 00:00:00.000000', 6, 'UTC')), 0), ifNull(equals(ifNull(nullIf(toString(e__group_0.properties___industry), ''), '$$_posthog_breakdown_null_$$'), 'technology'), 0), equals(e.event, 'sign up')))
+        WHERE and(equals(e.team_id, 2), greaterOrEquals(timestamp, toDateTime64('2020-01-02 00:00:00.000000', 6, 'UTC')), less(timestamp, toDateTime64('2020-01-03 00:00:00.000000', 6, 'UTC')), ifNull(equals(ifNull(nullIf(toString(e__group_0.properties___industry), ''), '$$_posthog_breakdown_null_$$'), 'technology'), 0), equals(e.event, 'sign up')))
      GROUP BY actor_id) AS source
   INNER JOIN
     (SELECT argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
@@ -270,9 +270,9 @@
                                                       LEFT JOIN
                                                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry, groups.group_type_index AS index, groups.group_key AS key
                                                          FROM groups
-                                                         WHERE and(equals(groups.team_id, 2), ifNull(equals(index, 0), 0))
+                                                         WHERE and(equals(groups.team_id, 2), equals(index, 0))
                                                          GROUP BY groups.group_type_index, groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-                                                      WHERE and(equals(e.team_id, 2), ifNull(greaterOrEquals(timestamp, toDateTime64('2020-01-02 00:00:00.000000', 6, 'UTC')), 0), ifNull(less(timestamp, toDateTime64('2020-01-03 00:00:00.000000', 6, 'UTC')), 0), ifNull(equals(ifNull(nullIf(toString(e__group_0.properties___industry), ''), '$$_posthog_breakdown_null_$$'), 'technology'), 0), equals(e.event, 'sign up')))
+                                                      WHERE and(equals(e.team_id, 2), greaterOrEquals(timestamp, toDateTime64('2020-01-02 00:00:00.000000', 6, 'UTC')), less(timestamp, toDateTime64('2020-01-03 00:00:00.000000', 6, 'UTC')), ifNull(equals(ifNull(nullIf(toString(e__group_0.properties___industry), ''), '$$_posthog_breakdown_null_$$'), 'technology'), 0), equals(e.event, 'sign up')))
                                                    GROUP BY actor_id) AS source)))
      GROUP BY person.id
      HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
@@ -326,7 +326,7 @@
                      groups.group_type_index AS index,
                      groups.group_key AS key
               FROM groups
-              WHERE and(equals(groups.team_id, 2), ifNull(equals(index, 0), 0))
+              WHERE and(equals(groups.team_id, 2), equals(index, 0))
               GROUP BY groups.group_type_index,
                        groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
            WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.person_properties, 'key'), ''), 'null'), '^"|"$', ''), 'value'), 0))
@@ -750,7 +750,7 @@
                      groups.group_type_index AS index,
                      groups.group_key AS key
               FROM groups
-              WHERE and(equals(groups.team_id, 2), ifNull(equals(index, 0), 0))
+              WHERE and(equals(groups.team_id, 2), equals(index, 0))
               GROUP BY groups.group_type_index,
                        groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
            WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), ifNull(equals(e__group_0.properties___industry, 'finance'), 0))
@@ -814,7 +814,7 @@
                      groups.group_type_index AS index,
                      groups.group_key AS key
               FROM groups
-              WHERE and(equals(groups.team_id, 2), ifNull(equals(index, 0), 0))
+              WHERE and(equals(groups.team_id, 2), equals(index, 0))
               GROUP BY groups.group_type_index,
                        groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
            WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), ifNull(equals(e__group_0.properties___industry, 'finance'), 0))
