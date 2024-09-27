@@ -102,7 +102,7 @@ export function EditAlertModal({
                         <div className="flex items-center gap-2">
                             <LemonButton icon={<IconChevronLeft />} onClick={onClose} size="xsmall" />
 
-                            <h3>{creatingNewAlert === undefined ? 'New' : 'Edit '} Alert</h3>
+                            <h3>{creatingNewAlert ? 'New' : 'Edit '} Alert</h3>
                         </div>
                     </LemonModal.Header>
 

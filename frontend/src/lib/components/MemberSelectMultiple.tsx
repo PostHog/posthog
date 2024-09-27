@@ -1,4 +1,4 @@
-import { LemonInputSelect, ProfilePicture } from '@posthog/lemon-ui'
+import { LemonInputSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { fullName } from 'lib/utils'
 import { useEffect } from 'react'
@@ -26,7 +26,6 @@ export function MemberSelectMultiple({ idKey, value, onChange }: MemberSelectMul
         key: member.user[idKey].toString(),
         label: fullName(member.user),
         value: member.user[idKey],
-        icon: <ProfilePicture size="md" user={member.user} />,
     }))
 
     return (

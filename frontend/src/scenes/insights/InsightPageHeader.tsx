@@ -121,7 +121,10 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         alertId={alertId === null || alertId === 'new' ? undefined : alertId}
                         insightShortId={insight.short_id as InsightShortId}
                         insightId={insight.id!}
-                        onEditSuccess={loadAlerts}
+                        onEditSuccess={() => {
+                            loadAlerts()
+                            push(urls.insightAlerts(insight.short_id as InsightShortId))
+                        }}
                     />
                     <NewDashboardModal />
                 </>

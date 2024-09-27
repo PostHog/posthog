@@ -17,8 +17,9 @@ export interface AlertTypeBase {
     config: AlertConfig
 }
 
-export interface AlertTypeWrite extends AlertTypeBase {
+export interface AlertTypeWrite extends Omit<AlertTypeBase, 'insight'> {
     subscribed_users: number[]
+    insight: number
 }
 
 export interface AlertCheck {

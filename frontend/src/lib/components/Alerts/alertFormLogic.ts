@@ -3,6 +3,7 @@ import { forms } from 'kea-forms'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
+import { AlertCalculationInterval } from '~/queries/schema'
 import { QueryBasedInsightModel } from '~/types'
 
 import type { alertFormLogicType } from './alertFormLogicType'
@@ -14,7 +15,7 @@ export type AlertFormType = Pick<
 > & {
     id?: AlertType['id']
     created_by?: AlertType['created_by'] | null
-    insight_id?: QueryBasedInsightModel['id']
+    insight?: QueryBasedInsightModel['id']
 }
 
 export interface AlertFormLogicProps {
@@ -55,6 +56,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     },
                     subscribed_users: [],
                     checks: [],
+                    calculation_interval: AlertCalculationInterval.DAILY,
                     insight: props.insightId,
                 } as AlertFormType),
             errors: ({ name }) => ({
@@ -64,6 +66,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 const payload: Partial<AlertTypeWrite> = {
                     ...alert,
                     subscribed_users: alert.subscribed_users?.map(({ id }) => id),
+                    insight: props.insightId,
                 }
 
                 try {
@@ -86,7 +89,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
         },
     })),
 
-    listeners(({ props, values }) => ({
+    listeners(({ props, values, actions }) => ({
         deleteAlert: async () => {
             // deletion only allowed on created alert (which will have alertId)
             if (!values.alertForm.id) {
@@ -99,6 +102,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
 
         submitAlertFormSuccess: () => {
             props.onEditSuccess()
+            actions.resetAlertForm()
         },
     })),
 ])
