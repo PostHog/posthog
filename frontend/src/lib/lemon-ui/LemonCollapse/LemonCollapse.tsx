@@ -50,6 +50,7 @@ export function LemonCollapse<K extends React.Key>({
     let isPanelExpanded: (key: K) => boolean
     let onPanelChange: (key: K, isExpanded: boolean) => void
     if (props.multiple) {
+        // eslint-disable-next-line react-hooks/rules-of-hooks
         const [localActiveKeys, setLocalActiveKeys] = useState<Set<K>>(new Set(props.defaultActiveKeys ?? []))
         const effectiveActiveKeys = props.activeKeys ? new Set(props.activeKeys) : localActiveKeys
         isPanelExpanded = (key: K) => effectiveActiveKeys.has(key)
@@ -64,6 +65,7 @@ export function LemonCollapse<K extends React.Key>({
             setLocalActiveKeys(newActiveKeys)
         }
     } else {
+        // eslint-disable-next-line react-hooks/rules-of-hooks
         const [localActiveKey, setLocalActiveKey] = useState<K | null>(props.defaultActiveKey ?? null)
         const effectiveActiveKey = props.activeKey ?? localActiveKey
         isPanelExpanded = (key: K) => key === effectiveActiveKey

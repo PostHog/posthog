@@ -105,6 +105,20 @@ export function Customization({ appearance, surveyQuestionItem, onAppearanceChan
                     onChange={(submitButtonTextColor) => onAppearanceChange({ ...appearance, submitButtonTextColor })}
                     disabled={!surveysStylingAvailable}
                 />
+
+                <LemonField.Pure
+                    label="Survey form zIndex"
+                    info="If the survey popup is hidden behind another overlapping UI element, set this value higher than the overlapping element's zIndex."
+                >
+                    <LemonInput
+                        type="text"
+                        value={appearance?.zIndex}
+                        onChange={(zIndex) => onAppearanceChange({ ...appearance, zIndex })}
+                        disabled={!surveysStylingAvailable}
+                        placeholder="99999"
+                        defaultValue="99999"
+                    />
+                </LemonField.Pure>
                 {surveyQuestionItem.type === SurveyQuestionType.Open && (
                     <>
                         <div className="mt-2">Placeholder text</div>
