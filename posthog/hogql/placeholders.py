@@ -42,7 +42,7 @@ class ReplacePlaceholders(CloningVisitor):
         self.placeholders = placeholders
 
     def visit_placeholder(self, node):
-        if True:  # HOG_PLACEHOLDERS:
+        if True:  # TODO: HOG_PLACEHOLDERS feature flag
             from hogvm.python.execute import execute_bytecode
             from posthog.hogql.bytecode import create_bytecode
 
@@ -53,7 +53,7 @@ class ReplacePlaceholders(CloningVisitor):
             else:
                 return ast.Constant(value=response.result)
         else:
-            if not self.placeholders:
+            if not self.placeholders:  # type: ignore
                 raise QueryError(f"Unresolved placeholder: {{{node.field}}}")
             if node.field in self.placeholders and self.placeholders[node.field] is not None:
                 new_node = self.placeholders[node.field]
