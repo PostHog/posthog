@@ -26,6 +26,7 @@ import { FeatureFlagsSDKInstructions } from './sdks/feature-flags/FeatureFlagsSD
 import { ProductAnalyticsSDKInstructions } from './sdks/product-analytics/ProductAnalyticsSDKInstructions'
 import { SDKs } from './sdks/SDKs'
 import { iOSInstructions } from './sdks/session-replay/ios'
+import { RNInstructions } from './sdks/session-replay/react-native'
 import { SessionReplaySDKInstructions } from './sdks/session-replay/SessionReplaySDKInstructions'
 import { SurveysSDKInstructions } from './sdks/surveys/SurveysSDKInstructions'
 
@@ -240,6 +241,7 @@ const SessionReplayOnboarding = (): JSX.Element => {
     if (hasMobileOnBoarding) {
         sdkInstructionMap[SDKKey.ANDROID] = AndroidInstructions
         sdkInstructionMap[SDKKey.IOS] = iOSInstructions
+        sdkInstructionMap[SDKKey.REACT_NATIVE] = RNInstructions
     }
 
     return (
