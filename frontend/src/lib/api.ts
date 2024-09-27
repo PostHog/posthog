@@ -1009,7 +1009,7 @@ const api = {
                 .withQueryString(temporaryToken ? `temporary_token=${temporaryToken}` : '')
                 .update({ data: actionData })
         },
-        async migrate(id: PluginConfigTypeNew['id']): Promise<HogFunctionType> {
+        async migrate(id: ActionType['id']): Promise<HogFunctionType> {
             return await new ApiRequest().actionsDetail(id).withAction('migrate').create()
         },
         async list(params?: string): Promise<PaginatedResponse<ActionType>> {
