@@ -16,7 +16,7 @@ from posthog.caching.insights_api import (
 )
 from posthog.clickhouse import query_tagging
 from posthog.hogql import ast
-from posthog.hogql.constants import BREAKDOWN_VALUES_LIMIT, MAX_SELECT_RETURNED_ROWS, LimitContext
+from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, LimitContext
 from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
@@ -980,13 +980,6 @@ class TrendsQueryRunner(QueryRunner):
 
     def apply_dashboard_filters(self, dashboard_filter: DashboardFilter):
         super().apply_dashboard_filters(dashboard_filter=dashboard_filter)
-        if (
-            self.query.breakdownFilter
-            and self.query.breakdownFilter.breakdown_limit
-            and self.query.breakdownFilter.breakdown_limit > BREAKDOWN_VALUES_LIMIT
-        ):
-            # Remove too high breakdown limit for display on the dashboard
-            self.query.breakdownFilter.breakdown_limit = None
 
         if (
             self.query.compareFilter is not None
