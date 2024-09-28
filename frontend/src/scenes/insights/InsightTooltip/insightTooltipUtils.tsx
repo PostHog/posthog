@@ -111,10 +111,8 @@ export function invertDataSource(
     seriesData.forEach((s) => {
         let datumTitle
         const pillValues = []
-        if (s.breakdown_value !== undefined) {
-            pillValues.push(
-                formatBreakdownLabel(s.breakdown_value, breakdownFilter, cohorts, formatPropertyValueForDisplay)
-            )
+        if (s.label !== undefined) {
+            pillValues.push(formatBreakdownLabel(s.label, breakdownFilter, cohorts, formatPropertyValueForDisplay))
         }
         if (s.compare_label) {
             pillValues.push(capitalizeFirstLetter(String(s.compare_label)))
