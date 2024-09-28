@@ -287,7 +287,7 @@ mod tests {
     async fn test_fetch_flags_from_pg() {
         let postgres_reader = setup_pg_reader_client(None).await;
 
-        let team = insert_new_team_in_pg(postgres_reader.clone())
+        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
             .await
             .expect("Failed to insert team in pg");
 
@@ -459,7 +459,7 @@ mod tests {
     async fn test_fetch_multiple_flags_from_pg() {
         let postgres_reader = setup_pg_reader_client(None).await;
 
-        let team = insert_new_team_in_pg(postgres_reader.clone())
+        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
             .await
             .expect("Failed to insert team in pg");
 
@@ -547,7 +547,7 @@ mod tests {
         let redis_client = setup_redis_client(None);
         let postgres_reader = setup_pg_reader_client(None).await;
 
-        let team = insert_new_team_in_pg(postgres_reader.clone())
+        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
             .await
             .expect("Failed to insert team in pg");
 
@@ -640,7 +640,7 @@ mod tests {
         let redis_client = setup_redis_client(None);
         let postgres_reader = setup_pg_reader_client(None).await;
 
-        let team = insert_new_team_in_pg(postgres_reader.clone())
+        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
             .await
             .expect("Failed to insert team in pg");
 
@@ -782,7 +782,7 @@ mod tests {
         let redis_client = setup_redis_client(None);
         let postgres_reader = setup_pg_reader_client(None).await;
 
-        let team = insert_new_team_in_pg(postgres_reader.clone())
+        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
             .await
             .expect("Failed to insert team in pg");
 
@@ -871,7 +871,7 @@ mod tests {
         let redis_client = setup_redis_client(None);
         let postgres_reader = setup_pg_reader_client(None).await;
 
-        let team = insert_new_team_in_pg(postgres_reader.clone())
+        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
             .await
             .expect("Failed to insert team in pg");
 
@@ -972,7 +972,7 @@ mod tests {
         let redis_client = setup_redis_client(None);
         let postgres_reader = setup_pg_reader_client(None).await;
 
-        let team = insert_new_team_in_pg(postgres_reader.clone())
+        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
             .await
             .expect("Failed to insert team in pg");
 
@@ -1082,7 +1082,7 @@ mod tests {
         assert!(matches!(result, Err(FlagError::RedisUnavailable)));
 
         // Test malformed JSON in Redis
-        let team = insert_new_team_in_pg(postgres_reader.clone())
+        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
             .await
             .expect("Failed to insert team in pg");
 
@@ -1109,7 +1109,7 @@ mod tests {
         let redis_client = setup_redis_client(None);
         let postgres_reader = setup_pg_reader_client(None).await;
 
-        let team = insert_new_team_in_pg(postgres_reader.clone())
+        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
             .await
             .expect("Failed to insert team in pg");
 
@@ -1182,7 +1182,7 @@ mod tests {
         let redis_client = setup_redis_client(None);
         let postgres_reader = setup_pg_reader_client(None).await;
 
-        let team = insert_new_team_in_pg(postgres_reader.clone())
+        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
             .await
             .expect("Failed to insert team in pg");
 
@@ -1256,7 +1256,7 @@ mod tests {
         let redis_client = setup_redis_client(None);
         let postgres_reader = setup_pg_reader_client(None).await;
 
-        let team = insert_new_team_in_pg(postgres_reader.clone())
+        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
             .await
             .expect("Failed to insert team in pg");
 
@@ -1349,7 +1349,7 @@ mod tests {
         let redis_client = setup_redis_client(None);
         let postgres_reader = setup_pg_reader_client(None).await;
 
-        let team = insert_new_team_in_pg(postgres_reader.clone())
+        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
             .await
             .expect("Failed to insert team in pg");
 
@@ -1448,7 +1448,7 @@ mod tests {
         let redis_client = setup_redis_client(None);
         let postgres_reader = setup_pg_reader_client(None).await;
 
-        let team = insert_new_team_in_pg(postgres_reader.clone())
+        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
             .await
             .expect("Failed to insert team in pg");
 

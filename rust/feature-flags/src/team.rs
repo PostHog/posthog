@@ -183,7 +183,7 @@ mod tests {
     async fn test_fetch_team_from_pg() {
         let client = setup_pg_reader_client(None).await;
 
-        let team = insert_new_team_in_pg(client.clone())
+        let team = insert_new_team_in_pg(client.clone(), None)
             .await
             .expect("Failed to insert team in pg");
 

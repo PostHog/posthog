@@ -608,7 +608,7 @@ mod tests {
     async fn test_evaluate_feature_flags_with_overrides() {
         let postgres_reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None).await;
         let postgres_writer: Arc<dyn Client + Send + Sync> = setup_pg_writer_client(None).await;
-        let team = insert_new_team_in_pg(postgres_reader.clone())
+        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
             .await
             .unwrap();
 

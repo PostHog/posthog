@@ -8,7 +8,8 @@ use crate::common::*;
 
 use feature_flags::config::DEFAULT_TEST_CONFIG;
 use feature_flags::test_utils::{
-    insert_flags_for_team_in_redis, insert_new_team_in_redis, setup_redis_client,
+    insert_flags_for_team_in_redis, insert_new_team_in_pg, insert_new_team_in_redis,
+    setup_pg_reader_client, setup_redis_client,
 };
 
 pub mod common;
@@ -40,6 +41,7 @@ async fn it_sends_flag_request() -> Result<()> {
             ],
         },
     }]);
+
     insert_flags_for_team_in_redis(client, team.id, Some(flag_json.to_string())).await?;
 
     let server = ServerHandle::for_config(config).await;
@@ -234,3 +236,267 @@ async fn it_handles_malformed_json() -> Result<()> {
 //     );
 //     Ok(())
 // }
+
+#[tokio::test]
+async fn it_handles_multivariate_flags() -> Result<()> {
+    let config = DEFAULT_TEST_CONFIG.clone();
+    let distinct_id = "user_distinct_id".to_string();
+
+    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token;
+
+    let flag_json = json!([{
+        "id": 1,
+        "key": "multivariate-flag",
+        "name": "Multivariate Flag",
+        "active": true,
+        "deleted": false,
+        "team_id": team.id,
+        "filters": {
+            "groups": [
+                {
+                    "properties": [],
+                    "rollout_percentage": 100
+                }
+            ],
+            "multivariate": {
+                "variants": [
+                    {
+                        "key": "control",
+                        "name": "Control",
+                        "rollout_percentage": 0
+                    },
+                    {
+                        "key": "test_a",
+                        "name": "Test A",
+                        "rollout_percentage": 0
+                    },
+                    {
+                        "key": "test_b",
+                        "name": "Test B",
+                        "rollout_percentage": 100
+                    }
+                ]
+            }
+        },
+    }]);
+
+    insert_flags_for_team_in_redis(client, team.id, Some(flag_json.to_string())).await?;
+
+    let server = ServerHandle::for_config(config).await;
+
+    let payload = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+    });
+
+    let res = server.send_flags_request(payload.to_string()).await;
+    assert_eq!(StatusCode::OK, res.status());
+
+    let json_data = res.json::<Value>().await?;
+    assert_json_include!(
+        actual: json_data,
+        expected: json!({
+            "errorWhileComputingFlags": false,
+            "featureFlags": {
+                "multivariate-flag": "test_b"
+            }
+        })
+    );
+
+    let variant = json_data["featureFlags"]["multivariate-flag"]
+        .as_str()
+        .unwrap();
+    assert!(["control", "test_a", "test_b"].contains(&variant));
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn it_handles_flag_with_property_filter() -> Result<()> {
+    let config = DEFAULT_TEST_CONFIG.clone();
+    let distinct_id = "user_distinct_id".to_string();
+
+    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token;
+
+    let flag_json = json!([{
+        "id": 1,
+        "key": "property-flag",
+        "name": "Property Flag",
+        "active": true,
+        "deleted": false,
+        "team_id": team.id,
+        "filters": {
+            "groups": [
+                {
+                    "properties": [
+                        {
+                            "key": "email",
+                            "value": "test@example.com",
+                            "operator": "exact",
+                            "type": "person"
+                        }
+                    ],
+                    "rollout_percentage": 100
+                }
+            ],
+        },
+    }]);
+
+    insert_flags_for_team_in_redis(client, team.id, Some(flag_json.to_string())).await?;
+
+    let server = ServerHandle::for_config(config).await;
+
+    // Test with matching property
+    let payload = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+        "person_properties": {
+            "email": "test@example.com"
+        }
+    });
+
+    let res = server.send_flags_request(payload.to_string()).await;
+    assert_eq!(StatusCode::OK, res.status());
+
+    let json_data = res.json::<Value>().await?;
+    assert_json_include!(
+        actual: json_data,
+        expected: json!({
+            "errorWhileComputingFlags": false,
+            "featureFlags": {
+                "property-flag": true
+            }
+        })
+    );
+
+    // Test with non-matching property
+    let payload = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+        "person_properties": {
+            "email": "other@example.com"
+        }
+    });
+
+    let res = server.send_flags_request(payload.to_string()).await;
+    assert_eq!(StatusCode::OK, res.status());
+
+    let json_data = res.json::<Value>().await?;
+    assert_json_include!(
+        actual: json_data,
+        expected: json!({
+            "errorWhileComputingFlags": false,
+            "featureFlags": {
+                "property-flag": false
+            }
+        })
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn it_handles_flag_with_group_properties() -> Result<()> {
+    let config = DEFAULT_TEST_CONFIG.clone();
+    let distinct_id = "user_distinct_id".to_string();
+
+    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let pg_client = setup_pg_reader_client(None).await;
+    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+        .await
+        .unwrap();
+    let token = team.api_token;
+
+    let flag_json = json!([{
+        "id": 1,
+        "key": "group-flag",
+        "name": "Group Flag",
+        "active": true,
+        "deleted": false,
+        "team_id": team.id,
+        "filters": {
+            "groups": [
+                {
+                    "properties": [
+                        {
+                            "key": "name",
+                            "value": "Test Group",
+                            "operator": "exact",
+                            "type": "group",
+                            "group_type_index": 0
+                        }
+                    ],
+                    "rollout_percentage": 100
+                }
+            ],
+            "aggregation_group_type_index": 0
+        },
+    }]);
+
+    insert_flags_for_team_in_redis(client, team.id, Some(flag_json.to_string())).await?;
+
+    let server = ServerHandle::for_config(config).await;
+
+    // Test with matching group property
+    let payload = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+        "groups": {
+            "project": "test_company_id"
+        },
+        "group_properties": {
+            "project": {
+                "name": "Test Group"
+            }
+        }
+    });
+
+    let res = server.send_flags_request(payload.to_string()).await;
+    assert_eq!(StatusCode::OK, res.status());
+
+    let json_data = res.json::<Value>().await?;
+    assert_json_include!(
+        actual: json_data,
+        expected: json!({
+            "errorWhileComputingFlags": false,
+            "featureFlags": {
+                "group-flag": true
+            }
+        })
+    );
+
+    // Test with non-matching group property
+    let payload = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+        "groups": {
+            "project": "test_company_id"
+        },
+        "group_properties": {
+            "project": {
+                "name": "Other Group"
+            }
+        }
+    });
+
+    let res = server.send_flags_request(payload.to_string()).await;
+    assert_eq!(StatusCode::OK, res.status());
+
+    let json_data = res.json::<Value>().await?;
+    assert_json_include!(
+        actual: json_data,
+        expected: json!({
+            "errorWhileComputingFlags": false,
+            "featureFlags": {
+                "group-flag": false
+            }
+        })
+    );
+
+    Ok(())
+}

@@ -172,7 +172,10 @@ pub async fn setup_invalid_pg_client() -> Arc<dyn Client + Send + Sync> {
     Arc::new(MockPgClient)
 }
 
-pub async fn insert_new_team_in_pg(client: Arc<dyn Client + Send + Sync>) -> Result<Team, Error> {
+pub async fn insert_new_team_in_pg(
+    client: Arc<dyn Client + Send + Sync>,
+    team_id: Option<i32>,
+) -> Result<Team, Error> {
     const ORG_ID: &str = "019026a4be8000005bf3171d00629163";
 
     client.run_query(
@@ -198,7 +201,10 @@ pub async fn insert_new_team_in_pg(client: Arc<dyn Client + Send + Sync>) -> Res
         )
         .await?;
 
-    let id = rand::thread_rng().gen_range(0..10_000_000);
+    let id = match team_id {
+        Some(value) => value,
+        None => rand::thread_rng().gen_range(0..10_000_000),
+    };
     let token = random_string("phc_", 12);
     let team = Team {
         id,

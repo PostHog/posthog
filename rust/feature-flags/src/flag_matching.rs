@@ -1156,22 +1156,20 @@ fn all_properties_match(
 async fn get_feature_flag_hash_key_overrides(
     postgres_reader: PostgresClientArc,
     team_id: TeamId,
-    distinct_ids: Vec<String>, // this will be a typically be distinct_id and its hash_key_override
+    distinct_id_and_hash_key_override: Vec<String>,
 ) -> Result<HashMap<String, String>, FlagError> {
-    // can we avoid going to do the DB if
     let mut feature_flag_hash_key_overrides = HashMap::new();
     let mut conn = postgres_reader.as_ref().get_connection().await?;
 
-    // Get person_ids for the given distinct_ids
-    let query = r#"
+    let person_and_distinct_id_query = r#"
             SELECT person_id, distinct_id 
             FROM posthog_persondistinctid 
             WHERE team_id = $1 AND distinct_id = ANY($2)
         "#;
 
-    let person_and_distinct_ids: Vec<(i32, String)> = sqlx::query_as(query)
+    let person_and_distinct_ids: Vec<(i32, String)> = sqlx::query_as(person_and_distinct_id_query)
         .bind(team_id)
-        .bind(&distinct_ids)
+        .bind(&distinct_id_and_hash_key_override)
         .fetch_all(&mut *conn)
         .await?;
 
@@ -1180,22 +1178,23 @@ async fn get_feature_flag_hash_key_overrides(
     let person_ids: Vec<i32> = person_id_to_distinct_id.keys().cloned().collect();
 
     // Get hash key overrides
-    let query = r#"
+    let hash_key_override_query = r#"
             SELECT feature_flag_key, hash_key, person_id 
             FROM posthog_featureflaghashkeyoverride 
             WHERE team_id = $1 AND person_id = ANY($2)
         "#;
 
-    let overrides: Vec<(String, String, i32)> = sqlx::query_as(query)
+    let overrides: Vec<(String, String, i32)> = sqlx::query_as(hash_key_override_query)
         .bind(team_id)
         .bind(&person_ids)
         .fetch_all(&mut *conn)
         .await?;
 
-    // Sort and process overrides
+    // Sort and process overrides, with the distinct_id at the start of the array having priority
+    // We want the highest priority to go last in sort order, so it's the latest update in the hashmap
     let mut sorted_overrides = overrides;
     sorted_overrides.sort_by_key(|(_, _, person_id)| {
-        if person_id_to_distinct_id.get(person_id) == Some(&distinct_ids[0]) {
+        if person_id_to_distinct_id.get(person_id) == Some(&distinct_id_and_hash_key_override[0]) {
             std::cmp::Ordering::Greater
         } else {
             std::cmp::Ordering::Less
@@ -1416,7 +1415,7 @@ mod tests {
         let postgres_reader = setup_pg_reader_client(None).await;
         let postgres_writer = setup_pg_writer_client(None).await;
 
-        let team = insert_new_team_in_pg(postgres_reader.clone())
+        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
             .await
             .expect("Failed to insert team in pg");
 
@@ -1503,7 +1502,7 @@ mod tests {
     async fn test_person_property_overrides() {
         let postgres_reader = setup_pg_reader_client(None).await;
         let postgres_writer = setup_pg_writer_client(None).await;
-        let team = insert_new_team_in_pg(postgres_reader.clone())
+        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
             .await
             .unwrap();
 
@@ -1563,7 +1562,7 @@ mod tests {
     async fn test_group_property_overrides() {
         let postgres_reader = setup_pg_reader_client(None).await;
         let postgres_writer = setup_pg_writer_client(None).await;
-        let team = insert_new_team_in_pg(postgres_reader.clone())
+        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
             .await
             .unwrap();
 
@@ -1670,7 +1669,7 @@ mod tests {
     async fn test_get_matching_variant_with_db() {
         let postgres_reader = setup_pg_reader_client(None).await;
         let postgres_writer = setup_pg_writer_client(None).await;
-        let team = insert_new_team_in_pg(postgres_reader.clone())
+        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
             .await
             .unwrap();
 
@@ -1784,7 +1783,7 @@ mod tests {
     async fn test_overrides_avoid_db_lookups() {
         let postgres_reader = setup_pg_reader_client(None).await;
         let postgres_writer = setup_pg_writer_client(None).await;
-        let team = insert_new_team_in_pg(postgres_reader.clone())
+        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
             .await
             .unwrap();
 
@@ -1853,7 +1852,7 @@ mod tests {
     async fn test_fallback_to_db_when_overrides_insufficient() {
         let postgres_reader = setup_pg_reader_client(None).await;
         let postgres_writer = setup_pg_writer_client(None).await;
-        let team = insert_new_team_in_pg(postgres_reader.clone())
+        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
             .await
             .unwrap();
 
@@ -1936,7 +1935,7 @@ mod tests {
     async fn test_property_fetching_and_caching() {
         let postgres_reader = setup_pg_reader_client(None).await;
         let postgres_writer = setup_pg_writer_client(None).await;
-        let team = insert_new_team_in_pg(postgres_reader.clone())
+        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
             .await
             .unwrap();
 
@@ -1980,7 +1979,7 @@ mod tests {
     async fn test_property_caching() {
         let postgres_reader = setup_pg_reader_client(None).await;
         let postgres_writer = setup_pg_writer_client(None).await;
-        let team = insert_new_team_in_pg(postgres_reader.clone())
+        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
             .await
             .unwrap();
 
@@ -2119,7 +2118,7 @@ mod tests {
     async fn test_concurrent_flag_evaluation() {
         let postgres_reader = setup_pg_reader_client(None).await;
         let postgres_writer = setup_pg_writer_client(None).await;
-        let team = insert_new_team_in_pg(postgres_reader.clone())
+        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
             .await
             .unwrap();
         let flag = Arc::new(create_test_flag(
@@ -2176,7 +2175,7 @@ mod tests {
     async fn test_property_operators() {
         let postgres_reader = setup_pg_reader_client(None).await;
         let postgres_writer = setup_pg_writer_client(None).await;
-        let team = insert_new_team_in_pg(postgres_reader.clone())
+        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
             .await
             .unwrap();
 
@@ -2394,7 +2393,7 @@ mod tests {
     async fn test_missing_properties_in_db() {
         let postgres_reader = setup_pg_reader_client(None).await;
         let postgres_writer = setup_pg_writer_client(None).await;
-        let team = insert_new_team_in_pg(postgres_reader.clone())
+        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
             .await
             .unwrap();
 
@@ -2454,7 +2453,7 @@ mod tests {
     async fn test_malformed_property_data() {
         let postgres_reader = setup_pg_reader_client(None).await;
         let postgres_writer = setup_pg_writer_client(None).await;
-        let team = insert_new_team_in_pg(postgres_reader.clone())
+        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
             .await
             .unwrap();
 
@@ -2515,7 +2514,7 @@ mod tests {
     async fn test_get_match_with_insufficient_overrides() {
         let postgres_reader = setup_pg_reader_client(None).await;
         let postgres_writer = setup_pg_writer_client(None).await;
-        let team = insert_new_team_in_pg(postgres_reader.clone())
+        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
             .await
             .unwrap();
 
@@ -2635,7 +2634,7 @@ mod tests {
     async fn test_complex_conditions() {
         let postgres_reader = setup_pg_reader_client(None).await;
         let postgres_writer = setup_pg_writer_client(None).await;
-        let team = insert_new_team_in_pg(postgres_reader.clone())
+        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
             .await
             .unwrap();
 
@@ -2707,7 +2706,7 @@ mod tests {
     async fn test_super_condition_matches_boolean() {
         let postgres_reader = setup_pg_reader_client(None).await;
         let postgres_writer = setup_pg_writer_client(None).await;
-        let team = insert_new_team_in_pg(postgres_reader.clone())
+        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
             .await
             .unwrap();
 
@@ -2827,7 +2826,7 @@ mod tests {
     async fn test_super_condition_matches_string() {
         let postgres_reader = setup_pg_reader_client(None).await;
         let postgres_writer = setup_pg_writer_client(None).await;
-        let team = insert_new_team_in_pg(postgres_reader.clone())
+        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
             .await
             .unwrap();
 
@@ -2916,7 +2915,7 @@ mod tests {
     async fn test_super_condition_matches_and_false() {
         let postgres_reader = setup_pg_reader_client(None).await;
         let postgres_writer = setup_pg_writer_client(None).await;
-        let team = insert_new_team_in_pg(postgres_reader.clone())
+        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
             .await
             .unwrap();
 
@@ -3050,7 +3049,7 @@ mod tests {
     async fn test_set_feature_flag_hash_key_overrides_success() {
         let postgres_reader = setup_pg_reader_client(None).await;
         let postgres_writer = setup_pg_writer_client(None).await;
-        let team = insert_new_team_in_pg(postgres_reader.clone())
+        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
             .await
             .unwrap();
         let distinct_id = "user1".to_string();
@@ -3131,7 +3130,7 @@ mod tests {
     async fn test_get_feature_flag_hash_key_overrides_success() {
         let postgres_reader = setup_pg_reader_client(None).await;
         let postgres_writer = setup_pg_writer_client(None).await;
-        let team = insert_new_team_in_pg(postgres_reader.clone())
+        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
             .await
             .unwrap();
         let distinct_id = "user2".to_string();
@@ -3205,7 +3204,7 @@ mod tests {
     async fn test_evaluate_feature_flags_with_experience_continuity() {
         let postgres_reader = setup_pg_reader_client(None).await;
         let postgres_writer = setup_pg_writer_client(None).await;
-        let team = insert_new_team_in_pg(postgres_reader.clone())
+        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
             .await
             .unwrap();
         let distinct_id = "user3".to_string();
@@ -3286,7 +3285,7 @@ mod tests {
     async fn test_evaluate_feature_flags_with_continuity_missing_override() {
         let postgres_reader = setup_pg_reader_client(None).await;
         let postgres_writer = setup_pg_writer_client(None).await;
-        let team = insert_new_team_in_pg(postgres_reader.clone())
+        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
             .await
             .unwrap();
         let distinct_id = "user4".to_string();
@@ -3357,7 +3356,7 @@ mod tests {
     async fn test_evaluate_all_feature_flags_mixed_continuity() {
         let postgres_reader = setup_pg_reader_client(None).await;
         let postgres_writer = setup_pg_writer_client(None).await;
-        let team = insert_new_team_in_pg(postgres_reader.clone())
+        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
             .await
             .unwrap();
         let distinct_id = "user5".to_string();
