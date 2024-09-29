@@ -1,6 +1,7 @@
 import { IconPlus } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { Form, Group } from 'kea-forms'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
@@ -12,13 +13,14 @@ import { WebExperimentVariant } from '~/toolbar/experiments/WebExperimentVariant
 import { WebExperimentVariantHeader } from '~/toolbar/experiments/WebExperimentVariantHeader'
 
 export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
-    const { selectedExperimentId, experimentForm, selectedVariant } = useValues(experimentsTabLogic)
+    const { selectedExperimentId, experimentForm, selectedVariant, experimentFormErrors } =
+        useValues(experimentsTabLogic)
     const {
         selectExperiment,
         selectVariant,
         inspectForElementWithIndex,
         addNewVariant,
-        visualizeVariant,
+        applyVariant,
         setExperimentFormValue,
     } = useActions(experimentsTabLogic)
 
@@ -44,19 +46,32 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
                         experiment
                         {selectedVariant && `  variant : ${selectedVariant}`}
                     </h1>
+                    <div id="errorcontainer">
+                        {Object.keys(experimentFormErrors).length > 0 && (
+                            <LemonBanner type="error">
+                                <ol>
+                                    {experimentFormErrors.name && <li>{experimentFormErrors.name}</li>}
+                                    {experimentFormErrors.variants && <li>{experimentFormErrors.variants}</li>}
+                                </ol>
+                            </LemonBanner>
+                        )}
+                    </div>
                 </ToolbarMenu.Header>
                 <ToolbarMenu.Body>
                     <div>
                         <div className="flex w-full m-1">
                             {selectedExperimentId === 'new' ? (
-                                <LemonInput
-                                    placeholder="Enter experiment name"
-                                    onChange={(newName: string) => {
-                                        experimentForm.name = newName
-                                        setExperimentFormValue('name', experimentForm.name)
-                                    }}
-                                    value={experimentForm.name}
-                                />
+                                <>
+                                    <LemonInput
+                                        placeholder="Enter experiment name"
+                                        onChange={(newName: string) => {
+                                            experimentForm.name = newName
+                                            setExperimentFormValue('name', experimentForm.name)
+                                        }}
+                                        value={experimentForm.name}
+                                        status={experimentFormErrors.name ? 'danger' : 'default'}
+                                    />
+                                </>
                             ) : (
                                 <h4 className="col-span-2">{experimentForm.name}</h4>
                             )}
@@ -69,7 +84,7 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
                                     onChange={(variant) => {
                                         if (variant) {
                                             selectVariant(variant)
-                                            visualizeVariant(variant)
+                                            applyVariant(variant)
                                         }
                                     }}
                                     panels={Object.keys(experimentForm.variants || {})

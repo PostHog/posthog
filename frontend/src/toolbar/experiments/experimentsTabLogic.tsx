@@ -61,7 +61,7 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
         removeVariant: (variant: string) => ({
             variant,
         }),
-        visualizeVariant: (variant: string) => ({
+        applyVariant: (variant: string) => ({
             variant,
         }),
         addNewElement: (variant: string) => ({ variant }),
@@ -255,7 +255,7 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
                 actions.rebalanceRolloutPercentage()
             }
         },
-        visualizeVariant: ({ variant }) => {
+        applyVariant: ({ variant }) => {
             if (values.experimentForm && values.experimentForm.variants) {
                 const selectedVariant = values.experimentForm.variants[variant]
                 if (selectedVariant) {
