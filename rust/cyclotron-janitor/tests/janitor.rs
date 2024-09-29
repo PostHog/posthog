@@ -2,8 +2,11 @@ use chrono::{Duration, Timelike, Utc};
 use common_kafka::kafka_messages::app_metrics2::{
     AppMetric2, Kind as AppMetric2Kind, Source as AppMetric2Source,
 };
-use cyclotron_core::{JobInit, JobState, QueueManager, Worker};
-use cyclotron_janitor::{config::JanitorSettings, janitor::Janitor};
+use cyclotron_core::{Janitor, JobInit, JobState, QueueManager, Worker};
+use cyclotron_janitor::app_context::{AppContext, AppState};
+use cyclotron_janitor::config::JanitorSettings;
+use cyclotron_janitor::janitor::run_once;
+use health::HealthRegistry;
 use rdkafka::consumer::{Consumer, StreamConsumer};
 use rdkafka::{ClientConfig, Message};
 use sqlx::PgPool;
@@ -47,12 +50,30 @@ async fn janitor_test(db: PgPool) {
         max_touches,
         id: "test_janitor".to_string(),
         shard_id: "test_shard".to_string(),
+        cleanup_interval: Duration::seconds(1), // Only used in the main loop, which we drive manually here
+        metrics: false,
     };
-    let janitor = Janitor {
-        inner: cyclotron_core::Janitor::from_pool(db.clone()),
+
+    let health = HealthRegistry::new("liveness");
+    let janitor_liveness = health
+        .register(
+            "janitor".to_string(),
+            Duration::seconds(1).to_std().unwrap(),
+        )
+        .await;
+
+    let state = AppState::new(&settings);
+
+    let app_context = AppContext {
+        janitor: Janitor::from_pool(db.clone()),
         kafka_producer: mock_producer,
-        settings,
         metrics_labels: vec![],
+        health: HealthRegistry::new("liveness"),
+        janitor_liveness,
+        state,
+        shard_id: settings.shard_id.clone(),
+        janitor_id: settings.id.clone(),
+        metrics: settings.metrics,
     };
 
     let now = Utc::now() - Duration::seconds(10);
@@ -84,11 +105,14 @@ async fn janitor_test(db: PgPool) {
     worker.set_state(job.id, JobState::Completed).unwrap();
     worker.release_job(job.id, None).await.unwrap();
 
-    let result = janitor.run_once().await.unwrap();
-    assert_eq!(result.completed, 1);
-    assert_eq!(result.failed, 0);
-    assert_eq!(result.poisoned, 0);
-    assert_eq!(result.stalled, 0);
+    let result = run_once(&app_context).await;
+
+    let delete_set = result.last_delete.unwrap();
+
+    assert_eq!(delete_set.total_completed(), 1);
+    assert_eq!(delete_set.total_failed(), 0);
+    assert_eq!(result.last_poisoned.unwrap(), 0);
+    assert_eq!(result.last_stalled.unwrap(), 0);
 
     {
         let kafka_msg = kafka_consumer.recv().await.unwrap();
@@ -129,11 +153,13 @@ async fn janitor_test(db: PgPool) {
     worker.set_state(job.id, JobState::Failed).unwrap();
     worker.release_job(job.id, None).await.unwrap();
 
-    let result = janitor.run_once().await.unwrap();
-    assert_eq!(result.completed, 0);
-    assert_eq!(result.failed, 1);
-    assert_eq!(result.poisoned, 0);
-    assert_eq!(result.stalled, 0);
+    let result = run_once(&app_context).await;
+
+    let delete_set = result.last_delete.unwrap();
+    assert_eq!(delete_set.total_completed(), 0);
+    assert_eq!(delete_set.total_failed(), 1);
+    assert_eq!(result.last_poisoned.unwrap(), 0);
+    assert_eq!(result.last_stalled.unwrap(), 0);
 
     {
         let kafka_msg = kafka_consumer.recv().await.unwrap();
@@ -174,21 +200,24 @@ async fn janitor_test(db: PgPool) {
         .unwrap();
 
     // First, cleanup won't do anything
-    let result = janitor.run_once().await.unwrap();
-    assert_eq!(result.completed, 0);
-    assert_eq!(result.failed, 0);
-    assert_eq!(result.poisoned, 0);
-    assert_eq!(result.stalled, 0);
+    let result = run_once(&app_context).await;
+    let delete_set = result.last_delete.unwrap();
+    assert_eq!(delete_set.total_completed(), 0);
+    assert_eq!(delete_set.total_failed(), 0);
+    assert_eq!(result.last_poisoned.unwrap(), 0);
+    assert_eq!(result.last_stalled.unwrap(), 0);
 
     // Then we stall on the job
     tokio::time::sleep(stall_timeout.to_std().unwrap() * 2).await;
 
     // Now, cleanup will reset the job
-    let result = janitor.run_once().await.unwrap();
-    assert_eq!(result.completed, 0);
-    assert_eq!(result.failed, 0);
-    assert_eq!(result.poisoned, 0);
-    assert_eq!(result.stalled, 1);
+    let result = run_once(&app_context).await;
+
+    let delete_set = result.last_delete.unwrap();
+    assert_eq!(delete_set.total_completed(), 0);
+    assert_eq!(delete_set.total_failed(), 0);
+    assert_eq!(result.last_poisoned.unwrap(), 0);
+    assert_eq!(result.last_stalled.unwrap(), 1);
 
     // Now, the worker can't flush the job
     worker.set_state(job.id, JobState::Completed).unwrap();
@@ -205,7 +234,13 @@ async fn janitor_test(db: PgPool) {
     worker.set_state(job.id, JobState::Completed).unwrap();
     worker.release_job(job.id, None).await.unwrap();
 
-    janitor.run_once().await.unwrap(); // Clean up the completed job to reset for the next test
+    // Clean up the completed job to reset for the next test
+    let result = run_once(&app_context).await;
+    let delete_set = result.last_delete.unwrap();
+    assert_eq!(delete_set.total_completed(), 1);
+    assert_eq!(delete_set.total_failed(), 0);
+    assert_eq!(result.last_poisoned.unwrap(), 0);
+    assert_eq!(result.last_stalled.unwrap(), 0);
 
     // Fourth test - if a worker holds a job for longer than the stall
     // time, but calls heartbeat, the job will not be reset
@@ -227,22 +262,24 @@ async fn janitor_test(db: PgPool) {
         }
     }
 
-    let result = janitor.run_once().await.unwrap();
-    assert_eq!(result.completed, 0);
-    assert_eq!(result.failed, 0);
-    assert_eq!(result.poisoned, 0);
-    assert_eq!(result.stalled, 0);
+    let result = run_once(&app_context).await;
+    let delete_set = result.last_delete.unwrap();
+    assert_eq!(delete_set.total_completed(), 0);
+    assert_eq!(delete_set.total_failed(), 0);
+    assert_eq!(result.last_poisoned.unwrap(), 0);
+    assert_eq!(result.last_stalled.unwrap(), 0);
 
     // The worker can still flush the job
     worker.set_state(job.id, JobState::Completed).unwrap();
     worker.release_job(job.id, None).await.unwrap();
 
     // and now cleanup will work
-    let result = janitor.run_once().await.unwrap();
-    assert_eq!(result.completed, 1);
-    assert_eq!(result.failed, 0);
-    assert_eq!(result.poisoned, 0);
-    assert_eq!(result.stalled, 0);
+    let result = run_once(&app_context).await;
+    let delete_set = result.last_delete.unwrap();
+    assert_eq!(delete_set.total_completed(), 1);
+    assert_eq!(delete_set.total_failed(), 0);
+    assert_eq!(result.last_poisoned.unwrap(), 0);
+    assert_eq!(result.last_stalled.unwrap(), 0);
 
     // Fifth test - if a job stalls more than max_touches
     // it will be marked as poisoned and deleted
@@ -257,11 +294,12 @@ async fn janitor_test(db: PgPool) {
 
     for _ in 0..max_touches {
         tokio::time::sleep(stall_timeout.to_std().unwrap() * 2).await;
-        let result = janitor.run_once().await.unwrap();
-        assert_eq!(result.completed, 0);
-        assert_eq!(result.failed, 0);
-        assert_eq!(result.poisoned, 0);
-        assert_eq!(result.stalled, 1);
+        let result = run_once(&app_context).await;
+        let delete_set = result.last_delete.unwrap();
+        assert_eq!(delete_set.total_completed(), 0);
+        assert_eq!(delete_set.total_failed(), 0);
+        assert_eq!(result.last_poisoned.unwrap(), 0);
+        assert_eq!(result.last_stalled.unwrap(), 1);
 
         // assert we can't update the job (flush and heartbeat fail)
         worker.set_state(job.id, JobState::Completed).unwrap();
@@ -282,11 +320,12 @@ async fn janitor_test(db: PgPool) {
 
     // Now stall one more time, and on cleanup, we should see the job was considered poison and deleted
     tokio::time::sleep(stall_timeout.to_std().unwrap() * 2).await;
-    let result: cyclotron_janitor::janitor::CleanupResult = janitor.run_once().await.unwrap();
-    assert_eq!(result.completed, 0);
-    assert_eq!(result.failed, 0);
-    assert_eq!(result.poisoned, 1);
-    assert_eq!(result.stalled, 0);
+    let result = run_once(&app_context).await;
+    let delete_set = result.last_delete.unwrap();
+    assert_eq!(delete_set.total_completed(), 0);
+    assert_eq!(delete_set.total_failed(), 0);
+    assert_eq!(result.last_poisoned.unwrap(), 1);
+    assert_eq!(result.last_stalled.unwrap(), 0);
 
     // The worker can't flush the job
     worker.set_state(job.id, JobState::Completed).unwrap();
@@ -305,9 +344,10 @@ async fn janitor_test(db: PgPool) {
     worker.release_job(jobs[0].id, None).await.unwrap();
     worker.release_job(jobs[1].id, None).await.unwrap();
 
-    let result = janitor.run_once().await.unwrap();
-    assert_eq!(result.completed, 1);
-    assert_eq!(result.failed, 1);
-    assert_eq!(result.poisoned, 0);
-    assert_eq!(result.stalled, 0);
+    let result = run_once(&app_context).await;
+    let delete_set = result.last_delete.unwrap();
+    assert_eq!(delete_set.total_completed(), 1);
+    assert_eq!(delete_set.total_failed(), 1);
+    assert_eq!(result.last_poisoned.unwrap(), 0);
+    assert_eq!(result.last_stalled.unwrap(), 0);
 }

@@ -79,8 +79,10 @@ pub struct Job {
 
     // Job data
     pub vm_state: Option<Bytes>, // The state of the VM this job is running on (if it exists)
-    pub metadata: Option<Bytes>, // Additional fields a worker can tack onto a job, for e.g. tracking some state across retries (or number of retries in general by a given class of worker)
-    pub parameters: Option<Bytes>, // The actual parameters of the job (function args for a hog function, http request for a fetch function)
+    // Additional fields a worker can tack onto a job, for e.g. tracking some state across retries
+    pub metadata: Option<Bytes>,
+    // The actual parameters of the job (function args for a hog function, http request for a fetch function)
+    pub parameters: Option<Bytes>,
     pub blob: Option<Bytes>, // An additional, binary, parameter field (for things like fetch request body)
 }
 
@@ -119,7 +121,7 @@ impl JobUpdate {
 }
 
 // Result of janitor's `delete_completed_and_failed_jobs`
-#[derive(sqlx::FromRow, Debug)]
+#[derive(sqlx::FromRow, Debug, Serialize, Clone)]
 pub struct AggregatedDelete {
     // `last_transition` column truncated to the hour.
     pub hour: DateTime<Utc>,
@@ -127,4 +129,31 @@ pub struct AggregatedDelete {
     pub function_id: Option<String>,
     pub state: String,
     pub count: i64,
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct DeleteSet {
+    pub deletes: Vec<AggregatedDelete>,
+}
+
+impl DeleteSet {
+    pub fn new(deletes: Vec<AggregatedDelete>) -> Self {
+        Self { deletes }
+    }
+
+    pub fn total_completed(&self) -> i64 {
+        self.deletes
+            .iter()
+            .filter(|delete| delete.state == "completed")
+            .map(|delete| delete.count)
+            .sum()
+    }
+
+    pub fn total_failed(&self) -> i64 {
+        self.deletes
+            .iter()
+            .filter(|delete| delete.state == "failed")
+            .map(|delete| delete.count)
+            .sum()
+    }
 }

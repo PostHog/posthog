@@ -1,4 +1,4 @@
-use crate::DEAD_LETTER_QUEUE;
+use crate::{types::DeleteSet, DEAD_LETTER_QUEUE};
 use chrono::Duration;
 use sqlx::PgPool;
 
@@ -7,7 +7,6 @@ use crate::{
         janitor::{delete_completed_and_failed_jobs, detect_poison_pills, reset_stalled_jobs},
         meta::{count_total_waiting_jobs, dead_letter, run_migrations},
     },
-    types::AggregatedDelete,
     PoolConfig, QueueError,
 };
 
@@ -30,9 +29,7 @@ impl Janitor {
         run_migrations(&self.pool).await;
     }
 
-    pub async fn delete_completed_and_failed_jobs(
-        &self,
-    ) -> Result<Vec<AggregatedDelete>, QueueError> {
+    pub async fn delete_completed_and_failed_jobs(&self) -> Result<DeleteSet, QueueError> {
         delete_completed_and_failed_jobs(&self.pool).await
     }
 

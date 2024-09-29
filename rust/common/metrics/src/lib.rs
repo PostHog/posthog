@@ -17,7 +17,10 @@ pub async fn serve(router: Router, bind: &str) -> Result<(), std::io::Error> {
 }
 
 /// Add the prometheus endpoint and middleware to a router, should be called last.
-pub fn setup_metrics_routes(router: Router) -> Router {
+pub fn setup_metrics_routes<S>(router: Router<S>) -> Router<S>
+where
+    S: Clone + Send + Sync + 'static,
+{
     let recorder_handle = setup_metrics_recorder();
 
     router

@@ -2,15 +2,13 @@ use chrono::{Duration, Utc};
 use uuid::Uuid;
 
 use crate::error::QueueError;
-use crate::types::AggregatedDelete;
+use crate::types::{AggregatedDelete, DeleteSet};
 
 // As a general rule, janitor operations are not queue specific (as in, they don't account for the
 // queue name). We can revisit this later, if we decide we need the ability to do janitor operations
 // on a per-queue basis.
 
-pub async fn delete_completed_and_failed_jobs<'c, E>(
-    executor: E,
-) -> Result<Vec<AggregatedDelete>, QueueError>
+pub async fn delete_completed_and_failed_jobs<'c, E>(executor: E) -> Result<DeleteSet, QueueError>
 where
     E: sqlx::Executor<'c, Database = sqlx::Postgres>,
 {
@@ -44,7 +42,7 @@ FROM aggregated_data"#
     .await
     .map_err(QueueError::from)?;
 
-    Ok(result)
+    Ok(DeleteSet::new(result))
 }
 
 // Jobs are considered stalled if their lock is held and their last_heartbeat is older than `timeout`.

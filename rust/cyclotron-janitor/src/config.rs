@@ -41,7 +41,7 @@ pub struct Config {
     pub janitor_id: String,
 
     #[envconfig(default = "default")]
-    pub shard_id: String, // A fixed shard-id. When a janitor starts up, it will write this to the shard metadata, and workers may use it when reporting metrics
+    pub shard_id: String, // A fixed shard-id.
 
     #[envconfig(default = "10")]
     pub janitor_max_touches: i16,
@@ -51,6 +51,9 @@ pub struct Config {
 
     #[envconfig(nested = true)]
     pub kafka: KafkaConfig,
+
+    #[envconfig(default = "true")]
+    pub metrics: bool,
 }
 
 #[allow(dead_code)]
@@ -69,17 +72,19 @@ impl Config {
             idle_timeout_seconds: Some(self.pg_idle_timeout_seconds),
         };
 
-        let settings = JanitorSettings {
+        let janitor = JanitorSettings {
+            cleanup_interval: Duration::seconds(self.cleanup_interval_secs as i64),
             stall_timeout: Duration::seconds(self.janitor_stall_timeout_seconds as i64),
             max_touches: self.janitor_max_touches,
             id: self.janitor_id.clone(),
             shard_id: self.shard_id.clone(),
+            metrics: self.metrics,
         };
 
         JanitorConfig {
             pool: pool_config,
             kafka: self.kafka.clone(),
-            settings,
+            janitor,
         }
     }
 }
@@ -87,12 +92,14 @@ impl Config {
 pub struct JanitorConfig {
     pub pool: PoolConfig,
     pub kafka: KafkaConfig,
-    pub settings: JanitorSettings,
+    pub janitor: JanitorSettings,
 }
 
 pub struct JanitorSettings {
+    pub cleanup_interval: Duration,
     pub stall_timeout: Duration,
     pub max_touches: i16,
     pub id: String,
     pub shard_id: String,
+    pub metrics: bool,
 }

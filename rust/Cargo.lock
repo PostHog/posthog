@@ -923,6 +923,7 @@ dependencies = [
  "eyre",
  "health",
  "rdkafka",
+ "serde",
  "serde_json",
  "sqlx",
  "time",

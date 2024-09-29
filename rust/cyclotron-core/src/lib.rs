@@ -6,6 +6,7 @@ mod ops;
 mod types;
 pub use types::AggregatedDelete;
 pub use types::Bytes;
+pub use types::DeleteSet;
 pub use types::Job;
 pub use types::JobInit;
 pub use types::JobState;
