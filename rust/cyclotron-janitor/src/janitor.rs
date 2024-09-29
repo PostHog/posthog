@@ -12,15 +12,6 @@ use tracing::{error, info, warn};
 use crate::app_context::{AppContext, JanitorStatus};
 use crate::metrics_constants::*;
 
-// The janitor reports it's own metrics, this is mostly for testing purposes
-#[derive(Debug, Clone, Eq, PartialEq)]
-pub struct CleanupResult {
-    pub completed: u64,
-    pub failed: u64,
-    pub poisoned: u64,
-    pub stalled: u64,
-}
-
 pub async fn run_once(context: &AppContext) -> JanitorStatus {
     match run_once_inner(context).await {
         Ok(status) => status,
