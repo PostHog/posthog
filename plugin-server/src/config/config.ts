@@ -67,6 +67,9 @@ export function getDefaultConfig(): PluginsServerConfig {
         KAFKA_PRODUCER_BATCH_SIZE: 8 * 1024 * 1024, // rdkafka default is 1MiB
         KAFKA_PRODUCER_QUEUE_BUFFERING_MAX_MESSAGES: 100_000, // rdkafka default is 100_000
         REDIS_URL: 'redis://127.0.0.1',
+        INGESTION_REDIS_PASSWORD: '',
+        INGESTION_REDIS_HOST: '',
+        INGESTION_REDIS_PORT: 6379,
         POSTHOG_REDIS_PASSWORD: '',
         POSTHOG_REDIS_HOST: '',
         POSTHOG_REDIS_PORT: 6379,
@@ -187,6 +190,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         CDP_WATCHER_DISABLED_TEMPORARY_MAX_COUNT: 3,
         CDP_ASYNC_FUNCTIONS_RUSTY_HOOK_TEAMS: '',
         CDP_CYCLOTRON_ENABLED_TEAMS: '',
+        CDP_HOG_FILTERS_TELEMETRY_TEAMS: '',
         CDP_REDIS_PASSWORD: '',
         CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP: true,
         CDP_REDIS_HOST: '',
@@ -211,8 +215,10 @@ export const sessionRecordingConsumerConfig = (config: PluginsServerConfig): Plu
         ...config,
         KAFKA_HOSTS: config.SESSION_RECORDING_KAFKA_HOSTS || config.KAFKA_HOSTS,
         KAFKA_SECURITY_PROTOCOL: config.SESSION_RECORDING_KAFKA_SECURITY_PROTOCOL || config.KAFKA_SECURITY_PROTOCOL,
-        POSTHOG_REDIS_HOST: config.POSTHOG_SESSION_RECORDING_REDIS_HOST || config.POSTHOG_REDIS_HOST,
-        POSTHOG_REDIS_PORT: config.POSTHOG_SESSION_RECORDING_REDIS_PORT || config.POSTHOG_REDIS_PORT,
+        POSTHOG_REDIS_HOST:
+            config.POSTHOG_SESSION_RECORDING_REDIS_HOST || config.INGESTION_REDIS_HOST || config.POSTHOG_REDIS_HOST,
+        POSTHOG_REDIS_PORT:
+            config.POSTHOG_SESSION_RECORDING_REDIS_PORT || config.INGESTION_REDIS_PORT || config.POSTHOG_REDIS_PORT,
     }
 }
 

@@ -1,14 +1,20 @@
 import { PluginEvent, PostHogEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 import { Message } from 'node-rdkafka'
+import { Counter } from 'prom-client'
 
 import { setUsageInNonPersonEventsCounter } from '../main/ingestion-queues/metrics'
 import { ClickHouseEvent, HookPayload, PipelineEvent, PostIngestionEvent, RawClickHouseEvent } from '../types'
 import { chainToElements } from './db/elements-chain'
-import { personInitialAndUTMProperties, sanitizeString } from './db/utils'
+import {
+    hasDifferenceWithProposedNewNormalisationMode,
+    personInitialAndUTMProperties,
+    sanitizeString,
+} from './db/utils'
 import {
     clickHouseTimestampSecondPrecisionToISO,
     clickHouseTimestampToDateTime,
     clickHouseTimestampToISO,
+    getKnownLibValueOrSentinel,
 } from './utils'
 
 const PERSON_EVENTS = new Set(['$set', '$identify', '$create_alias', '$merge_dangerously', '$groupidentify'])
@@ -18,6 +24,12 @@ const KNOWN_SET_EVENTS = new Set([
     'survey dismissed',
     'survey sent',
 ])
+
+const DIFFERENCE_WITH_PROPOSED_NORMALISATION_MODE_COUNTER = new Counter({
+    name: 'difference_with_proposed_normalisation_mode',
+    help: 'Counter for events that would give a different result with the new proposed normalisation mode',
+    labelNames: ['library'],
+})
 
 export function convertToOnEventPayload(event: PostIngestionEvent): ProcessedPluginEvent {
     return {
@@ -197,6 +209,12 @@ export function normalizeEvent<T extends PipelineEvent | PluginEvent>(event: T):
     }
     // For safety while PluginEvent still has an `ip` field
     event.ip = null
+
+    if (hasDifferenceWithProposedNewNormalisationMode(properties)) {
+        DIFFERENCE_WITH_PROPOSED_NORMALISATION_MODE_COUNTER.labels({
+            library: getKnownLibValueOrSentinel(properties['$lib']),
+        }).inc()
+    }
 
     if (!['$snapshot', '$performance_event'].includes(event.event)) {
         properties = personInitialAndUTMProperties(properties)

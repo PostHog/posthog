@@ -1,0 +1,22 @@
+[package]
+name = "error-tracking"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+rdkafka = { workspace = true }
+tokio = { workspace = true }
+envconfig = {workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+health = { path = "../common/health" }
+axum = { workspace = true }
+metrics = { workspace = true }
+common-metrics = { path = "../common/metrics" }
+common-alloc = { path = "../common/alloc" }
+common-types = { path = "../common/types" }
+common-kafka = { path = "../common/kafka" }
+thiserror = { workspace = true }
+
+[lints]
+workspace = true

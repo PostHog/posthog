@@ -16,6 +16,7 @@ from posthog.plugins.plugin_server_api import (
     patch_hog_function_status,
     reload_hog_functions_on_workers,
 )
+from posthog.utils import absolute_uri
 
 DEFAULT_STATE = {"state": 0, "tokens": 0, "rating": 0}
 
@@ -116,10 +117,14 @@ class HogFunction(UUIDModel):
                 final_inputs[schema["key"]] = value
             else:
                 # We either store the incoming value if given or the encrypted value
-                final_encrypted_inputs[schema["key"]] = encrypted_value or value
+                final_encrypted_inputs[schema["key"]] = value or encrypted_value
 
         self.inputs = final_inputs
         self.encrypted_inputs = final_encrypted_inputs
+
+    @property
+    def url(self):
+        return absolute_uri(f"/project/{self.team_id}/pipeline/destinations/hog-{str(self.id)}")
 
     def save(self, *args, **kwargs):
         from posthog.cdp.filters import compile_filters_bytecode

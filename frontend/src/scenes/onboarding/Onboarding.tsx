@@ -5,12 +5,11 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useEffect, useState } from 'react'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
-import { AndroidInstructions } from 'scenes/onboarding/sdks/session-replay'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { AvailableFeature, ProductKey, SDKKey } from '~/types'
+import { AvailableFeature, ProductKey } from '~/types'
 
 import { DataWarehouseSources } from './data-warehouse/sources'
 import { OnboardingBillingStep } from './OnboardingBillingStep'
@@ -25,7 +24,6 @@ import { OnboardingDashboardTemplateSelectStep } from './productAnalyticsSteps/D
 import { FeatureFlagsSDKInstructions } from './sdks/feature-flags/FeatureFlagsSDKInstructions'
 import { ProductAnalyticsSDKInstructions } from './sdks/product-analytics/ProductAnalyticsSDKInstructions'
 import { SDKs } from './sdks/SDKs'
-import { iOSInstructions } from './sdks/session-replay/ios'
 import { SessionReplaySDKInstructions } from './sdks/session-replay/SessionReplaySDKInstructions'
 import { SurveysSDKInstructions } from './sdks/surveys/SurveysSDKInstructions'
 
@@ -109,6 +107,9 @@ const ProductAnalyticsOnboarding = (): JSX.Element => {
     // not sure if there is a better way to do this
     useValues(newDashboardLogic)
 
+    const showTemplateSteps =
+        featureFlags[FEATURE_FLAGS.ONBOARDING_DASHBOARD_TEMPLATES] == 'test' && window.innerWidth > 1000
+
     const options: ProductConfigOption[] = [
         {
             title: 'Autocapture frontend interactions',
@@ -128,6 +129,14 @@ const ProductAnalyticsOnboarding = (): JSX.Element => {
                    No additional events are created, and you can disable this at any time.`,
             teamProperty: 'heatmaps_opt_in',
             value: currentTeam?.heatmaps_opt_in ?? true,
+            type: 'toggle',
+            visible: true,
+        },
+        {
+            title: 'Enable web vitals autocapture',
+            description: `Uses Google's web vitals library to automagically capture performance information.`,
+            teamProperty: 'autocapture_web_vitals_opt_in',
+            value: currentTeam?.autocapture_web_vitals_opt_in ?? true,
             type: 'toggle',
             visible: true,
         },
@@ -165,10 +174,12 @@ const ProductAnalyticsOnboarding = (): JSX.Element => {
                 stepKey={OnboardingStepKey.INSTALL}
             />
             <OnboardingProductConfiguration stepKey={OnboardingStepKey.PRODUCT_CONFIGURATION} options={options} />
-            {featureFlags[FEATURE_FLAGS.ONBOARDING_DASHBOARD_TEMPLATES] == 'test' ? (
+
+            {/* this is two conditionals because they need to be direct children of the wrapper */}
+            {showTemplateSteps ? (
                 <OnboardingDashboardTemplateSelectStep stepKey={OnboardingStepKey.DASHBOARD_TEMPLATE} />
             ) : null}
-            {featureFlags[FEATURE_FLAGS.ONBOARDING_DASHBOARD_TEMPLATES] == 'test' ? (
+            {showTemplateSteps ? (
                 <OnboardingDashboardTemplateConfigureStep stepKey={OnboardingStepKey.DASHBOARD_TEMPLATE_CONFIGURE} />
             ) : null}
         </OnboardingWrapper>
@@ -177,9 +188,6 @@ const ProductAnalyticsOnboarding = (): JSX.Element => {
 const SessionReplayOnboarding = (): JSX.Element => {
     const { hasAvailableFeature } = useValues(userLogic)
     const { currentTeam } = useValues(teamLogic)
-
-    const { featureFlags } = useValues(featureFlagLogic)
-    const hasMobileOnBoarding = !!featureFlags[FEATURE_FLAGS.SESSION_REPLAY_MOBILE_ONBOARDING]
 
     const configOptions: ProductConfigOption[] = [
         {
@@ -223,17 +231,11 @@ const SessionReplayOnboarding = (): JSX.Element => {
         })
     }
 
-    const sdkInstructionMap = SessionReplaySDKInstructions
-    if (hasMobileOnBoarding) {
-        sdkInstructionMap[SDKKey.ANDROID] = AndroidInstructions
-        sdkInstructionMap[SDKKey.IOS] = iOSInstructions
-    }
-
     return (
         <OnboardingWrapper>
             <SDKs
                 usersAction="recording sessions"
-                sdkInstructionMap={sdkInstructionMap}
+                sdkInstructionMap={SessionReplaySDKInstructions}
                 subtitle="Choose the framework your frontend is built on, or use our all-purpose JavaScript library. If you already have the snippet installed, you can skip this step!"
                 stepKey={OnboardingStepKey.INSTALL}
             />

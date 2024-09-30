@@ -29,6 +29,7 @@ from posthog.models import (
     Organization,
     OrganizationDomain,
     OrganizationInvite,
+    InviteExpiredException,
     Team,
     User,
 )
@@ -446,7 +447,7 @@ def process_social_domain_jit_provisioning_signup(
                         message = "Account unable to be created. This account may already exist. Please try again or use different credentials."
                         raise ValidationError(message, code="unknown", params={"source": "social_create_user"})
 
-                except OrganizationInvite.DoesNotExist:
+                except (OrganizationInvite.DoesNotExist, InviteExpiredException):
                     user = User.objects.create_and_join(
                         organization=domain_instance.organization,
                         email=email,

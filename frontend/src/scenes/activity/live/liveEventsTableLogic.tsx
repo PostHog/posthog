@@ -1,5 +1,6 @@
 import { lemonToast, Spinner } from '@posthog/lemon-ui'
 import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
+import { router } from 'kea-router'
 import { liveEventsHostOrigin } from 'lib/utils/apiHost'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -26,6 +27,7 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
         pollStats: true,
         setStats: (stats) => ({ stats }),
         showLiveStreamErrorToast: true,
+        addEventHost: (eventHost) => ({ eventHost }),
     })),
     reducers({
         events: [
@@ -78,6 +80,17 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
                 addEvents: (state, { events }) => {
                     if (events.length > 0) {
                         return performance.now()
+                    }
+                    return state
+                },
+            },
+        ],
+        eventHosts: [
+            [] as string[],
+            {
+                addEventHost: (state, { eventHost }) => {
+                    if (!state.includes(eventHost)) {
+                        return [...state, eventHost]
                     }
                     return state
                 },
@@ -141,7 +154,10 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
 
             source.onerror = function (e) {
                 console.error('Failed to poll events: ', e)
-                if (!cache.hasShownLiveStreamErrorToast) {
+                if (
+                    !cache.hasShownLiveStreamErrorToast &&
+                    !router.values.currentLocation.pathname.includes('onboarding')
+                ) {
                     lemonToast.error(
                         `Cannot connect to the live event stream. Continuing to retry in the background…`,
                         { icon: <Spinner />, toastId: ERROR_TOAST_ID, autoClose: false }
@@ -175,6 +191,17 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
                 actions.setStats(data)
             } catch (error) {
                 console.error('Failed to poll stats:', error)
+            }
+        },
+        addEvents: ({ events }) => {
+            if (events.length > 0) {
+                const event = events[0]
+                const eventUrl = event.properties?.$current_url
+                if (eventUrl) {
+                    const eventHost = new URL(eventUrl).host
+                    const eventProtocol = new URL(eventUrl).protocol
+                    actions.addEventHost(`${eventProtocol}//${eventHost}`)
+                }
             }
         },
     })),

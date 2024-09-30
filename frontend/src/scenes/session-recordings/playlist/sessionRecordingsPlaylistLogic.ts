@@ -12,6 +12,7 @@ import {
     isLogEntryPropertyFilter,
     isRecordingPropertyFilter,
 } from 'lib/components/UniversalFilters/utils'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectClean } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -296,7 +297,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         setFilters: (filters: Partial<RecordingUniversalFilters>) => ({ filters }),
         setShowFilters: (showFilters: boolean) => ({ showFilters }),
         setShowSettings: (showSettings: boolean) => ({ showSettings }),
-        setOrderBy: (orderBy: RecordingsQuery['order']) => ({ orderBy }),
+        setOrderBy: (orderBy: RecordingsQuery['order'] | null) => ({ orderBy }),
         resetFilters: true,
         setSelectedRecordingId: (id: SessionRecordingType['id'] | null) => ({
             id,
@@ -308,7 +309,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         summarizeSession: (id: SessionRecordingType['id']) => ({ id }),
         loadNext: true,
         loadPrev: true,
-        toggleShowOtherRecordings: (show?: boolean) => ({ show }),
+        setShowOtherRecordings: (show: boolean) => ({ show }),
     }),
     propsChanged(({ actions, props }, oldProps) => {
         // If the defined list changes, we need to call the loader to either load the new items or change the list
@@ -424,9 +425,9 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         ],
     })),
     reducers(({ props }) => ({
-        orderBy: [
-            'start_time' as RecordingsQuery['order'],
-            { persist: true },
+        selectedOrderBy: [
+            null as RecordingsQuery['order'] | null,
+            { persist: true, prefix: 'orderByExperiment' },
             {
                 setOrderBy: (_, { orderBy }) => orderBy,
             },
@@ -445,7 +446,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             {
                 loadPinnedRecordingsSuccess: (state, { pinnedRecordings }) =>
                     pinnedRecordings.length === 0 ? true : state,
-                toggleShowOtherRecordings: (state, { show }) => (show === undefined ? !state : show),
+                setShowOtherRecordings: (_, { show }) => show,
             },
         ],
         unusableEventsInFilter: [
@@ -729,6 +730,29 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 return showOtherRecordings ? otherRecordings.length + pinnedRecordings.length : pinnedRecordings.length
             },
         ],
+        orderByExperimentFeatureFlag: [
+            (s) => [s.featureFlags],
+            (featureFlags): RecordingsQuery['order'] | 'control' | null =>
+                typeof featureFlags[FEATURE_FLAGS.REPLAY_DEFAULT_SORT_ORDER_EXPERIMENT] === 'string'
+                    ? (featureFlags[FEATURE_FLAGS.REPLAY_DEFAULT_SORT_ORDER_EXPERIMENT] as
+                          | RecordingsQuery['order']
+                          | 'control')
+                    : null,
+        ],
+        orderBy: [
+            (s) => [s.selectedOrderBy, s.orderByExperimentFeatureFlag],
+            (selectedOrderBy, orderByExperimentFeatureFlag): RecordingsQuery['order'] => {
+                if (selectedOrderBy) {
+                    return selectedOrderBy
+                }
+
+                if (orderByExperimentFeatureFlag === 'control' || !orderByExperimentFeatureFlag) {
+                    return 'start_time'
+                }
+
+                return orderByExperimentFeatureFlag
+            },
+        ],
     }),
 
     actionToUrl(({ props, values }) => {
@@ -795,6 +819,9 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             if (showOtherRecordings) {
                 actions.loadSessionRecordings()
             }
+        },
+        orderBy: () => {
+            actions.loadSessionRecordings()
         },
     })),
 

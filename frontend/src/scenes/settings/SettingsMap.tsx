@@ -1,8 +1,44 @@
-import { BounceRatePageViewModeSetting } from 'scenes/settings/project/BounceRatePageViewMode'
-import { PersonsJoinMode } from 'scenes/settings/project/PersonsJoinMode'
-import { PersonsOnEvents } from 'scenes/settings/project/PersonsOnEvents'
-import { SessionsTableVersion } from 'scenes/settings/project/SessionsTableVersion'
+import { BounceRatePageViewModeSetting } from 'scenes/settings/environment/BounceRatePageViewMode'
+import { PersonsJoinMode } from 'scenes/settings/environment/PersonsJoinMode'
+import { PersonsOnEvents } from 'scenes/settings/environment/PersonsOnEvents'
+import { SessionsTableVersion } from 'scenes/settings/environment/SessionsTableVersion'
 
+import {
+    AutocaptureSettings,
+    ExceptionAutocaptureSettings,
+    WebVitalsAutocaptureSettings,
+} from './environment/AutocaptureSettings'
+import { CorrelationConfig } from './environment/CorrelationConfig'
+import { DataAttributes } from './environment/DataAttributes'
+import { GroupAnalyticsConfig } from './environment/GroupAnalyticsConfig'
+import { HeatmapsSettings } from './environment/HeatmapsSettings'
+import { IPAllowListInfo } from './environment/IPAllowListInfo'
+import { IPCapture } from './environment/IPCapture'
+import { ManagedReverseProxy } from './environment/ManagedReverseProxy'
+import { OtherIntegrations } from './environment/OtherIntegrations'
+import { PathCleaningFiltersConfig } from './environment/PathCleaningFiltersConfig'
+import { PersonDisplayNameProperties } from './environment/PersonDisplayNameProperties'
+import {
+    NetworkCaptureSettings,
+    ReplayAISettings,
+    ReplayAuthorizedDomains,
+    ReplayCostControl,
+    ReplayGeneral,
+} from './environment/SessionRecordingSettings'
+import { SlackIntegration } from './environment/SlackIntegration'
+import { SurveySettings } from './environment/SurveySettings'
+import { TeamAccessControl } from './environment/TeamAccessControl'
+import { TeamDangerZone } from './environment/TeamDangerZone'
+import {
+    Bookmarklet,
+    TeamDisplayName,
+    TeamTimezone,
+    TeamToolbarURLs,
+    TeamVariables,
+    WebSnippet,
+} from './environment/TeamSettings'
+import { ProjectAccountFiltersSetting } from './environment/TestAccountFiltersConfig'
+import { WebhookIntegration } from './environment/WebhookIntegration'
 import { Invites } from './organization/Invites'
 import { Members } from './organization/Members'
 import { OrganizationDangerZone } from './organization/OrganizationDangerZone'
@@ -11,42 +47,8 @@ import { OrganizationEmailPreferences } from './organization/OrgEmailPreferences
 import { OrganizationLogo } from './organization/OrgLogo'
 import { PermissionsGrid } from './organization/Permissions/PermissionsGrid'
 import { VerifiedDomains } from './organization/VerifiedDomains/VerifiedDomains'
-import {
-    AutocaptureSettings,
-    ExceptionAutocaptureSettings,
-    WebVitalsAutocaptureSettings,
-} from './project/AutocaptureSettings'
-import { CorrelationConfig } from './project/CorrelationConfig'
-import { DataAttributes } from './project/DataAttributes'
-import { GroupAnalyticsConfig } from './project/GroupAnalyticsConfig'
-import { HeatmapsSettings } from './project/HeatmapsSettings'
-import { IPAllowListInfo } from './project/IPAllowListInfo'
-import { IPCapture } from './project/IPCapture'
-import { ManagedReverseProxy } from './project/ManagedReverseProxy'
-import { OtherIntegrations } from './project/OtherIntegrations'
-import { PathCleaningFiltersConfig } from './project/PathCleaningFiltersConfig'
-import { PersonDisplayNameProperties } from './project/PersonDisplayNameProperties'
-import { ProjectAccessControl } from './project/ProjectAccessControl'
 import { ProjectDangerZone } from './project/ProjectDangerZone'
-import {
-    Bookmarklet,
-    ProjectDisplayName,
-    ProjectTimezone,
-    ProjectToolbarURLs,
-    ProjectVariables,
-    WebSnippet,
-} from './project/ProjectSettings'
-import {
-    NetworkCaptureSettings,
-    ReplayAISettings,
-    ReplayAuthorizedDomains,
-    ReplayCostControl,
-    ReplayGeneral,
-} from './project/SessionRecordingSettings'
-import { SlackIntegration } from './project/SlackIntegration'
-import { SurveySettings } from './project/SurveySettings'
-import { ProjectAccountFiltersSetting } from './project/TestAccountFiltersConfig'
-import { WebhookIntegration } from './project/WebhookIntegration'
+import { ProjectDisplayName } from './project/ProjectSettings'
 import { SettingSection } from './types'
 import { ChangePassword } from './user/ChangePassword'
 import { HedgehogModeSettings } from './user/HedgehogModeSettings'
@@ -57,17 +59,17 @@ import { TwoFactorAuthentication } from './user/TwoFactorAuthentication'
 import { UpdateEmailPreferences } from './user/UpdateEmailPreferences'
 import { UserDetails } from './user/UserDetails'
 
-export const SettingsMap: SettingSection[] = [
-    // PROJECT
+export const SETTINGS_MAP: SettingSection[] = [
+    // ENVIRONMENT
     {
-        level: 'project',
-        id: 'project-details',
+        level: 'environment',
+        id: 'environment-details',
         title: 'General',
         settings: [
             {
                 id: 'display-name',
                 title: 'Display name',
-                component: <ProjectDisplayName />,
+                component: <TeamDisplayName />,
             },
             {
                 id: 'snippet',
@@ -82,13 +84,13 @@ export const SettingsMap: SettingSection[] = [
             {
                 id: 'variables',
                 title: 'Project ID',
-                component: <ProjectVariables />,
+                component: <TeamVariables />,
             },
         ],
     },
     {
-        level: 'project',
-        id: 'project-autocapture',
+        level: 'environment',
+        id: 'environment-autocapture',
         title: 'Autocapture & heatmaps',
 
         settings: [
@@ -122,14 +124,14 @@ export const SettingsMap: SettingSection[] = [
     },
 
     {
-        level: 'project',
-        id: 'project-product-analytics',
+        level: 'environment',
+        id: 'environment-product-analytics',
         title: 'Product analytics',
         settings: [
             {
                 id: 'date-and-time',
                 title: 'Date & time',
-                component: <ProjectTimezone />,
+                component: <TeamTimezone />,
             },
             {
                 id: 'internal-user-filtering',
@@ -189,8 +191,8 @@ export const SettingsMap: SettingSection[] = [
     },
 
     {
-        level: 'project',
-        id: 'project-replay',
+        level: 'environment',
+        id: 'environment-replay',
         title: 'Session replay',
         settings: [
             {
@@ -222,8 +224,8 @@ export const SettingsMap: SettingSection[] = [
         ],
     },
     {
-        level: 'project',
-        id: 'project-surveys',
+        level: 'environment',
+        id: 'environment-surveys',
         title: 'Surveys',
         settings: [
             {
@@ -235,20 +237,20 @@ export const SettingsMap: SettingSection[] = [
     },
 
     {
-        level: 'project',
-        id: 'project-toolbar',
+        level: 'environment',
+        id: 'environment-toolbar',
         title: 'Toolbar',
         settings: [
             {
                 id: 'authorized-toolbar-urls',
                 title: 'Authorized toolbar URLs',
-                component: <ProjectToolbarURLs />,
+                component: <TeamToolbarURLs />,
             },
         ],
     },
     {
-        level: 'project',
-        id: 'project-integrations',
+        level: 'environment',
+        id: 'environment-integrations',
         title: 'Integrations',
         settings: [
             {
@@ -274,14 +276,40 @@ export const SettingsMap: SettingSection[] = [
         ],
     },
     {
-        level: 'project',
-        id: 'project-rbac',
+        level: 'environment',
+        id: 'environment-rbac',
         title: 'Access control',
         settings: [
             {
-                id: 'project-rbac',
+                id: 'environment-rbac',
                 title: 'Access control',
-                component: <ProjectAccessControl />,
+                component: <TeamAccessControl />,
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-danger-zone',
+        title: 'Danger zone',
+        settings: [
+            {
+                id: 'environment-delete',
+                title: 'Delete environment',
+                component: <TeamDangerZone />,
+            },
+        ],
+    },
+
+    // PROJECT - just project-details and project-danger-zone
+    {
+        level: 'project',
+        id: 'project-details',
+        title: 'General',
+        settings: [
+            {
+                id: 'display-name',
+                title: 'Display name',
+                component: <ProjectDisplayName />,
             },
         ],
     },
