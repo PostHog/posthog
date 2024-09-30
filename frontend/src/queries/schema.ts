@@ -1169,9 +1169,9 @@ export type RefreshType =
 export interface QueryRequest {
     /** Client provided query ID. Can be used to retrieve the status or cancel the query. */
     client_query_id?: string
-    // Sync the `refresh` description here with the one in posthog/api/insight.py
+    // Sync the `refresh` description here with the two instances in posthog/api/insight.py
     /**
-     * Whether to refresh the insight, how aggresively, and if sync or async:
+     * Whether results should be calculated sync or async, and how much to rely on the cache:
      * - `'blocking'` - calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in the cache
      * - `'async'` - kick off background calculation (returning immediately with a query status), UNLESS there are very fresh results in the cache
      * - `'lazy_async'` - kick off background calculation, UNLESS there are somewhat fresh results in the cache
