@@ -150,6 +150,12 @@ common_field_exclusions = [
 ]
 
 
+field_with_masked_contents: dict[ActivityScope, list[str]] = {
+    "HogFunction": [
+        "encrypted_inputs",
+    ],
+}
+
 field_exclusions: dict[ActivityScope, list[str]] = {
     "Cohort": [
         "version",
@@ -161,7 +167,6 @@ field_exclusions: dict[ActivityScope, list[str]] = {
     ],
     "HogFunction": [
         "bytecode",
-        "encrypted_inputs",
         "icon_url",
     ],
     "Notebook": [
@@ -290,35 +295,46 @@ def changes_between(
     if previous is not None:
         fields = current._meta.get_fields() if current is not None else []
         excluded_fields = field_exclusions.get(model_type, []) + common_field_exclusions
-        filtered_fields = [f.name for f in fields if f.name not in excluded_fields]
+        masked_fields = field_with_masked_contents.get(model_type, [])
+        filtered_fields = [f for f in fields if f.name not in excluded_fields]
 
         for field in filtered_fields:
-            left = safely_get_field_value(previous, field)
-            right = safely_get_field_value(current, field)
+            field_name = field.name
+            left = safely_get_field_value(previous, field_name)
+            right = safely_get_field_value(current, field_name)
 
-            if field == "tagged_items":
-                field = "tags"  # Or the UI needs to be coupled to this internal backend naming.
+            if field_name == "tagged_items":
+                field_name = "tags"  # Or the UI needs to be coupled to this internal backend naming.
 
-            if field == "dashboards" and "dashboard_tiles" in filtered_fields:
+            if field_name == "dashboards" and "dashboard_tiles" in filtered_fields:
                 # Only process dashboard_tiles when it is present. It supersedes dashboards.
                 continue
 
-            if model_type == "Insight" and field == "dashboard_tiles":
+            if model_type == "Insight" and field_name == "dashboard_tiles":
                 # The API exposes this as dashboards and that's what the activity describers expect.
-                field = "dashboards"
+                field_name = "dashboards"
 
-            if left is None and right is not None:
-                changes.append(Change(type=model_type, field=field, action="created", after=right))
-            elif right is None and left is not None:
-                changes.append(Change(type=model_type, field=field, action="deleted", before=left))
+            # if is a django model field, check the empty_values list
+            left_is_none = left is None or (hasattr(field, "empty_values") and left in field.empty_values)
+            right_is_none = right is None or (hasattr(field, "empty_values") and right in field.empty_values)
+
+            left_value = "masked" if field_name in masked_fields else left
+            right_value = "masked" if field_name in masked_fields else right
+
+            if left_is_none and right_is_none:
+                pass  # could be {} vs None
+            elif left_is_none and not right_is_none:
+                changes.append(Change(type=model_type, field=field_name, action="created", after=right_value))
+            elif right_is_none and not left_is_none:
+                changes.append(Change(type=model_type, field=field_name, action="deleted", before=left_value))
             elif left != right:
                 changes.append(
                     Change(
                         type=model_type,
-                        field=field,
+                        field=field_name,
                         action="changed",
-                        before=left,
-                        after=right,
+                        before=left_value,
+                        after=right_value,
                     )
                 )
 
