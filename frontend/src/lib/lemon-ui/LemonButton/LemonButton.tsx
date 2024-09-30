@@ -77,6 +77,7 @@ export type SideAction = Pick<
     | 'to'
     | 'disableClientSideRouting'
     | 'disabled'
+    | 'disabledReason'
     | 'icon'
     | 'type'
     | 'tooltip'

@@ -51,6 +51,7 @@ from posthog.test.base import (
     ClickhouseTestMixin,
     _create_event,
     _create_person,
+    also_test_with_materialized_columns,
     flush_persons_and_events,
     run_clickhouse_statement_in_parallel,
     snapshot_clickhouse_queries,
@@ -826,6 +827,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
 
 @freeze_time("2022-01-09T00:01:00Z")
 class ReplayUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin):
+    @also_test_with_materialized_columns(event_properties=["$lib"], verify_no_jsonextract=False)
     def test_usage_report_replay(self) -> None:
         _setup_replay_data(self.team.pk, include_mobile_replay=False)
 
@@ -844,6 +846,7 @@ class ReplayUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTable
         assert org_reports[str(self.organization.id)].recording_count_in_period == 5
         assert org_reports[str(self.organization.id)].mobile_recording_count_in_period == 0
 
+    @also_test_with_materialized_columns(event_properties=["$lib"], verify_no_jsonextract=False)
     def test_usage_report_replay_with_mobile(self) -> None:
         _setup_replay_data(self.team.pk, include_mobile_replay=True)
 
@@ -865,6 +868,7 @@ class ReplayUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTable
 
 
 class HogQLUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin):
+    @also_test_with_materialized_columns(event_properties=["$lib"], verify_no_jsonextract=False)
     def test_usage_report_hogql_queries(self) -> None:
         for _ in range(0, 100):
             _create_event(
