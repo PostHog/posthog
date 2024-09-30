@@ -284,7 +284,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             raise exceptions.ValidationError(
                 "Environments must be created under a specific project. Send the POST request to /api/projects/<project_id>/environments/ instead."
             )
-        if self.context["project_id"] not in [project.id for project in request.user.projects]:
+        if self.context["project_id"] not in self.user_permissions.project_ids_visible_for_user:
             raise exceptions.NotFound("Project not found.")
         validated_data["project_id"] = self.context["project_id"]
         serializers.raise_errors_on_nested_writes("create", self, validated_data)

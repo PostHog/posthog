@@ -80,12 +80,7 @@ class UserPermissions:
 
     @cached_property
     def project_ids_visible_for_user(self) -> list[int]:
-        ret = []
-        for team in self.teams_visible_for_user:
-            assert team.project_id is not None
-            if team.project_id not in ret:
-                ret.append(team.project_id)
-        return ret
+        return list({team.project_id for team in self.teams_visible_for_user if team.project_id is not None})
 
     # Cached properties/functions for efficient lookups in other classes
 

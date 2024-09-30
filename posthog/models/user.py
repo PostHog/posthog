@@ -1,17 +1,16 @@
 from collections.abc import Callable
 from functools import cached_property
-from typing import Any, Optional, TypedDict, cast
+from typing import Any, Optional, TypedDict
 
 from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.db import models, transaction
-from django.db.models import Q, QuerySet
+from django.db.models import Q
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from rest_framework.exceptions import ValidationError
 
 from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import AvailableFeature
-from posthog.models.project import Project
 from posthog.settings import INSTANCE_TAG, SITE_URL
 from posthog.utils import get_instance_realm
 
@@ -174,11 +173,11 @@ class User(AbstractUser, UUIDClassicModel):
         return self.is_staff
 
     @cached_property
-    def teams(self) -> QuerySet[Team]:
+    def teams(self):
         """
         All teams the user has access to on any organization, taking into account project based permissioning
         """
-        teams = Team.objects.select_related("project").filter(organization__members=self)
+        teams = Team.objects.filter(organization__members=self)
         org_available_product_features = (
             Organization.objects.filter(members=self).values_list("available_product_features", flat=True).first()
         )
@@ -207,10 +206,6 @@ class User(AbstractUser, UUIDClassicModel):
                     )
 
         return teams.order_by("access_control", "id")
-
-    @cached_property
-    def projects(self) -> set[Project]:
-        return {cast(Project, team.project) for team in self.teams if team.project}
 
     @cached_property
     def organization(self) -> Optional[Organization]:
