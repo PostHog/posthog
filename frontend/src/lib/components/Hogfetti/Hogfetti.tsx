@@ -25,7 +25,7 @@ import {
 } from 'lib/components/hedgehogs'
 import React, { useCallback, useEffect, useState } from 'react'
 
-type HogComponent = React.ComponentType<{ width: number; height: number }>
+export type HogComponent = React.ComponentType<{ width: number; height: number }>
 
 const images: HogComponent[] = [
     SurprisedHog,
