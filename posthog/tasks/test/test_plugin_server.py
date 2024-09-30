@@ -9,7 +9,7 @@ from posthog.test.base import APIBaseTest
 
 
 @patch("posthog.tasks.email.EmailMessage")
-@patch("posthog.tasks.hog_functions.report_team_action")
+@patch("posthog.tasks.plugin_server.report_team_action")
 class TestPluginServerTasks(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
