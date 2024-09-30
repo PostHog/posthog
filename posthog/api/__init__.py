@@ -519,11 +519,11 @@ projects_router.register(
     ["team_id"],
 )
 
-# register_grandfathered_environment_nested_viewset(
-#     r"alerts",
-#     alert.AlertViewSet,
-#     "environment_alerts",
-#     ["team_id"],
-# )
+register_grandfathered_environment_nested_viewset(
+    r"alerts",
+    alert.AlertViewSet,
+    "environment_alerts",
+    ["team_id"],
+)
 
 projects_router.register(r"search", search.SearchViewSet, "project_search", ["project_id"])
