@@ -70,7 +70,7 @@ from posthog.schema import (
     TrendsQueryResponse,
 )
 from posthog.utils import format_label_date, multisort
-from posthog.warehouse.models import DataWarehouseTable
+from posthog.warehouse.models.util import get_view_or_table_by_name
 
 
 class TrendsQueryRunner(QueryRunner):
@@ -879,14 +879,13 @@ class TrendsQueryRunner(QueryRunner):
             and self.query.breakdownFilter.breakdown_type == "data_warehouse"
         ):
             series = self.query.series[0]  # only one series when data warehouse is active
-            table_model = (
-                DataWarehouseTable.objects.filter(name=series.table_name, team=self.team).exclude(deleted=True).first()
-            )
 
-            if not table_model:
+            table_or_view = get_view_or_table_by_name(self.team, series.table_name)
+
+            if not table_or_view:
                 raise ValueError(f"Table {series.table_name} not found")
 
-            field_type = dict(table_model.columns)[self.query.breakdownFilter.breakdown]["clickhouse"]
+            field_type = dict(table_or_view.columns)[self.query.breakdownFilter.breakdown]["clickhouse"]
 
             if field_type.startswith("Nullable("):
                 field_type = field_type.replace("Nullable(", "")[:-1]

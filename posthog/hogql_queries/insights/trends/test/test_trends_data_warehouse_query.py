@@ -268,6 +268,41 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
         assert response.results[3][2] == "d"
 
     @snapshot_clickhouse_queries
+    def test_trends_breakdown_on_view(self):
+        from posthog.warehouse.models import DataWarehouseSavedQuery
+
+        query = """\
+          select
+            events.uuid as uuid,
+            events.event as event,
+            person.created_at as created_at
+          from events
+          left join persons on events.person_id = persons.id
+        """
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="my_model",
+            query={"query": query},
+        )
+
+        trends_query = TrendsQuery(
+            kind="TrendsQuery",
+            dateRange=InsightDateRange(date_from="2023-01-01"),
+            series=[
+                DataWarehouseNode(
+                    id="my_model",
+                    table_name="my_model",
+                    id_field="uuid",
+                    distinct_id_field="uuid",
+                    timestamp_field="created_at",
+                )
+            ],
+            breakdownFilter=BreakdownFilter(breakdown_type=BreakdownType.DATA_WAREHOUSE, breakdown="created_at"),
+        )
+
+        self.get_response(trends_query=trends_query)
+
+    @snapshot_clickhouse_queries
     def test_trends_breakdown_with_property(self):
         table_name = self.create_parquet_file()
 
