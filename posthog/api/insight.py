@@ -809,9 +809,15 @@ class InsightViewSet(
                 name="refresh",
                 enum=list(ExecutionMode),
                 default=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
+                # Sync the `refresh` description here with the one in frontend/src/queries/schema.ts
                 description="""
-Whether to refresh the insight and how aggressively. (The default `force_cache` value never refreshes.)
-If an `_async` mode is chosen, this request kicks off a background query and returns immediately.
+Whether to refresh the insight, how aggresively, and if sync or async:
+- `'blocking'` - calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in the cache
+- `'async'` - kick off background calculation (returning immediately with a query status), UNLESS there are very fresh results in the cache
+- `'lazy_async'` - kick off background calculation, UNLESS there are somewhat fresh results in the cache
+- `'force_blocking'` - calculate synchronously, even if fresh results are already cached
+- `'force_async'` - kick off background calculation, even if fresh results are already cached
+- `'force_cache'` - return cached data or a cache miss; always completes immediately as it never calculates
 Background calculation can be tracked using the `query_status` response field.""",
             ),
             OpenApiParameter(
