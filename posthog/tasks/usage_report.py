@@ -17,6 +17,7 @@ from psycopg import sql
 from retry import retry
 from sentry_sdk import capture_exception
 
+from ee.clickhouse.materialized_columns.columns import get_materialized_columns
 from posthog import version_requirement
 from posthog.clickhouse.client.connection import Workload
 from posthog.client import sync_execute
@@ -455,8 +456,13 @@ def get_teams_with_event_count_with_groups_in_period(begin: datetime, end: datet
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str, list[tuple[int, int]]]:
+    materialized_columns = get_materialized_columns("events")
+
+    # Check if $lib is materialized
+    lib_expression = materialized_columns.get(("$lib", "properties"), "JSONExtractString(properties, '$lib')")
+
     results = sync_execute(
-        """
+        f"""
         SELECT
             team_id,
             multiIf(
@@ -464,17 +470,17 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
                 event LIKE 'langfuse%%', 'langfuse_events',
                 event LIKE 'keywords_ai%%', 'keywords_ai_events',
                 event LIKE 'traceloop%%', 'traceloop_events',
-                JSONExtractString(properties, '$lib') = 'web', 'web_events',
-                JSONExtractString(properties, '$lib') = 'posthog-node', 'node_events',
-                JSONExtractString(properties, '$lib') = 'posthog-android', 'android_events',
-                JSONExtractString(properties, '$lib') = 'posthog-flutter', 'flutter_events',
-                JSONExtractString(properties, '$lib') = 'posthog-ios', 'ios_events',
-                JSONExtractString(properties, '$lib') = 'posthog-go', 'go_events',
-                JSONExtractString(properties, '$lib') = 'posthog-java', 'java_events',
-                JSONExtractString(properties, '$lib') = 'posthog-react-native', 'react_native_events',
-                JSONExtractString(properties, '$lib') = 'posthog-ruby', 'ruby_events',
-                JSONExtractString(properties, '$lib') = 'posthog-python', 'python_events',
-                JSONExtractString(properties, '$lib') = 'posthog-php', 'php_events',
+                {lib_expression} = 'web', 'web_events',
+                {lib_expression} = 'posthog-node', 'node_events',
+                {lib_expression} = 'posthog-android', 'android_events',
+                {lib_expression} = 'posthog-flutter', 'flutter_events',
+                {lib_expression} = 'posthog-ios', 'ios_events',
+                {lib_expression} = 'posthog-go', 'go_events',
+                {lib_expression} = 'posthog-java', 'java_events',
+                {lib_expression} = 'posthog-react-native', 'react_native_events',
+                {lib_expression} = 'posthog-ruby', 'ruby_events',
+                {lib_expression} = 'posthog-python', 'python_events',
+                {lib_expression} = 'posthog-php', 'php_events',
                 'other'
             ) AS metric,
             count(1) as count
