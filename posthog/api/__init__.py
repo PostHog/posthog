@@ -145,12 +145,6 @@ register_grandfathered_environment_nested_viewset(
 
 projects_router.register(r"annotations", annotation.AnnotationsViewSet, "project_annotations", ["project_id"])
 projects_router.register(
-    "alerts",
-    alert.AlertViewSet,
-    "project_alerts",
-    ["project_id"],
-)
-projects_router.register(
     r"activity_log",
     activity_log.ActivityLogViewSet,
     "project_activity_log",
