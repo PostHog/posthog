@@ -243,7 +243,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             // if we still fail, we drop the batch and clear it's content from the cached update set, because
             // we assume everything in it will be seen again.
             while let Err(e) = m_context.issue(&mut batch, cache_utilization).await {
-                error!("Issue failed: {:?}", e);
+                error!("Issue failed: {:?}, sleeping for 100ms", e);
                 tries += 1;
                 if tries > 3 {
                     metrics::counter!(ISSUE_FAILED).increment(1);
@@ -256,6 +256,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     issue_time.label("outcome", "failed").fin();
                     return;
                 }
+                tokio::time::sleep(Duration::from_millis(100)).await;
             }
 
             issue_time.label("outcome", "success").fin();
