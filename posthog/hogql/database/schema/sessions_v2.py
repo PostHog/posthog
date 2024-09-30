@@ -56,6 +56,7 @@ RAW_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     "screen_uniq": DatabaseField(name="screen_uniq"),
     "last_external_click_url": StringDatabaseField(name="last_external_click_url"),
     "page_screen_autocapture_uniq_up_to": DatabaseField(name="page_screen_autocapture_uniq_up_to"),
+    "vitals_lcp": DatabaseField(name="vitals_lcp"),
 }
 
 LAZY_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
@@ -96,6 +97,7 @@ LAZY_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     # some aliases for people upgrading from v1 to v2
     "$exit_current_url": StringDatabaseField(name="$exit_current_url"),
     "$exit_pathname": StringDatabaseField(name="$exit_pathname"),
+    "$vitals_lcp": FloatDatabaseField(name="vitals_lcp", nullable=True),
 }
 
 
@@ -216,6 +218,7 @@ def select_from_sessions_table_v2(
             params=[ast.Constant(value=1)],
             args=[ast.Field(chain=[table_name, "page_screen_autocapture_uniq_up_to"])],
         ),
+        "$vitals_lcp": ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "vitals_lcp"])]),
     }
     # Alias
     aggregate_fields["id"] = aggregate_fields["session_id"]
@@ -476,6 +479,7 @@ SESSION_PROPERTY_TO_RAW_SESSIONS_EXPR_MAP = {
     "$end_current_url": "finalizeAggregation(end_url)",
     "$end_pathname": "path(finalizeAggregation(end_url))",
     "$last_external_click_url": "finalizeAggregation(last_external_click_url)",
+    "$vitals_lcp": "finalizeAggregation(vitals_lcp)",
 }
 
 

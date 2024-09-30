@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, Union
 import math
 
 from django.utils.timezone import datetime
@@ -58,7 +58,7 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner):
                 to_data("sessions", "unit", self._unsample(row[4]), self._unsample(row[5])),
                 to_data("session duration", "duration_s", row[6], row[7]),
                 to_data("bounce rate", "percentage", row[8], row[9], is_increase_bad=True),
-                to_data("lcp_p90", "seconds", row[10], row[11], is_increase_bad=True),
+                to_data("lcp_p90", "duration_s", row[10], row[11], is_increase_bad=True),
             ]
 
         return WebOverviewQueryResponse(
@@ -220,7 +220,7 @@ HAVING and(
             lcp = (
                 ast.Constant(value=None)
                 if self.modifiers.sessionTableVersion == SessionTableVersion.V1
-                else ast.Call(name="any", args=[ast.Field(chain=["session", "$lcp"])])
+                else ast.Call(name="any", args=[ast.Field(chain=["session", "$vitals_lcp"])])
             )
             if self.modifiers.sessionTableVersion != SessionTableVersion.V1:
                 parsed_select.select.append(ast.Alias(alias="lcp", expr=lcp))
@@ -332,8 +332,8 @@ HAVING and(
                 previous_period_aggregate("avg", "session_duration", "prev_avg_duration_s"),
                 current_period_aggregate("avg", "is_bounce", "bounce_rate"),
                 previous_period_aggregate("avg", "is_bounce", "prev_bounce_rate"),
-                current_period_aggregate("quantiles", "lcp", "lcp_p90", params=90),
-                previous_period_aggregate("quantiles", "lcp", "prev_lcp_p90", params=90),
+                current_period_aggregate("quantiles", "lcp", "lcp_p90", params=[ast.Constant(value=0.9)]),
+                previous_period_aggregate("quantiles", "lcp", "prev_lcp_p90", params=[ast.Constant(value=0.9)]),
             ]
 
         query = ast.SelectQuery(
@@ -347,10 +347,14 @@ HAVING and(
 def to_data(
     key: str,
     kind: str,
-    value: Optional[float],
-    previous: Optional[float],
+    value: Optional[Union[float, list[float]]],
+    previous: Optional[Union[float, list[float]]],
     is_increase_bad: Optional[bool] = None,
 ) -> dict:
+    if isinstance(value, list):
+        value = value[0]
+    if isinstance(previous, list):
+        previous = previous[0]
     if value is not None and math.isnan(value):
         value = None
     if previous is not None and math.isnan(previous):
