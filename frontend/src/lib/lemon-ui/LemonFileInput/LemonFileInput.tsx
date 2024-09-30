@@ -61,8 +61,8 @@ export const LemonFileInput = ({
 
         const eventFiles = e.target.files
         const filesArr = Array.prototype.slice.call(eventFiles)
-        const localFiles = multiple ? [...files, ...filesArr] : filesArr.slice(0, 1)
         if (filesArr.length > 0) {
+            const localFiles = multiple ? [...files, ...filesArr] : filesArr.slice(0, 1)
             setFiles(localFiles)
             onChange?.(localFiles)
         }
