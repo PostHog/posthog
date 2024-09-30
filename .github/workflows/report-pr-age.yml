@@ -28,14 +28,3 @@ jobs:
                   posthog-token: ${{secrets.POSTHOG_API_TOKEN}}
                   event: 'posthog-ci-pr-stats'
                   properties: '{"prAgeInSeconds": ${{ env.pr_age }}, "isRevert": ${{env.is_revert}}, "prTitle": "${{ github.event.pull_request.title}}", "prNumber": "${{ github.event.pull_request.number}}"  }'
-    report-pr-as-annotation:
-        name: Report PR to PostHog
-        runs-on: ubuntu-20.04
-        if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.merged == true
-        steps:
-            - name: Report PR to PostHog
-              uses: PostHog/posthog-annotate-merges-github-action@0.2.0
-              with:
-                  posthog-token: ${{secrets.POSTHOG_PAUL_PERSONAL_API_KEY}}
-                  posthog-project-id: ${{secrets.POSTHOG_PROJECT_ID}}
-                  annotation-message: 'Merged PR #${{github.event.pull_request.number}} ${{github.event.pull_request.title}}'

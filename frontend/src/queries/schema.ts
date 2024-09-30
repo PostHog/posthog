@@ -265,10 +265,17 @@ export interface HogQLFilters {
     filterTestAccounts?: boolean
 }
 
+export interface HogQLVariable {
+    variableId: string
+    value?: any
+}
+
 export interface HogQLQuery extends DataNode<HogQLQueryResponse> {
     kind: NodeKind.HogQLQuery
     query: string
     filters?: HogQLFilters
+    /** Variables to be subsituted into the query */
+    variables?: Record<string, HogQLVariable>
     /** Constant values that can be referenced with the {placeholder} syntax in the query */
     values?: Record<string, any>
     /** @deprecated use modifiers.debug instead */
@@ -1162,15 +1169,21 @@ export type RefreshType =
 export interface QueryRequest {
     /** Client provided query ID. Can be used to retrieve the status or cancel the query. */
     client_query_id?: string
+    // Sync the `refresh` description here with the one in posthog/api/insight.py
     /**
-     * (Experimental)
-     * Whether to run the query asynchronously. Defaults to False.
-     * If True, the `id` of the query can be used to check the status and to cancel it.
-     * @example true
-     * @deprecated Use `refresh` instead.
+     * Whether to refresh the insight, how aggresively, and if sync or async:
+     * - `'blocking'` - calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in the cache
+     * - `'async'` - kick off background calculation (returning immediately with a query status), UNLESS there are very fresh results in the cache
+     * - `'lazy_async'` - kick off background calculation, UNLESS there are somewhat fresh results in the cache
+     * - `'force_blocking'` - calculate synchronously, even if fresh results are already cached
+     * - `'force_async'` - kick off background calculation, even if fresh results are already cached
+     * - `'force_cache'` - return cached data or a cache miss; always completes immediately as it never calculates
+     * Background calculation can be tracked using the `query_status` response field.
+     * @default 'blocking'
      */
-    async?: boolean
     refresh?: RefreshType
+    /** @deprecated Use `refresh` instead. */
+    async?: boolean
     /**
      * Submit a JSON string representing a query for PostHog data analysis,
      * for example a HogQL query.
@@ -1567,6 +1580,7 @@ export interface ExperimentVariantTrendResult {
 }
 
 export interface ExperimentVariantFunnelResult {
+    key: string
     success_count: number
     failure_count: number
 }

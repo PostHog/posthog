@@ -31,6 +31,8 @@ jobs:
                       dockerfile: ./rust/Dockerfile
                     - image: property-defs-rs
                       dockerfile: ./rust/Dockerfile
+                    - image: error-tracking-rs
+                      dockerfile: ./rust/Dockerfile
         runs-on: depot-ubuntu-22.04-4
         permissions:
             id-token: write # allow issuing OIDC tokens for this workflow run
@@ -46,6 +48,7 @@ jobs:
             hook-janitor_digest: ${{ steps.digest.outputs.hook-janitor_digest }}
             hook-worker_digest: ${{ steps.digest.outputs.hook-worker_digest }}
             hook-migrator_digest: ${{ steps.digest.outputs.hook-migrator_digest }}
+            error-tracking-rs_digest: ${{ steps.digest.outputs.error-tracking-rs_digest }}
 
         defaults:
             run:
@@ -141,6 +144,10 @@ jobs:
                       values:
                           image:
                               sha: '${{ needs.build.outputs.property-defs-rs_digest }}'
+                    # - release: error-tracking-rs - disabled until a charts in place, for now we just build
+                    #   values:
+                    #       image:
+                    #           sha: '${{ needs.build.outputs.error-tracking-rs_digest }}'
                     - release: hoghooks
                       values:
                           api_image:

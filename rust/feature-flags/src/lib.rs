@@ -1,6 +1,8 @@
 pub mod api;
 pub mod config;
 pub mod database;
+pub mod feature_flag_match_reason;
+pub mod flag_analytics;
 pub mod flag_definitions;
 pub mod flag_matching;
 pub mod flag_request;

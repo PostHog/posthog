@@ -50,6 +50,7 @@ from posthog.test.base import (
     ClickhouseTestMixin,
     _create_event,
     _create_person,
+    also_test_with_materialized_columns,
     flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
@@ -335,6 +336,31 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                 team=self.org_1_team_1,
             )
 
+            # Add events for each SDK
+            sdks = [
+                "web",
+                "posthog-node",
+                "posthog-android",
+                "posthog-flutter",
+                "posthog-ios",
+                "posthog-go",
+                "posthog-java",
+                "posthog-react-native",
+                "posthog-ruby",
+                "posthog-python",
+                "posthog-php",
+            ]
+
+            for sdk in sdks:
+                create_event(
+                    event_uuid=uuid4(),
+                    distinct_id=distinct_id,
+                    event="$pageview",
+                    properties={"$lib": sdk, "$is_identified": True},
+                    timestamp=now() - relativedelta(hours=12),
+                    team=self.org_1_team_1,
+                )
+
             # Events for org 1 team 2
             distinct_id = str(uuid4())
             _create_person(distinct_ids=[distinct_id], team=self.org_1_team_2)
@@ -459,14 +485,24 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     },
                     "plugins_enabled": {"Installed and enabled": 1},
                     "instance_tag": "none",
-                    "event_count_in_period": 29,
-                    "enhanced_persons_event_count_in_period": 28,
-                    "anonymous_personful_event_count_in_period": 1,
+                    "event_count_in_period": 40,
+                    "enhanced_persons_event_count_in_period": 39,
                     "event_count_with_groups_in_period": 2,
                     "event_count_from_keywords_ai_in_period": 1,
                     "event_count_from_traceloop_in_period": 1,
                     "event_count_from_langfuse_in_period": 1,
                     "event_count_from_helicone_in_period": 1,
+                    "web_events_count_in_period": 37,
+                    "node_events_count_in_period": 1,
+                    "android_events_count_in_period": 1,
+                    "flutter_events_count_in_period": 1,
+                    "ios_events_count_in_period": 1,
+                    "go_events_count_in_period": 1,
+                    "java_events_count_in_period": 1,
+                    "react_native_events_count_in_period": 1,
+                    "ruby_events_count_in_period": 1,
+                    "python_events_count_in_period": 1,
+                    "php_events_count_in_period": 1,
                     "recording_count_in_period": 5,
                     "mobile_recording_count_in_period": 0,
                     "group_types_total": 2,
@@ -501,14 +537,24 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "team_count": 2,
                     "teams": {
                         str(self.org_1_team_1.id): {
-                            "event_count_in_period": 18,
-                            "enhanced_persons_event_count_in_period": 17,
-                            "anonymous_personful_event_count_in_period": 0,
+                            "event_count_in_period": 29,
+                            "enhanced_persons_event_count_in_period": 28,
                             "event_count_with_groups_in_period": 2,
                             "event_count_from_keywords_ai_in_period": 1,
                             "event_count_from_traceloop_in_period": 1,
                             "event_count_from_langfuse_in_period": 1,
                             "event_count_from_helicone_in_period": 1,
+                            "web_events_count_in_period": 25,
+                            "node_events_count_in_period": 1,
+                            "android_events_count_in_period": 1,
+                            "flutter_events_count_in_period": 1,
+                            "ios_events_count_in_period": 1,
+                            "go_events_count_in_period": 1,
+                            "java_events_count_in_period": 1,
+                            "react_native_events_count_in_period": 1,
+                            "ruby_events_count_in_period": 1,
+                            "python_events_count_in_period": 1,
+                            "php_events_count_in_period": 1,
                             "recording_count_in_period": 0,
                             "mobile_recording_count_in_period": 0,
                             "group_types_total": 2,
@@ -539,12 +585,22 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                         str(self.org_1_team_2.id): {
                             "event_count_in_period": 11,
                             "enhanced_persons_event_count_in_period": 11,
-                            "anonymous_personful_event_count_in_period": 1,
                             "event_count_with_groups_in_period": 0,
                             "event_count_from_keywords_ai_in_period": 0,
                             "event_count_from_traceloop_in_period": 0,
                             "event_count_from_langfuse_in_period": 0,
                             "event_count_from_helicone_in_period": 0,
+                            "web_events_count_in_period": 12,
+                            "node_events_count_in_period": 0,
+                            "android_events_count_in_period": 0,
+                            "flutter_events_count_in_period": 0,
+                            "ios_events_count_in_period": 0,
+                            "go_events_count_in_period": 0,
+                            "java_events_count_in_period": 0,
+                            "react_native_events_count_in_period": 0,
+                            "ruby_events_count_in_period": 0,
+                            "python_events_count_in_period": 0,
+                            "php_events_count_in_period": 0,
                             "recording_count_in_period": 5,
                             "mobile_recording_count_in_period": 0,
                             "group_types_total": 0,
@@ -598,12 +654,22 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "instance_tag": "none",
                     "event_count_in_period": 10,
                     "enhanced_persons_event_count_in_period": 10,
-                    "anonymous_personful_event_count_in_period": 0,
                     "event_count_with_groups_in_period": 0,
                     "event_count_from_keywords_ai_in_period": 0,
                     "event_count_from_traceloop_in_period": 0,
                     "event_count_from_langfuse_in_period": 0,
                     "event_count_from_helicone_in_period": 0,
+                    "web_events_count_in_period": 11,
+                    "node_events_count_in_period": 0,
+                    "android_events_count_in_period": 0,
+                    "flutter_events_count_in_period": 0,
+                    "ios_events_count_in_period": 0,
+                    "go_events_count_in_period": 0,
+                    "java_events_count_in_period": 0,
+                    "react_native_events_count_in_period": 0,
+                    "ruby_events_count_in_period": 0,
+                    "python_events_count_in_period": 0,
+                    "php_events_count_in_period": 0,
                     "recording_count_in_period": 0,
                     "mobile_recording_count_in_period": 0,
                     "group_types_total": 0,
@@ -640,12 +706,22 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                         str(self.org_2_team_3.id): {
                             "event_count_in_period": 10,
                             "enhanced_persons_event_count_in_period": 10,
-                            "anonymous_personful_event_count_in_period": 0,
                             "event_count_with_groups_in_period": 0,
                             "event_count_from_keywords_ai_in_period": 0,
                             "event_count_from_traceloop_in_period": 0,
                             "event_count_from_langfuse_in_period": 0,
                             "event_count_from_helicone_in_period": 0,
+                            "web_events_count_in_period": 11,
+                            "node_events_count_in_period": 0,
+                            "android_events_count_in_period": 0,
+                            "flutter_events_count_in_period": 0,
+                            "ios_events_count_in_period": 0,
+                            "go_events_count_in_period": 0,
+                            "java_events_count_in_period": 0,
+                            "react_native_events_count_in_period": 0,
+                            "ruby_events_count_in_period": 0,
+                            "python_events_count_in_period": 0,
+                            "php_events_count_in_period": 0,
                             "recording_count_in_period": 0,
                             "mobile_recording_count_in_period": 0,
                             "group_types_total": 0,
@@ -738,6 +814,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
 
 @freeze_time("2022-01-09T00:01:00Z")
 class ReplayUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin):
+    @also_test_with_materialized_columns(event_properties=["$lib"], verify_no_jsonextract=False)
     def test_usage_report_replay(self) -> None:
         _setup_replay_data(self.team.pk, include_mobile_replay=False)
 
@@ -756,6 +833,7 @@ class ReplayUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTable
         assert org_reports[str(self.organization.id)].recording_count_in_period == 5
         assert org_reports[str(self.organization.id)].mobile_recording_count_in_period == 0
 
+    @also_test_with_materialized_columns(event_properties=["$lib"], verify_no_jsonextract=False)
     def test_usage_report_replay_with_mobile(self) -> None:
         _setup_replay_data(self.team.pk, include_mobile_replay=True)
 
@@ -777,6 +855,7 @@ class ReplayUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTable
 
 
 class HogQLUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin):
+    @also_test_with_materialized_columns(event_properties=["$lib"], verify_no_jsonextract=False)
     def test_usage_report_hogql_queries(self) -> None:
         for _ in range(0, 100):
             _create_event(
