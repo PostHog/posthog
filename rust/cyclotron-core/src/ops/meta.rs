@@ -1,4 +1,4 @@
-use sqlx::{postgres::PgQueryResult, PgPool};
+use sqlx::{postgres::PgQueryResult, Encode, PgPool, QueryBuilder, Type};
 use uuid::Uuid;
 
 use crate::{
@@ -87,4 +87,22 @@ where
     .await?;
 
     Ok(())
+}
+
+pub fn set_helper<'args, T, DB>(
+    query: &mut QueryBuilder<'args, DB>,
+    column_name: &str,
+    joiner: &str,
+    value: T,
+    needs_joiner: bool,
+) where
+    T: 'args + Encode<'args, DB> + Send + Type<DB>,
+    DB: sqlx::Database,
+{
+    if needs_joiner {
+        query.push(joiner);
+    }
+    query.push(column_name);
+    query.push(" = ");
+    query.push_bind(value);
 }

@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Janitor $SHARD_ID:$JANITOR_ID control</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+        }
+        h1 {
+            color: #333;
+        }
+        button {
+            margin: 10px 0;
+            padding: 10px 15px;
+        }
+        input, select {
+            padding: 5px;
+            margin: 5px 0;
+        }
+        .form-group {
+            margin-bottom: 10px;
+        }
+        #stateSection {
+            margin-top: 20px;
+        }
+        pre {
+            background-color: #f4f4f4;
+            padding: 10px;
+            border: 1px solid #ddd;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        .notice {
+            display: none;
+            font-size: 0.9em;
+            color: green;
+            margin-left: 10px;
+            animation: pulse 3s ease-in-out;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+    </style>
+</head>
+<body>
+
+    <h1>Janitor $SHARD_ID:$JANITOR_ID control</h1>
+
+    <h2>Control Commands</h2>
+
+    <div>
+        <button onclick="pauseSystem()">Pause System</button>
+        <input type="datetime-local" id="pauseUntil" placeholder="Pause until (UTC)">
+        <span id="pauseNotice" class="notice">System paused successfully</span>
+    </div>
+
+    <div>
+        <button onclick="resumeSystem()">Resume System</button>
+        <span id="resumeNotice" class="notice">System resumed successfully</span>
+    </div>
+
+    <div>
+        <button onclick="setCleanupInterval()">Set Cleanup Interval</button>
+        <input type="number" id="cleanupInterval" placeholder="Interval (seconds)">
+        <span id="cleanupNotice" class="notice">Cleanup interval set successfully</span>
+    </div>
+
+    <div>
+        <button onclick="setStallTimeout()">Set Stall Timeout</button>
+        <input type="number" id="stallTimeout" placeholder="Timeout (seconds)">
+        <span id="stallNotice" class="notice">Stall timeout set successfully</span>
+    </div>
+
+    <div>
+        <button onclick="setMaxTouches()">Set Max Touches</button>
+        <input type="number" id="maxTouches" placeholder="Max Touches">
+        <span id="touchesNotice" class="notice">Max touches set successfully</span>
+    </div>
+
+    <div>
+        <button onclick="forceCleanup()">Force Cleanup</button>
+        <span id="cleanupForceNotice" class="notice">Cleanup forced successfully</span>
+    </div>
+
+    <h2>Query Jobs</h2>
+    <form id="jobQueryForm">
+        <div class="form-group">
+            <label for="teamId">Team ID (Optional):</label>
+            <input type="number" id="teamId" name="team_id">
+        </div>
+        <div class="form-group">
+            <label for="functionId">Function ID (Optional, UUID):</label>
+            <input type="text" id="functionId" name="function_id" placeholder="Enter a valid UUID">
+        </div>
+        <div class="form-group">
+            <label for="jobState">Job State (Optional):</label>
+            <select id="jobState" name="state">
+                <option value="">Select Job State</option>
+                <option value="available">Available</option>
+                <option value="running">Running</option>
+                <option value="completed">Completed</option>
+                <option value="failed">Failed</option>
+                <option value="paused">Paused</option>
+            </select>
+        </div>
+        <div class="form-group">
+            <label for="queueName">Queue Name (Optional):</label>
+            <input type="text" id="queueName" name="queue_name" placeholder="Queue name">
+        </div>
+        <div class="form-group">
+            <label for="scheduledBy">Scheduled By (Optional, UTC DateTime):</label>
+            <input type="datetime-local" id="scheduledBy" name="scheduled_by">
+        </div>
+        <div class="form-group">
+            <label for="limit">Limit (Optional):</label>
+            <input type="number" id="limit" name="limit" placeholder="Max number of jobs to return">
+        </div>
+        <button type="button" onclick="queryJobs()">Query Jobs</button>
+    </form>
+
+    <h2>Job Results</h2>
+    <pre id="jobResults">No job query performed yet.</pre>
+
+    <h2>System State</h2>
+    <div id="stateSection">
+        <pre id="stateOutput">Loading system state...</pre>
+        <p id="refreshTime"></p>
+    </div>
+
+    <script>
+        const apiUrl = window.location.origin;
+
+        let lastRefreshTime = 0;
+
+        function showNotice(noticeId) {
+            const notice = document.getElementById(noticeId);
+            notice.style.display = "inline"; // Show the notice
+            setTimeout(() => {
+                notice.style.display = "none"; // Hide after 3 seconds
+            }, 3000);
+        }
+
+        async function pauseSystem() {
+            const until = document.getElementById("pauseUntil").value;
+            if (until) {
+                const timestamp = new Date(until).toISOString();
+                await fetch(`${apiUrl}/pause?until=${timestamp}`, { method: "POST" });
+                showNotice("pauseNotice");
+            }
+        }
+
+        async function resumeSystem() {
+            await fetch(`${apiUrl}/resume`, { method: "POST" });
+            showNotice("resumeNotice");
+        }
+
+        async function setCleanupInterval() {
+            const interval = document.getElementById("cleanupInterval").value;
+            if (interval) {
+                await fetch(`${apiUrl}/cleanup_interval?seconds=${interval}`, { method: "POST" });
+                showNotice("cleanupNotice");
+            }
+        }
+
+        async function setStallTimeout() {
+            const timeout = document.getElementById("stallTimeout").value;
+            if (timeout) {
+                await fetch(`${apiUrl}/stall_timeout?seconds=${timeout}`, { method: "POST" });
+                showNotice("stallNotice");
+            }
+        }
+
+        async function setMaxTouches() {
+            const touches = document.getElementById("maxTouches").value;
+            if (touches) {
+                await fetch(`${apiUrl}/max_touches?touches=${touches}`, { method: "POST" });
+                showNotice("touchesNotice");
+            }
+        }
+
+        async function forceCleanup() {
+            await fetch(`${apiUrl}/force_cleanup`, { method: "POST" });
+            showNotice("cleanupForceNotice");
+        }
+
+        async function getState() {
+            const response = await fetch(`${apiUrl}/state`);
+            const data = await response.json();
+            document.getElementById("stateOutput").textContent = JSON.stringify(data, null, 2);
+            lastRefreshTime = 0;
+        }
+
+        async function queryJobs() {
+            const teamId = document.getElementById("teamId").value;
+            const functionId = document.getElementById("functionId").value;
+            const jobState = document.getElementById("jobState").value;
+            const queueName = document.getElementById("queueName").value;
+            const scheduledBy = document.getElementById("scheduledBy").value;
+            const limit = document.getElementById("limit").value;
+
+            const queryParams = {
+                team_id: teamId ? Number(teamId) : null,
+                function_id: functionId || null,
+                state: jobState || null,
+                queue_name: queueName || null,
+                scheduled_by: scheduledBy ? new Date(scheduledBy).toISOString() : null,
+                limit: limit ? Number(limit) : null
+            };
+
+            const filteredParams = Object.fromEntries(Object.entries(queryParams).filter(([_, v]) => v != null));
+
+            const response = await fetch(`${apiUrl}/jobs`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify(filteredParams)
+            });
+
+            const jobs = await response.json();
+            updateJobResults(jobs);
+        }
+
+        function updateJobResults(jobs) {
+            const resultsElement = document.getElementById("jobResults");
+            if (jobs.length === 0) {
+                resultsElement.textContent = "No jobs found.";
+                return;
+            }
+
+            const formattedJobs = jobs.map(job => JSON.stringify(job)).join("\n");
+            resultsElement.textContent = formattedJobs;
+        }
+
+        function updateTimeSinceRefresh() {
+            lastRefreshTime += 1;
+            document.getElementById("refreshTime").textContent = `Time since last refresh: ${lastRefreshTime} seconds.`;
+        }
+
+        setInterval(() => {
+            getState();
+        }, 10000);
+
+        setInterval(() => {
+            updateTimeSinceRefresh();
+        }, 1000);
+
+        getState();
+    </script>
+
+</body>
+</html>

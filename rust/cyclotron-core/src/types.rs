@@ -1,8 +1,13 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sqlx::postgres::{PgHasArrayType, PgTypeInfo};
+use sqlx::{
+    postgres::{PgHasArrayType, PgTypeInfo},
+    Postgres, QueryBuilder,
+};
 use std::str::FromStr;
 use uuid::Uuid;
+
+use crate::ops::meta::set_helper;
 
 pub type Bytes = Vec<u8>;
 
@@ -52,7 +57,7 @@ pub struct JobInit {
     pub metadata: Option<Bytes>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, sqlx::FromRow)]
 pub struct Job {
     // Job metadata
     pub id: Uuid,
@@ -155,5 +160,55 @@ impl DeleteSet {
             .filter(|delete| delete.state == "failed")
             .map(|delete| delete.count)
             .sum()
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize, Default)]
+pub struct JobQuery {
+    pub team_id: Option<i32>,
+    pub function_id: Option<Uuid>,
+    pub state: Option<JobState>,
+    pub queue_name: Option<String>,
+    pub scheduled_by: Option<DateTime<Utc>>,
+    pub limit: Option<u16>,
+}
+
+impl JobQuery {
+    pub fn builder(&self) -> QueryBuilder<'_, Postgres> {
+        const AND: &str = " AND ";
+        let mut builder = QueryBuilder::new("SELECT * FROM cyclotron_jobs WHERE ");
+        let mut needs_and = false;
+
+        if let Some(team_id) = &self.team_id {
+            set_helper(&mut builder, "team_id", AND, team_id, needs_and);
+            needs_and = true;
+        }
+
+        if let Some(function_id) = &self.function_id {
+            set_helper(&mut builder, "function_id", AND, function_id, needs_and);
+            needs_and = true;
+        }
+
+        if let Some(queue_name) = &self.queue_name {
+            set_helper(&mut builder, "queue_name", AND, queue_name, needs_and);
+            needs_and = true;
+        }
+
+        if let Some(state) = &self.state {
+            set_helper(&mut builder, "state", AND, state, needs_and);
+            needs_and = true;
+        }
+
+        set_helper(
+            &mut builder,
+            "scheduled",
+            AND,
+            self.scheduled_by.unwrap_or(Utc::now()),
+            needs_and,
+        );
+
+        builder.push(format!(" LIMIT {}", self.limit.unwrap_or(100)));
+
+        builder
     }
 }

@@ -3,6 +3,7 @@ use uuid::Uuid;
 
 use crate::error::QueueError;
 use crate::types::{AggregatedDelete, DeleteSet};
+use crate::{Job, JobQuery};
 
 // As a general rule, janitor operations are not queue specific (as in, they don't account for the
 // queue name). We can revisit this later, if we decide we need the ability to do janitor operations
@@ -91,6 +92,20 @@ SELECT id FROM cyclotron_jobs WHERE state = 'running' AND COALESCE(last_heartbea
         oldest_valid_heartbeat,
         max_janitor_touched
     ).fetch_all(executor)
+        .await
+        .map_err(QueueError::from)?;
+
+    Ok(result)
+}
+
+pub async fn query_jobs<'c, E>(executor: E, query: JobQuery) -> Result<Vec<Job>, QueueError>
+where
+    E: sqlx::Executor<'c, Database = sqlx::Postgres>,
+{
+    let mut qb = query.builder();
+    let result = qb
+        .build_query_as::<Job>()
+        .fetch_all(executor)
         .await
         .map_err(QueueError::from)?;
 

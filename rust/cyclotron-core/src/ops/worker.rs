@@ -1,5 +1,5 @@
 use chrono::{DateTime, Utc};
-use sqlx::{postgres::PgArguments, query::Query, Encode, QueryBuilder, Type};
+use sqlx::{postgres::PgArguments, query::Query, QueryBuilder};
 use uuid::Uuid;
 
 use crate::{
@@ -7,7 +7,7 @@ use crate::{
     types::{Bytes, Job, JobState, JobUpdate},
 };
 
-use super::meta::throw_if_no_rows;
+use super::meta::{set_helper, throw_if_no_rows};
 
 // Dequeue the next job batch from the queue, skipping VM state since it can be large
 pub async fn dequeue_jobs<'c, E>(
@@ -181,57 +181,64 @@ where
     let mut needs_comma = false;
 
     if let Some(state) = &updates.state {
-        set_helper(&mut query, "state", state, needs_comma);
+        set_helper(&mut query, "state", ",", state, needs_comma);
         needs_comma = true;
     }
 
     if let Some(queue_name) = &updates.queue_name {
-        set_helper(&mut query, "queue_name", queue_name, needs_comma);
+        set_helper(&mut query, "queue_name", ",", queue_name, needs_comma);
         needs_comma = true;
     }
 
     if let Some(priority) = &updates.priority {
-        set_helper(&mut query, "priority", priority, needs_comma);
+        set_helper(&mut query, "priority", ",", priority, needs_comma);
         needs_comma = true;
     }
 
     if let Some(scheduled) = &updates.scheduled {
-        set_helper(&mut query, "scheduled", scheduled, needs_comma);
+        set_helper(&mut query, "scheduled", ",", scheduled, needs_comma);
         needs_comma = true;
     }
 
     if let Some(vm_state) = &updates.vm_state {
-        set_helper(&mut query, "vm_state", vm_state, needs_comma);
+        set_helper(&mut query, "vm_state", ",", vm_state, needs_comma);
         needs_comma = true;
     }
 
     if let Some(metadata) = &updates.metadata {
-        set_helper(&mut query, "metadata", metadata, needs_comma);
+        set_helper(&mut query, "metadata", ",", metadata, needs_comma);
         needs_comma = true;
     }
 
     if let Some(parameters) = &updates.parameters {
-        set_helper(&mut query, "parameters", parameters, needs_comma);
+        set_helper(&mut query, "parameters", ",", parameters, needs_comma);
         needs_comma = true;
     }
 
     if let Some(blob) = &updates.blob {
-        set_helper(&mut query, "blob", blob, needs_comma);
+        set_helper(&mut query, "blob", ",", blob, needs_comma);
         needs_comma = true;
     }
 
     if job_returned {
         // If we're returning this job, clear the lock id and the heartbeat
-        set_helper(&mut query, "lock_id", Option::<Uuid>::None, needs_comma);
+        set_helper(
+            &mut query,
+            "lock_id",
+            ",",
+            Option::<Uuid>::None,
+            needs_comma,
+        );
         set_helper(
             &mut query,
             "last_heartbeat",
+            ",",
             Option::<DateTime<Utc>>::None,
             true,
         );
     } else {
         // Otherwise, flushing a job update indicates forward progress, so we update the heartbeat
-        set_helper(&mut query, "last_heartbeat", Utc::now(), needs_comma);
+        set_helper(&mut query, "last_heartbeat", ",", Utc::now(), needs_comma);
     }
 
     query.push(" WHERE id = ");
@@ -241,23 +248,6 @@ where
 
     assert_does_update(executor, job_id, lock_id, query.build()).await?;
     Ok(())
-}
-
-fn set_helper<'args, T, DB>(
-    query: &mut QueryBuilder<'args, DB>,
-    column_name: &str,
-    value: T,
-    needs_comma: bool,
-) where
-    T: 'args + Encode<'args, DB> + Send + Type<DB>,
-    DB: sqlx::Database,
-{
-    if needs_comma {
-        query.push(",");
-    }
-    query.push(column_name);
-    query.push(" = ");
-    query.push_bind(value);
 }
 
 pub async fn set_heartbeat<'c, E>(

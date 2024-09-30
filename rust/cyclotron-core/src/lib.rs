@@ -9,6 +9,7 @@ pub use types::Bytes;
 pub use types::DeleteSet;
 pub use types::Job;
 pub use types::JobInit;
+pub use types::JobQuery;
 pub use types::JobState;
 pub use types::JobUpdate;
 

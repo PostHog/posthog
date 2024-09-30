@@ -1,4 +1,4 @@
-use crate::{types::DeleteSet, DEAD_LETTER_QUEUE};
+use crate::{ops::janitor::query_jobs, types::DeleteSet, Job, JobQuery, DEAD_LETTER_QUEUE};
 use chrono::Duration;
 use sqlx::PgPool;
 
@@ -58,6 +58,10 @@ impl Janitor {
 
     pub async fn waiting_jobs(&self) -> Result<Vec<(u64, String)>, QueueError> {
         count_total_waiting_jobs(&self.pool).await
+    }
+
+    pub async fn query_jobs(&self, query: JobQuery) -> Result<Vec<Job>, QueueError> {
+        query_jobs(&self.pool, query).await
     }
 
     pub async fn count_dlq_depth(&self) -> Result<u64, QueueError> {
