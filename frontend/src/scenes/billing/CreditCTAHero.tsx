@@ -116,7 +116,7 @@ export const CreditCTAHero = (): JSX.Element | null => {
                             onClick={() => showPurchaseCreditsModal(true)}
                             className="mt-4"
                         >
-                            Buy credits
+                            Learn more
                         </LemonButton>
                         {creditOverview.estimated_monthly_credit_amount_usd > 1 && (
                             <>
