@@ -6,6 +6,7 @@ from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.models.experiment import Experiment
 from posthog.queries.trends.util import ALL_SUPPORTED_MATH_FUNCTIONS
 from posthog.schema import (
+    BaseMathType,
     BreakdownFilter,
     ChartDisplayType,
     EventPropertyFilter,
@@ -14,6 +15,7 @@ from posthog.schema import (
     ExperimentTrendQueryResponse,
     ExperimentVariantTrendResult,
     InsightDateRange,
+    PropertyMathType,
     TrendsFilter,
     TrendsQuery,
 )
@@ -87,8 +89,8 @@ class ExperimentTrendQueryRunner(QueryRunner):
         uses_math_aggregation = self._uses_math_aggregation_by_user_or_property_value(prepared_count_query)
 
         # :TRICKY: for `avg` aggregation, use `sum` data as an approximation
-        if prepared_count_query.series[0].math == "avg":
-            prepared_count_query.series[0].math = "sum"
+        if prepared_count_query.series[0].math == PropertyMathType.AVG:
+            prepared_count_query.series[0].math = PropertyMathType.SUM
             prepared_count_query.trendsFilter = TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE)
         # TODO: revisit this; using the count data for the remaining aggregation types is likely wrong
         elif uses_math_aggregation:
@@ -125,26 +127,60 @@ class ExperimentTrendQueryRunner(QueryRunner):
         uses_math_aggregation = self._uses_math_aggregation_by_user_or_property_value(self.query.count_query)
 
         if uses_math_aggregation:
-            prepared_exposure_query = TrendsQuery(**self.query.exposure_query.model_dump())
-            prepared_exposure_query.series = [
-                EventsNode(
-                    event=self.query.count_query.series[0].event,
-                    math="dau",  # TODO use constant
-                )
-            ]
+            prepared_exposure_query = TrendsQuery(**self.query.count_query.model_dump())
+            first_series = self.query.count_query.series[0]
+
+            if hasattr(first_series, "event"):
+                prepared_exposure_query.dateRange = self._get_insight_date_range()
+                prepared_exposure_query.breakdownFilter = self._get_breakdown_filter()
+                prepared_exposure_query.series = [
+                    EventsNode(
+                        event=first_series.event,
+                        math=BaseMathType.DAU,
+                    )
+                ]
+                prepared_exposure_query.properties = [
+                    EventPropertyFilter(
+                        key=self.breakdown_key,
+                        value=[variant["key"] for variant in self.feature_flag.variants],
+                        operator="exact",
+                        type="event",
+                    )
+                ]
+            else:
+                raise ValueError("Expected first series item to have an 'event' attribute")
+
         # 2. Otherwise, if an exposure query is provided, we use it as is, adapting the date range and breakdown
         elif self.query.exposure_query:
             prepared_exposure_query = TrendsQuery(**self.query.exposure_query.model_dump())
+            prepared_exposure_query.dateRange = self._get_insight_date_range()
+            prepared_exposure_query.breakdownFilter = self._get_breakdown_filter()
+            prepared_exposure_query.properties = [
+                EventPropertyFilter(
+                    key=self.breakdown_key,
+                    value=[variant["key"] for variant in self.feature_flag.variants],
+                    operator="exact",
+                    type="event",
+                )
+            ]
         # 3. Otherwise, we construct a default exposure query: unique users for the $feature_flag_called event
         else:
             prepared_exposure_query = TrendsQuery(
+                dateRange=self._get_insight_date_range(),
+                breakdownFilter=self._get_breakdown_filter(),
                 series=[
                     EventsNode(
                         event="$feature_flag_called",
-                        math="dau",  # TODO sync with frontend!!!
+                        math=BaseMathType.DAU,  # TODO sync with frontend!!!
                     )
                 ],
                 properties=[
+                    EventPropertyFilter(
+                        key=self.breakdown_key,
+                        value=[variant["key"] for variant in self.feature_flag.variants],
+                        operator="exact",
+                        type="event",
+                    ),
                     EventPropertyFilter(
                         key="$feature_flag",
                         value=[self.feature_flag.key],
@@ -153,19 +189,6 @@ class ExperimentTrendQueryRunner(QueryRunner):
                     ),
                 ],
             )
-
-        # Common settings for all cases
-        prepared_exposure_query.dateRange = self._get_insight_date_range()
-        prepared_exposure_query.breakdownFilter = self._get_breakdown_filter()
-        prepared_exposure_query.properties = prepared_exposure_query.properties or []
-        prepared_exposure_query.properties.append(
-            EventPropertyFilter(
-                key=self.breakdown_key,
-                value=[variant["key"] for variant in self.feature_flag.variants],
-                operator="exact",
-                type="event",
-            )
-        )
 
         return prepared_exposure_query
 

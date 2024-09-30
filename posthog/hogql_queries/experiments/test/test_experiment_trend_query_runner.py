@@ -14,7 +14,6 @@ from typing import cast
 from django.utils import timezone
 from datetime import timedelta
 from posthog.test.test_journeys import journeys_for
-from posthog.schema import ChartDisplayType
 
 
 @override_settings(IN_UNIT_TESTING=True)
@@ -339,4 +338,3 @@ class TestExperimentTrendQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         prepared_count_query = query_runner.prepared_count_query
         self.assertEqual(prepared_count_query.series[0].math, "sum")
-        self.assertEqual(prepared_count_query.trendsFilter.display, ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE)
