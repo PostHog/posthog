@@ -42,6 +42,7 @@ module.exports = {
     },
     plugins: [
         'react',
+        "react-hooks",
         'cypress',
         '@typescript-eslint',
         'compat',
@@ -51,6 +52,8 @@ module.exports = {
         'unused-imports',
     ],
     rules: {
+        "react-hooks/rules-of-hooks": "error",
+        "react-hooks/exhaustive-deps": "warn",
         // PyCharm always adds curly braces, I guess vscode doesn't, PR reviewers often complain they are present on props that don't need them
         // let's save the humans time and let the machines do the work
         // "never" means if the prop does not need the curly braces, they will be removed/errored

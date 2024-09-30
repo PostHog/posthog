@@ -159,7 +159,7 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                 {hogFunction?.filters?.bytecode_error ? (
                     <div>
                         <LemonBanner type="error">
-                            <b>Error saving filters:</b> {hogFunction.filters.bytecode_error}. Please contact support.
+                            <b>Error saving filters:</b> {hogFunction.filters.bytecode_error}
                         </LemonBanner>
                     </div>
                 ) : null}
@@ -382,9 +382,7 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                                                         <span className="text-xs text-muted-alt">
                                                             This is the underlying Hog code that will run whenever the
                                                             filters match.{' '}
-                                                            <Link to="https://posthog.com/docs/cdp/destinations#advanced---custom-code">
-                                                                See the docs
-                                                            </Link>{' '}
+                                                            <Link to="https://posthog.com/docs/hog">See the docs</Link>{' '}
                                                             for more info
                                                         </span>
                                                         <CodeEditorResizeable

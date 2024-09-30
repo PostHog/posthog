@@ -364,7 +364,7 @@ def get_query_runner(
         )
 
     if kind == "ExperimentFunnelQuery":
-        from .experiment_funnel_query_runner import ExperimentFunnelQueryRunner
+        from .experiments.experiment_funnel_query_runner import ExperimentFunnelQueryRunner
 
         return ExperimentFunnelQueryRunner(
             query=query,
@@ -375,7 +375,7 @@ def get_query_runner(
         )
 
     if kind == "ExperimentTrendQuery":
-        from .experiment_trend_query_runner import ExperimentTrendQueryRunner
+        from .experiments.experiment_trend_query_runner import ExperimentTrendQueryRunner
 
         return ExperimentTrendQueryRunner(
             query=query,

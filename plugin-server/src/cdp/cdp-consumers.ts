@@ -26,7 +26,6 @@ import {
 } from '../types'
 import { createKafkaProducerWrapper } from '../utils/db/hub'
 import { KafkaProducerWrapper } from '../utils/db/kafka-producer-wrapper'
-import { captureTeamEvent } from '../utils/posthog'
 import { status } from '../utils/status'
 import { castTimestampOrNow } from '../utils/utils'
 import { RustyHook } from '../worker/rusty-hook'
@@ -44,7 +43,6 @@ import {
     HogFunctionInvocationSerialized,
     HogFunctionInvocationSerializedCompressed,
     HogFunctionMessageToProduce,
-    HogFunctionType,
     HogHooksFetchResponse,
 } from './types'
 import {
@@ -117,11 +115,9 @@ abstract class CdpConsumerBase {
     constructor(protected hub: Hub) {
         this.redis = createCdpRedisPool(hub)
         this.hogFunctionManager = new HogFunctionManager(hub)
-        this.hogWatcher = new HogWatcher(hub, this.redis, (id, state) => {
-            void this.captureInternalPostHogEvent(id, 'hog function state changed', { state })
-        })
+        this.hogWatcher = new HogWatcher(hub, this.redis)
         this.hogMasker = new HogMasker(this.redis)
-        this.hogExecutor = new HogExecutor(this.hogFunctionManager)
+        this.hogExecutor = new HogExecutor(this.hub, this.hogFunctionManager)
         const rustyHook = this.hub?.rustyHook ?? new RustyHook(this.hub)
         this.fetchExecutor = new FetchExecutor(this.hub, rustyHook)
         this.groupsManager = new GroupsManager(this.hub)
@@ -134,28 +130,6 @@ abstract class CdpConsumerBase {
             healthcheck: () => this.isHealthy() ?? false,
             batchConsumer: this.batchConsumer,
         }
-    }
-
-    private async captureInternalPostHogEvent(
-        hogFunctionId: HogFunctionType['id'],
-        event: string,
-        properties: any = {}
-    ) {
-        const hogFunction = this.hogFunctionManager.getHogFunction(hogFunctionId)
-        if (!hogFunction) {
-            return
-        }
-        const team = await this.hub.teamManager.fetchTeam(hogFunction.team_id)
-
-        if (!team) {
-            return
-        }
-
-        captureTeamEvent(team, event, {
-            ...properties,
-            hog_function_id: hogFunctionId,
-            hog_function_url: `${this.hub.SITE_URL}/project/${team.id}/pipeline/destinations/hog-${hogFunctionId}`,
-        })
     }
 
     protected async runWithHeartbeat<T>(func: () => Promise<T> | T): Promise<T> {
@@ -835,6 +809,7 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
             includeVmState: true,
             batchMaxSize: this.hub.CDP_CYCLOTRON_BATCH_SIZE,
             pollDelayMs: this.hub.CDP_CYCLOTRON_BATCH_DELAY_MS,
+            includeEmptyBatches: true,
         })
         await this.cyclotronWorker.connect((jobs) => this.handleJobBatch(jobs))
     }

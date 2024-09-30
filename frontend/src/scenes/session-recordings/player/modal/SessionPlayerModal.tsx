@@ -6,6 +6,14 @@ import { PlayerMeta } from '../PlayerMeta'
 import { sessionRecordingPlayerLogic, SessionRecordingPlayerLogicProps } from '../sessionRecordingPlayerLogic'
 import { sessionPlayerModalLogic } from './sessionPlayerModalLogic'
 
+/**
+ * When SessionPlayerModal is present in the page you can call `openSessionPlayer` action to open the modal
+ * and play a given session
+ *
+ * It assumes it is only placed in the page once and lives in the GlobalModals component as a result
+ * Adding it to the page more than once will cause weird playback behaviour
+ *
+ */
 export function SessionPlayerModal(): JSX.Element | null {
     const { activeSessionRecording } = useValues(sessionPlayerModalLogic())
     const { closeSessionPlayer } = useActions(sessionPlayerModalLogic())

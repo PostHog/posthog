@@ -1159,6 +1159,18 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             label: 'Visited page',
             description: 'URL a user visited during their session',
         },
+        click_count: {
+            label: 'Clicks',
+            description: 'Number of clicks during the session',
+        },
+        keypress_count: {
+            label: 'Key presses',
+            description: 'Number of key presses during the session',
+        },
+        console_error_count: {
+            label: 'Errors',
+            description: 'Number of console errors during the session',
+        },
     },
     log_entries: {
         level: {
