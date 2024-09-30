@@ -14,15 +14,15 @@ from typing import cast
 from django.utils import timezone
 from datetime import timedelta
 from posthog.test.test_journeys import journeys_for
+from posthog.schema import ChartDisplayType
 
 
 @override_settings(IN_UNIT_TESTING=True)
 class TestExperimentTrendQueryRunner(ClickhouseTestMixin, APIBaseTest):
-    @freeze_time("2020-01-01T12:00:00Z")
-    def test_query_runner(self):
-        feature_flag = FeatureFlag.objects.create(
-            name="Test experiment flag",
-            key="test-experiment",
+    def create_feature_flag(self, key="test-experiment"):
+        return FeatureFlag.objects.create(
+            name=f"Test experiment flag: {key}",
+            key=key,
             team=self.team,
             filters={
                 "groups": [{"properties": [], "rollout_percentage": None}],
@@ -43,13 +43,22 @@ class TestExperimentTrendQueryRunner(ClickhouseTestMixin, APIBaseTest):
             },
             created_by=self.user,
         )
-        experiment = Experiment.objects.create(
-            name="test-experiment",
+
+    def create_experiment(self, name="test-experiment", feature_flag=None):
+        if feature_flag is None:
+            feature_flag = self.create_feature_flag(name)
+        return Experiment.objects.create(
+            name=name,
             team=self.team,
             feature_flag=feature_flag,
             start_date=timezone.now(),
             end_date=timezone.now() + timedelta(days=14),
         )
+
+    @freeze_time("2020-01-01T12:00:00Z")
+    def test_query_runner(self):
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
 
         feature_flag_property = f"$feature/{feature_flag.key}"
         count_query = TrendsQuery(series=[EventsNode(event="$pageview")])
@@ -111,36 +120,8 @@ class TestExperimentTrendQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     @freeze_time("2020-01-01T12:00:00Z")
     def test_query_runner_with_custom_exposure(self):
-        feature_flag = FeatureFlag.objects.create(
-            name="Test experiment flag",
-            key="test-experiment",
-            team=self.team,
-            filters={
-                "groups": [{"properties": [], "rollout_percentage": None}],
-                "multivariate": {
-                    "variants": [
-                        {
-                            "key": "control",
-                            "name": "Control",
-                            "rollout_percentage": 50,
-                        },
-                        {
-                            "key": "test",
-                            "name": "Test",
-                            "rollout_percentage": 50,
-                        },
-                    ]
-                },
-            },
-            created_by=self.user,
-        )
-        experiment = Experiment.objects.create(
-            name="test-experiment",
-            team=self.team,
-            feature_flag=feature_flag,
-            start_date=timezone.now(),
-            end_date=timezone.now() + timedelta(days=14),
-        )
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
 
         ff_property = f"$feature/{feature_flag.key}"
         count_query = TrendsQuery(series=[EventsNode(event="$pageview")])
@@ -241,36 +222,8 @@ class TestExperimentTrendQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     @freeze_time("2020-01-01T12:00:00Z")
     def test_query_runner_with_default_exposure(self):
-        feature_flag = FeatureFlag.objects.create(
-            name="Test experiment flag",
-            key="test-experiment",
-            team=self.team,
-            filters={
-                "groups": [{"properties": [], "rollout_percentage": None}],
-                "multivariate": {
-                    "variants": [
-                        {
-                            "key": "control",
-                            "name": "Control",
-                            "rollout_percentage": 50,
-                        },
-                        {
-                            "key": "test",
-                            "name": "Test",
-                            "rollout_percentage": 50,
-                        },
-                    ]
-                },
-            },
-            created_by=self.user,
-        )
-        experiment = Experiment.objects.create(
-            name="test-experiment",
-            team=self.team,
-            feature_flag=feature_flag,
-            start_date=timezone.now(),
-            end_date=timezone.now() + timedelta(days=14),
-        )
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
 
         ff_property = f"$feature/{feature_flag.key}"
         count_query = TrendsQuery(series=[EventsNode(event="$pageview")])
@@ -361,3 +314,29 @@ class TestExperimentTrendQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(control_result.exposure, 2)
         self.assertEqual(test_result.exposure, 2)
+
+    @freeze_time("2020-01-01T12:00:00Z")
+    def test_query_runner_with_avg_math(self):
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+
+        count_query = TrendsQuery(series=[EventsNode(event="$pageview", math="avg")])
+        exposure_query = TrendsQuery(series=[EventsNode(event="$feature_flag_called")])
+
+        experiment_query = ExperimentTrendQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentTrendQuery",
+            count_query=count_query,
+            exposure_query=exposure_query,
+        )
+
+        experiment.metrics = [{"type": "primary", "query": experiment_query.model_dump()}]
+        experiment.save()
+
+        query_runner = ExperimentTrendQueryRunner(
+            query=ExperimentTrendQuery(**experiment.metrics[0]["query"]), team=self.team
+        )
+
+        prepared_count_query = query_runner.prepared_count_query
+        self.assertEqual(prepared_count_query.series[0].math, "sum")
+        self.assertEqual(prepared_count_query.trendsFilter.display, ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE)

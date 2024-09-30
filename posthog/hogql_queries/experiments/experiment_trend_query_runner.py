@@ -85,9 +85,14 @@ class ExperimentTrendQueryRunner(QueryRunner):
         prepared_count_query = TrendsQuery(**self.query.count_query.model_dump())
 
         uses_math_aggregation = self._uses_math_aggregation_by_user_or_property_value(prepared_count_query)
-        if uses_math_aggregation:
-            raise ValueError("Math aggregation is not supported yet")
-        else:
+
+        # :TRICKY: for `avg` aggregation, use `sum` data as an approximation
+        if prepared_count_query.series[0].math == "avg":
+            prepared_count_query.series[0].math = "sum"
+            prepared_count_query.trendsFilter = TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE)
+        # TODO: revisit this; using the count data for the remaining aggregation types is likely wrong
+        elif uses_math_aggregation:
+            prepared_count_query.series[0].math = None
             prepared_count_query.trendsFilter = TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE)
 
         prepared_count_query.dateRange = self._get_insight_date_range()
@@ -116,42 +121,30 @@ class ExperimentTrendQueryRunner(QueryRunner):
         3. Otherwise, we construct a default exposure query (the count of $feature_flag_called events)
         """
 
-        # 1. If math aggregation is used, we construct an implicit exposure query
+        # 1. If math aggregation is used, we construct an implicit exposure query: unique users for the count event
         uses_math_aggregation = self._uses_math_aggregation_by_user_or_property_value(self.query.count_query)
-        if uses_math_aggregation:
-            raise ValueError("Math aggregation is not supported yet")
 
-        # 2. Otherwise, if an exposure query is provided, we use it as is, just adapting the date range and breakdown
-        if self.query.exposure_query:
+        if uses_math_aggregation:
             prepared_exposure_query = TrendsQuery(**self.query.exposure_query.model_dump())
-            prepared_exposure_query.dateRange = self._get_insight_date_range()
-            prepared_exposure_query.breakdownFilter = self._get_breakdown_filter()
-            prepared_exposure_query.properties = [
-                EventPropertyFilter(
-                    key=self.breakdown_key,
-                    value=[variant["key"] for variant in self.feature_flag.variants],
-                    operator="exact",
-                    type="event",
+            prepared_exposure_query.series = [
+                EventsNode(
+                    event=self.query.count_query.series[0].event,
+                    math="dau",  # TODO use constant
                 )
             ]
+        # 2. Otherwise, if an exposure query is provided, we use it as is, adapting the date range and breakdown
+        elif self.query.exposure_query:
+            prepared_exposure_query = TrendsQuery(**self.query.exposure_query.model_dump())
+        # 3. Otherwise, we construct a default exposure query: unique users for the $feature_flag_called event
         else:
-            # 3. Otherwise, we construct a default exposure query
             prepared_exposure_query = TrendsQuery(
-                dateRange=self._get_insight_date_range(),
                 series=[
                     EventsNode(
                         event="$feature_flag_called",
                         math="dau",  # TODO sync with frontend!!!
                     )
                 ],
-                breakdownFilter=self._get_breakdown_filter(),
                 properties=[
-                    EventPropertyFilter(
-                        key=self.breakdown_key,
-                        value=[variant["key"] for variant in self.feature_flag.variants],
-                        operator="exact",
-                        type="event",
-                    ),
                     EventPropertyFilter(
                         key="$feature_flag",
                         value=[self.feature_flag.key],
@@ -160,6 +153,19 @@ class ExperimentTrendQueryRunner(QueryRunner):
                     ),
                 ],
             )
+
+        # Common settings for all cases
+        prepared_exposure_query.dateRange = self._get_insight_date_range()
+        prepared_exposure_query.breakdownFilter = self._get_breakdown_filter()
+        prepared_exposure_query.properties = prepared_exposure_query.properties or []
+        prepared_exposure_query.properties.append(
+            EventPropertyFilter(
+                key=self.breakdown_key,
+                value=[variant["key"] for variant in self.feature_flag.variants],
+                operator="exact",
+                type="event",
+            )
+        )
 
         return prepared_exposure_query
 
