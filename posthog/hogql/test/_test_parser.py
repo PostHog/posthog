@@ -735,7 +735,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
         def test_placeholders(self):
             self.assertEqual(
                 self._expr("{foo}"),
-                ast.Placeholder(chain=["foo"]),
+                ast.Placeholder(expr=ast.Field(chain=["foo"])),
             )
             self.assertEqual(
                 self._expr("{foo}", {"foo": ast.Constant(value="bar")}),
@@ -946,7 +946,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                 self._select("select 1 from {placeholder}"),
                 ast.SelectQuery(
                     select=[ast.Constant(value=1)],
-                    select_from=ast.JoinExpr(table=ast.Placeholder(chain=["placeholder"])),
+                    select_from=ast.JoinExpr(table=ast.Placeholder(expr=ast.Field(chain=["placeholder"]))),
                 ),
             )
             self.assertEqual(
@@ -1336,7 +1336,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                     where=ast.CompareOperation(
                         op=ast.CompareOperationOp.Eq,
                         left=ast.Constant(value=1),
-                        right=ast.Placeholder(chain=["hogql_val_1"]),
+                        right=ast.Placeholder(expr=ast.Field(chain=["hogql_val_1"])),
                     ),
                 ),
             )
@@ -1354,6 +1354,29 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                     ),
                 ),
             )
+
+        def test_placeholder_expressions(self):
+            actual = self._select("select 1 where 1 == {1 ? hogql_val_1 : hogql_val_2}")
+            expected = clear_locations(
+                ast.SelectQuery(
+                    select=[ast.Constant(value=1)],
+                    where=ast.CompareOperation(
+                        op=ast.CompareOperationOp.Eq,
+                        left=ast.Constant(value=1),
+                        right=ast.Placeholder(
+                            expr=ast.Call(
+                                name="if",
+                                args=[
+                                    ast.Constant(value=1),
+                                    ast.Field(chain=["hogql_val_1"]),
+                                    ast.Field(chain=["hogql_val_2"]),
+                                ],
+                            )
+                        ),
+                    ),
+                )
+            )
+            self.assertEqual(actual, expected)
 
         def test_select_union_all(self):
             self.assertEqual(

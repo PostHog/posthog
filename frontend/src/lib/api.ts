@@ -9,6 +9,7 @@ import { stringifiedFingerprint } from 'scenes/error-tracking/utils'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
 
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
+import { Variable } from '~/queries/nodes/DataVisualization/types'
 import {
     AlertType,
     AlertTypeWrite,
@@ -824,6 +825,11 @@ class ApiRequest {
         return this.externalDataSchemas(teamId).addPathComponent(schemaId)
     }
 
+    // Insight Variables
+    public insightVariables(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('insight_variables')
+    }
+
     // ActivityLog
     public activity_log(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('activity_log')
@@ -1002,6 +1008,9 @@ const api = {
                 .actionsDetail(actionId)
                 .withQueryString(temporaryToken ? `temporary_token=${temporaryToken}` : '')
                 .update({ data: actionData })
+        },
+        async migrate(id: ActionType['id']): Promise<HogFunctionType> {
+            return await new ApiRequest().actionsDetail(id).withAction('migrate').create()
         },
         async list(params?: string): Promise<PaginatedResponse<ActionType>> {
             return await new ApiRequest().actions().withQueryString(params).get()
@@ -2202,6 +2211,15 @@ const api = {
             >
         ): Promise<DataWarehouseViewLink> {
             return await new ApiRequest().dataWarehouseViewLink(viewId).update({ data })
+        },
+    },
+
+    insightVariables: {
+        async list(options?: ApiMethodOptions | undefined): Promise<PaginatedResponse<Variable>> {
+            return await new ApiRequest().insightVariables().get(options)
+        },
+        async create(data: Partial<any>): Promise<Variable> {
+            return await new ApiRequest().insightVariables().create({ data })
         },
     },
 

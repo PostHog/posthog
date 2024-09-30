@@ -1,16 +1,9 @@
-import time
-from typing import Optional
 from unittest.mock import MagicMock, patch
-
-import pytest
 
 
 from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.instance_setting import set_instance_setting
-from posthog.models.integration import Integration
 from posthog.tasks.hog_functions import hog_function_state_transition
-from posthog.tasks.integrations import refresh_integrations
-from posthog.tasks.test.test_email import create_org_team_and_user
 from posthog.tasks.test.utils_email_tests import mock_email_messages
 from posthog.test.base import APIBaseTest
 

@@ -820,6 +820,9 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 actions.loadSessionRecordings()
             }
         },
+        orderBy: () => {
+            actions.loadSessionRecordings()
+        },
     })),
 
     // NOTE: It is important this comes after urlToAction, as it will override the default behavior

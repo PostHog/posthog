@@ -227,6 +227,13 @@ class PrintableMaterializedPropertyGroupItem:
         return f"{self.__qualified_column}[{self.property_name}]"
 
 
+def resolve_field_type(expr: ast.Expr) -> ast.Type | None:
+    expr_type = expr.type
+    while isinstance(expr_type, ast.FieldAliasType):
+        expr_type = expr_type.type
+    return expr_type
+
+
 class _Printer(Visitor):
     # NOTE: Call "print_ast()", not this class directly.
 
@@ -609,12 +616,6 @@ class _Printer(Visitor):
         if self.context.modifiers.propertyGroupsMode != PropertyGroupsMode.OPTIMIZED:
             return None
 
-        def resolve_field_type(expr: ast.Expr) -> ast.Type | None:
-            expr_type = expr.type
-            while isinstance(expr_type, ast.FieldAliasType):
-                expr_type = expr_type.type
-            return expr_type
-
         if node.op in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.NotEq):
             # For commutative operations, we can rewrite the expression with parameters in either order without
             # affecting the result.
@@ -946,11 +947,6 @@ class _Printer(Visitor):
         # XXX: A lot of this is duplicated (sometimes just copy/pasted) from the null equality comparison logic -- it
         # might make sense to make it so that ``isNull``/``isNotNull`` is rewritten to comparison expressions before
         # this step, similar to how ``equals``/``notEquals`` are interpreted as their comparison operation counterparts.
-        def resolve_field_type(expr: ast.Expr) -> ast.Type | None:
-            expr_type = expr.type
-            while isinstance(expr_type, ast.FieldAliasType):
-                expr_type = expr_type.type
-            return expr_type
 
         match node:
             case ast.Call(name="isNull" | "isNotNull" as function_name, args=[field]):
@@ -1165,7 +1161,9 @@ class _Printer(Visitor):
             raise QueryError(f"Unsupported function call '{node.name}(...)'")
 
     def visit_placeholder(self, node: ast.Placeholder):
-        raise QueryError(f"Placeholders, such as {{{node.field}}}, are not supported in this context")
+        if node.field is None:
+            raise QueryError("You can not use expressions inside placeholders")
+        raise QueryError(f"Unresolved placeholder: {{{node.field}}}")
 
     def visit_alias(self, node: ast.Alias):
         # Skip hidden aliases completely.
@@ -1521,6 +1519,9 @@ class _Printer(Visitor):
             return node.type.is_nullable(self.context)
         elif isinstance(node, ast.Alias):
             return self._is_nullable(node.expr)
+        elif isinstance(node.type, ast.FieldAliasType):
+            if (field_type := resolve_field_type(node)) and isinstance(field_type, ast.FieldType):
+                return field_type.is_nullable(self.context)
 
         # we don't know if it's nullable, so we assume it can be
         return True

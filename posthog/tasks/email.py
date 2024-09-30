@@ -180,7 +180,7 @@ def send_hog_function_disabled(hog_function_id: str) -> None:
     if not memberships_to_email:
         return
 
-    campaign_key: str = f"hog_function_disabled_{hog_function_id}_updated_at_{hog_function.updated_at}"
+    campaign_key: str = f"hog_function_disabled_{hog_function_id}_updated_at_{hog_function.updated_at.timestamp()}"
     message = EmailMessage(
         campaign_key=campaign_key,
         subject=f"[Alert] Destination '{hog_function.name}' has been disabled in project '{team}' due to high error rate",

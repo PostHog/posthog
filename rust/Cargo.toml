@@ -8,6 +8,7 @@ members = [
   "common/metrics",
   "common/dns",
   "common/alloc",
+  "common/types",
   "feature-flags",
   "hook-api",
   "hook-common",
@@ -17,6 +18,7 @@ members = [
   "cyclotron-node",
   "cyclotron-janitor",
   "cyclotron-fetch",
+  "error-tracking",
 ]
 
 [workspace.lints.rust]
