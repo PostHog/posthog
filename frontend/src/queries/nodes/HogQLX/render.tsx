@@ -40,6 +40,7 @@ function ViewRecordingModalButton({ sessionId }: { sessionId: string }): JSX.Ele
                         openSessionPlayer({ id: sessionId })
                     }
                 }}
+                className="inline-block"
             >
                 View recording
             </LemonButton>

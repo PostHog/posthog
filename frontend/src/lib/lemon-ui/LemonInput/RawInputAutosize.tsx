@@ -54,7 +54,13 @@ export const RawInputAutosize = React.forwardRef<HTMLInputElement, RawInputAutos
             <input
                 ref={mergedRefs}
                 /* eslint-disable-next-line react/forbid-dom-props */
-                style={{ boxSizing: 'content-box', width: `${inputWidth}px`, maxWidth: '100%' }}
+                style={{
+                    boxSizing: 'content-box',
+                    // ResizeObserver is completely unreliable when taking UI snapshots,
+                    // so we won't be using its calculations here
+                    width: !global.process?.env.STORYBOOK ? `${inputWidth}px` : '100%',
+                    maxWidth: '100%',
+                }}
                 {...inputProps}
             />
             <div ref={sizerRef} className="absolute top-0 left-0 h-0 overflow-scroll whitespace-pre invisible">

@@ -5135,9 +5135,9 @@ class ExperimentTrendQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    count_source: TrendsQuery
+    count_query: TrendsQuery
     experiment_id: int
-    exposure_source: TrendsQuery
+    exposure_query: Optional[TrendsQuery] = None
     kind: Literal["ExperimentTrendQuery"] = "ExperimentTrendQuery"
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
@@ -5980,15 +5980,7 @@ class QueryRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    async_: Optional[bool] = Field(
-        default=None,
-        alias="async",
-        description=(
-            "(Experimental) Whether to run the query asynchronously. Defaults to False. If True, the `id` of the query"
-            " can be used to check the status and to cancel it."
-        ),
-        examples=[True],
-    )
+    async_: Optional[bool] = Field(default=None, alias="async")
     client_query_id: Optional[str] = Field(
         default=None, description="Client provided query ID. Can be used to retrieve the status or cancel the query."
     )
@@ -6038,7 +6030,20 @@ class QueryRequest(BaseModel):
         ),
         discriminator="kind",
     )
-    refresh: Optional[Union[bool, str]] = None
+    refresh: Optional[Union[bool, str]] = Field(
+        default="blocking",
+        description=(
+            "Whether results should be calculated sync or async, and how much to rely on the cache:\n- `'blocking'` -"
+            " calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in"
+            " the cache\n- `'async'` - kick off background calculation (returning immediately with a query status),"
+            " UNLESS there are very fresh results in the cache\n- `'lazy_async'` - kick off background calculation,"
+            " UNLESS there are somewhat fresh results in the cache\n- `'force_blocking'` - calculate synchronously,"
+            " even if fresh results are already cached\n- `'force_async'` - kick off background calculation, even if"
+            " fresh results are already cached\n- `'force_cache'` - return cached data or a cache miss; always"
+            " completes immediately as it never calculates Background calculation can be tracked using the"
+            " `query_status` response field."
+        ),
+    )
 
 
 class QuerySchemaRoot(

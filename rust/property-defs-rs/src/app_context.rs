@@ -1,7 +1,8 @@
 use health::{HealthHandle, HealthRegistry};
-use quick_cache::sync::Cache;
+use moka::sync::Cache;
 use sqlx::{postgres::PgPoolOptions, PgPool};
 use time::Duration;
+use tracing::warn;
 
 use crate::{
     config::Config,
@@ -33,7 +34,7 @@ impl AppContext {
             .register("worker".to_string(), Duration::seconds(60))
             .await;
 
-        let group_type_cache = Cache::new(config.group_type_cache_size);
+        let group_type_cache = Cache::new(config.group_type_cache_size as u64);
 
         Ok(Self {
             pool,
@@ -49,7 +50,7 @@ impl AppContext {
 
     pub async fn issue(
         &self,
-        mut updates: Vec<Update>,
+        updates: &mut [Update],
         cache_consumed: f64,
     ) -> Result<(), sqlx::Error> {
         if cache_consumed < self.cache_warming_cutoff {
@@ -63,7 +64,7 @@ impl AppContext {
         let update_count = updates.len();
 
         let group_type_resolve_time = common_metrics::timing_guard(GROUP_TYPE_RESOLVE_TIME, &[]);
-        self.resolve_group_types_indexes(&mut updates).await?;
+        self.resolve_group_types_indexes(updates).await?;
         group_type_resolve_time.fin();
 
         let transaction_time = common_metrics::timing_guard(UPDATE_TRANSACTION_TIME, &[]);
@@ -71,7 +72,19 @@ impl AppContext {
             let mut tx = self.pool.begin().await?;
 
             for update in updates {
-                update.issue(&mut *tx).await?;
+                match update.issue(&mut *tx).await {
+                    Ok(_) => {}
+                    Err(sqlx::Error::Database(e)) if e.constraint().is_some() => {
+                        // If we hit a constraint violation, we just skip the update. We see
+                        // this in production for group-type-indexes not being resolved, and it's
+                        // not worth aborting the whole batch for.
+                        warn!("Failed to issue update: {:?}", e);
+                    }
+                    Err(e) => {
+                        tx.rollback().await?;
+                        return Err(e);
+                    }
+                }
             }
             tx.commit().await?;
         }
@@ -120,6 +133,10 @@ impl AppContext {
                 update.group_type_index =
                     update.group_type_index.take().map(|gti| gti.resolve(index));
             } else {
+                warn!(
+                    "Failed to resolve group type index for group name: {} and team id: {}",
+                    group_name, update.team_id
+                );
                 // If we fail to resolve a group type, we just don't write it
                 update.group_type_index = None;
             }
