@@ -126,7 +126,9 @@ def summarize_recording(recording: SessionRecording, user: User, team: Team):
                     "role": "user",
                     "content": """
             generate a two or three sentence summary of the session.
-            use as concise and simple language as is possible. Dont' refer to the session length unless it is notable for some reason.
+            only summarize, don't offer advice.
+            use as concise and simple language as is possible.
+            Dont' refer to the session length unless it is notable for some reason.
             assume a reading age of around 12 years old.
             generate no text other than the summary.""",
                 },
