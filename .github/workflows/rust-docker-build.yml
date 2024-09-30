@@ -31,7 +31,7 @@ jobs:
                       dockerfile: ./rust/Dockerfile
                     - image: property-defs-rs
                       dockerfile: ./rust/Dockerfile
-                    - image: error-tracking-rs
+                    - image: error-tracking
                       dockerfile: ./rust/Dockerfile
         runs-on: depot-ubuntu-22.04-4
         permissions:
