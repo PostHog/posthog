@@ -475,16 +475,14 @@ export class SessionRecordingIngester {
         }
 
         if (this.config.SESSION_RECORDING_OVERFLOW_ENABLED && !this.consumeOverflow) {
-            // Dedicated redis used only used for this service - connects to the shared posthog redis
-            const captureRedis = await createRedisClient(this.config.POSTHOG_REDIS_HOST)
-
             this.overflowDetection = new OverflowManager(
                 this.config.SESSION_RECORDING_OVERFLOW_BUCKET_CAPACITY,
                 this.config.SESSION_RECORDING_OVERFLOW_BUCKET_REPLENISH_RATE,
                 this.config.SESSION_RECORDING_OVERFLOW_MIN_PER_BATCH,
                 24 * 3600, // One day,
                 CAPTURE_OVERFLOW_REDIS_KEY,
-                captureRedis
+                // Dedicated redis used only used for this service - connects to the shared posthog redis
+                await createRedisClient(this.config.POSTHOG_REDIS_HOST)
             )
         }
 
