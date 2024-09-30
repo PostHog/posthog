@@ -128,14 +128,14 @@ class ExperimentTrendQueryRunner(QueryRunner):
 
         if uses_math_aggregation:
             prepared_exposure_query = TrendsQuery(**self.query.count_query.model_dump())
-            first_series = self.query.count_query.series[0]
+            count_event = self.query.count_query.series[0]
 
-            if hasattr(first_series, "event"):
+            if hasattr(count_event, "event"):
                 prepared_exposure_query.dateRange = self._get_insight_date_range()
                 prepared_exposure_query.breakdownFilter = self._get_breakdown_filter()
                 prepared_exposure_query.series = [
                     EventsNode(
-                        event=first_series.event,
+                        event=count_event.event,
                         math=BaseMathType.DAU,
                     )
                 ]
