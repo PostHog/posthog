@@ -6,7 +6,6 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { base64Decode } from 'lib/utils'
 import { useEffect } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
-import { SessionPlayerModal } from 'scenes/session-recordings/player/modal/SessionPlayerModal'
 
 import { ErrorTrackingGroup } from '~/queries/schema'
 
@@ -79,7 +78,6 @@ export function ErrorTrackingGroupScene(): JSX.Element {
                     )
                 }
             />
-            <SessionPlayerModal />
             <ErrorTrackingFilters.FilterGroup />
             <LemonDivider className="mt-2" />
             <ErrorTrackingFilters.Options showOrder={false} />
