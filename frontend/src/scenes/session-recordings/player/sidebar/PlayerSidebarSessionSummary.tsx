@@ -78,7 +78,7 @@ export function PlayerSidebarSessionSummary(): JSX.Element | null {
                             Thinking... <Spinner />{' '}
                         </>
                     ) : sessionSummary ? (
-                        <SessionSummary summary={sessionSummary} />
+                        <SessionSummary />
                     ) : (
                         <LoadSessionSummaryButton />
                     )}
