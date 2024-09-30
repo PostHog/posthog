@@ -2,25 +2,22 @@ use std::{sync::Arc, time::Duration};
 
 use ahash::AHashSet;
 use axum::{routing::get, Router};
-use envconfig::Envconfig;
+use common_kafka::kafka_consumer::{RecvErr, SingleTopicConsumer};
+
 use futures::future::ready;
 use property_defs_rs::{
     app_context::AppContext,
     config::{Config, TeamFilterMode, TeamList},
-    message_to_event,
     metrics_consts::{
-        BATCH_ACQUIRE_TIME, CACHE_CONSUMED, COMPACTED_UPDATES, EVENTS_RECEIVED, FORCED_SMALL_BATCH,
-        ISSUE_FAILED, PERMIT_WAIT_TIME, RECV_DEQUEUED, SKIPPED_DUE_TO_TEAM_FILTER,
-        TRANSACTION_LIMIT_SATURATION, UPDATES_FILTERED_BY_CACHE, UPDATES_PER_EVENT, UPDATES_SEEN,
-        UPDATE_ISSUE_TIME, WORKER_BLOCKED,
+        BATCH_ACQUIRE_TIME, CACHE_CONSUMED, COMPACTED_UPDATES, EMPTY_EVENTS, EVENTS_RECEIVED,
+        EVENT_PARSE_ERROR, FORCED_SMALL_BATCH, ISSUE_FAILED, PERMIT_WAIT_TIME, RECV_DEQUEUED,
+        SKIPPED_DUE_TO_TEAM_FILTER, TRANSACTION_LIMIT_SATURATION, UPDATES_FILTERED_BY_CACHE,
+        UPDATES_PER_EVENT, UPDATES_SEEN, UPDATE_ISSUE_TIME, WORKER_BLOCKED,
     },
-    types::Update,
+    types::{Event, Update},
 };
 use quick_cache::sync::Cache;
-use rdkafka::{
-    consumer::{Consumer, StreamConsumer},
-    ClientConfig,
-};
+
 use serve_metrics::{serve, setup_metrics_routes};
 use tokio::{
     sync::{
@@ -67,7 +64,7 @@ fn start_health_liveness_server(config: &Config, context: Arc<AppContext>) -> Jo
 }
 
 async fn spawn_producer_loop(
-    consumer: Arc<StreamConsumer>,
+    consumer: SingleTopicConsumer,
     channel: mpsc::Sender<Update>,
     shared_cache: Arc<Cache<Update, ()>>,
     skip_threshold: usize,
@@ -78,14 +75,25 @@ async fn spawn_producer_loop(
     let mut batch = AHashSet::with_capacity(compaction_batch_size);
     let mut last_send = tokio::time::Instant::now();
     loop {
-        let message = consumer
-            .recv()
-            .await
-            .expect("TODO - workers panic on kafka recv fail");
-
-        let Some(event) = message_to_event(message) else {
-            continue;
+        let (event, offset): (Event, _) = match consumer.json_recv().await {
+            Ok(r) => r,
+            Err(RecvErr::Empty) => {
+                warn!("Received empty event");
+                metrics::counter!(EMPTY_EVENTS).increment(1);
+                continue;
+            }
+            Err(RecvErr::Serde(e)) => {
+                metrics::counter!(EVENT_PARSE_ERROR).increment(1);
+                warn!("Failed to parse event: {:?}", e);
+                continue;
+            }
+            Err(RecvErr::Kafka(e)) => {
+                panic!("Kafka error: {:?}", e); // We just panic if we fail to recv from kafka, if it's down, we're down
+            }
         };
+
+        // Panicking on offset store failure, same reasoning as the panic above - if kafka's down, we're down
+        offset.store().expect("Failed to store offset");
 
         if !team_filter_mode.should_process(&team_list.teams, event.team_id) {
             metrics::counter!(SKIPPED_DUE_TO_TEAM_FILTER).increment(1);
@@ -144,17 +152,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     setup_tracing();
     info!("Starting up...");
 
-    let config = Config::init_from_env()?;
+    let config = Config::init_with_defaults()?;
 
-    let kafka_config: ClientConfig = (&config.kafka).into();
-
-    let consumer: Arc<StreamConsumer> = Arc::new(kafka_config.create()?);
+    let consumer = SingleTopicConsumer::new(config.kafka.clone(), config.consumer.clone())?;
 
     let context = Arc::new(AppContext::new(&config).await?);
 
-    consumer.subscribe(&[config.kafka.event_topic.as_str()])?;
-
-    info!("Subscribed to topic: {}", config.kafka.event_topic);
+    info!(
+        "Subscribed to topic: {}",
+        config.consumer.kafka_consumer_topic
+    );
 
     start_health_liveness_server(&config, context.clone());
 
