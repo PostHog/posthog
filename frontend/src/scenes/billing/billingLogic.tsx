@@ -535,6 +535,11 @@ export const billingLogic = kea<billingLogicType>([
                 estimated_monthly_credit_amount_usd: creditOverview.estimated_monthly_credit_amount_usd,
             })
         },
+        toggleCreditCTAHeroDismissed: ({ isDismissed }) => {
+            if (isDismissed) {
+                posthog.capture('credits cta hero dismissed')
+            }
+        },
         loadBillingSuccess: () => {
             if (
                 router.values.location.pathname.includes('/organization/billing') &&
