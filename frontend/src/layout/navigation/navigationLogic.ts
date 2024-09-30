@@ -20,7 +20,6 @@ export type ProjectNoticeVariant =
     | 'unverified_email'
     | 'is_impersonated'
     | 'internet_connection_issue'
-    | 'region_blocked'
 
 export const navigationLogic = kea<navigationLogicType>([
     path(['layout', 'navigation', 'navigationLogic']),

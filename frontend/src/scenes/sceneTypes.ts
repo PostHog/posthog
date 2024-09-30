@@ -68,7 +68,6 @@ export enum Scene {
     PasswordResetComplete = 'PasswordResetComplete',
     PreflightCheck = 'PreflightCheck',
     OrganizationCreationConfirm = 'OrganizationCreationConfirm',
-    Blocked = 'Blocked',
     Unsubscribe = 'Unsubscribe',
     DebugQuery = 'DebugQuery',
     VerifyEmail = 'VerifyEmail',
