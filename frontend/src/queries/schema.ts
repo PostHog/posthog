@@ -1169,15 +1169,17 @@ export type RefreshType =
 export interface QueryRequest {
     /** Client provided query ID. Can be used to retrieve the status or cancel the query. */
     client_query_id?: string
+    // Sync the `refresh` description here with the one in posthog/api/insight.py
     /**
-     * Whether to refresh the insight, how aggresively, and if sync or async. The default `force_cache` value never refreshes.
-     * Other possible values are:
-     * - 'blocking' - calculate synchronously (returning only when the query is done), UNLESS there's very fresh data in the cache already
-     * - 'async' - kick off background calculation (returning immediately with a query status), UNLESS there's very fresh data in the cache already
-     * - 'force_blocking' - calculate synchronously (returning only when the query is done), even if there's very fresh data in the cache
-     * - 'force_async' - kick off background calculation (returning immediately with a query status), even if there's very fresh data in the cache
-     * - 'lazy_async' - only kick off background calculation if the data is visibly stale
+     * Whether to refresh the insight, how aggresively, and if sync or async:
+     * - `'blocking'` - calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in the cache
+     * - `'async'` - kick off background calculation (returning immediately with a query status), UNLESS there are very fresh results in the cache
+     * - `'lazy_async'` - kick off background calculation, UNLESS there are somewhat fresh results in the cache
+     * - `'force_blocking'` - calculate synchronously, even if fresh results are already cached
+     * - `'force_async'` - kick off background calculation, even if fresh results are already cached
+     * - `'force_cache'` - return cached data or a cache miss; always completes immediately as it never calculates
      * Background calculation can be tracked using the `query_status` response field.
+     * @default 'blocking'
      */
     refresh?: RefreshType
     /** @deprecated Use `refresh` instead. */
