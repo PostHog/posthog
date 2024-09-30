@@ -2,11 +2,12 @@ import { CacheOptions } from '@posthog/plugin-scaffold'
 import { createPool, Pool as GenericPool } from 'generic-pool'
 import Redis from 'ioredis'
 
-import { CELERY_DEFAULT_QUEUE } from '../../config/constants'
 import { PluginsServerConfig } from '../../types'
 import { instrumentQuery } from '../metrics'
 import { createRedisClient, UUIDT } from '../utils'
 import { timeoutGuard } from './utils'
+
+const CELERY_DEFAULT_QUEUE = 'celery'
 
 /**
  * NOTE: We sometimes need to trigger flows in the main posthog app from the plugin server.
