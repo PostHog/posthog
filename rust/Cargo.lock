@@ -621,6 +621,7 @@ dependencies = [
  "base64 0.22.0",
  "bytes",
  "common-alloc",
+ "common-types",
  "envconfig",
  "flate2",
  "futures",
@@ -744,6 +745,15 @@ dependencies = [
  "metrics",
  "metrics-exporter-prometheus",
  "tokio",
+]
+
+[[package]]
+name = "common-types"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "time",
+ "uuid",
 ]
 
 [[package]]
@@ -1080,6 +1090,25 @@ checksum = "a258e46cdc063eb8519c00b9fc845fc47bcfca4130e2f08e88665ceda8474245"
 dependencies = [
  "libc",
  "windows-sys 0.52.0",
+]
+
+[[package]]
+name = "error-tracking"
+version = "0.1.0"
+dependencies = [
+ "axum 0.7.5",
+ "common-alloc",
+ "common-kafka",
+ "common-metrics",
+ "common-types",
+ "envconfig",
+ "health",
+ "metrics",
+ "rdkafka",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
@@ -2875,13 +2904,13 @@ dependencies = [
  "axum 0.7.5",
  "chrono",
  "common-alloc",
+ "common-kafka",
  "common-metrics",
  "envconfig",
  "futures",
  "health",
  "metrics",
  "quick_cache",
- "rdkafka",
  "serde",
  "serde_json",
  "serve-metrics",
