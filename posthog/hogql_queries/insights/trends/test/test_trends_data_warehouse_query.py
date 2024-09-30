@@ -5,6 +5,7 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.insights.trends.trends_query_builder import TrendsQueryBuilder
+from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.schema import (
     BreakdownFilter,
@@ -271,36 +272,42 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
     def test_trends_breakdown_on_view(self):
         from posthog.warehouse.models import DataWarehouseSavedQuery
 
-        query = """\
+        table_name = self.create_parquet_file()
+
+        query = f"""\
           select
-            events.uuid as uuid,
-            events.event as event,
-            person.created_at as created_at
-          from events
-          left join persons on events.person_id = persons.id
+            id as id,
+            created as created,
+            prop_1 as prop_2,
+            true as boolfield
+          from {table_name}
         """
-        DataWarehouseSavedQuery.objects.create(
+        saved_query = DataWarehouseSavedQuery.objects.create(
             team=self.team,
-            name="my_model",
-            query={"query": query},
+            name="saved_view",
+            query={"query": query, "kind": "HogQLQuery"},
         )
+        saved_query.columns = saved_query.get_columns()
+        saved_query.save()
 
         trends_query = TrendsQuery(
             kind="TrendsQuery",
             dateRange=InsightDateRange(date_from="2023-01-01"),
             series=[
                 DataWarehouseNode(
-                    id="my_model",
-                    table_name="my_model",
-                    id_field="uuid",
-                    distinct_id_field="uuid",
-                    timestamp_field="created_at",
+                    id="saved_view",
+                    table_name="saved_view",
+                    id_field="id",
+                    distinct_id_field="customer_email",
+                    timestamp_field="created",
                 )
             ],
-            breakdownFilter=BreakdownFilter(breakdown_type=BreakdownType.DATA_WAREHOUSE, breakdown="created_at"),
+            breakdownFilter=BreakdownFilter(breakdown_type=BreakdownType.DATA_WAREHOUSE, breakdown="prop_2"),
         )
 
-        self.get_response(trends_query=trends_query)
+        with freeze_time("2023-01-07"):
+            response = TrendsQueryRunner(team=self.team, query=trends_query).calculate()
+        assert len(response.results) == 4
 
     @snapshot_clickhouse_queries
     def test_trends_breakdown_with_property(self):
