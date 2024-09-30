@@ -52,7 +52,7 @@ module.exports = {
         'unused-imports',
     ],
     rules: {
-        "react-hooks/rules-of-hooks": "warn",
+        "react-hooks/rules-of-hooks": "error",
         "react-hooks/exhaustive-deps": "warn",
         // PyCharm always adds curly braces, I guess vscode doesn't, PR reviewers often complain they are present on props that don't need them
         // let's save the humans time and let the machines do the work

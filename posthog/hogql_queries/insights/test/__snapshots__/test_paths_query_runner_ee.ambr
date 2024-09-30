@@ -970,7 +970,7 @@
                            groups.group_type_index AS index,
                            groups.group_key AS key
                     FROM groups
-                    WHERE and(equals(groups.team_id, 2), ifNull(equals(index, 0), 0))
+                    WHERE and(equals(groups.team_id, 2), equals(index, 0))
                     GROUP BY groups.group_type_index,
                              groups.group_key) AS events__group_0 ON equals(events.`$group_0`, events__group_0.key)
                  WHERE and(equals(events.team_id, 2), ifNull(equals(events__group_0.properties___industry, 'finance'), 0), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2012-02-01 23:59:59', 6, 'UTC')))), or(equals(events.event, '$pageview'), equals(events.event, '$screen'), not(startsWith(events.event, '$'))))
@@ -1053,7 +1053,7 @@
                            groups.group_type_index AS index,
                            groups.group_key AS key
                     FROM groups
-                    WHERE and(equals(groups.team_id, 2), ifNull(equals(index, 0), 0))
+                    WHERE and(equals(groups.team_id, 2), equals(index, 0))
                     GROUP BY groups.group_type_index,
                              groups.group_key) AS events__group_0 ON equals(events.`$group_0`, events__group_0.key)
                  WHERE and(equals(events.team_id, 2), ifNull(equals(events__group_0.properties___industry, 'technology'), 0), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2012-02-01 23:59:59', 6, 'UTC')))), or(equals(events.event, '$pageview'), equals(events.event, '$screen'), not(startsWith(events.event, '$'))))
@@ -1136,7 +1136,7 @@
                            groups.group_type_index AS index,
                            groups.group_key AS key
                     FROM groups
-                    WHERE and(equals(groups.team_id, 2), ifNull(equals(index, 1), 0))
+                    WHERE and(equals(groups.team_id, 2), equals(index, 1))
                     GROUP BY groups.group_type_index,
                              groups.group_key) AS events__group_1 ON equals(events.`$group_1`, events__group_1.key)
                  WHERE and(equals(events.team_id, 2), ifNull(equals(events__group_1.properties___industry, 'technology'), 0), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2012-02-01 23:59:59', 6, 'UTC')))), or(equals(events.event, '$pageview'), equals(events.event, '$screen'), not(startsWith(events.event, '$'))))

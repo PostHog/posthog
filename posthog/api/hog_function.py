@@ -242,8 +242,21 @@ class HogFunctionViewSet(
         if self.request.GET.get("filters"):
             try:
                 filters = json.loads(self.request.GET["filters"])
-                queryset = queryset.filter(filters__contains=filters)
-            except Exception:
+                if "actions" in filters:
+                    action_ids = [str(action.get("id")) for action in filters.get("actions", []) if action.get("id")]
+                    del filters["actions"]
+                    query = """
+                        EXISTS (
+                            SELECT 1
+                            FROM jsonb_array_elements(filters->'actions') AS elem
+                            WHERE elem->>'id' = ANY(%s)
+                        )
+                    """
+                    queryset = queryset.extra(where=[query], params=[action_ids])
+
+                if filters:
+                    queryset = queryset.filter(filters__contains=filters)
+            except (ValueError, KeyError, TypeError):
                 raise exceptions.ValidationError({"filter": f"Invalid filter"})
 
         return queryset
