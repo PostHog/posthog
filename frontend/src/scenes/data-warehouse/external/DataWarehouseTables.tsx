@@ -157,6 +157,17 @@ export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): 
                     Materialize
                 </LemonButton>
             )}
+            {featureFlags[FEATURE_FLAGS.DATA_MODELING] && table.type === 'materialized_view' && (
+                <LemonButton
+                    onClick={() => {
+                        runDataWarehouseSavedQuery(table.id)
+                    }}
+                    data-attr="schema-list-item-run"
+                    fullWidth
+                >
+                    Run
+                </LemonButton>
+            )}
             {deleteButton(table)}
         </>
     )

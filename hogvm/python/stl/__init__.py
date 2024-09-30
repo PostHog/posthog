@@ -218,6 +218,21 @@ def JSONLength(args: list[Any], team: Optional["Team"], stdout: Optional[list[st
     return 0
 
 
+def JSONExtractBool(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> bool:
+    obj = args[0]
+    path = args[1:]
+    try:
+        if isinstance(obj, str):
+            obj = json.loads(obj)
+    except json.JSONDecodeError:
+        return False
+    if len(path) > 0:
+        obj = get_nested_value(obj, path, nullish=True)
+    if isinstance(obj, bool):
+        return obj
+    return False
+
+
 def base64Encode(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> str:
     import base64
 
@@ -445,6 +460,7 @@ STL: dict[str, STLFunction] = {
     "JSONHas": STLFunction(fn=JSONHas, minArgs=2, maxArgs=None),
     "isValidJSON": STLFunction(fn=isValidJSON, minArgs=1, maxArgs=1),
     "JSONLength": STLFunction(fn=JSONLength, minArgs=2, maxArgs=None),
+    "JSONExtractBool": STLFunction(fn=JSONExtractBool, minArgs=1, maxArgs=None),
     "base64Encode": STLFunction(fn=base64Encode, minArgs=1, maxArgs=1),
     "base64Decode": STLFunction(fn=base64Decode, minArgs=1, maxArgs=1),
     "encodeURLComponent": STLFunction(fn=encodeURLComponent, minArgs=1, maxArgs=1),

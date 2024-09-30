@@ -620,6 +620,7 @@ function UsageTab({ featureFlag }: { id: string; featureFlag: FeatureFlagType })
     let dashboard: DashboardType<QueryBasedInsightModel> | null = null
     if (dashboardId) {
         // FIXME: Refactor out into <ConnectedDashboard />, as React hooks under conditional branches are no good
+        // eslint-disable-next-line react-hooks/rules-of-hooks
         const dashboardLogicValues = useValues(
             dashboardLogic({ id: dashboardId, placement: DashboardPlacement.FeatureFlag })
         )
@@ -910,7 +911,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                     ) : (
                         <div className="w-1/2">
                             <div className="text-muted mb-4">
-                                Specify a payload to be returned when the served value is{' '}
+                                Specify a valid JSON payload to be returned when the served value is{' '}
                                 <strong>
                                     <code>true</code>
                                 </strong>
