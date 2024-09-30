@@ -6014,17 +6014,17 @@ class QueryRequest(BaseModel):
         discriminator="kind",
     )
     refresh: Optional[Union[bool, str]] = Field(
-        default=None,
+        default="blocking",
         description=(
-            "Whether to refresh the insight, how aggresively, and if sync or async. The default `force_cache` value"
-            " never refreshes. Other possible values are:\n- 'blocking' - calculate synchronously (returning only when"
-            " the query is done), UNLESS there's very fresh data in the cache already\n- 'async' - kick off background"
-            " calculation (returning immediately with a query status), UNLESS there's very fresh data in the cache"
-            " already\n- 'force_blocking' - calculate synchronously (returning only when the query is done), even if"
-            " there's very fresh data in the cache\n- 'force_async' - kick off background calculation (returning"
-            " immediately with a query status), even if there's very fresh data in the cache\n- 'lazy_async' - only"
-            " kick off background calculation if the data is visibly stale Background calculation can be tracked using"
-            " the `query_status` response field."
+            "Whether to refresh the insight, how aggresively, and if sync or async:\n- `'blocking'` - calculate"
+            " synchronously (returning only when the query is done), UNLESS there are very fresh results in the"
+            " cache\n- `'async'` - kick off background calculation (returning immediately with a query status), UNLESS"
+            " there are very fresh results in the cache\n- `'lazy_async'` - kick off background calculation, UNLESS"
+            " there are somewhat fresh results in the cache\n- `'force_blocking'` - calculate synchronously, even if"
+            " fresh results are already cached\n- `'force_async'` - kick off background calculation, even if fresh"
+            " results are already cached\n- `'force_cache'` - return cached data or a cache miss; always completes"
+            " immediately as it never calculates Background calculation can be tracked using the `query_status`"
+            " response field."
         ),
     )
 
