@@ -5,6 +5,7 @@ use axum::{routing::get, Router};
 use common_kafka::kafka_consumer::{RecvErr, SingleTopicConsumer};
 
 use futures::future::ready;
+use moka::sync::{Cache, CacheBuilder};
 use property_defs_rs::{
     app_context::AppContext,
     config::{Config, TeamFilterMode, TeamList},
@@ -16,7 +17,6 @@ use property_defs_rs::{
     },
     types::{Event, Update},
 };
-use quick_cache::sync::Cache;
 
 use serve_metrics::{serve, setup_metrics_routes};
 use tokio::{
@@ -65,7 +65,7 @@ fn start_health_liveness_server(config: &Config, context: Arc<AppContext>) -> Jo
 async fn spawn_producer_loop(
     consumer: SingleTopicConsumer,
     channel: mpsc::Sender<Update>,
-    shared_cache: Arc<Cache<Update, ()>>,
+    shared_cache: Arc<Cache<Update, (), ahash::RandomState>>,
     skip_threshold: usize,
     compaction_batch_size: usize,
     team_filter_mode: TeamFilterMode,
@@ -166,7 +166,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let (tx, mut rx) = mpsc::channel(config.update_batch_size * config.channel_slots_per_worker);
     let transaction_limit = Arc::new(Semaphore::new(config.max_concurrent_transactions));
-    let cache = Arc::new(Cache::new(config.cache_capacity));
+
+    let cache = CacheBuilder::new(config.cache_capacity as u64)
+        .time_to_live(Duration::from_secs(config.cache_ttl_seconds))
+        .build_with_hasher(ahash::RandomState::default());
+
+    let cache = Arc::new(cache);
 
     for _ in 0..config.worker_loop_count {
         tokio::spawn(spawn_producer_loop(
@@ -217,7 +222,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             (config.max_concurrent_transactions - transaction_limit.available_permits()) as f64,
         );
 
-        let cache_utilization = cache.len() as f64 / config.cache_capacity as f64;
+        let cache_utilization = cache.entry_count() as f64 / config.cache_capacity as f64;
         metrics::gauge!(CACHE_CONSUMED).set(cache_utilization);
 
         // We unconditionally wait to wait for a transaction permit - this is our backpressure mechanism. If we
@@ -228,15 +233,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let permit = transaction_limit.clone().acquire_owned().await.unwrap();
         permit_acquire_time.fin();
 
-        let context = context.clone();
+        let m_context = context.clone();
+        let m_cache = cache.clone();
         tokio::spawn(async move {
             let _permit = permit;
+            let mut tries = 0;
             let issue_time = common_metrics::timing_guard(UPDATE_ISSUE_TIME, &[]);
-            if let Err(e) = context.issue(batch, cache_utilization).await {
-                metrics::counter!(ISSUE_FAILED).increment(1);
+            // We occasionally enocounter deadlocks while issuing updates, so we retry a few times, and
+            // if we still fail, we drop the batch and clear it's content from the cached update set, because
+            // we assume everything in it will be seen again.
+            while let Err(e) = m_context.issue(&mut batch, cache_utilization).await {
                 error!("Issue failed: {:?}", e);
+                tries += 1;
+                if tries > 3 {
+                    metrics::counter!(ISSUE_FAILED).increment(1);
+                    error!("Too many tries, dropping batch");
+                    // We clear any updates that were in this batch from the cache, so that
+                    // if we see them again we'll try again to issue them.
+                    batch.iter().for_each(|u| {
+                        m_cache.remove(u);
+                    });
+                    issue_time.label("outcome", "failed").fin();
+                    return;
+                }
             }
-            issue_time.fin();
+
+            issue_time.label("outcome", "success").fin();
         });
     }
 }
