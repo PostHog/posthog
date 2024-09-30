@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 def get_view_or_table_by_name(team, name) -> Union["DataWarehouseSavedQuery", "DataWarehouseTable", None]:
     from posthog.warehouse.models import DataWarehouseSavedQuery, DataWarehouseTable
 
-    table = (
+    table: DataWarehouseSavedQuery | DataWarehouseTable | None = (
         DataWarehouseTable.objects.filter(Q(deleted__isnull=True) | Q(deleted=False))
         .filter(team=team, name=name)
         .first()
