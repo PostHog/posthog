@@ -297,6 +297,7 @@ def changes_between(
         excluded_fields = field_exclusions.get(model_type, []) + common_field_exclusions
         masked_fields = field_with_masked_contents.get(model_type, [])
         filtered_fields = [f for f in fields if f.name not in excluded_fields]
+        filtered_field_names = [f.name for f in filtered_fields]
 
         for field in filtered_fields:
             field_name = field.name
@@ -306,7 +307,7 @@ def changes_between(
             if field_name == "tagged_items":
                 field_name = "tags"  # Or the UI needs to be coupled to this internal backend naming.
 
-            if field_name == "dashboards" and "dashboard_tiles" in filtered_fields:
+            if field_name == "dashboards" and "dashboard_tiles" in filtered_field_names:
                 # Only process dashboard_tiles when it is present. It supersedes dashboards.
                 continue
 
