@@ -14,7 +14,7 @@ const CELERY_DEFAULT_QUEUE = 'celery'
  * This has been done by celery and continues to do so. At some point we should consider an alternative
  * such as a shared message bus or an internal HTTP API.
  */
-export class CeleryHelper {
+export class Celery {
     private redisPool: GenericPool<Redis.Redis>
 
     constructor(config: PluginsServerConfig) {

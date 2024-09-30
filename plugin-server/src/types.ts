@@ -20,7 +20,7 @@ import { VM } from 'vm2'
 
 import { EncryptedFields } from './cdp/encryption-utils'
 import { ObjectStorage } from './main/services/object_storage'
-import { CeleryHelper } from './utils/db/celery'
+import { Celery } from './utils/db/celery'
 import { DB } from './utils/db/db'
 import { KafkaProducerWrapper } from './utils/db/kafka-producer-wrapper'
 import { PostgresRouter } from './utils/db/postgres'
@@ -332,7 +332,7 @@ export interface Hub extends PluginsServerConfig {
     appMetrics: AppMetrics
     rustyHook: RustyHook
     groupTypeManager: GroupTypeManager
-    celeryHelper: CeleryHelper
+    celery: Celery
     // geoip database, setup in workers
     mmdb?: ReaderModel
     // functions
