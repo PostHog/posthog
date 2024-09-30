@@ -35,6 +35,7 @@ import { status } from '../status'
 import { createRedisPool, UUIDT } from '../utils'
 import { PluginsApiKeyManager } from './../../worker/vm/extensions/helpers/api-key-manager'
 import { RootAccessManager } from './../../worker/vm/extensions/helpers/root-acess-manager'
+import { CeleryHelper } from './celery'
 import { DB } from './db'
 import { KafkaProducerWrapper } from './kafka-producer-wrapper'
 import { PostgresRouter } from './postgres'
@@ -206,6 +207,7 @@ export async function createHub(
             serverConfig.APP_METRICS_FLUSH_MAX_QUEUE_SIZE
         ),
         encryptedFields: new EncryptedFields(serverConfig),
+        celeryHelper: new CeleryHelper(serverConfig),
     }
 
     return hub as Hub
