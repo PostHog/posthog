@@ -3,7 +3,7 @@ from unittest.mock import ANY, patch
 from freezegun import freeze_time
 from rest_framework import status
 
-from posthog.models import Action, Tag, User
+from posthog.models import Action, Tag, User, HogFunction
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -106,6 +106,41 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         action = Action.objects.get(pk=response.json()["id"])
         assert action.bytecode == ["_H", 1, 32, "%/signup%", 32, "$current_url", 32, "properties", 1, 2, 17]
+
+    def test_action_migration(self):
+        self.team.slack_incoming_webhook = "https://slack.com"
+        self.team.save()
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/actions/",
+            data={
+                "name": "user signed up",
+                "steps": [
+                    {
+                        "text": "sign up",
+                        "selector": "div > button",
+                        "url": "/signup",
+                    }
+                ],
+                "description": "Test description",
+                "post_to_slack": True,
+            },
+            HTTP_ORIGIN="http://testserver",
+        )
+        action = Action.objects.get(pk=response.json()["id"])
+        assert action.post_to_slack is True
+
+        migrate_response = self.client.post(f"/api/projects/{self.team.id}/actions/{action.id}/migrate/")
+        self.assertEqual(migrate_response.status_code, status.HTTP_200_OK)
+
+        action.refresh_from_db()
+        assert action.post_to_slack is False
+
+        function: HogFunction | None = None  # type: ignore
+        for hog_function in HogFunction.objects.all():
+            if action.id in hog_function.filter_action_ids:
+                function = hog_function
+        assert function is not None
+        assert function.enabled
 
     def test_cant_create_action_with_the_same_name(self, *args):
         original_action = Action.objects.create(name="user signed up", team=self.team)

@@ -366,16 +366,16 @@ export function exec(code: any[] | VMState, options?: ExecOptions): ExecResult {
                     pushStack(temp <= temp2)
                     break
                 case Operation.LIKE:
-                    pushStack(like(popStack(), popStack()))
+                    pushStack(like(popStack(), popStack(), false, options?.external?.regex?.match))
                     break
                 case Operation.ILIKE:
-                    pushStack(like(popStack(), popStack(), true))
+                    pushStack(like(popStack(), popStack(), true, options?.external?.regex?.match))
                     break
                 case Operation.NOT_LIKE:
-                    pushStack(!like(popStack(), popStack()))
+                    pushStack(!like(popStack(), popStack(), false, options?.external?.regex?.match))
                     break
                 case Operation.NOT_ILIKE:
-                    pushStack(!like(popStack(), popStack(), true))
+                    pushStack(!like(popStack(), popStack(), true, options?.external?.regex?.match))
                     break
                 case Operation.IN:
                     temp = popStack()

@@ -479,13 +479,6 @@ export function ControlledDefinitionPopover({
     group,
     highlightedItemElement,
 }: ControlledDefinitionPopoverContentsProps): JSX.Element | null {
-    // Supports all types specified in selectedItemHasPopover
-    const value = group.getValue?.(item)
-
-    if (!value || !item) {
-        return null
-    }
-
     const { state, singularType, definition } = useValues(definitionPopoverLogic)
     const { setDefinition } = useActions(definitionPopoverLogic)
 
@@ -496,6 +489,13 @@ export function ControlledDefinitionPopover({
     useEffect(() => {
         setDefinition(item)
     }, [item])
+
+    // Supports all types specified in selectedItemHasPopover
+    const value = group.getValue?.(item)
+
+    if (!value || !item) {
+        return null
+    }
 
     return (
         <Popover

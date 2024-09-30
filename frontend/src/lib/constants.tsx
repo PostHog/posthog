@@ -185,10 +185,8 @@ export const FEATURE_FLAGS = {
     REPLAY_ERROR_CLUSTERING: 'session-replay-error-clustering', // owner: #team-replay
     AUDIT_LOGS_ACCESS: 'audit-logs-access', // owner: #team-growth
     SUBSCRIBE_FROM_PAYGATE: 'subscribe-from-paygate', // owner: #team-growth
-    SESSION_REPLAY_MOBILE_ONBOARDING: 'session-replay-mobile-onboarding', // owner: #team-replay
     HEATMAPS_UI: 'heatmaps-ui', // owner: @benjackwhite
     THEME: 'theme', // owner: @aprilfools
-    INSIGHT_LOADING_BAR: 'insight-loading-bar', // owner: @aspicer
     PROXY_AS_A_SERVICE: 'proxy-as-a-service', // owner: #team-infrastructure
     LIVE_EVENTS: 'live-events', // owner: @zach or @jams
     SETTINGS_PERSONS_JOIN_MODE: 'settings-persons-join-mode', // owner: @robbie-c
@@ -197,7 +195,7 @@ export const FEATURE_FLAGS = {
     HOG_FUNCTIONS: 'hog-functions', // owner: #team-cdp
     HOG_FUNCTIONS_LINKED: 'hog-functions-linked', // owner: #team-cdp
     PERSONLESS_EVENTS_NOT_SUPPORTED: 'personless-events-not-supported', // owner: @raquelmsmith
-    ALERTS: 'alerts', // owner: github.com/nikitaevg
+    ALERTS: 'alerts', // owner: @anirudhpillai #team-product-analytics
     ERROR_TRACKING: 'error-tracking', // owner: #team-replay
     SETTINGS_BOUNCE_RATE_PAGE_VIEW_MODE: 'settings-bounce-rate-page-view-mode', // owner: @robbie-c
     ONBOARDING_DASHBOARD_TEMPLATES: 'onboarding-dashboard-templates', // owner: @raquelmsmith
@@ -216,7 +214,11 @@ export const FEATURE_FLAGS = {
     WEB_ANALYTICS_CONVERSION_GOALS: 'web-analytics-conversion-goals', // owner: @robbie-c
     WEB_ANALYTICS_LAST_CLICK: 'web-analytics-last-click', // owner: @robbie-c
     HEDGEHOG_SKIN_SPIDERHOG: 'hedgehog-skin-spiderhog', // owner: @benjackwhite
+    INSIGHT_VARIABLES: 'insight_variables', // owner: @Gilbert09 #team-data-warehouse
+    WEB_EXPERIMENTS: 'web-experiments', // owner: @team-feature-success
     BIGQUERY_DWH: 'bigquery-dwh', // owner: @Gilbert09 #team-data-warehouse
+    REPLAY_DEFAULT_SORT_ORDER_EXPERIMENT: 'replay-order-by-experiment', // owner: #team-replay
+    ENVIRONMENTS: 'environments', // owner: @Twixes #team-product-analytics
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 

@@ -7,13 +7,15 @@ import { PropertyDefinitionType } from '~/types'
 
 import { playerMetaLogic } from '../playerMetaLogic'
 import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
+import { PlayerSidebarOverviewGrid } from './PlayerSidebarOverviewGrid'
 
-export function PlayerSidebarPersonTab(): JSX.Element {
+export function PlayerSidebarOverviewTab(): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
     const { sessionPerson, sessionPlayerMetaDataLoading } = useValues(playerMetaLogic(logicProps))
 
     return (
         <div className="flex flex-col overflow-auto bg-bg-3000">
+            <PlayerSidebarOverviewGrid />
             <div className="font-bold bg-bg-light px-2 border-b py-3">
                 <PersonDisplay person={sessionPerson} withIcon noPopover />
             </div>

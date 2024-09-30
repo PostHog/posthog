@@ -51,7 +51,7 @@
 }
 
 // stylelint-disable-next-line selector-class-pattern
-.placeholder\:\*\:text-default > *::placeholder {
+.placeholder\:\*\:\*\:text-default > * > *::placeholder {
     // This is something Tailwind would generate, but we have to do Tailwind's job manually
     // due to colors not being under Tailwind yet
     color: var(--default);
