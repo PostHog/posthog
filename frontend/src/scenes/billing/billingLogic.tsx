@@ -535,6 +535,11 @@ export const billingLogic = kea<billingLogicType>([
                 estimated_monthly_credit_amount_usd: creditOverview.estimated_monthly_credit_amount_usd,
             })
         },
+        toggleCreditCTAHeroDismissed: ({ isDismissed }) => {
+            if (isDismissed) {
+                posthog.capture('credits cta hero dismissed')
+            }
+        },
         loadBillingSuccess: () => {
             if (
                 router.values.location.pathname.includes('/organization/billing') &&
@@ -635,7 +640,7 @@ export const billingLogic = kea<billingLogicType>([
                 const spend = +value
                 let discount = 0
                 if (spend >= 100000) {
-                    discount = 0.3
+                    discount = 0.35
                 } else if (spend >= 60000) {
                     discount = 0.25
                 } else if (spend >= 20000) {
