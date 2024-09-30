@@ -3722,6 +3722,38 @@
             "required": ["name", "hogql_value", "type", "schema_valid"],
             "type": "object"
         },
+        "DatabaseSchemaMaterializedViewTable": {
+            "additionalProperties": false,
+            "properties": {
+                "fields": {
+                    "additionalProperties": {
+                        "$ref": "#/definitions/DatabaseSchemaField"
+                    },
+                    "type": "object"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "last_run_at": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "query": {
+                    "$ref": "#/definitions/HogQLQuery"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "type": {
+                    "const": "materialized_view",
+                    "type": "string"
+                }
+            },
+            "required": ["fields", "id", "name", "query", "type"],
+            "type": "object"
+        },
         "DatabaseSchemaPostHogTable": {
             "additionalProperties": false,
             "properties": {
@@ -3836,6 +3868,9 @@
                 },
                 {
                     "$ref": "#/definitions/DatabaseSchemaBatchExportTable"
+                },
+                {
+                    "$ref": "#/definitions/DatabaseSchemaMaterializedViewTable"
                 }
             ]
         },
@@ -3855,7 +3890,7 @@
                     "type": "string"
                 },
                 "type": {
-                    "enum": ["posthog", "data_warehouse", "view", "batch_export"],
+                    "enum": ["posthog", "data_warehouse", "view", "batch_export", "materialized_view"],
                     "type": "string"
                 }
             },
@@ -3902,7 +3937,8 @@
                 "virtual_table",
                 "field_traverser",
                 "expression",
-                "view"
+                "view",
+                "materialized_view"
             ],
             "type": "string"
         },

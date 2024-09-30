@@ -1805,7 +1805,7 @@ export interface DatabaseSchemaField {
 }
 
 export interface DatabaseSchemaTableCommon {
-    type: 'posthog' | 'data_warehouse' | 'view' | 'batch_export'
+    type: 'posthog' | 'data_warehouse' | 'view' | 'batch_export' | 'materialized_view'
     id: string
     name: string
     fields: Record<string, DatabaseSchemaField>
@@ -1814,6 +1814,13 @@ export interface DatabaseSchemaTableCommon {
 export interface DatabaseSchemaViewTable extends DatabaseSchemaTableCommon {
     type: 'view'
     query: HogQLQuery
+}
+
+export interface DatabaseSchemaMaterializedViewTable extends DatabaseSchemaTableCommon {
+    type: 'materialized_view'
+    query: HogQLQuery
+    last_run_at?: string
+    status?: string
 }
 
 export interface DatabaseSchemaPostHogTable extends DatabaseSchemaTableCommon {
@@ -1837,6 +1844,7 @@ export type DatabaseSchemaTable =
     | DatabaseSchemaDataWarehouseTable
     | DatabaseSchemaViewTable
     | DatabaseSchemaBatchExportTable
+    | DatabaseSchemaMaterializedViewTable
 
 export interface DatabaseSchemaQueryResponse {
     tables: Record<string, DatabaseSchemaTable>
@@ -1860,6 +1868,7 @@ export type DatabaseSerializedFieldType =
     | 'field_traverser'
     | 'expression'
     | 'view'
+    | 'materialized_view'
 
 export type HogQLExpression = string
 

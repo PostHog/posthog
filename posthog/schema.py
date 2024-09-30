@@ -334,6 +334,7 @@ class Type(StrEnum):
     DATA_WAREHOUSE = "data_warehouse"
     VIEW = "view"
     BATCH_EXPORT = "batch_export"
+    MATERIALIZED_VIEW = "materialized_view"
 
 
 class DatabaseSerializedFieldType(StrEnum):
@@ -350,6 +351,7 @@ class DatabaseSerializedFieldType(StrEnum):
     FIELD_TRAVERSER = "field_traverser"
     EXPRESSION = "expression"
     VIEW = "view"
+    MATERIALIZED_VIEW = "materialized_view"
 
 
 class DateRange(BaseModel):
@@ -4752,6 +4754,19 @@ class DataVisualizationNode(BaseModel):
     tableSettings: Optional[TableSettings] = None
 
 
+class DatabaseSchemaMaterializedViewTable(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    fields: dict[str, DatabaseSchemaField]
+    id: str
+    last_run_at: Optional[str] = None
+    name: str
+    query: HogQLQuery
+    status: Optional[str] = None
+    type: Literal["materialized_view"] = "materialized_view"
+
+
 class DatabaseSchemaViewTable(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5438,6 +5453,7 @@ class QueryResponseAlternative37(BaseModel):
             DatabaseSchemaDataWarehouseTable,
             DatabaseSchemaViewTable,
             DatabaseSchemaBatchExportTable,
+            DatabaseSchemaMaterializedViewTable,
         ],
     ]
 
@@ -5533,6 +5549,7 @@ class DatabaseSchemaQueryResponse(BaseModel):
             DatabaseSchemaDataWarehouseTable,
             DatabaseSchemaViewTable,
             DatabaseSchemaBatchExportTable,
+            DatabaseSchemaMaterializedViewTable,
         ],
     ]
 
