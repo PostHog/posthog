@@ -265,7 +265,7 @@
                   toTimeZone(e.timestamp, 'US/Pacific') AS timestamp,
                   e.uuid AS uuid
            FROM events AS e
-           WHERE and(equals(e.team_id, 2), ifNull(greaterOrEquals(timestamp, toDateTime64('2020-01-09 00:00:00.000000', 6, 'US/Pacific')), 0), ifNull(less(timestamp, toDateTime64('2020-01-10 00:00:00.000000', 6, 'US/Pacific')), 0), notEquals(e.`$group_0`, ''), equals(e.event, '$pageview')))
+           WHERE and(equals(e.team_id, 2), greaterOrEquals(timestamp, toDateTime64('2020-01-09 00:00:00.000000', 6, 'US/Pacific')), less(timestamp, toDateTime64('2020-01-10 00:00:00.000000', 6, 'US/Pacific')), notEquals(e.`$group_0`, ''), equals(e.event, '$pageview')))
         GROUP BY actor_id) AS source
      INNER JOIN
        (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'US/Pacific')) AS properties___name,
@@ -312,7 +312,7 @@
               WHERE equals(person.team_id, 2)
               GROUP BY person.id
               HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'US/Pacific'), person.version), plus(now64(6, 'US/Pacific'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
-           WHERE and(equals(e.team_id, 2), ifNull(notEquals(e__person.properties___email, 'tom@posthog.com'), 1), ifNull(greaterOrEquals(timestamp, toDateTime64('2020-01-09 00:00:00.000000', 6, 'US/Pacific')), 0), ifNull(less(timestamp, toDateTime64('2020-01-10 00:00:00.000000', 6, 'US/Pacific')), 0), equals(e.event, '$pageview')))
+           WHERE and(equals(e.team_id, 2), ifNull(notEquals(e__person.properties___email, 'tom@posthog.com'), 1), greaterOrEquals(timestamp, toDateTime64('2020-01-09 00:00:00.000000', 6, 'US/Pacific')), less(timestamp, toDateTime64('2020-01-10 00:00:00.000000', 6, 'US/Pacific')), equals(e.event, '$pageview')))
         GROUP BY actor_id) AS source
      INNER JOIN
        (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', ''), person.version) AS properties___name,
@@ -337,7 +337,7 @@
                                                             WHERE equals(person.team_id, 2)
                                                             GROUP BY person.id
                                                             HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'US/Pacific'), person.version), plus(now64(6, 'US/Pacific'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
-                                                         WHERE and(equals(e.team_id, 2), ifNull(notEquals(e__person.properties___email, 'tom@posthog.com'), 1), ifNull(greaterOrEquals(timestamp, toDateTime64('2020-01-09 00:00:00.000000', 6, 'US/Pacific')), 0), ifNull(less(timestamp, toDateTime64('2020-01-10 00:00:00.000000', 6, 'US/Pacific')), 0), equals(e.event, '$pageview')))
+                                                         WHERE and(equals(e.team_id, 2), ifNull(notEquals(e__person.properties___email, 'tom@posthog.com'), 1), greaterOrEquals(timestamp, toDateTime64('2020-01-09 00:00:00.000000', 6, 'US/Pacific')), less(timestamp, toDateTime64('2020-01-10 00:00:00.000000', 6, 'US/Pacific')), equals(e.event, '$pageview')))
                                                       GROUP BY actor_id) AS source)))
         GROUP BY person.id
         HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'US/Pacific'), person.version), plus(now64(6, 'US/Pacific'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
@@ -381,7 +381,7 @@
                                                                 WHERE equals(person.team_id, 2)
                                                                 GROUP BY person.id
                                                                 HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'US/Pacific'), person.version), plus(now64(6, 'US/Pacific'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
-           WHERE and(equals(e.team_id, 2), ifNull(notEquals(e__person.properties___email, 'tom@posthog.com'), 1), ifNull(greaterOrEquals(timestamp, toDateTime64('2020-01-09 00:00:00.000000', 6, 'US/Pacific')), 0), ifNull(less(timestamp, toDateTime64('2020-01-10 00:00:00.000000', 6, 'US/Pacific')), 0), equals(e.event, '$pageview')))
+           WHERE and(equals(e.team_id, 2), ifNull(notEquals(e__person.properties___email, 'tom@posthog.com'), 1), greaterOrEquals(timestamp, toDateTime64('2020-01-09 00:00:00.000000', 6, 'US/Pacific')), less(timestamp, toDateTime64('2020-01-10 00:00:00.000000', 6, 'US/Pacific')), equals(e.event, '$pageview')))
         GROUP BY actor_id) AS source
      INNER JOIN
        (SELECT person.id AS id,
@@ -412,7 +412,7 @@
                                                                                                                                                          WHERE equals(person.team_id, 2)
                                                                                                                                                          GROUP BY person.id
                                                                                                                                                          HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'US/Pacific'), person.version), plus(now64(6, 'US/Pacific'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
-                                                                                                    WHERE and(equals(e.team_id, 2), ifNull(notEquals(e__person.properties___email, 'tom@posthog.com'), 1), ifNull(greaterOrEquals(timestamp, toDateTime64('2020-01-09 00:00:00.000000', 6, 'US/Pacific')), 0), ifNull(less(timestamp, toDateTime64('2020-01-10 00:00:00.000000', 6, 'US/Pacific')), 0), equals(e.event, '$pageview')))
+                                                                                                    WHERE and(equals(e.team_id, 2), ifNull(notEquals(e__person.properties___email, 'tom@posthog.com'), 1), greaterOrEquals(timestamp, toDateTime64('2020-01-09 00:00:00.000000', 6, 'US/Pacific')), less(timestamp, toDateTime64('2020-01-10 00:00:00.000000', 6, 'US/Pacific')), equals(e.event, '$pageview')))
                                                                                                  GROUP BY actor_id) AS source)))
                                                    GROUP BY person.id
                                                    HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'US/Pacific'), person.version), plus(now64(6, 'US/Pacific'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)

@@ -439,8 +439,11 @@ impl PropertyDefinition {
     {
         let group_type_index = match &self.group_type_index {
             Some(GroupType::Resolved(_, i)) => Some(*i as i16),
-            Some(GroupType::Unresolved(_)) => {
-                warn!("Group type not resolved for property definition, skipping");
+            Some(GroupType::Unresolved(group_name)) => {
+                warn!(
+                    "Group type {} not resolved for property definition {} for team {}, skipping",
+                    group_name, self.name, self.team_id
+                );
                 None
             }
             _ => {
