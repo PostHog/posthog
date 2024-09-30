@@ -98,7 +98,7 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
         await redisConn.del(CAPTURE_OVERFLOW_REDIS_KEY)
         await deleteKeys(hub)
 
-        ingester = new SessionRecordingIngester(config, hub.postgres, hub.objectStorage, consumeOverflow, redisConn)
+        ingester = new SessionRecordingIngester(config, hub.postgres, hub.objectStorage, consumeOverflow)
         await ingester.start()
 
         mockConsumer.assignments.mockImplementation(() => [createTP(0, consumedTopic), createTP(1, consumedTopic)])
@@ -160,13 +160,7 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
                 KAFKA_HOSTS: 'localhost:9092',
             } satisfies Partial<PluginsServerConfig> as PluginsServerConfig
 
-            const ingester = new SessionRecordingIngester(
-                config,
-                hub.postgres,
-                hub.objectStorage,
-                consumeOverflow,
-                undefined
-            )
+            const ingester = new SessionRecordingIngester(config, hub.postgres, hub.objectStorage, consumeOverflow)
             expect(ingester['isDebugLoggingEnabled'](partition)).toEqual(expected)
         })
 
@@ -175,13 +169,7 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
                 KAFKA_HOSTS: 'localhost:9092',
             } satisfies Partial<PluginsServerConfig> as PluginsServerConfig
 
-            const ingester = new SessionRecordingIngester(
-                config,
-                hub.postgres,
-                hub.objectStorage,
-                consumeOverflow,
-                undefined
-            )
+            const ingester = new SessionRecordingIngester(config, hub.postgres, hub.objectStorage, consumeOverflow)
             expect(ingester['debugPartition']).toBeUndefined()
         })
 
@@ -465,13 +453,7 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
             jest.setTimeout(5000) // Increased to cover lock delay
 
             beforeEach(async () => {
-                otherIngester = new SessionRecordingIngester(
-                    config,
-                    hub.postgres,
-                    hub.objectStorage,
-                    consumeOverflow,
-                    undefined
-                )
+                otherIngester = new SessionRecordingIngester(config, hub.postgres, hub.objectStorage, consumeOverflow)
                 await otherIngester.start()
             })
 
