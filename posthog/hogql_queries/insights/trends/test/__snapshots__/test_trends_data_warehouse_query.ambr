@@ -41,6 +41,23 @@
 # ---
 # name: TestTrendsDataWarehouseQuery.test_trends_breakdown_on_view
   '''
+  SELECT test_table_1.id AS id,
+         toTimeZone(test_table_1.created, 'UTC') AS created,
+         test_table_1.prop_1 AS prop_2,
+         1 AS boolfield
+  FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.datawarehouse.trendquery/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`id` String, `prop_1` String, `prop_2` String, `created` DateTime64(3, \'UTC\')') AS test_table_1
+  LIMIT 101
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0
+  '''
+# ---
+# name: TestTrendsDataWarehouseQuery.test_trends_breakdown_on_view.1
+  '''
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
@@ -56,35 +73,15 @@
                breakdown_value AS breakdown_value
         FROM
           (SELECT count() AS total,
-                  toStartOfDay(e.created_at) AS day_start,
-                  ifNull(nullIf(toString(e.created_at), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+                  toStartOfDay(e.created) AS day_start,
+                  ifNull(nullIf(toString(e.prop_2), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM
-             (SELECT events.uuid AS uuid,
-                     events.event AS event,
-                     events__person.created_at AS created_at
-              FROM events
-              LEFT OUTER JOIN
-                (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-                        person_distinct_id_overrides.distinct_id AS distinct_id
-                 FROM person_distinct_id_overrides
-                 WHERE equals(person_distinct_id_overrides.team_id, 2)
-                 GROUP BY person_distinct_id_overrides.distinct_id
-                 HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-              LEFT JOIN
-                (SELECT argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
-                        person.id AS id
-                 FROM person
-                 WHERE equals(person.team_id, 2)
-                 GROUP BY person.id
-                 HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-              LEFT JOIN
-                (SELECT person.id AS id
-                 FROM person
-                 WHERE equals(person.team_id, 2)
-                 GROUP BY person.id
-                 HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), persons.id)
-              WHERE equals(events.team_id, 2)) AS e
-           WHERE and(ifNull(greaterOrEquals(e.created_at, toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2023-01-01 00:00:00', 6, 'UTC')))), 0), ifNull(lessOrEquals(e.created_at, assumeNotNull(parseDateTime64BestEffortOrNull('2023-01-07 23:59:59', 6, 'UTC'))), 0))
+             (SELECT test_table_1.id AS id,
+                     toTimeZone(test_table_1.created, 'UTC') AS created,
+                     test_table_1.prop_1 AS prop_2,
+                     1 AS boolfield
+              FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.datawarehouse.trendquery/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`id` String, `prop_1` String, `prop_2` String, `created` DateTime64(3, \'UTC\')') AS test_table_1) AS e
+           WHERE and(ifNull(greaterOrEquals(e.created, toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2023-01-01 00:00:00', 6, 'UTC')))), 0), ifNull(lessOrEquals(e.created, assumeNotNull(parseDateTime64BestEffortOrNull('2023-01-07 23:59:59', 6, 'UTC'))), 0))
            GROUP BY day_start,
                     breakdown_value)
         GROUP BY day_start,
@@ -95,13 +92,13 @@
   WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+  LIMIT 50000 SETTINGS readonly=2,
+                       max_execution_time=60,
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrendsDataWarehouseQuery.test_trends_breakdown_with_property
