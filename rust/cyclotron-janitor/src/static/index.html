@@ -129,6 +129,8 @@
     <div id="stateSection">
         <pre id="stateOutput">Loading system state...</pre>
         <p id="refreshTime"></p>
+        <!-- New button to force state retrieval -->
+        <button onclick="getState()">Force Retrieve State</button>
     </div>
 
     <script>
@@ -243,13 +245,13 @@
 
         setInterval(() => {
             getState();
-        }, 10000);
+        }, 10000); // Auto-refresh every 10 seconds
 
         setInterval(() => {
             updateTimeSinceRefresh();
-        }, 1000);
+        }, 1000); // Update time since last refresh every second
 
-        getState();
+        getState(); // Initial state load
     </script>
 
 </body>
