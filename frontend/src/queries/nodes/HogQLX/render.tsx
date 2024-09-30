@@ -3,7 +3,6 @@ import { useActions } from 'kea'
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { Sparkline } from 'lib/components/Sparkline'
 import { IconPlayCircle } from 'lib/lemon-ui/icons'
-import { SessionPlayerModal } from 'scenes/session-recordings/player/modal/SessionPlayerModal'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import { urls } from 'scenes/urls'
 
@@ -23,6 +22,30 @@ export function parseHogQLX(value: any): any {
         return object
     }
     return value.map((v) => parseHogQLX(v))
+}
+
+function ViewRecordingModalButton({ sessionId }: { sessionId: string }): JSX.Element {
+    const { openSessionPlayer } = useActions(sessionPlayerModalLogic)
+    return (
+        <ErrorBoundary>
+            <LemonButton
+                type="primary"
+                size="xsmall"
+                sideIcon={<IconPlayCircle />}
+                data-attr="hog-ql-view-recording-button"
+                to={urls.replaySingle(sessionId)}
+                onClick={(e) => {
+                    e.preventDefault()
+                    if (sessionId) {
+                        openSessionPlayer({ id: sessionId })
+                    }
+                }}
+                className="inline-block"
+            >
+                View recording
+            </LemonButton>
+        </ErrorBoundary>
+    )
 }
 
 export function renderHogQLX(value: any): JSX.Element {
@@ -45,29 +68,7 @@ export function renderHogQLX(value: any): JSX.Element {
             )
         } else if (tag === 'RecordingButton') {
             const { sessionId, ...props } = rest
-            const { openSessionPlayer } = useActions(sessionPlayerModalLogic)
-            return (
-                <ErrorBoundary>
-                    <LemonButton
-                        type="primary"
-                        size="xsmall"
-                        sideIcon={<IconPlayCircle />}
-                        data-attr="hog-ql-view-recording-button"
-                        {...props}
-                        to={urls.replaySingle(sessionId)}
-                        onClick={(e) => {
-                            e.preventDefault()
-                            if (sessionId) {
-                                openSessionPlayer({ id: sessionId })
-                            }
-                        }}
-                        className="inline-block"
-                    >
-                        View recording
-                    </LemonButton>
-                    <SessionPlayerModal />
-                </ErrorBoundary>
-            )
+            return <ViewRecordingModalButton sessionId={sessionId} {...props} />
         } else if (tag === 'a') {
             const { href, source, target } = rest
             return (

@@ -42,7 +42,7 @@ function AndroidSetupSnippet({ includeReplay }: AndroidSetupProps): JSX.Element 
         ${
             includeReplay
                 ? `
-        // check https://posthog.com/docs/session-replay/mobile#installation
+        // check https://posthog.com/docs/session-replay/android#installation
         // for more config and to learn about how we capture sessions on mobile
         // and what to expect
         config.sessionReplay = true

@@ -511,7 +511,7 @@ def serializedATN():
         5,106,0,0,1254,1257,3,148,74,0,1255,1257,3,150,75,0,1256,1253,1,
         0,0,0,1256,1254,1,0,0,0,1256,1255,1,0,0,0,1257,157,1,0,0,0,1258,
         1259,3,162,81,0,1259,1260,5,123,0,0,1260,1261,3,144,72,0,1261,159,
-        1,0,0,0,1262,1263,5,129,0,0,1263,1264,3,130,65,0,1264,1265,5,148,
+        1,0,0,0,1262,1263,5,129,0,0,1263,1264,3,116,58,0,1264,1265,5,148,
         0,0,1265,161,1,0,0,0,1266,1269,5,111,0,0,1267,1269,3,164,82,0,1268,
         1266,1,0,0,0,1268,1267,1,0,0,0,1269,163,1,0,0,0,1270,1274,5,143,
         0,0,1271,1273,3,166,83,0,1272,1271,1,0,0,0,1273,1276,1,0,0,0,1274,
@@ -9701,8 +9701,8 @@ class HogQLParser ( Parser ):
         def LBRACE(self):
             return self.getToken(HogQLParser.LBRACE, 0)
 
-        def nestedIdentifier(self):
-            return self.getTypedRuleContext(HogQLParser.NestedIdentifierContext,0)
+        def columnExpr(self):
+            return self.getTypedRuleContext(HogQLParser.ColumnExprContext,0)
 
 
         def RBRACE(self):
@@ -9729,7 +9729,7 @@ class HogQLParser ( Parser ):
             self.state = 1262
             self.match(HogQLParser.LBRACE)
             self.state = 1263
-            self.nestedIdentifier()
+            self.columnExpr(0)
             self.state = 1264
             self.match(HogQLParser.RBRACE)
         except RecognitionException as re:

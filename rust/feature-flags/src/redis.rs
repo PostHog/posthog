@@ -25,16 +25,22 @@ pub enum CustomRedisError {
 }
 /// A simple redis wrapper
 /// Copied from capture/src/redis.rs.
-/// TODO: Modify this to support hincrby
+/// Supports get, set, del, zrangebyscore, and hincrby operations
 
 #[async_trait]
 pub trait Client {
     // A very simplified wrapper, but works for our usage
     async fn zrangebyscore(&self, k: String, min: String, max: String) -> Result<Vec<String>>;
-
+    async fn hincrby(
+        &self,
+        k: String,
+        v: String,
+        count: Option<i32>,
+    ) -> Result<(), CustomRedisError>;
     async fn get(&self, k: String) -> Result<String, CustomRedisError>;
     async fn set(&self, k: String, v: String) -> Result<()>;
     async fn del(&self, k: String) -> Result<(), CustomRedisError>;
+    async fn hget(&self, k: String, field: String) -> Result<String, CustomRedisError>;
 }
 
 pub struct RedisClient {
@@ -58,6 +64,21 @@ impl Client for RedisClient {
         let fut = timeout(Duration::from_secs(REDIS_TIMEOUT_MILLISECS), results).await?;
 
         Ok(fut?)
+    }
+
+    async fn hincrby(
+        &self,
+        k: String,
+        v: String,
+        count: Option<i32>,
+    ) -> Result<(), CustomRedisError> {
+        let mut conn = self.client.get_async_connection().await?;
+
+        let count = count.unwrap_or(1);
+        let results = conn.hincr(k, v, count);
+        let fut = timeout(Duration::from_secs(REDIS_TIMEOUT_MILLISECS), results).await?;
+
+        fut.map_err(CustomRedisError::from)
     }
 
     async fn get(&self, k: String) -> Result<String, CustomRedisError> {
@@ -99,9 +120,21 @@ impl Client for RedisClient {
         let mut conn = self.client.get_async_connection().await?;
 
         let results = conn.del(k);
-        let fut: Result<(), RedisError> =
-            timeout(Duration::from_secs(REDIS_TIMEOUT_MILLISECS), results).await?;
+        let fut = timeout(Duration::from_secs(REDIS_TIMEOUT_MILLISECS), results).await?;
 
         fut.map_err(CustomRedisError::from)
+    }
+
+    async fn hget(&self, k: String, field: String) -> Result<String, CustomRedisError> {
+        let mut conn = self.client.get_async_connection().await?;
+
+        let results = conn.hget(k, field);
+        let fut: Result<Option<String>, RedisError> =
+            timeout(Duration::from_secs(REDIS_TIMEOUT_MILLISECS), results).await?;
+
+        match fut? {
+            Some(value) => Ok(value),
+            None => Err(CustomRedisError::NotFound),
+        }
     }
 }

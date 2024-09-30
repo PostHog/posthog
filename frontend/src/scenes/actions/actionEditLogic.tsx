@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, key, listeners, path, props, reducers } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { beforeUnload, router, urlToAction } from 'kea-router'
@@ -7,6 +7,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Link } from 'lib/lemon-ui/Link'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { eventDefinitionsTableLogic } from 'scenes/data-management/events/eventDefinitionsTableLogic'
+import { hogFunctionListLogic } from 'scenes/pipeline/hogfunctions/list/hogFunctionListLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 
@@ -54,6 +55,7 @@ export const actionEditLogic = kea<actionEditLogicType>([
         setCreateNew: (createNew: boolean) => ({ createNew }),
         actionAlreadyExists: (actionId: number | null) => ({ actionId }),
         deleteAction: true,
+        migrateToHogFunction: true,
     }),
     reducers({
         createNew: [
@@ -63,7 +65,6 @@ export const actionEditLogic = kea<actionEditLogicType>([
             },
         ],
     }),
-
     forms(({ actions, props }) => ({
         action: {
             defaults:
@@ -121,12 +122,47 @@ export const actionEditLogic = kea<actionEditLogicType>([
         },
     })),
 
-    loaders(({ props, values }) => ({
+    selectors({
+        hasCohortFilters: [
+            (s) => [s.action],
+            (action) => action?.steps?.some((step) => step.properties?.find((p) => p.type === 'cohort')) ?? false,
+        ],
+        originalActionHasCohortFilters: [
+            () => [(_, p: ActionEditLogicProps) => p.action],
+            (action) => action?.steps?.some((step) => step.properties?.find((p) => p.type === 'cohort')) ?? false,
+        ],
+        showCohortDisablesFunctionsWarning: [
+            (s) => [s.hasCohortFilters, s.originalActionHasCohortFilters],
+            (hasCohortFilters, originalActionHasCohortFilters) => hasCohortFilters && !originalActionHasCohortFilters,
+        ],
+    }),
+
+    loaders(({ actions, props, values }) => ({
         action: [
             { ...props.action } as ActionType,
             {
                 setAction: ({ action, options: { merge } }) =>
                     (merge ? { ...values.action, ...action } : action) as ActionType,
+            },
+        ],
+        migration: [
+            true,
+            {
+                migrateToHogFunction: async () => {
+                    if (props.id) {
+                        const hogFunction = await api.actions.migrate(props.id)
+                        actions.setActionValues({ post_to_slack: false })
+                        actions.loadActions()
+                        if (hogFunctionListLogic.isMounted()) {
+                            hogFunctionListLogic.actions.addHogFunction(hogFunction)
+                        }
+                        if (actionLogic({ id: props.id }).isMounted()) {
+                            actionLogic({ id: props.id }).actions.loadAction()
+                        }
+                        lemonToast.success('Action migrated to a destination!')
+                    }
+                    return true
+                },
             },
         ],
     })),
