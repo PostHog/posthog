@@ -1602,8 +1602,10 @@ export interface ExperimentFunnelQuery extends DataNode<ExperimentFunnelQueryRes
 
 export interface ExperimentTrendQuery extends DataNode<ExperimentTrendQueryResponse> {
     kind: NodeKind.ExperimentTrendQuery
-    count_source: TrendsQuery
-    exposure_source: TrendsQuery
+    count_query: TrendsQuery
+    // Defaults to $feature_flag_called if not specified
+    // https://github.com/PostHog/posthog/blob/master/posthog/hogql_queries/experiments/experiment_trend_query_runner.py
+    exposure_query?: TrendsQuery
     experiment_id: integer
 }
 

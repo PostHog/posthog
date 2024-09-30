@@ -5120,9 +5120,9 @@ class ExperimentTrendQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    count_source: TrendsQuery
+    count_query: TrendsQuery
     experiment_id: int
-    exposure_source: TrendsQuery
+    exposure_query: Optional[TrendsQuery] = None
     kind: Literal["ExperimentTrendQuery"] = "ExperimentTrendQuery"
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
