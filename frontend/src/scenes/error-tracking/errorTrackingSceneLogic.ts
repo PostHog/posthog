@@ -1,4 +1,3 @@
-import { lemonToast } from '@posthog/lemon-ui'
 import { actions, connect, kea, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { subscriptions } from 'kea-subscriptions'
@@ -68,19 +67,14 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
 
     forms(({ actions }) => ({
         uploadSourcemap: {
-            defaults: {
-                url: '',
-                files: [],
-            } as { url: string; files: File[] },
-            submit: async ({ url, files }) => {
+            defaults: { files: [] } as { files: File[] },
+            submit: async ({ files }) => {
                 if (files.length > 0) {
                     const formData = new FormData()
                     const file = files[0]
                     formData.append('source_map', file)
                     await api.errorTracking.uploadSourceMaps(formData)
                     actions.setIsConfigurationModalOpen(false)
-                } else if (url.length > 0) {
-                    lemonToast.info('Uploading via a URL is not yet supported')
                 }
             },
         },

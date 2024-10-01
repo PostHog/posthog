@@ -1,7 +1,7 @@
 import json
 import structlog
 
-from rest_framework import serializers, viewsets
+from rest_framework import serializers, viewsets, status
 from rest_framework.response import Response
 from rest_framework.exceptions import ValidationError
 
@@ -61,11 +61,11 @@ class ErrorTrackingGroupViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
                 )
 
                 object_storage.write(upload_path, file)
-                return Response({"ok": True})
+                return Response({"ok": True}, status=status.HTTP_201_CREATED)
             else:
                 raise ObjectStorageUnavailable()
         except ObjectStorageUnavailable:
             raise ValidationError(
                 code="object_storage_required",
-                detail="Object storage must be available to allow media uploads.",
+                detail="Object storage must be available to allow source map uploads.",
             )

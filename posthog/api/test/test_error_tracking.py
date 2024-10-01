@@ -1,7 +1,14 @@
+import os
+import json
+from boto3 import resource
+from rest_framework import status
+
+from django.utils.http import urlsafe_base64_encode
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.test import override_settings
+
 from posthog.test.base import APIBaseTest
 from posthog.models import Team, ErrorTrackingGroup
-from django.utils.http import urlsafe_base64_encode
-from boto3 import resource
 from botocore.config import Config
 from posthog.settings import (
     OBJECT_STORAGE_ENDPOINT,
@@ -9,10 +16,13 @@ from posthog.settings import (
     OBJECT_STORAGE_SECRET_ACCESS_KEY,
     OBJECT_STORAGE_BUCKET,
 )
-from unittest.mock import patch, MagicMock
-import json
 
 TEST_BUCKET = "test_storage_bucket-TestErrorTracking"
+
+
+def get_path_to(fixture_file: str) -> str:
+    file_dir = os.path.dirname(__file__)
+    return os.path.join(file_dir, "fixtures", fixture_file)
 
 
 class TestErrorTracking(APIBaseTest):
@@ -82,15 +92,41 @@ class TestErrorTracking(APIBaseTest):
         groups = ErrorTrackingGroup.objects.only("merged_fingerprints")
         self.assertEqual(groups[0].merged_fingerprints, merging_fingerprints)
 
-    @patch("posthog.api.error_tracking.object_storage.write")
-    def test_uploading_sourcemaps(self, mock_write: MagicMock):
-        with self.settings(OBJECT_STORAGE_ERROR_TRACKING_SOURCEMAPS_FOLDER=TEST_BUCKET):
-            self.client.post(
-                f"/api/projects/{self.team.id}/error_tracking/upload_sourcemap",
-                data={"url": "https://app-static.eu.posthog.com/static/chunk-TWIAGSRT.js.map"},
-            )
+    def test_can_upload_a_source_map(self) -> None:
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_ERROR_TRACKING_SOURCEMAPS_FOLDER=TEST_BUCKET):
+            with open(get_path_to("source.js.map"), "rb") as image:
+                response = self.client.post(
+                    f"/api/projects/{self.team.id}/error_tracking/upload_source_maps",
+                    {"source_map": image},
+                    format="multipart",
+                )
+                self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
 
-            mock_write.assert_called_with(
-                f"{TEST_BUCKET}/team-{self.team.pk}/d41d8cd98f00b204e9800998ecf8427e",
-                "This is the content I want to upload",
+    def test_rejects_too_large_file_type(self) -> None:
+        fifty_megabytes_plus_a_little = b"1" * (50 * 1024 * 1024 + 1)
+        fake_big_file = SimpleUploadedFile(
+            name="large_source.js.map",
+            content=fifty_megabytes_plus_a_little,
+            content_type="text/plain",
+        )
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/error_tracking/upload_source_maps",
+            {"source_map": fake_big_file},
+            format="multipart",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+        self.assertEqual(response.json()["detail"], "Source maps must be less than 50MB")
+
+    def test_rejects_upload_when_object_storage_is_unavailable(self) -> None:
+        with override_settings(OBJECT_STORAGE_ENABLED=False):
+            fake_big_file = SimpleUploadedFile(name="large_source.js.map", content=b"", content_type="text/plain")
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/error_tracking/upload_source_maps",
+                {"source_map": fake_big_file},
+                format="multipart",
+            )
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+            self.assertEqual(
+                response.json()["detail"],
+                "Object storage must be available to allow source map uploads.",
             )

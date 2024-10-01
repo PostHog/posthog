@@ -5,7 +5,6 @@ import {
     LemonCheckbox,
     LemonDivider,
     LemonFileInput,
-    LemonInput,
     LemonModal,
     LemonSegmentedButton,
 } from '@posthog/lemon-ui'
@@ -205,12 +204,6 @@ const ConfigurationModal = (): JSX.Element => {
                 <LemonModal.Header>
                     <h3>Upload sourcemap</h3>
                 </LemonModal.Header>
-                <LemonModal.Content className="space-y-2">
-                    <LemonField name="url" label="Sourcemap URL">
-                        <LemonInput fullWidth placeholder="https://static-assets.yourdomain.com/chunk-ABCDEFG.js.map" />
-                    </LemonField>
-                </LemonModal.Content>
-                <LemonDivider label="OR" />
                 <LemonModal.Content className="space-y-2">
                     <LemonField name="files">
                         <LemonFileInput
