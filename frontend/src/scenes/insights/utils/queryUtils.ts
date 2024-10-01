@@ -16,6 +16,11 @@ import { ChartDisplayType } from '~/types'
 
 type CompareQueryOpts = { ignoreVisualizationOnlyChanges: boolean }
 
+export const getVariablesFromQuery = (query: string): string[] => {
+    const queryVariableMatches = /\{variables\.([a-z0-9_]+)\}/gm.exec(query)
+    return (queryVariableMatches ?? []).filter(Boolean)
+}
+
 export const compareQuery = (a: Node, b: Node, opts?: CompareQueryOpts): boolean => {
     if (isInsightVizNode(a) && isInsightVizNode(b)) {
         const { source: sourceA, ...restA } = a
@@ -33,6 +38,11 @@ export const compareQuery = (a: Node, b: Node, opts?: CompareQueryOpts): boolean
 
 export const haveVariablesOrFiltersChanged = (a: Node, b: Node): boolean => {
     if (!isHogQLQuery(a) || !isHogQLQuery(b)) {
+        return false
+    }
+
+    // If neither queries use variables, then don't submit the query when variables change
+    if (!getVariablesFromQuery(a.query).length && !getVariablesFromQuery(b.query).length) {
         return false
     }
 

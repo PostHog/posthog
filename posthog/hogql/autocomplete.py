@@ -28,6 +28,7 @@ from posthog.hogql.resolver import resolve_types
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql.visitor import TraversingVisitor, clone_expr
 from posthog.hogql_queries.query_runner import get_query_runner
+from posthog.models.insight_variable import InsightVariable
 from posthog.models.property_definition import PropertyDefinition
 from posthog.models.team.team import Team
 from posthog.schema import (
@@ -490,6 +491,7 @@ def get_hogql_autocomplete(
                 and isinstance(nearest_select, ast.SelectQuery)
                 and nearest_select.select_from is not None
                 and not isinstance(parent_node, ast.JoinExpr)
+                and not isinstance(parent_node, ast.Placeholder)
             ):
                 # Handle fields
                 with timings.measure("select_field"):
@@ -608,6 +610,31 @@ def get_hogql_autocomplete(
                             kind=Kind.FOLDER,
                             details=["Table"] * len(table_names),
                         )
+            elif isinstance(node, ast.Field) and isinstance(parent_node, ast.Placeholder):
+                if node.chain[0] == MATCH_ANY_CHARACTER or (
+                    "variables".startswith(str(node.chain[0])) and len(node.chain) == 1
+                ):
+                    insight_variables = InsightVariable.objects.filter(
+                        team_id=team.pk,
+                    ).order_by("name")
+                    code_names = [f"variables.{n.code_name}" for n in insight_variables if n.code_name]
+                    extend_responses(
+                        keys=code_names,
+                        suggestions=response.suggestions,
+                        kind=Kind.CONSTANT,
+                        details=["Variable"] * len(code_names),
+                    )
+                elif len(node.chain) > 1 and node.chain[0] == "variables":
+                    insight_variables = InsightVariable.objects.filter(
+                        team_id=team.pk,
+                    ).order_by("name")
+                    code_names = [n.code_name for n in insight_variables if n.code_name]
+                    extend_responses(
+                        keys=code_names,
+                        suggestions=response.suggestions,
+                        kind=Kind.CONSTANT,
+                        details=["Variable"] * len(code_names),
+                    )
         except Exception:
             pass
 
