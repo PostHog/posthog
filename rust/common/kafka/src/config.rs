@@ -20,3 +20,23 @@ pub struct KafkaConfig {
     #[envconfig(default = "localhost:9092")]
     pub kafka_hosts: String,
 }
+
+#[derive(Envconfig, Clone)]
+pub struct ConsumerConfig {
+    pub kafka_consumer_group: String,
+    pub kafka_consumer_topic: String,
+}
+
+impl ConsumerConfig {
+    /// Because the consumer config is application specific, we
+    /// can't set good defaults in the derive macro, so we expose a way
+    /// for users to set them here before init'ing their main config struct
+    pub fn set_defaults(consumer_group: &str, consumer_topic: &str) {
+        if std::env::var("KAFKA_CONSUMER_GROUP").is_err() {
+            std::env::set_var("KAFKA_CONSUMER_GROUP", consumer_group);
+        };
+        if std::env::var("KAFKA_CONSUMER_TOPIC").is_err() {
+            std::env::set_var("KAFKA_CONSUMER_TOPIC", consumer_topic);
+        };
+    }
+}

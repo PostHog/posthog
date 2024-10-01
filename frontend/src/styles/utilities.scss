@@ -59,7 +59,7 @@
 
 // Extra utilties that Tailwind doesn't have built in
 @layer utilities {
-    .image-pixelated {
+    .rendering-pixelated {
         image-rendering: pixelated;
     }
 }
