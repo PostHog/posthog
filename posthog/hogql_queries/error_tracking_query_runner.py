@@ -37,7 +37,9 @@ class ErrorTrackingQueryRunner(QueryRunner):
 
     def select(self):
         exprs: list[ast.Expr] = [
-            ast.Alias(alias="occurrences", expr=ast.Call(name="count", args=[])),
+            ast.Alias(
+                alias="occurrences", expr=ast.Call(name="count", distinct=True, args=[ast.Field(chain=["uuid"])])
+            ),
             ast.Alias(
                 alias="sessions", expr=ast.Call(name="count", distinct=True, args=[ast.Field(chain=["$session_id"])])
             ),

@@ -144,34 +144,62 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     @snapshot_clickhouse_queries
     def test_search_query(self):
-        _create_event(
-            distinct_id=self.distinct_id_one,
-            event="$exception",
-            team=self.team,
-            properties={
-                "$exception_fingerprint": ["DatabaseNotFound"],
-                "$exception_type": "DatabaseNotFound",
-                "$exception_message": "this is the same error message",
-            },
-        )
-        flush_persons_and_events()
+        with freeze_time("2022-01-10 12:11:00"):
+            _create_event(
+                distinct_id=self.distinct_id_one,
+                event="$exception",
+                team=self.team,
+                properties={
+                    "$exception_fingerprint": ["DatabaseNotFoundX"],
+                    "$exception_type": "DatabaseNotFoundX",
+                    "$exception_message": "this is the same error message",
+                },
+            )
+            _create_event(
+                distinct_id=self.distinct_id_one,
+                event="$exception",
+                team=self.team,
+                properties={
+                    "$exception_fingerprint": ["DatabaseNotFoundY"],
+                    "$exception_type": "DatabaseNotFoundY",
+                    "$exception_message": "this is the same error message",
+                },
+            )
+            _create_event(
+                distinct_id=self.distinct_id_two,
+                event="$exception",
+                team=self.team,
+                properties={
+                    "$exception_fingerprint": ["xyz"],
+                    "$exception_type": "xyz",
+                    "$exception_message": "this is the same error message",
+                },
+            )
+            flush_persons_and_events()
 
         runner = ErrorTrackingQueryRunner(
             team=self.team,
             query=ErrorTrackingQuery(
                 kind="ErrorTrackingQuery",
                 fingerprint=None,
-                dateRange=DateRange(),
+                dateRange=DateRange(date_from="2022-01-10", date_to="2022-01-11"),
                 filterTestAccounts=True,
                 searchQuery="databasenot",
             ),
         )
 
-        results = self._calculate(runner)["results"]
+        results = sorted(self._calculate(runner)["results"], key=lambda x: x["fingerprint"])
 
-        self.assertEqual(len(results), 1)
-        self.assertEqual(results[0]["fingerprint"], ["DatabaseNotFound"])
+        self.assertEqual(len(results), 2)
+        self.assertEqual(results[0]["fingerprint"], ["DatabaseNotFoundX"])
         self.assertEqual(results[0]["occurrences"], 1)
+        self.assertEqual(results[0]["sessions"], 1)
+        self.assertEqual(results[0]["users"], 1)
+
+        self.assertEqual(results[1]["fingerprint"], ["DatabaseNotFoundY"])
+        self.assertEqual(results[1]["occurrences"], 1)
+        self.assertEqual(results[1]["sessions"], 1)
+        self.assertEqual(results[1]["users"], 1)
 
     def test_empty_search_query(self):
         runner = ErrorTrackingQueryRunner(
