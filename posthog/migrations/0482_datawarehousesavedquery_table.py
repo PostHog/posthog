@@ -6,7 +6,7 @@ import django.db.models.deletion
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0480_insightvariable"),
+        ("posthog", "0481_insightvariable_code_name"),
     ]
 
     operations = [

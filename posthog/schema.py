@@ -734,6 +734,7 @@ class HogQLVariable(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    code_name: str
     value: Optional[Any] = None
     variableId: str
 
@@ -3817,6 +3818,7 @@ class WebOverviewQuery(BaseModel):
     conversionGoal: Optional[Union[ActionConversionGoal, CustomEventConversionGoal]] = None
     dateRange: Optional[DateRange] = None
     filterTestAccounts: Optional[bool] = None
+    includeLCPScore: Optional[bool] = None
     kind: Literal["WebOverviewQuery"] = "WebOverviewQuery"
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
@@ -5061,6 +5063,7 @@ class ErrorTrackingQuery(BaseModel):
     )
     order: Optional[Order] = None
     response: Optional[ErrorTrackingQueryResponse] = None
+    searchQuery: Optional[str] = None
     select: Optional[list[str]] = None
 
 
@@ -5973,6 +5976,9 @@ class HogQLMetadata(BaseModel):
     ] = Field(
         default=None,
         description='Query within which "expr" and "template" are validated. Defaults to "select * from events"',
+    )
+    variables: Optional[dict[str, HogQLVariable]] = Field(
+        default=None, description="Variables to be subsituted into the query"
     )
 
 

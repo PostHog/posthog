@@ -89,13 +89,13 @@ export function FunnelTooltip({
                     {stepIndex > 0 && series.median_conversion_time != null && (
                         <tr>
                             <td>Median time from previous</td>
-                            <td>{humanFriendlyDuration(series.median_conversion_time, 3)}</td>
+                            <td>{humanFriendlyDuration(series.median_conversion_time, { maxUnits: 3 })}</td>
                         </tr>
                     )}
                     {stepIndex > 0 && series.average_conversion_time != null && (
                         <tr>
                             <td>Average time from previous</td>
-                            <td>{humanFriendlyDuration(series.average_conversion_time, 3)}</td>
+                            <td>{humanFriendlyDuration(series.average_conversion_time, { maxUnits: 3 })}</td>
                         </tr>
                     )}
                 </tbody>

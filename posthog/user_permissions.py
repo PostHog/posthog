@@ -68,11 +68,19 @@ class UserPermissions:
         return self._insight_permissions[insight.pk]
 
     @cached_property
-    def team_ids_visible_for_user(self) -> list[int]:
+    def teams_visible_for_user(self) -> list[Team]:
         candidate_teams = Team.objects.filter(organization_id__in=self.organizations.keys()).only(
             "pk", "organization_id", "access_control"
         )
-        return [team.pk for team in candidate_teams if self.team(team).effective_membership_level is not None]
+        return [team for team in candidate_teams if self.team(team).effective_membership_level is not None]
+
+    @cached_property
+    def team_ids_visible_for_user(self) -> list[int]:
+        return [team.pk for team in self.teams_visible_for_user]
+
+    @cached_property
+    def project_ids_visible_for_user(self) -> list[int]:
+        return list({team.project_id for team in self.teams_visible_for_user if team.project_id is not None})
 
     # Cached properties/functions for efficient lookups in other classes
 

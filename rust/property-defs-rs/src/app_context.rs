@@ -1,5 +1,5 @@
 use health::{HealthHandle, HealthRegistry};
-use moka::sync::Cache;
+use quick_cache::sync::Cache;
 use sqlx::{postgres::PgPoolOptions, PgPool};
 use time::Duration;
 use tracing::warn;
@@ -34,7 +34,7 @@ impl AppContext {
             .register("worker".to_string(), Duration::seconds(60))
             .await;
 
-        let group_type_cache = Cache::new(config.group_type_cache_size as u64);
+        let group_type_cache = Cache::new(config.group_type_cache_size);
 
         Ok(Self {
             pool,

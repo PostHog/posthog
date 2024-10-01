@@ -52,7 +52,6 @@ export interface PopoverProps {
     matchWidth?: boolean
     maxContentWidth?: boolean
     className?: string
-    popoverBoxClassName?: string
     /** Whether default box padding should be applies. @default true */
     padded?: boolean
     middleware?: Middleware[]
