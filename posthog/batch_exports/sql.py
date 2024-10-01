@@ -10,11 +10,11 @@ CREATE OR REPLACE VIEW persons_batch_export ON CLUSTER {settings.CLICKHOUSE_CLUS
         pd.version AS person_distinct_id_version,
         p.version AS person_version,
         multiIf(
-            (pd._timestamp  >= {{interval_start:DateTime64}} AND pd._timestamp < {{interval_end:DateTime64}})
-                AND NOT (p._timestamp >= {{interval_start:DateTime64}} AND p._timestamp < {{interval_end:DateTime64}}),
+            ((pd._timestamp  >= {{interval_start:DateTime64}} OR {{interval_start:DateTime64}} IS NULL) AND pd._timestamp < {{interval_end:DateTime64}})
+                AND NOT ((p._timestamp >= {{interval_start:DateTime64}} OR {{interval_start:DateTime64}} IS NULL) AND p._timestamp < {{interval_end:DateTime64}}),
             pd._timestamp,
-            (p._timestamp  >= {{interval_start:DateTime64}} AND p._timestamp < {{interval_end:DateTime64}})
-                AND NOT (pd._timestamp >= {{interval_start:DateTime64}} AND pd._timestamp < {{interval_end:DateTime64}}),
+            ((p._timestamp  >= {{interval_start:DateTime64}} OR {{interval_start:DateTime64}} IS NULL) AND p._timestamp < {{interval_end:DateTime64}})
+                AND NOT ((pd._timestamp >= {{interval_start:DateTime64}} OR {{interval_start:DateTime64}} IS NULL) AND pd._timestamp < {{interval_end:DateTime64}}),
             p._timestamp,
             least(p._timestamp, pd._timestamp)
         ) AS _inserted_at
