@@ -240,7 +240,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                                     LemonDialog.openForm({
                                                         title: 'Save as static cohort',
                                                         description:
-                                                            'This will create a cohort with the current results of the query. The first column of the query must be the ID of the person.',
+                                                            'Your query must export one actor_id column, which must match the id column on the persons table',
                                                         initialValues: {
                                                             name: '',
                                                         },
