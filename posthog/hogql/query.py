@@ -17,6 +17,7 @@ from posthog.hogql.printer import (
 )
 from posthog.hogql.filters import replace_filters
 from posthog.hogql.timings import HogQLTimings
+from posthog.hogql.variables import replace_variables
 from posthog.hogql.visitor import clone_expr
 from posthog.models.team import Team
 from posthog.clickhouse.query_tagging import tag_queries
@@ -28,6 +29,7 @@ from posthog.schema import (
     HogQLMetadata,
     HogQLMetadataResponse,
     HogLanguage,
+    HogQLVariable,
 )
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 
@@ -39,6 +41,7 @@ def execute_hogql_query(
     query_type: str = "hogql_query",
     filters: Optional[HogQLFilters] = None,
     placeholders: Optional[dict[str, ast.Expr]] = None,
+    variables: Optional[dict[str, HogQLVariable]] = None,
     workload: Workload = Workload.DEFAULT,
     settings: Optional[HogQLGlobalSettings] = None,
     modifiers: Optional[HogQLQueryModifiers] = None,
@@ -67,6 +70,10 @@ def execute_hogql_query(
             query = None
         else:
             select_query = parse_select(str(query), timings=timings)
+
+    with timings.measure("variables"):
+        if variables and len(variables.keys()) > 0:
+            select_query = replace_variables(node=select_query, variables=list(variables.values()), team=team)
 
     with timings.measure("replace_placeholders"):
         placeholders_in_query = find_placeholders(select_query)
