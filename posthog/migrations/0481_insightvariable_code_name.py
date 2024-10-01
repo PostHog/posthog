@@ -12,7 +12,7 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="insightvariable",
             name="code_name",
-            field=models.CharField(default=None, max_length=400),
+            field=models.CharField(default=None, max_length=400, blank=True, null=True),
             preserve_default=False,
         ),
     ]
