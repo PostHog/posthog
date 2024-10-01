@@ -38,10 +38,15 @@ class MaterializedColumnInfo(NamedTuple):
     is_nullable: bool
 
     def get_expression_template(self, source_column: str) -> str:
+        """
+        Returns an expression template that can be used to extract the property value from the source column. Expects
+        that the caller will be providing the property name as the ``property`` parameter when executing the query.
+        """
+        parameter_name = "property"  # XXX: assumes the caller is aware of this dependency
         if self.is_nullable:
-            raise NotImplementedError
+            return f"JSONExtract({source_column}, %({parameter_name})s, 'Nullable(String)')"
         else:
-            return TRIM_AND_EXTRACT_PROPERTY.format(table_column=source_column)
+            return trim_quotes_expr(f"JSONExtractRaw({source_column}, %({parameter_name})s)")
 
 
 @cache_for(timedelta(minutes=15))
