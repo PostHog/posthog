@@ -334,6 +334,7 @@ class Type(StrEnum):
     DATA_WAREHOUSE = "data_warehouse"
     VIEW = "view"
     BATCH_EXPORT = "batch_export"
+    MATERIALIZED_VIEW = "materialized_view"
 
 
 class DatabaseSerializedFieldType(StrEnum):
@@ -350,6 +351,7 @@ class DatabaseSerializedFieldType(StrEnum):
     FIELD_TRAVERSER = "field_traverser"
     EXPRESSION = "expression"
     VIEW = "view"
+    MATERIALIZED_VIEW = "materialized_view"
 
 
 class DateRange(BaseModel):
@@ -732,6 +734,7 @@ class HogQLVariable(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    code_name: str
     value: Optional[Any] = None
     variableId: str
 
@@ -4752,6 +4755,19 @@ class DataVisualizationNode(BaseModel):
     tableSettings: Optional[TableSettings] = None
 
 
+class DatabaseSchemaMaterializedViewTable(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    fields: dict[str, DatabaseSchemaField]
+    id: str
+    last_run_at: Optional[str] = None
+    name: str
+    query: HogQLQuery
+    status: Optional[str] = None
+    type: Literal["materialized_view"] = "materialized_view"
+
+
 class DatabaseSchemaViewTable(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5046,6 +5062,7 @@ class ErrorTrackingQuery(BaseModel):
     )
     order: Optional[Order] = None
     response: Optional[ErrorTrackingQueryResponse] = None
+    searchQuery: Optional[str] = None
     select: Optional[list[str]] = None
 
 
@@ -5120,9 +5137,9 @@ class ExperimentTrendQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    count_source: TrendsQuery
+    count_query: TrendsQuery
     experiment_id: int
-    exposure_source: TrendsQuery
+    exposure_query: Optional[TrendsQuery] = None
     kind: Literal["ExperimentTrendQuery"] = "ExperimentTrendQuery"
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
@@ -5438,6 +5455,7 @@ class QueryResponseAlternative37(BaseModel):
             DatabaseSchemaDataWarehouseTable,
             DatabaseSchemaViewTable,
             DatabaseSchemaBatchExportTable,
+            DatabaseSchemaMaterializedViewTable,
         ],
     ]
 
@@ -5533,6 +5551,7 @@ class DatabaseSchemaQueryResponse(BaseModel):
             DatabaseSchemaDataWarehouseTable,
             DatabaseSchemaViewTable,
             DatabaseSchemaBatchExportTable,
+            DatabaseSchemaMaterializedViewTable,
         ],
     ]
 
@@ -5956,6 +5975,9 @@ class HogQLMetadata(BaseModel):
     ] = Field(
         default=None,
         description='Query within which "expr" and "template" are validated. Defaults to "select * from events"',
+    )
+    variables: Optional[dict[str, HogQLVariable]] = Field(
+        default=None, description="Variables to be subsituted into the query"
     )
 
 

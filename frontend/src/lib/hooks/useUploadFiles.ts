@@ -68,7 +68,7 @@ export function useUploadFiles({
             }
         }
         uploadFiles().catch(console.error)
-    }, [filesToUpload])
+    }, [filesToUpload, onUpload, onError])
 
     return { setFilesToUpload, filesToUpload, uploading }
 }
