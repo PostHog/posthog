@@ -12,7 +12,7 @@ import { urls } from 'scenes/urls'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { cohortsModel } from '~/models/cohortsModel'
 import { DataNode } from '~/queries/schema'
-import { ExportContext, ExportedAssetType, ExporterFormat, LocalExportContext, SidePanelTab } from '~/types'
+import { CohortType, ExportContext, ExportedAssetType, ExporterFormat, LocalExportContext, SidePanelTab } from '~/types'
 
 import type { exportsLogicType } from './exportsLogicType'
 
@@ -141,14 +141,18 @@ export const exportsLogic = kea<exportsLogicType>([
         },
         createStaticCohort: async ({ query, name }) => {
             try {
-                const cohort = await api.create('api/cohort', {
+                const toastId = 'toast-' + Math.random()
+                lemonToast.info('Saving cohort...', { toastId, autoClose: false })
+                const cohort: CohortType = await api.create('api/cohort', {
                     is_static: true,
                     name: name || 'Query cohort',
                     query: query,
                 })
                 cohortsModel.actions.cohortCreated(cohort)
+                await delay(500) // just in case the toast is too fast
+                lemonToast.dismiss(toastId)
                 lemonToast.success('Cohort saved', {
-                    toastId: `cohort-saved-${cohort.id}`,
+                    toastId: `${toastId}-success`,
                     button: {
                         label: 'View cohort',
                         action: () => router.actions.push(urls.cohort(cohort.id)),
