@@ -676,9 +676,15 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
                 name="refresh",
                 enum=list(ExecutionMode),
                 default=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
+                # Sync the `refresh` description here with the other one in this file, and with frontend/src/queries/schema.ts
                 description="""
-Whether to refresh the retrieved insights and how aggressively. (The default `force_cache` value never refreshes.)
-If an `_async` mode is chosen, this request kicks off a background query and returns immediately.
+Whether to refresh the retrieved insights, how aggresively, and if sync or async:
+- `'force_cache'` - return cached data or a cache miss; always completes immediately as it never calculates
+- `'blocking'` - calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in the cache
+- `'async'` - kick off background calculation (returning immediately with a query status), UNLESS there are very fresh results in the cache
+- `'lazy_async'` - kick off background calculation, UNLESS there are somewhat fresh results in the cache
+- `'force_blocking'` - calculate synchronously, even if fresh results are already cached
+- `'force_async'` - kick off background calculation, even if fresh results are already cached
 Background calculation can be tracked using the `query_status` response field.""",
             )
         ]
@@ -842,9 +848,15 @@ class InsightViewSet(
                 name="refresh",
                 enum=list(ExecutionMode),
                 default=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
+                # Sync the `refresh` description here with the other one in this file, and with frontend/src/queries/schema.ts
                 description="""
-Whether to refresh the insight and how aggressively. (The default `force_cache` value never refreshes.)
-If an `_async` mode is chosen, this request kicks off a background query and returns immediately.
+Whether to refresh the insight, how aggresively, and if sync or async:
+- `'force_cache'` - return cached data or a cache miss; always completes immediately as it never calculates
+- `'blocking'` - calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in the cache
+- `'async'` - kick off background calculation (returning immediately with a query status), UNLESS there are very fresh results in the cache
+- `'lazy_async'` - kick off background calculation, UNLESS there are somewhat fresh results in the cache
+- `'force_blocking'` - calculate synchronously, even if fresh results are already cached
+- `'force_async'` - kick off background calculation, even if fresh results are already cached
 Background calculation can be tracked using the `query_status` response field.""",
             ),
             OpenApiParameter(

@@ -4,6 +4,7 @@ import { FieldNamePath, forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api, { getJSONOrNull } from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonBannerAction } from 'lib/lemon-ui/LemonBanner/LemonBanner'
 import { lemonBannerLogic } from 'lib/lemon-ui/LemonBanner/lemonBannerLogic'
@@ -87,6 +88,7 @@ export const billingLogic = kea<billingLogicType>([
         reportCreditsModalShown: true,
         reportBillingShown: true,
         registerInstrumentationProps: true,
+        reportCreditsCTAShown: (creditOverview: any) => ({ creditOverview }),
         setRedirectPath: true,
         setIsOnboarding: true,
         determineBillingAlert: true,
@@ -94,6 +96,7 @@ export const billingLogic = kea<billingLogicType>([
         resetUnsubscribeError: true,
         setBillingAlert: (billingAlert: BillingAlertConfig | null) => ({ billingAlert }),
         showPurchaseCreditsModal: (isOpen: boolean) => ({ isOpen }),
+        toggleCreditCTAHeroDismissed: (isDismissed: boolean) => ({ isDismissed }),
         setComputedDiscount: (discount: number) => ({ discount }),
     }),
     connect(() => ({
@@ -187,6 +190,13 @@ export const billingLogic = kea<billingLogicType>([
             false,
             {
                 showPurchaseCreditsModal: (_, { isOpen }) => isOpen,
+            },
+        ],
+        isCreditCTAHeroDismissed: [
+            false,
+            { persist: true },
+            {
+                toggleCreditCTAHeroDismissed: (_, { isDismissed }) => isDismissed,
             },
         ],
         computedDiscount: [
@@ -329,6 +339,14 @@ export const billingLogic = kea<billingLogicType>([
                                 Math.round(response.estimated_monthly_credit_amount_usd * 12)
                             )
                         }
+
+                        if (
+                            response.eligible &&
+                            response.status === 'none' &&
+                            values.featureFlags[FEATURE_FLAGS.PURCHASE_CREDITS]
+                        ) {
+                            actions.reportCreditsCTAShown(response)
+                        }
                         return response
                     }
                     // Return default values if not subscribed
@@ -374,29 +392,6 @@ export const billingLogic = kea<billingLogicType>([
                     projectedTotal += Math.min(parseFloat(product.projected_amount_usd || '0'), billingLimit)
                 }
                 return projectedTotal
-            },
-        ],
-        over20kAnnual: [
-            (s) => [s.billing, s.preflight, s.projectedTotalAmountUsdWithBillingLimits],
-            (billing, preflight, projectedTotalAmountUsd) => {
-                if (!billing || !preflight?.cloud) {
-                    return
-                }
-                if (
-                    billing.current_total_amount_usd_after_discount &&
-                    (parseFloat(billing.current_total_amount_usd_after_discount) > 1666 ||
-                        projectedTotalAmountUsd > 1666) &&
-                    billing.billing_period?.interval === 'month'
-                ) {
-                    return true
-                }
-                return false
-            },
-        ],
-        isAnnualPlan: [
-            (s) => [s.billing],
-            (billing) => {
-                return billing?.billing_period?.interval === 'year'
             },
         ],
         supportPlans: [
@@ -530,8 +525,20 @@ export const billingLogic = kea<billingLogicType>([
         },
         reportCreditsFormSubmitted: ({ creditInput }) => {
             posthog.capture('credits modal credit form submitted', {
-                creditInput,
+                credit_amount_usd: creditInput,
             })
+        },
+        reportCreditsCTAShown: ({ creditOverview }) => {
+            posthog.capture('credits cta shown', {
+                eligible: creditOverview.eligible,
+                status: creditOverview.status,
+                estimated_monthly_credit_amount_usd: creditOverview.estimated_monthly_credit_amount_usd,
+            })
+        },
+        toggleCreditCTAHeroDismissed: ({ isDismissed }) => {
+            if (isDismissed) {
+                posthog.capture('credits cta hero dismissed')
+            }
         },
         loadBillingSuccess: () => {
             if (
@@ -633,7 +640,7 @@ export const billingLogic = kea<billingLogicType>([
                 const spend = +value
                 let discount = 0
                 if (spend >= 100000) {
-                    discount = 0.3
+                    discount = 0.35
                 } else if (spend >= 60000) {
                     discount = 0.25
                 } else if (spend >= 20000) {

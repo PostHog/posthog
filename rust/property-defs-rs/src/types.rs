@@ -25,7 +25,7 @@ pub const SKIP_PROPERTIES: [&str; 9] = [
     "$groups",
 ];
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, PartialOrd, Ord)]
 pub enum PropertyParentType {
     Event = 1,
     Person = 2,
@@ -44,7 +44,7 @@ impl From<PropertyParentType> for i32 {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq, PartialOrd, Ord)]
 pub enum PropertyValueType {
     DateTime,
     String,
@@ -66,7 +66,7 @@ impl fmt::Display for PropertyValueType {
 }
 
 // The grouptypemapping table uses i32's, but we get group types by name, so we have to resolve them before DB writes, sigh
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 pub enum GroupType {
     Unresolved(String),
     Resolved(String, i32),
@@ -81,7 +81,7 @@ impl GroupType {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 pub struct PropertyDefinition {
     pub team_id: i32,
     pub name: String,
@@ -94,23 +94,23 @@ pub struct PropertyDefinition {
     pub query_usage_30_day: Option<i64>,      // Deprecated
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 pub struct EventDefinition {
     pub name: String,
     pub team_id: i32,
-    pub last_seen_at: DateTime<Utc>,
+    pub last_seen_at: DateTime<Utc>, // Always floored to our update rate for last_seen, so this Eq derive is safe for deduping
 }
 
 // Derived hash since these are keyed on all fields in the DB
-#[derive(Clone, Debug, Hash, Eq, PartialEq)]
+#[derive(Clone, Debug, Hash, Eq, PartialEq, PartialOrd, Ord)]
 pub struct EventProperty {
-    team_id: i32,
-    event: String,
-    property: String,
+    pub team_id: i32,
+    pub event: String,
+    pub property: String,
 }
 
 // Represents a generic update, but comparable, allowing us to dedupe and cache updates
-#[derive(Clone, Debug, Hash, Eq, PartialEq)]
+#[derive(Clone, Debug, Hash, Eq, PartialEq, PartialOrd, Ord)]
 pub enum Update {
     Event(EventDefinition),
     Property(PropertyDefinition),
@@ -439,8 +439,11 @@ impl PropertyDefinition {
     {
         let group_type_index = match &self.group_type_index {
             Some(GroupType::Resolved(_, i)) => Some(*i as i16),
-            Some(GroupType::Unresolved(_)) => {
-                warn!("Group type not resolved for property definition, skipping");
+            Some(GroupType::Unresolved(group_name)) => {
+                warn!(
+                    "Group type {} not resolved for property definition {} for team {}, skipping update",
+                    group_name, self.name, self.team_id
+                );
                 None
             }
             _ => {
@@ -448,6 +451,14 @@ impl PropertyDefinition {
                 None
             }
         };
+
+        if group_type_index.is_none() && matches!(self.event_type, PropertyParentType::Group) {
+            // Some teams/users wildly misuse group-types, and if we fail to issue an update
+            // during the transaction (which we do if we don't have a group-type index for a
+            // group property), the entire transaction is aborted, so instead we just warn
+            // loudly about this (above, and at resolve time), and drop the update.
+            return Ok(());
+        }
 
         sqlx::query!(
             r#"

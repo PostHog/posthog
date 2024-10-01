@@ -621,6 +621,7 @@ dependencies = [
  "base64 0.22.0",
  "bytes",
  "common-alloc",
+ "common-types",
  "envconfig",
  "flate2",
  "futures",
@@ -744,6 +745,16 @@ dependencies = [
  "metrics",
  "metrics-exporter-prometheus",
  "tokio",
+]
+
+[[package]]
+name = "common-types"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "sqlx",
+ "time",
+ "uuid",
 ]
 
 [[package]]
@@ -1080,6 +1091,27 @@ checksum = "a258e46cdc063eb8519c00b9fc845fc47bcfca4130e2f08e88665ceda8474245"
 dependencies = [
  "libc",
  "windows-sys 0.52.0",
+]
+
+[[package]]
+name = "error-tracking"
+version = "0.1.0"
+dependencies = [
+ "axum 0.7.5",
+ "common-alloc",
+ "common-kafka",
+ "common-metrics",
+ "common-types",
+ "envconfig",
+ "health",
+ "metrics",
+ "moka",
+ "rdkafka",
+ "sqlx",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
@@ -2308,6 +2340,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "moka"
+version = "0.12.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "32cf62eb4dd975d2dde76432fb1075c49e3ee2331cf36f1f8fd4b66550d32b6f"
+dependencies = [
+ "crossbeam-channel",
+ "crossbeam-epoch",
+ "crossbeam-utils",
+ "once_cell",
+ "parking_lot",
+ "quanta 0.12.2",
+ "rustc_version",
+ "smallvec",
+ "tagptr",
+ "thiserror",
+ "triomphe",
+ "uuid",
+]
+
+[[package]]
 name = "native-tls"
 version = "0.2.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2875,13 +2927,14 @@ dependencies = [
  "axum 0.7.5",
  "chrono",
  "common-alloc",
+ "common-kafka",
  "common-metrics",
  "envconfig",
  "futures",
  "health",
  "metrics",
  "quick_cache",
- "rdkafka",
+ "rand",
  "serde",
  "serde_json",
  "serve-metrics",
@@ -2949,9 +3002,9 @@ dependencies = [
 
 [[package]]
 name = "quick_cache"
-version = "0.6.5"
+version = "0.6.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "27a893a83255c587d31137bc7e350387b49267b0deac44120fd8fa8bd0d61645"
+checksum = "7d7c94f8935a9df96bb6380e8592c70edf497a643f94bd23b2f76b399385dbf4"
 dependencies = [
  "ahash",
  "equivalent",
@@ -3266,6 +3319,15 @@ name = "rustc-demangle"
 version = "0.1.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d626bb9dae77e28219937af045c257c28bfd3f69333c512553507f5f9798cb76"
+
+[[package]]
+name = "rustc_version"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cfcb3a22ef46e85b45de6ee7e79d063319ebb6594faafcf1c225ea92ab6e9b92"
+dependencies = [
+ "semver",
+]
 
 [[package]]
 name = "rustix"
@@ -3972,6 +4034,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "tagptr"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7b2093cf4c8eb1e67749a6762251bc9cd836b6fc171623bd0a9d324d37af2417"
+
+[[package]]
 name = "tempfile"
 version = "3.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4356,6 +4424,12 @@ dependencies = [
  "tracing-core",
  "tracing-log",
 ]
+
+[[package]]
+name = "triomphe"
+version = "0.1.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "859eb650cfee7434994602c3a68b25d77ad9e68c8a6cd491616ef86661382eb3"
 
 [[package]]
 name = "try-lock"

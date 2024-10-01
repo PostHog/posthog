@@ -19,6 +19,8 @@ export interface LettermarkProps {
     color?: LettermarkColor
     /** Circular rounded style rather than square */
     rounded?: boolean
+    /** A dashed outlined style rather than filled */
+    outlined?: boolean
     /** @default 'medium' */
     size?: 'xsmall' | 'medium' | 'xlarge'
 }
@@ -28,7 +30,7 @@ export interface LettermarkProps {
  * When given a string, the initial letter is shown. Numbers up to 99 are displayed in full, in integer form.
  */
 export const Lettermark = React.forwardRef<HTMLDivElement, LettermarkProps>(function Lettermark(
-    { name, index, color, rounded = false, size = 'medium' },
+    { name, index, color, outlined = false, rounded = false, size = 'medium' },
     ref
 ) {
     const representation = name
@@ -44,6 +46,7 @@ export const Lettermark = React.forwardRef<HTMLDivElement, LettermarkProps>(func
             className={clsx(
                 `Lettermark Lettermark--${size}`,
                 colorIndex && `Lettermark--variant-${colorIndex}`,
+                outlined && 'Lettermark--outlined',
                 rounded && 'Lettermark--rounded',
                 representation === '?' && 'Lettermark--unknown'
             )}

@@ -5,6 +5,7 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.insights.trends.trends_query_builder import TrendsQueryBuilder
+from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.schema import (
     BreakdownFilter,
@@ -266,6 +267,47 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
 
         assert response.results[3][1] == [0, 0, 0, 1, 0, 0, 0]
         assert response.results[3][2] == "d"
+
+    @snapshot_clickhouse_queries
+    def test_trends_breakdown_on_view(self):
+        from posthog.warehouse.models import DataWarehouseSavedQuery
+
+        table_name = self.create_parquet_file()
+
+        query = f"""\
+          select
+            id as id,
+            created as created,
+            prop_1 as prop_2,
+            true as boolfield
+          from {table_name}
+        """
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="saved_view",
+            query={"query": query, "kind": "HogQLQuery"},
+        )
+        saved_query.columns = saved_query.get_columns()
+        saved_query.save()
+
+        trends_query = TrendsQuery(
+            kind="TrendsQuery",
+            dateRange=InsightDateRange(date_from="2023-01-01"),
+            series=[
+                DataWarehouseNode(
+                    id="saved_view",
+                    table_name="saved_view",
+                    id_field="id",
+                    distinct_id_field="customer_email",
+                    timestamp_field="created",
+                )
+            ],
+            breakdownFilter=BreakdownFilter(breakdown_type=BreakdownType.DATA_WAREHOUSE, breakdown="prop_2"),
+        )
+
+        with freeze_time("2023-01-07"):
+            response = TrendsQueryRunner(team=self.team, query=trends_query).calculate()
+        assert len(response.results) == 4
 
     @snapshot_clickhouse_queries
     def test_trends_breakdown_with_property(self):

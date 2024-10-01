@@ -18,6 +18,7 @@ flate2 = { workspace = true }
 governor = { workspace = true }
 health = { path = "../common/health" }
 common-alloc = { path = "../common/alloc" }
+common-types = { path = "../common/types" }
 metrics = { workspace = true }
 metrics-exporter-prometheus = { workspace = true }
 opentelemetry = { workspace = true }

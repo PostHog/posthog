@@ -7,7 +7,9 @@ import { UpgradeModal } from 'lib/components/UpgradeModal/UpgradeModal'
 import { Setup2FA } from 'scenes/authentication/Setup2FA'
 import { CreateOrganizationModal } from 'scenes/organization/CreateOrganizationModal'
 import { membersLogic } from 'scenes/organization/membersLogic'
+import { CreateEnvironmentModal } from 'scenes/project/CreateEnvironmentModal'
 import { CreateProjectModal } from 'scenes/project/CreateProjectModal'
+import { SessionPlayerModal } from 'scenes/session-recordings/player/modal/SessionPlayerModal'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { InviteModal } from 'scenes/settings/organization/InviteModal'
 import { userLogic } from 'scenes/userLogic'
@@ -21,6 +23,8 @@ export const globalModalsLogic = kea<globalModalsLogicType>([
         hideCreateOrganizationModal: true,
         showCreateProjectModal: true,
         hideCreateProjectModal: true,
+        showCreateEnvironmentModal: true,
+        hideCreateEnvironmentModal: true,
     }),
     reducers({
         isCreateOrganizationModalShown: [
@@ -37,12 +41,21 @@ export const globalModalsLogic = kea<globalModalsLogicType>([
                 hideCreateProjectModal: () => false,
             },
         ],
+        isCreateEnvironmentModalShown: [
+            false,
+            {
+                showCreateEnvironmentModal: () => true,
+                hideCreateEnvironmentModal: () => false,
+            },
+        ],
     }),
 ])
 
 export function GlobalModals(): JSX.Element {
-    const { isCreateOrganizationModalShown, isCreateProjectModalShown } = useValues(globalModalsLogic)
-    const { hideCreateOrganizationModal, hideCreateProjectModal } = useActions(globalModalsLogic)
+    const { isCreateOrganizationModalShown, isCreateProjectModalShown, isCreateEnvironmentModalShown } =
+        useValues(globalModalsLogic)
+    const { hideCreateOrganizationModal, hideCreateProjectModal, hideCreateEnvironmentModal } =
+        useActions(globalModalsLogic)
     const { isInviteModalShown } = useValues(inviteLogic)
     const { hideInviteModal } = useActions(inviteLogic)
     const { user } = useValues(userLogic)
@@ -52,10 +65,11 @@ export function GlobalModals(): JSX.Element {
             <InviteModal isOpen={isInviteModalShown} onClose={hideInviteModal} />
             <CreateOrganizationModal isVisible={isCreateOrganizationModalShown} onClose={hideCreateOrganizationModal} />
             <CreateProjectModal isVisible={isCreateProjectModalShown} onClose={hideCreateProjectModal} />
+            <CreateEnvironmentModal isVisible={isCreateEnvironmentModalShown} onClose={hideCreateEnvironmentModal} />
             <UpgradeModal />
             <ConfirmUpgradeModal />
             <TimeSensitiveAuthenticationModal />
-
+            <SessionPlayerModal />
             {user && user.organization?.enforce_2fa && !user.is_2fa_enabled && (
                 <LemonModal title="Set up 2FA" closable={false}>
                     <p>

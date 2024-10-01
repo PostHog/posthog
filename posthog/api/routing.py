@@ -260,6 +260,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
             user = cast(User, self.request.user)
             team = user.team
             assert team is not None
+            assert team.project is not None
             return team.project
         try:
             return Project.objects.get(id=self.project_id)
