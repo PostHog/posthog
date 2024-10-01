@@ -37,6 +37,12 @@ class MaterializedColumnInfo(NamedTuple):
     column_name: str
     is_nullable: bool
 
+    def get_expression_template(self, source_column: str) -> str:
+        if self.is_nullable:
+            raise NotImplementedError
+        else:
+            return TRIM_AND_EXTRACT_PROPERTY.format(table_column=source_column)
+
 
 @cache_for(timedelta(minutes=15))
 def get_materialized_column_info(
@@ -85,6 +91,7 @@ def materialize(
     column_name=None,
     table_column: TableColumn = DEFAULT_TABLE_COLUMN,
     create_minmax_index=not TEST,
+    is_nullable: bool = False,
 ) -> None:
     if (property, table_column) in get_materialized_columns(table, use_cache=False):
         if TEST:
@@ -95,7 +102,12 @@ def materialize(
     if table_column not in SHORT_TABLE_COLUMN_NAME:
         raise ValueError(f"Invalid table_column={table_column} for materialisation")
 
-    column_name = column_name or _materialized_column_name(table, property, table_column)
+    column_info = MaterializedColumnInfo(
+        column_name=column_name or _materialized_column_name(table, property, table_column),
+        is_nullable=is_nullable,
+    )
+    del column_name
+
     # :TRICKY: On cloud, we ON CLUSTER updates to events/sharded_events but not to persons. Why? ¯\_(ツ)_/¯
     execute_on_cluster = f"ON CLUSTER '{CLICKHOUSE_CLUSTER}'" if table == "events" else ""
 
@@ -105,7 +117,8 @@ def materialize(
             ALTER TABLE sharded_{table}
             {execute_on_cluster}
             ADD COLUMN IF NOT EXISTS
-            {column_name} VARCHAR MATERIALIZED {TRIM_AND_EXTRACT_PROPERTY.format(table_column=table_column)}
+            {column_info.column_name} VARCHAR
+                MATERIALIZED {column_info.get_expression_template(table_column)}
         """,
             {"property": property},
             settings={"alter_sync": 2 if TEST else 1},
@@ -115,7 +128,7 @@ def materialize(
             ALTER TABLE {table}
             {execute_on_cluster}
             ADD COLUMN IF NOT EXISTS
-            {column_name} VARCHAR
+            {column_info.column_name} VARCHAR
         """,
             settings={"alter_sync": 2 if TEST else 1},
         )
@@ -125,20 +138,21 @@ def materialize(
             ALTER TABLE {table}
             {execute_on_cluster}
             ADD COLUMN IF NOT EXISTS
-            {column_name} VARCHAR MATERIALIZED {TRIM_AND_EXTRACT_PROPERTY.format(table_column=table_column)}
+            {column_info.column_name} VARCHAR
+                MATERIALIZED {column_info.get_expression_template(table_column)}
         """,
             {"property": property},
             settings={"alter_sync": 2 if TEST else 1},
         )
 
     sync_execute(
-        f"ALTER TABLE {table} {execute_on_cluster} COMMENT COLUMN {column_name} %(comment)s",
+        f"ALTER TABLE {table} {execute_on_cluster} COMMENT COLUMN {column_info.column_name} %(comment)s",
         {"comment": f"column_materializer::{table_column}::{property}"},
         settings={"alter_sync": 2 if TEST else 1},
     )
 
     if create_minmax_index:
-        add_minmax_index(table, column_name)
+        add_minmax_index(table, column_info.column_name)
 
 
 def add_minmax_index(table: TablesWithMaterializedColumns, column_name: str):
@@ -184,34 +198,33 @@ def backfill_materialized_columns(
     # :TRICKY: On cloud, we ON CLUSTER updates to events/sharded_events but not to persons. Why? ¯\_(ツ)_/¯
     execute_on_cluster = f"ON CLUSTER '{CLICKHOUSE_CLUSTER}'" if table == "events" else ""
 
-    materialized_columns = get_materialized_columns(table, use_cache=False)
+    materialized_columns = get_materialized_column_info(table, use_cache=False)
 
     # Hack from https://github.com/ClickHouse/ClickHouse/issues/19785
     # Note that for this to work all inserts should list columns explicitly
     # Improve this if https://github.com/ClickHouse/ClickHouse/issues/27730 ever gets resolved
+    assignments = []
     for property, table_column in properties:
+        column_info = materialized_columns[(property, table_column)]
         sync_execute(
             f"""
             ALTER TABLE {updated_table}
             {execute_on_cluster}
             MODIFY COLUMN
-            {materialized_columns[(property, table_column)]} VARCHAR DEFAULT {TRIM_AND_EXTRACT_PROPERTY.format(table_column=table_column)}
+            {column_info.column_name} VARCHAR
+                DEFAULT {column_info.get_expression_template(table_column)}
             """,
             {"property": property},
             settings=test_settings,
         )
+        assignments.append(f"{column_info.column_name} = {column_info.column_name}")
 
     # Kick off mutations which will update clickhouse partitions in the background. This will return immediately
-    assignments = ", ".join(
-        f"{materialized_columns[property_and_column]} = {materialized_columns[property_and_column]}"
-        for property_and_column in properties
-    )
-
     sync_execute(
         f"""
         ALTER TABLE {updated_table}
         {execute_on_cluster}
-        UPDATE {assignments}
+        UPDATE {",".join(assignments)}
         WHERE {"timestamp > %(cutoff)s" if table == "events" else "1 = 1"}
         """,
         {"cutoff": (now() - backfill_period).strftime("%Y-%m-%d")},
@@ -232,7 +245,9 @@ def _materialized_column_name(
         prefix += f"{SHORT_TABLE_COLUMN_NAME[table_column]}_"
     property_str = re.sub("[^0-9a-zA-Z$]", "_", property)
 
-    existing_materialized_columns = set(get_materialized_columns(table, use_cache=False).values())
+    existing_materialized_columns = {
+        column_info.column_name for column_info in get_materialized_column_info(table, use_cache=False).values()
+    }
     suffix = ""
 
     while f"{prefix}{property_str}{suffix}" in existing_materialized_columns:
