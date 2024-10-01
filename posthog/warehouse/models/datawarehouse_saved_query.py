@@ -1,5 +1,5 @@
 import re
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
 import posthoganalytics
 from django.core.exceptions import ValidationError
@@ -139,7 +139,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
             f"https://{settings.AIRBYTE_BUCKET_DOMAIN}/dlt/team_{self.team.pk}_model_{self.id.hex}/modeling/{self.name}"
         )
 
-    def hogql_definition(self, modifiers: Optional[HogQLQueryModifiers] = None) -> SavedQuery:
+    def hogql_definition(self, modifiers: Optional[HogQLQueryModifiers] = None) -> Union[SavedQuery, S3Table]:
         from posthog.warehouse.models.table import CLICKHOUSE_HOGQL_MAPPING
 
         columns = self.columns or {}
