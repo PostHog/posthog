@@ -1,6 +1,8 @@
 import type { LemonSegmentedButtonOption } from '@posthog/lemon-ui'
-import { actions, kea, listeners, path, reducers } from 'kea'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { UniversalFiltersGroup } from 'lib/components/UniversalFilters/UniversalFilters'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { DateRange } from '~/queries/schema'
 import { FilterLogicalOperator } from '~/types'
@@ -33,6 +35,10 @@ const DEFAULT_FILTER_GROUP = {
 
 export const errorTrackingLogic = kea<errorTrackingLogicType>([
     path(['scenes', 'error-tracking', 'errorTrackingLogic']),
+
+    connect({
+        values: [featureFlagLogic, ['featureFlags']],
+    }),
 
     actions({
         setDateRange: (dateRange: DateRange) => ({ dateRange }),
@@ -91,6 +97,12 @@ export const errorTrackingLogic = kea<errorTrackingLogicType>([
             {
                 _setSparklineOptions: (_, { options }) => options,
             },
+        ],
+    }),
+    selectors({
+        hasGroupActions: [
+            (s) => [s.featureFlags],
+            (featureFlags): boolean => featureFlags[FEATURE_FLAGS.ERROR_TRACKING_GROUP_ACTIONS],
         ],
     }),
     listeners(({ values, actions }) => ({

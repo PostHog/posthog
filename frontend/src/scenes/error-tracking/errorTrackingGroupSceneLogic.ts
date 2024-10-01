@@ -39,7 +39,7 @@ export const errorTrackingGroupSceneLogic = kea<errorTrackingGroupSceneLogicType
     props({} as ErrorTrackingGroupSceneLogicProps),
 
     connect({
-        values: [errorTrackingLogic, ['dateRange', 'filterTestAccounts', 'filterGroup']],
+        values: [errorTrackingLogic, ['dateRange', 'filterTestAccounts', 'filterGroup', 'hasGroupActions']],
     }),
 
     actions({

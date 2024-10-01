@@ -74,8 +74,8 @@ const RecordingsUniversalFilterGroup = (): JSX.Element => {
     )
 }
 
-export const Options = ({ showOrder = true }: { showOrder?: boolean }): JSX.Element => {
-    const { dateRange, assignee } = useValues(errorTrackingLogic)
+export const Options = ({ isGroup = false }: { isGroup?: boolean }): JSX.Element => {
+    const { dateRange, assignee, hasGroupActions } = useValues(errorTrackingLogic)
     const { setDateRange, setAssignee } = useActions(errorTrackingLogic)
     const { order } = useValues(errorTrackingSceneLogic)
     const { setOrder } = useActions(errorTrackingSceneLogic)
@@ -94,7 +94,7 @@ export const Options = ({ showOrder = true }: { showOrder?: boolean }): JSX.Elem
                         size="small"
                     />
                 </div>
-                {showOrder && (
+                {!isGroup && (
                     <div className="flex items-center gap-1">
                         <span>Sort by:</span>
                         <LemonSelect
@@ -128,15 +128,17 @@ export const Options = ({ showOrder = true }: { showOrder?: boolean }): JSX.Elem
                     </div>
                 )}
             </div>
-            <div className="flex items-center gap-1">
-                <span>Assigned to:</span>
-                <MemberSelect
-                    value={assignee}
-                    onChange={(user) => {
-                        setAssignee(user?.id || null)
-                    }}
-                />
-            </div>
+            {hasGroupActions && !isGroup && (
+                <div className="flex items-center gap-1">
+                    <span>Assigned to:</span>
+                    <MemberSelect
+                        value={assignee}
+                        onChange={(user) => {
+                            setAssignee(user?.id || null)
+                        }}
+                    />
+                </div>
+            )}
         </div>
     )
 }
