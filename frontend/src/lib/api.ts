@@ -256,6 +256,16 @@ class ApiRequest {
         return this
     }
 
+    public mergeQueryString(queryString?: string | Record<string, any>): ApiRequest {
+        const qs = typeof queryString === 'object' ? toParams(queryString) : queryString ?? ''
+        if (this.queryString && this.queryString.length > 0) {
+            this.queryString += '&' + (qs.startsWith('&') || qs.startsWith('?') ? qs.substring(1) : qs)
+        } else {
+            this.queryString = qs
+        }
+        return this
+    }
+
     public withAction(apiAction: string): ApiRequest {
         return this.addPathComponent(apiAction)
     }
@@ -1043,7 +1053,20 @@ const api = {
             filters: Partial<Pick<ActivityLogItem, 'item_id' | 'scope'> & { user?: UserBasicType['id'] }>,
             teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()
         ): Promise<PaginatedResponse<ActivityLogItem>> {
-            return new ApiRequest().activity_log(teamId).withQueryString(toParams(filters)).get()
+            return api.activity.listRequest(filters, teamId).get()
+        },
+
+        listRequest(
+            filters: Partial<
+                Pick<ActivityLogItem, 'item_id'> & {
+                    scope?: ActivityScope
+                    scopes?: string
+                    user?: UserBasicType['id']
+                }
+            >,
+            teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()
+        ): ApiRequest {
+            return new ApiRequest().activity_log(teamId).withQueryString(toParams(filters))
         },
 
         listLegacy(
@@ -1061,11 +1084,6 @@ const api = {
                 },
                 [ActivityScope.INSIGHT]: () => {
                     return new ApiRequest().insightsActivity(teamId)
-                },
-                [ActivityScope.PLUGIN]: () => {
-                    return activityLogProps.id
-                        ? new ApiRequest().pluginConfig(activityLogProps.id as number, teamId).withAction('activity')
-                        : new ApiRequest().plugins().withAction('activity')
                 },
                 [ActivityScope.PLUGIN_CONFIG]: () => {
                     return activityLogProps.id
@@ -1094,17 +1112,32 @@ const api = {
                 [ActivityScope.SURVEY]: (props) => {
                     return new ApiRequest().surveyActivity((props.id ?? null) as string, teamId)
                 },
+                [ActivityScope.PLUGIN]: () => {
+                    return activityLogProps.id
+                        ? api.activity.listRequest({
+                              scope: ActivityScope.PLUGIN_CONFIG,
+                              item_id: String(activityLogProps.id),
+                          })
+                        : api.activity.listRequest({
+                              scopes: [ActivityScope.PLUGIN, ActivityScope.PLUGIN_CONFIG].join(','),
+                          })
+                },
                 [ActivityScope.HOG_FUNCTION]: (props) => {
                     return props.id
-                        ? new ApiRequest().hogFunctionActivity(String(props.id), teamId)
-                        : new ApiRequest().hogFunctionActivity(undefined, teamId)
+                        ? api.activity.listRequest({ scope: ActivityScope.HOG_FUNCTION, item_id: String(props.id) })
+                        : api.activity.listRequest({ scope: ActivityScope.HOG_FUNCTION })
                 },
             }
 
             const pagingParameters = { page: page || 1, limit: ACTIVITY_PAGE_SIZE }
-            const request = requestForScope[activityLogProps.scope]?.(activityLogProps)
+            const scopes = activityLogProps.scope.split(',')
+
+            const request =
+                scopes.length > 1 && !activityLogProps.id
+                    ? api.activity.listRequest({ scopes: scopes.join(',') })
+                    : requestForScope[scopes[0]]?.(activityLogProps)
             return request && request !== null
-                ? request.withQueryString(toParams(pagingParameters)).get()
+                ? request.mergeQueryString(toParams(pagingParameters)).get()
                 : Promise.resolve({ results: [], count: 0 })
         },
     },

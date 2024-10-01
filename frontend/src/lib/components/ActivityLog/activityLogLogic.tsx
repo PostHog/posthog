@@ -62,7 +62,7 @@ export const describerFor = (logItem?: ActivityLogItem): Describer | undefined =
 }
 
 export type ActivityLogLogicProps = {
-    scope: ActivityScope
+    scope: ActivityScope | `${ActivityScope},${ActivityScope}`
     // if no id is provided, the list is not scoped by id and shows all activity ordered by time
     id?: number | string
 }
@@ -164,6 +164,8 @@ export const activityLogLogic = kea<activityLogLogicType>([
                 onPageChange(searchParams, hashParams, ActivityScope.INSIGHT),
             [urls.featureFlag(':id')]: (_, searchParams, hashParams) =>
                 onPageChange(searchParams, hashParams, ActivityScope.FEATURE_FLAG, true),
+            [urls.pipeline(':tab')]: (_, searchParams, hashParams) =>
+                onPageChange(searchParams, hashParams, ActivityScope.PLUGIN),
         }
     }),
     events(({ actions }) => ({
