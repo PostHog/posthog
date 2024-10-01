@@ -45,9 +45,11 @@ from posthog.schema import (
     DataWarehousePropertyFilter,
     DataWarehousePersonPropertyFilter,
 )
-from posthog.warehouse.models import DataWarehouseJoin, DataWarehouseSavedQuery, DataWarehouseTable
+from posthog.warehouse.models import DataWarehouseJoin
 from posthog.utils import get_from_dict_or_attr
 from django.db.models import Q
+
+from posthog.warehouse.models.util import get_view_or_table_by_name
 
 
 def has_aggregation(expr: AST) -> bool:
@@ -113,27 +115,12 @@ def _handle_bool_values(value: ValueT, expr: ast.Expr, property: Property, team:
 
         prop_type = None
 
-        maybe_view = (
-            DataWarehouseSavedQuery.objects.filter(Q(deleted__isnull=True) | Q(deleted=False))
-            .filter(team=team, name=current_join.joining_table_name)
-            .first()
-        )
-
-        if maybe_view:
-            prop_type_dict = maybe_view.columns.get(property.key, None)
+        table_or_view = get_view_or_table_by_name(team, current_join.joining_table_name)
+        if table_or_view:
+            prop_type_dict = table_or_view.columns.get(property.key, None)
             prop_type = prop_type_dict.get("hogql")
 
-        maybe_table = (
-            DataWarehouseTable.objects.filter(Q(deleted__isnull=True) | Q(deleted=False))
-            .filter(team=team, name=current_join.joining_table_name)
-            .first()
-        )
-
-        if maybe_table:
-            prop_type_dict = maybe_table.columns.get(property.key, None)
-            prop_type = prop_type_dict.get("hogql")
-
-        if not maybe_view and not maybe_table:
+        if not table_or_view:
             raise Exception(f"Could not find table or view for key {key}")
 
         if prop_type == "BooleanDatabaseField":
