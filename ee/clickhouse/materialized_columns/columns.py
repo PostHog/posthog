@@ -1,6 +1,6 @@
 import re
 from datetime import timedelta
-from typing import Literal, Union, cast
+from typing import Literal, NamedTuple, Union, cast
 
 from clickhouse_driver.errors import ServerException
 from django.utils.timezone import now
@@ -33,13 +33,21 @@ SHORT_TABLE_COLUMN_NAME = {
 }
 
 
+class MaterializedColumnInfo(NamedTuple):
+    column_name: str
+    is_nullable: bool
+
+
 @cache_for(timedelta(minutes=15))
-def get_materialized_columns(
+def get_materialized_column_info(
     table: TablesWithMaterializedColumns,
-) -> dict[tuple[PropertyName, TableColumn], ColumnName]:
+) -> dict[tuple[PropertyName, TableColumn], MaterializedColumnInfo]:
     rows = sync_execute(
         """
-        SELECT comment, name
+        SELECT
+            comment,
+            name,
+            type like 'Nullable(%%)' as is_nullable
         FROM system.columns
         WHERE database = %(database)s
           AND table = %(table)s
@@ -49,9 +57,20 @@ def get_materialized_columns(
         {"database": CLICKHOUSE_DATABASE, "table": table},
     )
     if rows and get_instance_setting("MATERIALIZED_COLUMNS_ENABLED"):
-        return {_extract_property(comment): column_name for comment, column_name in rows}
+        return {
+            _extract_property(comment): MaterializedColumnInfo(column_name, bool(is_nullable))
+            for comment, column_name, is_nullable in rows
+        }
     else:
         return {}
+
+
+def get_materialized_columns(
+    table: TablesWithMaterializedColumns,
+) -> dict[tuple[PropertyName, TableColumn], ColumnName]:
+    return {
+        key: value.column_name for key, value in get_materialized_column_info(table).items() if not value.is_nullable
+    }
 
 
 def materialize(
