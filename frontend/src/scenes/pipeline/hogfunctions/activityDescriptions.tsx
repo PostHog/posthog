@@ -7,6 +7,7 @@ import {
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
 import { Link } from 'lib/lemon-ui/Link'
+import { initHogLanguage } from 'lib/monaco/languages/hog'
 import { urls } from 'scenes/urls'
 
 import { PipelineNodeTab, PipelineStage } from '~/types'
@@ -27,31 +28,54 @@ export interface DiffProps {
     after: string
     language?: string
 }
+
 export function Diff({ before, after, language }: DiffProps): JSX.Element {
     return (
-        <div className="w-[50vw] min-w-[300px]">
-            <DiffEditor
-                height="300px"
-                original={before}
-                modified={after}
-                language={language ?? 'json'}
-                options={{
-                    lineNumbers: 'off',
-                    minimap: { enabled: false },
-                    folding: false,
-                    wordWrap: 'on',
-                    renderLineHighlight: 'none',
-                    scrollbar: { vertical: 'auto', horizontal: 'hidden' },
-                    overviewRulerBorder: false,
-                    hideCursorInOverviewRuler: true,
-                    overviewRulerLanes: 0,
-                    tabFocusMode: true,
-                    enableSplitViewResizing: false,
-                    renderSideBySide: false,
-                    readOnly: true,
-                }}
-            />
-        </div>
+        <DiffEditor
+            height="300px"
+            original={before}
+            modified={after}
+            language={language ?? 'json'}
+            onMount={(_, monaco) => {
+                if (language === 'hog') {
+                    initHogLanguage(monaco)
+                }
+            }}
+            options={{
+                lineNumbers: 'off',
+                minimap: { enabled: false },
+                folding: false,
+                wordWrap: 'on',
+                renderLineHighlight: 'none',
+                scrollbar: { vertical: 'auto', horizontal: 'hidden' },
+                overviewRulerBorder: false,
+                hideCursorInOverviewRuler: true,
+                overviewRulerLanes: 0,
+                tabFocusMode: true,
+                enableSplitViewResizing: false,
+                renderSideBySide: false,
+                readOnly: true,
+            }}
+        />
+    )
+}
+
+export interface DiffLinkProps extends DiffProps {
+    children: string | JSX.Element
+}
+
+export function DiffLink({ before, after, language, children }: DiffLinkProps): JSX.Element {
+    return (
+        <LemonDropdown
+            closeOnClickInside={false}
+            overlay={
+                <div className="w-[50vw] min-w-[300px]">
+                    <Diff before={before} after={after} language={language} />
+                </div>
+            }
+        >
+            <span className="Link">{children}</span>
+        </LemonDropdown>
     )
 }
 
@@ -87,7 +111,10 @@ export function hogFunctionActivityDescriber(logItem: ActivityLogItem, asNotific
         for (const change of logItem.detail.changes ?? []) {
             switch (change.field) {
                 case 'encrypted_inputs': {
-                    changes.push({ inline: 'updated secrets for', inlist: 'updated secrets' })
+                    changes.push({
+                        inline: 'updated encrypted inputs for',
+                        inlist: 'updated encrypted inputs',
+                    })
                     break
                 }
                 case 'inputs': {
@@ -96,80 +123,78 @@ export function hogFunctionActivityDescriber(logItem: ActivityLogItem, asNotific
                         const before = JSON.stringify(change.before?.[key]?.value)
                         const after = JSON.stringify(value?.value)
                         if (before !== after) {
-                            if (changedFields.length > 0) {
-                                changedFields.push(<span>, </span>)
-                            }
                             changedFields.push(
-                                <LemonDropdown
-                                    overlay={
-                                        <div>
-                                            <div>{`inputs.${key}:`}</div>
-                                            <Diff before={before} after={after} />
-                                        </div>
-                                    }
-                                >
-                                    <span className="Link">{key}</span>
-                                </LemonDropdown>
+                                <DiffLink before={before} after={after}>
+                                    {key}
+                                </DiffLink>
                             )
                         }
                     })
+                    const changedSpans: JSX.Element[] = []
+                    for (let index = 0; index < changedFields.length; index++) {
+                        if (index !== 0 && index === changedFields.length - 1) {
+                            changedSpans.push(<>{' and '}</>)
+                        } else if (index > 0) {
+                            changedSpans.push(<>{', '}</>)
+                        }
+                        changedSpans.push(changedFields[index])
+                    }
+                    const inputOrInputs = changedFields.length === 1 ? 'input' : 'inputs'
                     changes.push({
-                        inline: <>updated fields: {changedFields}</>,
-                        inlist: <>updated fields: {changedFields}</>,
+                        inline: (
+                            <>
+                                updated the {inputOrInputs} {changedSpans} for
+                            </>
+                        ),
+                        inlist: (
+                            <>
+                                updated {inputOrInputs}: {changedSpans}
+                            </>
+                        ),
                     })
                     break
                 }
-                case 'filters': {
-                    changes.push({ inline: 'updated filters of', inlist: 'updated filters' })
+                case 'inputs_schema':
+                case 'filters':
+                case 'hog':
+                case 'name':
+                case 'description':
+                case 'masking': {
+                    const code = (
+                        <DiffLink
+                            language={change.field === 'hog' ? 'hog' : 'json'}
+                            before={
+                                typeof change.before === 'string'
+                                    ? change.before
+                                    : JSON.stringify(change.before, null, 2)
+                            }
+                            after={
+                                typeof change.after === 'string' ? change.after : JSON.stringify(change.after, null, 2)
+                            }
+                        >
+                            {change.field === 'hog'
+                                ? 'source code'
+                                : change.field === 'inputs_schema'
+                                ? 'inputs schema'
+                                : change.field}
+                        </DiffLink>
+                    )
+                    changes.push({ inline: <>updated {code} for</>, inlist: <>updated {code}</> })
                     break
                 }
                 case 'deleted': {
                     if (change.after) {
-                        changes.push({ inline: 'deleted', inlist: 'deleted' })
+                        changes.push({ inline: 'deleted', inlist: 'deleted the hog function' })
                     } else {
-                        changes.push({ inline: 'undeleted', inlist: 'undeleted' })
+                        changes.push({ inline: 'undeleted', inlist: 'undeleted the hog function' })
                     }
-                    break
-                }
-                case 'hog': {
-                    const code = (
-                        <LemonDropdown
-                            overlay={
-                                <Diff
-                                    language="hog"
-                                    before={String(change.before ?? '')}
-                                    after={String(change.after ?? '')}
-                                />
-                            }
-                        >
-                            <span className="Link">updated hog code</span>
-                        </LemonDropdown>
-                    )
-                    changes.push({ inline: <>{code} for</>, inlist: code })
-                    break
-                }
-                case 'name': {
-                    changes.push({ inline: `name: ${change.after}`, inlist: `name: ${change.after}` })
-                    break
-                }
-                case 'description': {
-                    changes.push({ inline: `description: ${change.after}`, inlist: `description: ${change.after}` })
                     break
                 }
                 case 'enabled': {
                     if (change.after) {
-                        changes.push({ inline: 'enabled', inlist: 'enabled' })
+                        changes.push({ inline: 'enabled', inlist: 'enabled the hog function' })
                     } else {
-                        changes.push({ inline: 'disabled', inlist: 'disabled' })
-                    }
-                    break
-                }
-                case 'masking': {
-                    const value = (change.after as any)?.hash
-                    if (value === 'all') {
-                        changes.push({ inline: 'set to run every time for', inlist: 'set to run every time' })
-                    } else {
-                        changes.push({ inline: 'updated throttling for', inlist: 'updated throttling' })
+                        changes.push({ inline: 'disabled', inlist: 'disabled the hog function' })
                     }
                     break
                 }
@@ -192,9 +217,9 @@ export function hogFunctionActivityDescriber(logItem: ActivityLogItem, asNotific
                 ) : (
                     <div>
                         <strong>{name}</strong> updated the hog function: {functionName}
-                        <ul>
+                        <ul className="list-disc ml-5">
                             {changes.map((c, i) => (
-                                <li key={i}>- {c.inlist}</li>
+                                <li key={i}>{c.inlist}</li>
                             ))}
                         </ul>
                     </div>

@@ -1,6 +1,11 @@
 // eslint-disable-next-line eslint-comments/disable-enable-pair
 /* eslint-disable no-useless-escape */
+import { Monaco } from '@monaco-editor/react'
+import { hogQLAutocompleteProvider } from 'lib/monaco/hogQLAutocompleteProvider'
+import { hogQLMetadataProvider } from 'lib/monaco/hogQLMetadataProvider'
 import { languages } from 'monaco-editor'
+
+import { HogLanguage } from '~/queries/schema'
 
 import { conf as _conf, language as _language } from './hog'
 
@@ -151,3 +156,16 @@ export const language: () => languages.IMonarchLanguage = () => ({
         ],
     },
 })
+
+export function initHogJsonLanguage(monaco: Monaco): void {
+    if (!monaco.languages.getLanguages().some(({ id }) => id === 'hogJson')) {
+        monaco.languages.register({
+            id: 'hogJson',
+            mimetypes: ['application/hog+json'],
+        })
+        monaco.languages.setLanguageConfiguration('hogJson', conf())
+        monaco.languages.setMonarchTokensProvider('hogJson', language())
+        monaco.languages.registerCompletionItemProvider('hogJson', hogQLAutocompleteProvider(HogLanguage.hogJson))
+        monaco.languages.registerCodeActionProvider('hogJson', hogQLMetadataProvider())
+    }
+}
