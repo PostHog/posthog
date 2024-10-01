@@ -3722,6 +3722,38 @@
             "required": ["name", "hogql_value", "type", "schema_valid"],
             "type": "object"
         },
+        "DatabaseSchemaMaterializedViewTable": {
+            "additionalProperties": false,
+            "properties": {
+                "fields": {
+                    "additionalProperties": {
+                        "$ref": "#/definitions/DatabaseSchemaField"
+                    },
+                    "type": "object"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "last_run_at": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "query": {
+                    "$ref": "#/definitions/HogQLQuery"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "type": {
+                    "const": "materialized_view",
+                    "type": "string"
+                }
+            },
+            "required": ["fields", "id", "name", "query", "type"],
+            "type": "object"
+        },
         "DatabaseSchemaPostHogTable": {
             "additionalProperties": false,
             "properties": {
@@ -3836,6 +3868,9 @@
                 },
                 {
                     "$ref": "#/definitions/DatabaseSchemaBatchExportTable"
+                },
+                {
+                    "$ref": "#/definitions/DatabaseSchemaMaterializedViewTable"
                 }
             ]
         },
@@ -3855,7 +3890,7 @@
                     "type": "string"
                 },
                 "type": {
-                    "enum": ["posthog", "data_warehouse", "view", "batch_export"],
+                    "enum": ["posthog", "data_warehouse", "view", "batch_export", "materialized_view"],
                     "type": "string"
                 }
             },
@@ -3902,7 +3937,8 @@
                 "virtual_table",
                 "field_traverser",
                 "expression",
-                "view"
+                "view",
+                "materialized_view"
             ],
             "type": "string"
         },
@@ -4618,13 +4654,13 @@
         "ExperimentTrendQuery": {
             "additionalProperties": false,
             "properties": {
-                "count_source": {
+                "count_query": {
                     "$ref": "#/definitions/TrendsQuery"
                 },
                 "experiment_id": {
                     "type": "integer"
                 },
-                "exposure_source": {
+                "exposure_query": {
                     "$ref": "#/definitions/TrendsQuery"
                 },
                 "kind": {
@@ -4639,7 +4675,7 @@
                     "$ref": "#/definitions/ExperimentTrendQueryResponse"
                 }
             },
-            "required": ["count_source", "experiment_id", "exposure_source", "kind"],
+            "required": ["count_query", "experiment_id", "kind"],
             "type": "object"
         },
         "ExperimentTrendQueryResponse": {
@@ -7467,7 +7503,7 @@
                 "refresh": {
                     "$ref": "#/definitions/RefreshType",
                     "default": "blocking",
-                    "description": "Whether to refresh the insight, how aggresively, and if sync or async:\n- `'blocking'` - calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in the cache\n- `'async'` - kick off background calculation (returning immediately with a query status), UNLESS there are very fresh results in the cache\n- `'lazy_async'` - kick off background calculation, UNLESS there are somewhat fresh results in the cache\n- `'force_blocking'` - calculate synchronously, even if fresh results are already cached\n- `'force_async'` - kick off background calculation, even if fresh results are already cached\n- `'force_cache'` - return cached data or a cache miss; always completes immediately as it never calculates Background calculation can be tracked using the `query_status` response field."
+                    "description": "Whether results should be calculated sync or async, and how much to rely on the cache:\n- `'blocking'` - calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in the cache\n- `'async'` - kick off background calculation (returning immediately with a query status), UNLESS there are very fresh results in the cache\n- `'lazy_async'` - kick off background calculation, UNLESS there are somewhat fresh results in the cache\n- `'force_blocking'` - calculate synchronously, even if fresh results are already cached\n- `'force_async'` - kick off background calculation, even if fresh results are already cached\n- `'force_cache'` - return cached data or a cache miss; always completes immediately as it never calculates Background calculation can be tracked using the `query_status` response field."
                 }
             },
             "required": ["query"],

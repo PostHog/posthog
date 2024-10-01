@@ -1169,9 +1169,9 @@ export type RefreshType =
 export interface QueryRequest {
     /** Client provided query ID. Can be used to retrieve the status or cancel the query. */
     client_query_id?: string
-    // Sync the `refresh` description here with the one in posthog/api/insight.py
+    // Sync the `refresh` description here with the two instances in posthog/api/insight.py
     /**
-     * Whether to refresh the insight, how aggresively, and if sync or async:
+     * Whether results should be calculated sync or async, and how much to rely on the cache:
      * - `'blocking'` - calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in the cache
      * - `'async'` - kick off background calculation (returning immediately with a query status), UNLESS there are very fresh results in the cache
      * - `'lazy_async'` - kick off background calculation, UNLESS there are somewhat fresh results in the cache
@@ -1602,8 +1602,10 @@ export interface ExperimentFunnelQuery extends DataNode<ExperimentFunnelQueryRes
 
 export interface ExperimentTrendQuery extends DataNode<ExperimentTrendQueryResponse> {
     kind: NodeKind.ExperimentTrendQuery
-    count_source: TrendsQuery
-    exposure_source: TrendsQuery
+    count_query: TrendsQuery
+    // Defaults to $feature_flag_called if not specified
+    // https://github.com/PostHog/posthog/blob/master/posthog/hogql_queries/experiments/experiment_trend_query_runner.py
+    exposure_query?: TrendsQuery
     experiment_id: integer
 }
 
@@ -1803,7 +1805,7 @@ export interface DatabaseSchemaField {
 }
 
 export interface DatabaseSchemaTableCommon {
-    type: 'posthog' | 'data_warehouse' | 'view' | 'batch_export'
+    type: 'posthog' | 'data_warehouse' | 'view' | 'batch_export' | 'materialized_view'
     id: string
     name: string
     fields: Record<string, DatabaseSchemaField>
@@ -1812,6 +1814,13 @@ export interface DatabaseSchemaTableCommon {
 export interface DatabaseSchemaViewTable extends DatabaseSchemaTableCommon {
     type: 'view'
     query: HogQLQuery
+}
+
+export interface DatabaseSchemaMaterializedViewTable extends DatabaseSchemaTableCommon {
+    type: 'materialized_view'
+    query: HogQLQuery
+    last_run_at?: string
+    status?: string
 }
 
 export interface DatabaseSchemaPostHogTable extends DatabaseSchemaTableCommon {
@@ -1835,6 +1844,7 @@ export type DatabaseSchemaTable =
     | DatabaseSchemaDataWarehouseTable
     | DatabaseSchemaViewTable
     | DatabaseSchemaBatchExportTable
+    | DatabaseSchemaMaterializedViewTable
 
 export interface DatabaseSchemaQueryResponse {
     tables: Record<string, DatabaseSchemaTable>
@@ -1858,6 +1868,7 @@ export type DatabaseSerializedFieldType =
     | 'field_traverser'
     | 'expression'
     | 'view'
+    | 'materialized_view'
 
 export type HogQLExpression = string
 

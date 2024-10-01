@@ -334,6 +334,7 @@ class Type(StrEnum):
     DATA_WAREHOUSE = "data_warehouse"
     VIEW = "view"
     BATCH_EXPORT = "batch_export"
+    MATERIALIZED_VIEW = "materialized_view"
 
 
 class DatabaseSerializedFieldType(StrEnum):
@@ -350,6 +351,7 @@ class DatabaseSerializedFieldType(StrEnum):
     FIELD_TRAVERSER = "field_traverser"
     EXPRESSION = "expression"
     VIEW = "view"
+    MATERIALIZED_VIEW = "materialized_view"
 
 
 class DateRange(BaseModel):
@@ -4752,6 +4754,19 @@ class DataVisualizationNode(BaseModel):
     tableSettings: Optional[TableSettings] = None
 
 
+class DatabaseSchemaMaterializedViewTable(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    fields: dict[str, DatabaseSchemaField]
+    id: str
+    last_run_at: Optional[str] = None
+    name: str
+    query: HogQLQuery
+    status: Optional[str] = None
+    type: Literal["materialized_view"] = "materialized_view"
+
+
 class DatabaseSchemaViewTable(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5120,9 +5135,9 @@ class ExperimentTrendQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    count_source: TrendsQuery
+    count_query: TrendsQuery
     experiment_id: int
-    exposure_source: TrendsQuery
+    exposure_query: Optional[TrendsQuery] = None
     kind: Literal["ExperimentTrendQuery"] = "ExperimentTrendQuery"
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
@@ -5438,6 +5453,7 @@ class QueryResponseAlternative37(BaseModel):
             DatabaseSchemaDataWarehouseTable,
             DatabaseSchemaViewTable,
             DatabaseSchemaBatchExportTable,
+            DatabaseSchemaMaterializedViewTable,
         ],
     ]
 
@@ -5533,6 +5549,7 @@ class DatabaseSchemaQueryResponse(BaseModel):
             DatabaseSchemaDataWarehouseTable,
             DatabaseSchemaViewTable,
             DatabaseSchemaBatchExportTable,
+            DatabaseSchemaMaterializedViewTable,
         ],
     ]
 
@@ -6016,15 +6033,15 @@ class QueryRequest(BaseModel):
     refresh: Optional[Union[bool, str]] = Field(
         default="blocking",
         description=(
-            "Whether to refresh the insight, how aggresively, and if sync or async:\n- `'blocking'` - calculate"
-            " synchronously (returning only when the query is done), UNLESS there are very fresh results in the"
-            " cache\n- `'async'` - kick off background calculation (returning immediately with a query status), UNLESS"
-            " there are very fresh results in the cache\n- `'lazy_async'` - kick off background calculation, UNLESS"
-            " there are somewhat fresh results in the cache\n- `'force_blocking'` - calculate synchronously, even if"
-            " fresh results are already cached\n- `'force_async'` - kick off background calculation, even if fresh"
-            " results are already cached\n- `'force_cache'` - return cached data or a cache miss; always completes"
-            " immediately as it never calculates Background calculation can be tracked using the `query_status`"
-            " response field."
+            "Whether results should be calculated sync or async, and how much to rely on the cache:\n- `'blocking'` -"
+            " calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in"
+            " the cache\n- `'async'` - kick off background calculation (returning immediately with a query status),"
+            " UNLESS there are very fresh results in the cache\n- `'lazy_async'` - kick off background calculation,"
+            " UNLESS there are somewhat fresh results in the cache\n- `'force_blocking'` - calculate synchronously,"
+            " even if fresh results are already cached\n- `'force_async'` - kick off background calculation, even if"
+            " fresh results are already cached\n- `'force_cache'` - return cached data or a cache miss; always"
+            " completes immediately as it never calculates Background calculation can be tracked using the"
+            " `query_status` response field."
         ),
     )
 

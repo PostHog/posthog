@@ -24,6 +24,7 @@ common-alloc = { path = "../common/alloc" }
 common-kafka = { path = "../common/kafka" }
 ahash = { workspace = true }
 uuid = { workspace = true }
+rand = { workspace = true }
 
 [lints]
 workspace = true

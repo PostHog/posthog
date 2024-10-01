@@ -1237,5 +1237,6 @@ export type AppMetric2Type = {
         | 'disabled_permanently'
         | 'masked'
         | 'filtering_failed'
+        | 'fetch'
     count: number
 }
