@@ -425,7 +425,7 @@ class BackfillBatchExportInputs:
 
     team_id: int
     batch_export_id: str
-    start_at: str
+    start_at: str | None
     end_at: str | None
     buffer_limit: int = 1
     start_delay: float = 1.0
@@ -494,7 +494,7 @@ async def start_backfill_batch_export_workflow(
 
 def create_batch_export_run(
     batch_export_id: UUID,
-    data_interval_start: str,
+    data_interval_start: str | None,
     data_interval_end: str,
     status: str = BatchExportRun.Status.STARTING,
     records_total_count: int | None = None,
@@ -513,7 +513,7 @@ def create_batch_export_run(
     run = BatchExportRun(
         batch_export_id=batch_export_id,
         status=status,
-        data_interval_start=dt.datetime.fromisoformat(data_interval_start),
+        data_interval_start=dt.datetime.fromisoformat(data_interval_start) if data_interval_start else None,
         data_interval_end=dt.datetime.fromisoformat(data_interval_end),
         records_total_count=records_total_count,
     )
@@ -695,7 +695,7 @@ def sync_batch_export(batch_export: BatchExport, created: bool):
 def create_batch_export_backfill(
     batch_export_id: UUID,
     team_id: int,
-    start_at: str,
+    start_at: str | None,
     end_at: str | None,
     status: str = BatchExportRun.Status.RUNNING,
 ) -> BatchExportBackfill:
@@ -712,7 +712,7 @@ def create_batch_export_backfill(
     backfill = BatchExportBackfill(
         batch_export_id=batch_export_id,
         status=status,
-        start_at=dt.datetime.fromisoformat(start_at),
+        start_at=dt.datetime.fromisoformat(start_at) if start_at else None,
         end_at=dt.datetime.fromisoformat(end_at) if end_at else None,
         team_id=team_id,
     )
