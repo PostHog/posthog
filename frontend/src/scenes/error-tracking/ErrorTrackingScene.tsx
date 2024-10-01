@@ -4,6 +4,7 @@ import {
     LemonButton,
     LemonCheckbox,
     LemonDivider,
+    LemonFileInput,
     LemonInput,
     LemonModal,
     LemonSegmentedButton,
@@ -13,6 +14,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { FeedbackNotice } from 'lib/components/FeedbackNotice'
 import { PageHeader } from 'lib/components/PageHeader'
+import { IconUploadFile } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -199,13 +201,32 @@ const ConfigurationModal = (): JSX.Element => {
             isOpen={isConfigurationModalOpen}
             simple
         >
-            <Form logic={errorTrackingSceneLogic} formKey="uploadSourcemap" className="gap-1">
+            <Form logic={errorTrackingSceneLogic} formKey="uploadSourcemap" className="gap-1" enableFormOnSubmit>
                 <LemonModal.Header>
                     <h3>Upload sourcemap</h3>
                 </LemonModal.Header>
                 <LemonModal.Content className="space-y-2">
                     <LemonField name="url" label="Sourcemap URL">
                         <LemonInput fullWidth placeholder="https://static-assets.yourdomain.com/chunk-ABCDEFG.js.map" />
+                    </LemonField>
+                </LemonModal.Content>
+                <LemonDivider label="OR" />
+                <LemonModal.Content className="space-y-2">
+                    <LemonField name="files">
+                        <LemonFileInput
+                            accept="text/plain"
+                            multiple={false}
+                            callToAction={
+                                <div className="flex flex-col items-center justify-center space-y-2 border border-dashed rounded p-4">
+                                    <span className="flex items-center gap-2 font-semibold">
+                                        <IconUploadFile className="text-2xl" /> Add sourcemap
+                                    </span>
+                                    <div>
+                                        Drag and drop your local sourcemap here or click to open the file browser.
+                                    </div>
+                                </div>
+                            }
+                        />
                     </LemonField>
                 </LemonModal.Content>
                 <LemonModal.Footer>

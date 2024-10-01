@@ -688,6 +688,10 @@ class ApiRequest {
         return this.errorTrackingGroup(fingerprint).addPathComponent('merge')
     }
 
+    public errorTrackingUploadSourcemaps(): ApiRequest {
+        return this.errorTracking().addPathComponent('upload_source_maps')
+    }
+
     // # Warehouse
     public dataWarehouseTables(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('warehouse_tables')
@@ -1774,6 +1778,10 @@ const api = {
             return await new ApiRequest()
                 .errorTrackingMerge(primaryFingerprint)
                 .create({ data: { merging_fingerprints: mergingFingerprints } })
+        },
+
+        async uploadSourcemaps(data: FormData): Promise<{ content: string }> {
+            return await new ApiRequest().errorTrackingUploadSourcemaps().create({ data })
         },
     },
 

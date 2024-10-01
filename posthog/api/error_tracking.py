@@ -1,9 +1,9 @@
-import hashlib
-import requests
 import json
+import structlog
 
 from rest_framework import serializers, viewsets
 from rest_framework.response import Response
+from rest_framework.exceptions import ValidationError
 
 from django.db.models import QuerySet
 from django.conf import settings
@@ -13,6 +13,15 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.models.error_tracking import ErrorTrackingGroup
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
+from posthog.storage import object_storage
+
+FIFTY_MEGABYTES = 50 * 1024 * 1024
+
+logger = structlog.get_logger(__name__)
+
+
+class ObjectStorageUnavailable(Exception):
+    pass
 
 
 class ErrorTrackingGroupSerializer(serializers.ModelSerializer):
@@ -40,26 +49,23 @@ class ErrorTrackingGroupViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         return Response({"success": True})
 
     @action(methods=["POST"], detail=False)
-    def upload_sourcemap(self, request, **kwargs):
-        sourcemap_url = request.GET.get("url", "")
+    def upload_source_maps(self, request, **kwargs):
+        try:
+            if settings.OBJECT_STORAGE_ENABLED:
+                file = request.FILES["source_map"]
+                if file.size > FIFTY_MEGABYTES:
+                    raise ValidationError(code="file_too_large", detail="Source maps must be less than 50MB")
 
-        url_hash = hashlib.md5(sourcemap_url.encode()).hexdigest()
-        upload_path = f"{settings.OBJECT_STORAGE_ERROR_TRACKING_SOURCEMAPS_FOLDER}/team-{self.team_id}/{url_hash}"
+                upload_path = (
+                    f"{settings.OBJECT_STORAGE_ERROR_TRACKING_SOURCEMAPS_FOLDER}/team-{self.team_id}/{file.name}"
+                )
 
-        content = "This is the content I want to upload"
-
-        res = requests.get(sourcemap_url)
-
-        return Response({"contents": res.json()})
-
-        data = res.json()
-
-        print(data)
-
-        # object_storage.write(
-        #     upload_path,
-        #     content,
-        #     # extras={"ContentType": "application/json", "ContentEncoding": "gzip"},
-        # )
-
-        return Response({"ok": True})
+                object_storage.write(upload_path, file)
+                return Response({"ok": True})
+            else:
+                raise ObjectStorageUnavailable()
+        except ObjectStorageUnavailable:
+            raise ValidationError(
+                code="object_storage_required",
+                detail="Object storage must be available to allow media uploads.",
+            )
