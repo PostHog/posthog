@@ -1,7 +1,7 @@
 import './TopBar.scss'
 
 import { IconChevronDown } from '@posthog/icons'
-import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonButton, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
@@ -149,7 +149,12 @@ function Breadcrumb({ breadcrumb, here, isOnboarding }: BreadcrumbProps): JSX.El
             />
         )
     } else {
-        nameElement = <span>{breadcrumbName || <i>Unnamed</i>}</span>
+        nameElement = (
+            <span className="flex items-center gap-1.5">
+                {breadcrumbName || <i>Unnamed</i>}
+                {'tag' in breadcrumb && breadcrumb.tag && <LemonTag size="small">{breadcrumb.tag}</LemonTag>}
+            </span>
+        )
     }
 
     const Component = breadcrumb.path ? Link : 'div'
