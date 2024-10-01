@@ -404,7 +404,8 @@
                       "$last_external_click_url",
                       "$page_screen_autocapture_count_up_to",
                       "$exit_current_url",
-                      "$exit_pathname"
+                      "$exit_pathname",
+                      "$vitals_lcp"
                   ],
                   "hogql_value": "session",
                   "id": "session",
@@ -962,7 +963,8 @@
                       "$last_external_click_url",
                       "$page_screen_autocapture_count_up_to",
                       "$exit_current_url",
-                      "$exit_pathname"
+                      "$exit_pathname",
+                      "$vitals_lcp"
                   ],
                   "hogql_value": "session",
                   "id": "session",
@@ -1456,6 +1458,16 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "string"
+              },
+              "$vitals_lcp": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "`$vitals_lcp`",
+                  "id": null,
+                  "name": "$vitals_lcp",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "float"
               }
           },
           "id": "sessions",
@@ -1967,7 +1979,8 @@
                       "$last_external_click_url",
                       "$page_screen_autocapture_count_up_to",
                       "$exit_current_url",
-                      "$exit_pathname"
+                      "$exit_pathname",
+                      "$vitals_lcp"
                   ],
                   "hogql_value": "session",
                   "id": "session",
@@ -2498,7 +2511,8 @@
                       "$last_external_click_url",
                       "$page_screen_autocapture_count_up_to",
                       "$exit_current_url",
-                      "$exit_pathname"
+                      "$exit_pathname",
+                      "$vitals_lcp"
                   ],
                   "hogql_value": "session",
                   "id": "session",
@@ -2992,6 +3006,16 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "string"
+              },
+              "$vitals_lcp": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "`$vitals_lcp`",
+                  "id": null,
+                  "name": "$vitals_lcp",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "float"
               }
           },
           "id": "sessions",

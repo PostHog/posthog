@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, Union
 import math
 
 from django.utils.timezone import datetime
@@ -19,6 +19,7 @@ from posthog.schema import (
     WebOverviewQuery,
     ActionConversionGoal,
     CustomEventConversionGoal,
+    SessionTableVersion,
 )
 
 
@@ -58,6 +59,10 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner):
                 to_data("session duration", "duration_s", row[6], row[7]),
                 to_data("bounce rate", "percentage", row[8], row[9], is_increase_bad=True),
             ]
+            if self.query.includeLCPScore:
+                results.append(
+                    to_data("lcp score", "duration_ms", row[10], row[11], is_increase_bad=True),
+                )
 
         return WebOverviewQueryResponse(
             results=results,
@@ -215,6 +220,13 @@ HAVING and(
                     alias="is_bounce", expr=ast.Call(name="any", args=[ast.Field(chain=["session", "$is_bounce"])])
                 )
             )
+            if self.query.includeLCPScore:
+                lcp = (
+                    ast.Call(name="toFloat", args=[ast.Constant(value=None)])
+                    if self.modifiers.sessionTableVersion == SessionTableVersion.V1
+                    else ast.Call(name="any", args=[ast.Field(chain=["session", "$vitals_lcp"])])
+                )
+                parsed_select.select.append(ast.Alias(alias="lcp", expr=lcp))
 
         return parsed_select
 
@@ -224,12 +236,13 @@ HAVING and(
         mid = self.query_date_range.date_from_as_hogql()
         end = self.query_date_range.date_to_as_hogql()
 
-        def current_period_aggregate(function_name, column_name, alias):
+        def current_period_aggregate(function_name, column_name, alias, params=None):
             if self.query.compare:
                 return ast.Alias(
                     alias=alias,
                     expr=ast.Call(
                         name=function_name + "If",
+                        params=params,
                         args=[
                             ast.Field(chain=[column_name]),
                             ast.Call(
@@ -251,14 +264,17 @@ HAVING and(
                     ),
                 )
             else:
-                return ast.Alias(alias=alias, expr=ast.Call(name=function_name, args=[ast.Field(chain=[column_name])]))
+                return ast.Alias(
+                    alias=alias, expr=ast.Call(name=function_name, params=params, args=[ast.Field(chain=[column_name])])
+                )
 
-        def previous_period_aggregate(function_name, column_name, alias):
+        def previous_period_aggregate(function_name, column_name, alias, params=None):
             if self.query.compare:
                 return ast.Alias(
                     alias=alias,
                     expr=ast.Call(
                         name=function_name + "If",
+                        params=params,
                         args=[
                             ast.Field(chain=[column_name]),
                             ast.Call(
@@ -320,6 +336,15 @@ HAVING and(
                 current_period_aggregate("avg", "is_bounce", "bounce_rate"),
                 previous_period_aggregate("avg", "is_bounce", "prev_bounce_rate"),
             ]
+            if self.query.includeLCPScore:
+                select.extend(
+                    [
+                        current_period_aggregate("quantiles", "lcp", "lcp_p75", params=[ast.Constant(value=0.75)]),
+                        previous_period_aggregate(
+                            "quantiles", "lcp", "prev_lcp_p75", params=[ast.Constant(value=0.75)]
+                        ),
+                    ]
+                )
 
         query = ast.SelectQuery(
             select=select,
@@ -332,10 +357,14 @@ HAVING and(
 def to_data(
     key: str,
     kind: str,
-    value: Optional[float],
-    previous: Optional[float],
+    value: Optional[Union[float, list[float]]],
+    previous: Optional[Union[float, list[float]]],
     is_increase_bad: Optional[bool] = None,
 ) -> dict:
+    if isinstance(value, list):
+        value = value[0]
+    if isinstance(previous, list):
+        previous = previous[0]
     if value is not None and math.isnan(value):
         value = None
     if previous is not None and math.isnan(previous):
@@ -345,6 +374,12 @@ def to_data(
             value = value * 100
         if previous is not None:
             previous = previous * 100
+    if kind == "duration_ms":
+        kind = "duration_s"
+        if value is not None:
+            value = value / 1000
+        if previous is not None:
+            previous = previous / 1000
 
     try:
         if value is not None and previous:

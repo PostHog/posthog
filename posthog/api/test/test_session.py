@@ -53,6 +53,7 @@ class TestSessionsAPI(APIBaseTest):
             "$start_timestamp",
             "$is_bounce",
             "$last_external_click_url",
+            "$vitals_lcp",
         }
         assert actual_properties == expected_properties
 

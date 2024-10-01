@@ -2,9 +2,11 @@ import { IconTrending } from '@posthog/icons'
 import { LemonSkeleton } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { getColorVar } from 'lib/colors'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyDuration, humanFriendlyLargeNumber, isNotNil, range } from 'lib/utils'
 import { useState } from 'react'
 
@@ -34,13 +36,14 @@ export function WebOverview(props: {
         onData,
         dataNodeCollectionId: dataNodeCollectionId ?? key,
     })
+    const { featureFlags } = useValues(featureFlagLogic)
     const { response, responseLoading } = useValues(logic)
 
     const webOverviewQueryResponse = response as WebOverviewQueryResponse | undefined
 
     const samplingRate = webOverviewQueryResponse?.samplingRate
 
-    const numSkeletons = props.query.conversionGoal ? 4 : 5
+    const numSkeletons = props.query.conversionGoal ? 4 : featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LCP_SCORE] ? 6 : 5
 
     return (
         <>
@@ -136,7 +139,19 @@ const formatPercentage = (x: number, options?: { precise?: boolean }): string =>
     return (x / 100).toLocaleString(undefined, { style: 'percent', maximumFractionDigits: 0 })
 }
 
-const formatSeconds = (x: number): string => humanFriendlyDuration(Math.round(x))
+const formatSeconds = (x: number): string => {
+    // if over than a minute, show minutes and seconds
+    if (x >= 60) {
+        return humanFriendlyDuration(x)
+    }
+    // if over 1 second, show 3 significant figures
+    if (x >= 1) {
+        return `${x.toPrecision(3)}s`
+    }
+
+    // show the number of milliseconds
+    return `${x * 1000}ms`
+}
 
 const formatUnit = (x: number, options?: { precise?: boolean }): string => {
     if (options?.precise) {
@@ -172,6 +187,8 @@ const labelFromKey = (key: string): string => {
             return 'Session duration'
         case 'bounce rate':
             return 'Bounce rate'
+        case 'lcp score':
+            return 'LCP Score'
         case 'conversion rate':
             return 'Conversion rate'
         case 'total conversions':
