@@ -1,5 +1,6 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
+import api from 'lib/api'
 import { AddToDashboard } from 'lib/components/AddToDashboard/AddToDashboard'
 import { AddToDashboardModal } from 'lib/components/AddToDashboard/AddToDashboardModal'
 import { AlertsButton, AlertsModal } from 'lib/components/Alerts/AlertsModal'
@@ -12,8 +13,12 @@ import { SubscribeButton, SubscriptionsModal } from 'lib/components/Subscription
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
 import { useState } from 'react'
 import { NewDashboardModal } from 'scenes/dashboard/NewDashboardModal'
@@ -29,6 +34,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { cohortsModel } from '~/models/cohortsModel'
 import { tagsModel } from '~/models/tagsModel'
 import { DataTableNode, NodeKind } from '~/queries/schema'
 import {
@@ -227,6 +233,55 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                                 fullWidth
                                             >
                                                 Edit SQL directly
+                                            </LemonButton>
+                                            <LemonButton
+                                                data-attr="edit-insight-sql"
+                                                onClick={() => {
+                                                    LemonDialog.openForm({
+                                                        title: 'Save as static cohort',
+                                                        description:
+                                                            'This will create a cohort with the current results of the query. The first column of the query must be the ID of the person.',
+                                                        initialValues: {
+                                                            name: '',
+                                                        },
+                                                        content: (
+                                                            <LemonField name="name">
+                                                                <LemonInput
+                                                                    data-attr="insight-name"
+                                                                    placeholder="Name of the new cohort"
+                                                                    autoFocus
+                                                                />
+                                                            </LemonField>
+                                                        ),
+                                                        errors: {
+                                                            name: (name) =>
+                                                                !name ? 'You must enter a name' : undefined,
+                                                        },
+                                                        onSubmit: async ({ name }) => {
+                                                            try {
+                                                                const cohort = await api.create('api/cohort', {
+                                                                    is_static: true,
+                                                                    name: name || 'Query cohort',
+                                                                    query: { kind: NodeKind.HogQLQuery, query: hogQL },
+                                                                })
+                                                                cohortsModel.actions.cohortCreated(cohort)
+                                                                lemonToast.success('Cohort saved', {
+                                                                    toastId: `cohort-saved-${cohort.id}`,
+                                                                    button: {
+                                                                        label: 'View cohort',
+                                                                        action: () =>
+                                                                            router.actions.push(urls.cohort(cohort.id)),
+                                                                    },
+                                                                })
+                                                            } catch (e) {
+                                                                lemonToast.error('Cohort save failed')
+                                                            }
+                                                        },
+                                                    })
+                                                }}
+                                                fullWidth
+                                            >
+                                                Save as static cohort
                                             </LemonButton>
                                         </>
                                     )}

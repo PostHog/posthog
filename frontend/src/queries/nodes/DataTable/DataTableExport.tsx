@@ -288,7 +288,7 @@ export function DataTableExport({ query }: DataTableExportProps): JSX.Element | 
                                         <LemonField name="name">
                                             <LemonInput
                                                 data-attr="insight-name"
-                                                placeholder="Please enter the new name"
+                                                placeholder="Name of the new cohort"
                                                 autoFocus
                                             />
                                         </LemonField>
