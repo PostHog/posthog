@@ -58,8 +58,11 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner):
                 to_data("sessions", "unit", self._unsample(row[4]), self._unsample(row[5])),
                 to_data("session duration", "duration_s", row[6], row[7]),
                 to_data("bounce rate", "percentage", row[8], row[9], is_increase_bad=True),
-                to_data("lcp score", "duration_ms", row[10], row[11], is_increase_bad=True),
             ]
+            if self.query.includeLCPScore:
+                results.append(
+                    to_data("lcp score", "duration_ms", row[10], row[11], is_increase_bad=True),
+                )
 
         return WebOverviewQueryResponse(
             results=results,
@@ -217,14 +220,12 @@ HAVING and(
                     alias="is_bounce", expr=ast.Call(name="any", args=[ast.Field(chain=["session", "$is_bounce"])])
                 )
             )
-            lcp = (
-                ast.Call(name="toFloat", args=[ast.Constant(value=None)])
-                if self.modifiers.sessionTableVersion == SessionTableVersion.V1
-                else ast.Call(name="any", args=[ast.Field(chain=["session", "$vitals_lcp"])])
-            )
-            if self.modifiers.sessionTableVersion != SessionTableVersion.V1:
-                parsed_select.select.append(ast.Alias(alias="lcp", expr=lcp))
-            else:
+            if self.query.includeLCPScore:
+                lcp = (
+                    ast.Call(name="toFloat", args=[ast.Constant(value=None)])
+                    if self.modifiers.sessionTableVersion == SessionTableVersion.V1
+                    else ast.Call(name="any", args=[ast.Field(chain=["session", "$vitals_lcp"])])
+                )
                 parsed_select.select.append(ast.Alias(alias="lcp", expr=lcp))
 
         return parsed_select
@@ -334,9 +335,14 @@ HAVING and(
                 previous_period_aggregate("avg", "session_duration", "prev_avg_duration_s"),
                 current_period_aggregate("avg", "is_bounce", "bounce_rate"),
                 previous_period_aggregate("avg", "is_bounce", "prev_bounce_rate"),
-                current_period_aggregate("quantiles", "lcp", "lcp_p90", params=[ast.Constant(value=0.9)]),
-                previous_period_aggregate("quantiles", "lcp", "prev_lcp_p90", params=[ast.Constant(value=0.9)]),
             ]
+            if self.query.includeLCPScore:
+                select.extend(
+                    [
+                        current_period_aggregate("quantiles", "lcp", "lcp_p90", params=[ast.Constant(value=0.9)]),
+                        previous_period_aggregate("quantiles", "lcp", "prev_lcp_p90", params=[ast.Constant(value=0.9)]),
+                    ]
+                )
 
         query = ast.SelectQuery(
             select=select,
