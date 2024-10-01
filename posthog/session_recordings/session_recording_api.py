@@ -410,25 +410,25 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
             # but for reporting we want to distinguish between not loaded and no value to load
             "snapshot_source": player_metadata.get("snapshotSource", "unknown"),
         }
-        user = request.user
+        user: User | None | AnonymousUser = request.user
 
-        if "viewed" in serializer.validated_data and not request.user.is_anonymous:
-            recording.check_viewed_for_user(user, save_viewed=True)
-            # TODO: make sure this has all the props we want
-            report_user_action(
-                user=User(user),
-                event="recording viewed",
-                properties=event_properties,
-                team=self.team,
-            )
+        if isinstance(user, User) and not user.is_anonymous:
+            if "viewed" in serializer.validated_data:
+                recording.check_viewed_for_user(user, save_viewed=True)
+                report_user_action(
+                    user=user,
+                    event="recording viewed",
+                    properties=event_properties,
+                    team=self.team,
+                )
 
-        if "analyzed" in serializer.validated_data and not request.user.is_anonymous:
-            report_user_action(
-                user=User(user),
-                event="recording analyzed",
-                properties=event_properties,
-                team=self.team,
-            )
+            if "analyzed" in serializer.validated_data:
+                report_user_action(
+                    user=user,
+                    event="recording analyzed",
+                    properties=event_properties,
+                    team=self.team,
+                )
 
         return Response({"success": True})
 
