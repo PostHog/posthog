@@ -441,7 +441,7 @@ impl PropertyDefinition {
             Some(GroupType::Resolved(_, i)) => Some(*i as i16),
             Some(GroupType::Unresolved(group_name)) => {
                 warn!(
-                    "Group type {} not resolved for property definition {} for team {}, skipping",
+                    "Group type {} not resolved for property definition {} for team {}, skipping update",
                     group_name, self.name, self.team_id
                 );
                 None
@@ -451,6 +451,14 @@ impl PropertyDefinition {
                 None
             }
         };
+
+        if group_type_index.is_none() && matches!(self.event_type, PropertyParentType::Group) {
+            // Some teams/users wildly misuse group-types, and if we fail to issue an update
+            // during the transaction (which we do if we don't have a group-type index for a
+            // group property), the entire transaction is aborted, so instead we just warn
+            // loudly about this (above, and at resolve time), and drop the update.
+            return Ok(());
+        }
 
         sqlx::query!(
             r#"
