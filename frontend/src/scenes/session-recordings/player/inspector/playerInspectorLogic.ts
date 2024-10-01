@@ -138,7 +138,7 @@ function timeRelativeToStart(
 }
 
 function niceify(tag: string): string {
-    return tag.replace('$', '').replace('_', ' ')
+    return tag.replace(/$/g, '').replace(/_/g, ' ')
 }
 
 function estimateSize(snapshot: unknown): number {
