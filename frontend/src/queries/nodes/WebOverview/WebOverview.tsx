@@ -146,11 +146,11 @@ const formatSeconds = (x: number): string => {
     }
     // if over 1 second, show 3 significant figures
     if (x >= 1) {
-        return `${x.toPrecision(3)} s`
+        return `${x.toPrecision(3)}s`
     }
 
     // show the number of milliseconds
-    return `${x * 1000} ms`
+    return `${x * 1000}ms`
 }
 
 const formatUnit = (x: number, options?: { precise?: boolean }): string => {
