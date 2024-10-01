@@ -287,6 +287,7 @@ export function DataTableExport({ query }: DataTableExportProps): JSX.Element | 
                                     content: (
                                         <LemonField name="name">
                                             <LemonInput
+                                                type="text"
                                                 data-attr="insight-name"
                                                 placeholder="Name of the new cohort"
                                                 autoFocus
