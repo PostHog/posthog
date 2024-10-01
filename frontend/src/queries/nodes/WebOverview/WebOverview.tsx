@@ -139,20 +139,6 @@ const formatPercentage = (x: number, options?: { precise?: boolean }): string =>
     return (x / 100).toLocaleString(undefined, { style: 'percent', maximumFractionDigits: 0 })
 }
 
-const formatSeconds = (x: number): string => {
-    // if over than a minute, show minutes and seconds
-    if (x >= 60) {
-        return humanFriendlyDuration(x)
-    }
-    // if over 1 second, show 3 significant figures
-    if (x >= 1) {
-        return `${x.toPrecision(3)}s`
-    }
-
-    // show the number of milliseconds
-    return `${x * 1000}ms`
-}
-
 const formatUnit = (x: number, options?: { precise?: boolean }): string => {
     if (options?.precise) {
         return x.toLocaleString()
@@ -170,7 +156,7 @@ const formatItem = (
     } else if (kind === 'percentage') {
         return formatPercentage(value, options)
     } else if (kind === 'duration_s') {
-        return formatSeconds(value)
+        return humanFriendlyDuration(value, { secondsPrecision: 3 })
     }
     return formatUnit(value, options)
 }
