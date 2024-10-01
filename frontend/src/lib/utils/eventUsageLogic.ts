@@ -566,9 +566,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         }),
         reportSurveyCreated: (survey: Survey, isDuplicate?: boolean) => ({ survey, isDuplicate }),
         reportSurveyEdited: (survey: Survey) => ({ survey }),
-        reportSurveyLaunched: (survey: Survey) => ({ survey }),
-        reportSurveyStopped: (survey: Survey) => ({ survey }),
-        reportSurveyResumed: (survey: Survey) => ({ survey }),
         reportSurveyArchived: (survey: Survey) => ({ survey }),
         reportSurveyTemplateClicked: (template: SurveyTemplateType) => ({ template }),
         reportSurveyCycleDetected: (survey: Survey | NewSurvey) => ({ survey }),
@@ -1236,16 +1233,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 ),
             })
         },
-        reportSurveyLaunched: ({ survey }) => {
-            posthog.capture('survey launched', {
-                name: survey.name,
-                id: survey.id,
-                survey_type: survey.type,
-                question_types: survey.questions.map((question) => question.type),
-                created_at: survey.created_at,
-                start_date: survey.start_date,
-            })
-        },
         reportSurveyViewed: ({ survey }) => {
             posthog.capture('survey viewed', {
                 name: survey.name,
@@ -1253,23 +1240,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 created_at: survey.created_at,
                 start_date: survey.start_date,
                 end_date: survey.end_date,
-            })
-        },
-        reportSurveyStopped: ({ survey }) => {
-            posthog.capture('survey stopped', {
-                name: survey.name,
-                id: survey.id,
-                created_at: survey.created_at,
-                start_date: survey.start_date,
-                end_date: survey.end_date,
-            })
-        },
-        reportSurveyResumed: ({ survey }) => {
-            posthog.capture('survey resumed', {
-                name: survey.name,
-                id: survey.id,
-                created_at: survey.created_at,
-                start_date: survey.start_date,
             })
         },
         reportSurveyArchived: ({ survey }) => {

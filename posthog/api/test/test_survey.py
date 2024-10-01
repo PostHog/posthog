@@ -1,7 +1,7 @@
 import re
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, UTC
 from typing import Any
-from unittest.mock import ANY
+from unittest.mock import ANY, patch
 
 import pytest
 from django.core.cache import cache
@@ -1339,6 +1339,83 @@ class TestSurvey(APIBaseTest):
                     "created_at": "2023-05-01T12:00:00Z",
                 }
             ],
+        )
+
+    @patch("posthog.api.survey.report_user_action")
+    @freeze_time("2023-05-01 12:00:00")
+    def test_update_survey_dates_calls_report_user_action(self, mock_report_user_action):
+        survey = Survey.objects.create(
+            team=self.team,
+            name="Date Test Survey",
+            type="popover",
+            questions=[{"type": "open", "question": "Test question?"}],
+        )
+
+        start_date = datetime(2023, 5, 2, tzinfo=UTC)
+        end_date = datetime(2023, 5, 10, tzinfo=UTC)
+
+        # set the start date / aka launch survey
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={"start_date": start_date},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        expected_properties = {
+            "name": "Date Test Survey",
+            "id": survey.id,
+            "survey_type": "popover",
+            "question_types": ["open"],
+            "created_at": survey.created_at,
+        }
+
+        mock_report_user_action.assert_called_once_with(
+            self.user,
+            "survey launched",
+            {
+                **expected_properties,
+                "start_date": start_date,
+                "end_date": None,
+            },
+            self.team,
+        )
+        mock_report_user_action.reset_mock()
+
+        # set the end date / aka stop survey
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={"end_date": end_date},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        mock_report_user_action.assert_called_once_with(
+            self.user,
+            "survey stopped",
+            {
+                **expected_properties,
+                "start_date": start_date,
+                "end_date": end_date,
+            },
+            self.team,
+        )
+        mock_report_user_action.reset_mock()
+
+        # remove the end date / aka resume survey
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={"end_date": None},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        mock_report_user_action.assert_called_once_with(
+            self.user,
+            "survey resumed",
+            {
+                **expected_properties,
+                "start_date": start_date,
+                "end_date": None,
+            },
+            self.team,
         )
 
     @freeze_time("2023-05-01 12:00:00")

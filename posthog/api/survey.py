@@ -4,12 +4,12 @@ from urllib.parse import urlparse
 
 import nh3
 from django.db.models import Min
-from django.http import JsonResponse, HttpResponse
+from django.http import HttpResponse, JsonResponse
 from django.utils.text import slugify
 from django.views.decorators.csrf import csrf_exempt
+from loginas.utils import is_impersonated_session
 from nanoid import generate
 from rest_framework import request, serializers, status, viewsets
-from posthog.api.utils import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -21,19 +21,25 @@ from posthog.api.feature_flag import (
 )
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.api.utils import get_token
+from posthog.api.utils import action, get_token
 from posthog.client import sync_execute
-from posthog.models import Action
 from posthog.constants import AvailableFeature
+from posthog.event_usage import report_user_action
 from posthog.exceptions import generate_exception_response
-from posthog.models.activity_logging.activity_log import Change, changes_between, load_activity, log_activity, Detail
+from posthog.models import Action
+from posthog.models.activity_logging.activity_log import (
+    Change,
+    Detail,
+    changes_between,
+    load_activity,
+    log_activity,
+)
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.feedback.survey import Survey
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.utils_cors import cors_response
-from loginas.utils import is_impersonated_session
 
 SURVEY_TARGETING_FLAG_PREFIX = "survey-targeting-"
 ALLOWED_LINK_URL_SCHEMES = ["https", "mailto"]
@@ -317,6 +323,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
 
     def update(self, instance: Survey, validated_data):
         before_update = Survey.objects.get(pk=instance.pk)
+        user = self.context["request"].user
         changes = []
         if validated_data.get("remove_targeting_flag"):
             if instance.targeting_flag:
@@ -370,6 +377,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             validated_data.pop("targeting_flag_filters")
 
         end_date = validated_data.get("end_date")
+
         if instance.targeting_flag:
             # turn off feature flag if survey is completed
             if end_date is None:
@@ -412,6 +420,39 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             activity="updated",
             detail=Detail(changes=changes, name=instance.name),
         )
+
+        # Report survey events based on start_date and end_date changes
+
+        properties = {
+            "name": instance.name,
+            "id": instance.id,
+            "survey_type": instance.type,
+            "question_types": [question.get("type") for question in instance.questions] if instance.questions else [],
+            "created_at": instance.created_at,
+            "start_date": instance.start_date,
+            "end_date": instance.end_date,
+        }
+        if before_update.start_date is None and instance.start_date is not None:
+            report_user_action(
+                user,
+                "survey launched",
+                properties,
+                team,
+            )
+        elif before_update.end_date is None and instance.end_date is not None:
+            report_user_action(
+                user,
+                "survey stopped",
+                properties,
+                team,
+            )
+        elif before_update.start_date is not None and before_update.end_date is not None and instance.end_date is None:
+            report_user_action(
+                user,
+                "survey resumed",
+                properties,
+                team,
+            )
 
         self._add_user_survey_interacted_filters(instance, end_date)
         self._associate_actions(instance, validated_data.get("conditions"))
