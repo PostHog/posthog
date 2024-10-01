@@ -234,6 +234,9 @@ class SessionRecordingUpdateSerializer(serializers.Serializer):
     durations = serializers.JSONField(required=False)
 
     def validate(self, data):
+        recording: SessionRecording | None = self.instance
+        if recording is None or recording.deleted:
+            raise exceptions.NotFound("Recording not found")
         if not data.get("viewed") and not data.get("analyzed"):
             raise serializers.ValidationError("At least one of 'viewed' or 'analyzed' must be provided.")
         return data
