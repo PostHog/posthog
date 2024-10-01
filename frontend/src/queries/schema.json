@@ -4200,6 +4200,9 @@
                 "response": {
                     "$ref": "#/definitions/ErrorTrackingQueryResponse"
                 },
+                "searchQuery": {
+                    "type": "string"
+                },
                 "select": {
                     "items": {
                         "$ref": "#/definitions/HogQLExpression"

@@ -39,6 +39,7 @@ export const errorTrackingLogic = kea<errorTrackingLogicType>([
         setAssignee: (assignee: number | null) => ({ assignee }),
         setFilterGroup: (filterGroup: UniversalFiltersGroup) => ({ filterGroup }),
         setFilterTestAccounts: (filterTestAccounts: boolean) => ({ filterTestAccounts }),
+        setSearchQuery: (searchQuery: string) => ({ searchQuery }),
         setSparklineSelectedPeriod: (period: string | null) => ({ period }),
         _setSparklineOptions: (options: SparklineOption[]) => ({ options }),
     }),
@@ -69,6 +70,12 @@ export const errorTrackingLogic = kea<errorTrackingLogicType>([
             { persist: true },
             {
                 setFilterTestAccounts: (_, { filterTestAccounts }) => filterTestAccounts,
+            },
+        ],
+        searchQuery: [
+            '' as string,
+            {
+                setSearchQuery: (_, { searchQuery }) => searchQuery,
             },
         ],
         sparklineSelectedPeriod: [
