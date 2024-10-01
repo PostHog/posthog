@@ -74,6 +74,9 @@ describe('sessionRecordingDataLogic', () => {
             post: {
                 '/api/projects/:team/query': recordingEventsJson,
             },
+            patch: {
+                '/api/projects/:team/session_recordings/:id': { success: true },
+            },
         })
         initKeaTests()
         logic = sessionRecordingDataLogic({

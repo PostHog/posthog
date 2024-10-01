@@ -17,6 +17,9 @@
                     },
                     "type": "array"
                 },
+                "user_modified_filters": {
+                    "type": "object"
+                },
                 "kind": {
                     "const": "EventsNode",
                     "type": "string"

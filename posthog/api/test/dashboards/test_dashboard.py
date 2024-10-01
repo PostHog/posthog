@@ -712,6 +712,8 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             self.user,
             "dashboard created",
             {
+                "$current_url": None,
+                "$session_id": mock.ANY,
                 "created_at": mock.ANY,
                 "dashboard_id": None,
                 "duplicated": False,
@@ -1153,6 +1155,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         response = self.client.post(
             f"/api/projects/{self.team.id}/dashboards/create_from_template_json",
             {"template": valid_template, "creation_context": "onboarding"},
+            headers={"Referer": "https://posthog.com/my-referer", "X-Posthog-Session-Id": "my-session-id"},
         )
         self.assertEqual(response.status_code, 200, response.content)
 
@@ -1172,6 +1175,8 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             self.user,
             "dashboard created",
             {
+                "$current_url": "https://posthog.com/my-referer",
+                "$session_id": "my-session-id",
                 "created_at": mock.ANY,
                 "creation_context": "onboarding",
                 "dashboard_id": dashboard["id"],
