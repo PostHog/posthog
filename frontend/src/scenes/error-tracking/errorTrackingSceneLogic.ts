@@ -77,7 +77,7 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
                     const formData = new FormData()
                     const file = files[0]
                     formData.append('source_map', file)
-                    await api.errorTracking.uploadSourcemaps(formData)
+                    await api.errorTracking.uploadSourceMaps(formData)
                     actions.setIsConfigurationModalOpen(false)
                 } else if (url.length > 0) {
                     lemonToast.info('Uploading via a URL is not yet supported')
