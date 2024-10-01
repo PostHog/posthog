@@ -2,9 +2,11 @@ import { IconTrending } from '@posthog/icons'
 import { LemonSkeleton } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { getColorVar } from 'lib/colors'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyDuration, humanFriendlyLargeNumber, isNotNil, range } from 'lib/utils'
 import { useState } from 'react'
 
@@ -34,13 +36,14 @@ export function WebOverview(props: {
         onData,
         dataNodeCollectionId: dataNodeCollectionId ?? key,
     })
+    const { featureFlags } = useValues(featureFlagLogic)
     const { response, responseLoading } = useValues(logic)
 
     const webOverviewQueryResponse = response as WebOverviewQueryResponse | undefined
 
     const samplingRate = webOverviewQueryResponse?.samplingRate
 
-    const numSkeletons = props.query.conversionGoal ? 4 : 5
+    const numSkeletons = props.query.conversionGoal ? 4 : featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LCP_SCORE] ? 6 : 5
 
     return (
         <>
