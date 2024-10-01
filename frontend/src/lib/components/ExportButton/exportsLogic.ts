@@ -1,13 +1,17 @@
 import { actions, connect, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
+import { router } from 'kea-router'
 import api from 'lib/api'
 import { downloadBlob, downloadExportedAsset, TriggerExportProps } from 'lib/components/ExportButton/exporter'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { delay } from 'lib/utils'
 import posthog from 'posthog-js'
+import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { cohortsModel } from '~/models/cohortsModel'
+import { DataNode } from '~/queries/schema'
 import { ExportContext, ExportedAssetType, ExporterFormat, LocalExportContext, SidePanelTab } from '~/types'
 
 import type { exportsLogicType } from './exportsLogicType'
@@ -29,6 +33,7 @@ export const exportsLogic = kea<exportsLogicType>([
         pollExportStatus: (exportedAsset: ExportedAssetType) => ({ exportedAsset }),
         addFresh: (exportedAsset: ExportedAssetType) => ({ exportedAsset }),
         removeFresh: (exportedAsset: ExportedAssetType) => ({ exportedAsset }),
+        createStaticCohort: (name: string, query: DataNode) => ({ query, name }),
     }),
 
     connect({
@@ -133,6 +138,25 @@ export const exportsLogic = kea<exportsLogicType>([
                 success: 'Export complete!',
                 error: 'Export failed!',
             })
+        },
+        createStaticCohort: async ({ query, name }) => {
+            try {
+                const cohort = await api.create('api/cohort', {
+                    is_static: true,
+                    name: name || 'Query cohort',
+                    query: query,
+                })
+                cohortsModel.actions.cohortCreated(cohort)
+                lemonToast.success('Cohort saved', {
+                    toastId: `cohort-saved-${cohort.id}`,
+                    button: {
+                        label: 'View cohort',
+                        action: () => router.actions.push(urls.cohort(cohort.id)),
+                    },
+                })
+            } catch (e) {
+                lemonToast.error('Cohort save failed')
+            }
         },
     })),
 

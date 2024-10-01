@@ -1,8 +1,9 @@
 import { IconDownload } from '@posthog/icons'
-import { LemonButton, LemonMenu, lemonToast } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonInput, LemonMenu, lemonToast } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { TriggerExportProps } from 'lib/components/ExportButton/exporter'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import Papa from 'papaparse'
 import { asDisplay } from 'scenes/persons/person-utils'
@@ -195,7 +196,7 @@ interface DataTableExportProps {
 
 export function DataTableExport({ query }: DataTableExportProps): JSX.Element | null {
     const { dataTableRows, columnsInResponse, columnsInQuery, queryWithDefaults } = useValues(dataTableLogic)
-    const { startExport } = useActions(exportsLogic)
+    const { startExport, createStaticCohort } = useActions(exportsLogic)
 
     const source: DataNode = query.source
     const filterCount =
@@ -205,6 +206,7 @@ export function DataTableExport({ query }: DataTableExportProps): JSX.Element | 
     const canExportAllColumns =
         (isEventsQuery(source) && source.select.includes('*')) || isPersonsNode(source) || isActorsQuery(source)
     const showExportClipboardButtons = isPersonsNode(source) || isEventsQuery(source) || isHogQLQuery(source)
+    const canSaveAsCohort = isActorsQuery(source)
 
     return (
         <LemonMenu
@@ -267,6 +269,36 @@ export function DataTableExport({ query }: DataTableExportProps): JSX.Element | 
                                 }
                             },
                             'data-attr': 'copy-json-to-clipboard',
+                        },
+                    ],
+                },
+                canSaveAsCohort && {
+                    label: 'Save as cohort',
+                    items: [
+                        {
+                            label: 'Save as static cohort',
+                            onClick: () => {
+                                LemonDialog.openForm({
+                                    title: 'Save as static cohort',
+                                    description: 'This will create a cohort with the current results of the query.',
+                                    initialValues: {
+                                        name: '',
+                                    },
+                                    content: (
+                                        <LemonField name="name">
+                                            <LemonInput
+                                                data-attr="insight-name"
+                                                placeholder="Please enter the new name"
+                                                autoFocus
+                                            />
+                                        </LemonField>
+                                    ),
+                                    errors: {
+                                        name: (name) => (!name ? 'You must enter a name' : undefined),
+                                    },
+                                    onSubmit: async ({ name }) => createStaticCohort(name, source),
+                                })
+                            },
                         },
                     ],
                 },
