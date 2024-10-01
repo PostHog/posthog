@@ -72,8 +72,8 @@ ALERT_CHECK_ERROR_COUNTER = Counter(
     "Number of alert check errors that don't notify the user",
 )
 
-ALERT_CHECK_COUNTER = Counter(
-    "alerts_check",
+ALERT_CHECKED_COUNTER = Counter(
+    "alerts_checked",
     "Number of alerts we tried to check",
     labelnames=["interval"],
 )
@@ -206,10 +206,10 @@ def check_alert(alert_id: str) -> None:
         logger.warning("Alert not found or not enabled", alert_id=alert_id)
         return
 
-    ALERT_CHECK_COUNTER.labels(interval=alert.calculation_interval).inc()
+    ALERT_CHECKED_COUNTER.labels(interval=alert.calculation_interval).inc()
 
     now = datetime.now(UTC)
-    if alert.next_check_at > now:
+    if alert.next_check_at and alert.next_check_at > now:
         logger.warning(
             """Alert took too long to compute or was queued too long during which it already got computed.
             So not attempting to compute it again until it's due next""",
