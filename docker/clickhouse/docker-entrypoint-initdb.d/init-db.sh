@@ -1,5 +1,6 @@
 #!/bin/bash
 set -e
 
-apk add python3
+apt-get update
+apt-get -y install python3
 cp -r /idl/* /var/lib/clickhouse/format_schemas/
