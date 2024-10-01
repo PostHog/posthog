@@ -76,16 +76,12 @@ class AsyncEventDeletion(AsyncDeletionProcess):
                         args,
                         settings={},
                     )
-                except Exception as e:
+                except SocketTimeoutError:
                     # This is unfortunately needed because currently all lightweight deletes are executed sync
-                    if isinstance(e, SocketTimeoutError):
-                        logger.warning(
-                            "ClickHouse query timed out during async deletion. This is expected. Continuing with next batch.",
-                            exc_info=True,
-                        )
-                    else:
-                        # Re-raise other exceptions
-                        raise
+                    logger.warning(
+                        "ClickHouse query timed out during async deletion. This is expected. Continuing with next batch.",
+                        exc_info=True,
+                    )
 
                 conditions, args = [], {}
 
