@@ -17,9 +17,6 @@
                     },
                     "type": "array"
                 },
-                "user_modified_filters": {
-                    "type": "object"
-                },
                 "kind": {
                     "const": "EventsNode",
                     "type": "string"
@@ -9546,6 +9543,9 @@
                         "type": "string"
                     },
                     "type": "array"
+                },
+                "user_modified_filters": {
+                    "type": "object"
                 }
             },
             "required": ["kind", "order"],
