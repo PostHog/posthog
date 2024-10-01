@@ -216,3 +216,8 @@ def aget_saved_query_by_id(saved_query_id: str, team_id: int) -> DataWarehouseSa
 @database_sync_to_async
 def asave_saved_query(saved_query: DataWarehouseSavedQuery) -> None:
     saved_query.save()
+
+
+@database_sync_to_async
+def aget_table_by_saved_query_id(saved_query_id: str, team_id: int):
+    return DataWarehouseSavedQuery.objects.get(id=saved_query_id, team_id=team_id).table
