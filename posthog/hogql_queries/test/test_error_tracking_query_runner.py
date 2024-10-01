@@ -173,6 +173,22 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(results[0]["fingerprint"], ["DatabaseNotFound"])
         self.assertEqual(results[0]["occurrences"], 1)
 
+    def test_empty_search_query(self):
+        runner = ErrorTrackingQueryRunner(
+            team=self.team,
+            query=ErrorTrackingQuery(
+                kind="ErrorTrackingQuery",
+                fingerprint=None,
+                dateRange=DateRange(),
+                filterTestAccounts=False,
+                searchQuery="probs not found",
+            ),
+        )
+
+        results = self._calculate(runner)["results"]
+
+        self.assertEqual(len(results), 0)
+
     @snapshot_clickhouse_queries
     def test_fingerprints(self):
         runner = ErrorTrackingQueryRunner(

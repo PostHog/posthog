@@ -14,17 +14,12 @@ import { errorTrackingSceneLogic } from './errorTrackingSceneLogic'
 
 export const FilterGroup = (): JSX.Element => {
     const { filterGroup, filterTestAccounts, searchQuery } = useValues(errorTrackingLogic)
-    const { setFilterGroup, setFilterTestAccounts, setSearchQueryDebounced } = useActions(errorTrackingLogic)
+    const { setFilterGroup, setFilterTestAccounts, setSearchQuery } = useActions(errorTrackingLogic)
 
     return (
         <div className="flex flex-1 items-center justify-between space-x-2">
             <div className="flex items-center gap-2">
-                <LemonInput
-                    type="search"
-                    placeholder="Search..."
-                    value={searchQuery}
-                    onChange={setSearchQueryDebounced}
-                />
+                <LemonInput type="search" placeholder="Search..." value={searchQuery} onChange={setSearchQuery} />
                 <UniversalFilters
                     rootKey="error-tracking"
                     group={filterGroup}

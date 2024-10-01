@@ -128,6 +128,9 @@ class ErrorTrackingQueryRunner(QueryRunner):
 
         if self.query.searchQuery:
             # TODO: Refine this so it only searches the frames inside $exception_list
+            # TODO: Split out spaces and search for each word separately
+            # TODO: Add support for searching for specific properties
+            # TODO: Add fuzzy search support
             props_to_search = ["$exception_list", "$exception_stack_trace_raw", "$exception_type", "$exception_message"]
             or_exprs: list[ast.Expr] = []
             for prop in props_to_search:
@@ -145,12 +148,11 @@ class ErrorTrackingQueryRunner(QueryRunner):
                     )
                 )
 
-            if or_exprs:
-                exprs.append(
-                    ast.Or(
-                        exprs=or_exprs,
-                    )
+            exprs.append(
+                ast.Or(
+                    exprs=or_exprs,
                 )
+            )
 
         return ast.And(exprs=exprs)
 
