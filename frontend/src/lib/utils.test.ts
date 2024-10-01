@@ -500,11 +500,25 @@ describe('lib/utils', () => {
         })
     })
     describe('humanFriendlyDuration()', () => {
-        it('returns correct value for <= 60', () => {
+        it('returns correct value for 0 <= t < 1', () => {
+            expect(humanFriendlyDuration(0)).toEqual('0s')
+            expect(humanFriendlyDuration(0.001)).toEqual('1ms')
+            expect(humanFriendlyDuration(0.02)).toEqual('20ms')
+            expect(humanFriendlyDuration(0.3)).toEqual('300ms')
+            expect(humanFriendlyDuration(0.999)).toEqual('999ms')
+        })
+
+        it('returns correct value for 1 < t <= 60', () => {
             expect(humanFriendlyDuration(60)).toEqual('1m')
             expect(humanFriendlyDuration(45)).toEqual('45s')
             expect(humanFriendlyDuration(44.8)).toEqual('45s')
             expect(humanFriendlyDuration(45.2)).toEqual('45s')
+            expect(humanFriendlyDuration(45.2, { secondsFixed: 1 })).toEqual('45.2s')
+            expect(humanFriendlyDuration(1.23)).toEqual('1s')
+            expect(humanFriendlyDuration(1.23, { secondsPrecision: 3 })).toEqual('1.23s')
+            expect(humanFriendlyDuration(1, { secondsPrecision: 3 })).toEqual('1s')
+            expect(humanFriendlyDuration(1, { secondsFixed: 1 })).toEqual('1s')
+            expect(humanFriendlyDuration(1)).toEqual('1s')
         })
         it('returns correct value for 60 < t < 120', () => {
             expect(humanFriendlyDuration(90)).toEqual('1m 30s')
@@ -524,13 +538,13 @@ describe('lib/utils', () => {
             expect(humanFriendlyDuration(86400.12)).toEqual('1d')
         })
         it('truncates to specified # of units', () => {
-            expect(humanFriendlyDuration(3961, 2)).toEqual('1h 6m')
-            expect(humanFriendlyDuration(30, 2)).toEqual('30s') // no change
-            expect(humanFriendlyDuration(30, 0)).toEqual('') // returns no units (useless)
+            expect(humanFriendlyDuration(3961, { maxUnits: 2 })).toEqual('1h 6m')
+            expect(humanFriendlyDuration(30, { maxUnits: 2 })).toEqual('30s') // no change
+            expect(humanFriendlyDuration(30, { maxUnits: 0 })).toEqual('') // returns no units (useless)
         })
         it('returns an empty string for nullish inputs', () => {
-            expect(humanFriendlyDuration('', 2)).toEqual('')
-            expect(humanFriendlyDuration(null, 2)).toEqual('')
+            expect(humanFriendlyDuration('', { maxUnits: 2 })).toEqual('')
+            expect(humanFriendlyDuration(null, { maxUnits: 2 })).toEqual('')
         })
     })
 
