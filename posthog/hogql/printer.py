@@ -194,6 +194,7 @@ class JoinExprResponse:
 class PrintableMaterializedColumn:
     table: Optional[str]
     column: str
+    is_nullable: bool
 
     def __str__(self) -> str:
         if self.table is None:
@@ -1301,12 +1302,13 @@ class _Printer(Visitor):
                 raise QueryError(f"Can't resolve field {field_type.name} on table {table_name}")
             field_name = cast(Union[Literal["properties"], Literal["person_properties"]], field.name)
 
-            materialized_column = self._get_materialized_column(table_name, property_name, field_name)
-            if materialized_column:
-                yield PrintableMaterializedColumn(
-                    self.visit(field_type.table_type),
-                    self._print_identifier(materialized_column),
-                )
+            match self._get_materialized_column_info(table_name, property_name, field_name):
+                case (column_name, is_nullable):
+                    yield PrintableMaterializedColumn(
+                        self.visit(field_type.table_type),
+                        self._print_identifier(column_name),
+                        is_nullable,
+                    )
 
             if self.context.modifiers.propertyGroupsMode in (
                 PropertyGroupsMode.ENABLED,
@@ -1330,11 +1332,14 @@ class _Printer(Visitor):
         ):
             # :KLUDGE: Legacy person properties handling. Only used within non-HogQL queries, such as insights.
             if self.context.modifiers.personsOnEventsMode != PersonsOnEventsMode.DISABLED:
-                materialized_column = self._get_materialized_column("events", property_name, "person_properties")
+                materialized_column_info = self._get_materialized_column_info(
+                    "events", property_name, "person_properties"
+                )
             else:
-                materialized_column = self._get_materialized_column("person", property_name, "properties")
-            if materialized_column:
-                yield PrintableMaterializedColumn(None, self._print_identifier(materialized_column))
+                materialized_column_info = self._get_materialized_column_info("person", property_name, "properties")
+            match materialized_column_info:
+                case (column_name, is_nullable):
+                    yield PrintableMaterializedColumn(None, self._print_identifier(column_name), is_nullable)
 
     def visit_property_type(self, type: ast.PropertyType):
         if type.joined_subquery is not None and type.joined_subquery_field_name is not None:
@@ -1343,8 +1348,9 @@ class _Printer(Visitor):
         materialized_property_source = self.__get_materialized_property_source_for_property_type(type)
         if materialized_property_source is not None:
             if isinstance(materialized_property_source, PrintableMaterializedColumn):
-                # TODO: rematerialize all columns to properly support empty strings and "null" string values.
-                if self.context.modifiers.materializationMode == MaterializationMode.LEGACY_NULL_AS_STRING:
+                if materialized_property_source.is_nullable:
+                    materialized_property_sql = str(materialized_property_source)
+                elif self.context.modifiers.materializationMode == MaterializationMode.LEGACY_NULL_AS_STRING:
                     materialized_property_sql = f"nullIf({materialized_property_source}, '')"
                 else:  # MaterializationMode AUTO or LEGACY_NULL_AS_NULL
                     materialized_property_sql = f"nullIf(nullIf({materialized_property_source}, ''), 'null')"
@@ -1490,19 +1496,24 @@ class _Printer(Visitor):
     def _unsafe_json_extract_trim_quotes(self, unsafe_field: str, unsafe_args: list[str]) -> str:
         return f"replaceRegexpAll(nullIf(nullIf(JSONExtractRaw({', '.join([unsafe_field, *unsafe_args])}), ''), 'null'), '^\"|\"$', '')"
 
-    def _get_materialized_column(
+    def _get_materialized_column_info(
         self, table_name: str, property_name: PropertyName, field_name: TableColumn
-    ) -> Optional[str]:
+    ) -> Optional[tuple[str, bool]]:
         try:
             from ee.clickhouse.materialized_columns.columns import (
                 TablesWithMaterializedColumns,
-                get_materialized_columns,
+                get_materialized_column_info,
             )
 
-            materialized_columns = get_materialized_columns(cast(TablesWithMaterializedColumns, table_name))
-            return materialized_columns.get((property_name, field_name), None)
+            materialized_columns = get_materialized_column_info(cast(TablesWithMaterializedColumns, table_name))
+            column_info = materialized_columns.get((property_name, field_name), None)
+            if column_info is not None:
+                # XXX: can't return ``MaterializedColumnInfo`` directly here and preserve type annotations as the module
+                # may not be available
+                return (column_info.column_name, column_info.is_nullable)
         except ModuleNotFoundError:
-            return None
+            pass
+        return None
 
     def _get_timezone(self) -> str:
         return self.context.database.get_timezone() if self.context.database else "UTC"
