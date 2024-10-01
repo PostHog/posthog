@@ -1,3 +1,4 @@
+import { lemonToast } from '@posthog/lemon-ui'
 import { actions, connect, kea, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { subscriptions } from 'kea-subscriptions'
@@ -75,6 +76,7 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
                     formData.append('source_map', file)
                     await api.errorTracking.uploadSourceMaps(formData)
                     actions.setIsConfigurationModalOpen(false)
+                    lemonToast.success('Source map uploaded')
                 }
             },
         },
