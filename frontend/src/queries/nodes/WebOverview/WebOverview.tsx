@@ -136,7 +136,19 @@ const formatPercentage = (x: number, options?: { precise?: boolean }): string =>
     return (x / 100).toLocaleString(undefined, { style: 'percent', maximumFractionDigits: 0 })
 }
 
-const formatSeconds = (x: number): string => humanFriendlyDuration(Math.round(x))
+const formatSeconds = (x: number): string => {
+    // if over than a minute, show minutes and seconds
+    if (x >= 60) {
+        return humanFriendlyDuration(x)
+    }
+    // if over 1 second, show 3 significant figures
+    if (x >= 1) {
+        return `${x.toPrecision(3)} s`
+    }
+
+    // show the number of milliseconds
+    return `${x * 1000} ms`
+}
 
 const formatUnit = (x: number, options?: { precise?: boolean }): string => {
     if (options?.precise) {
@@ -172,6 +184,8 @@ const labelFromKey = (key: string): string => {
             return 'Session duration'
         case 'bounce rate':
             return 'Bounce rate'
+        case 'lcp_p90':
+            return 'LCP Score'
         case 'conversion rate':
             return 'Conversion rate'
         case 'total conversions':

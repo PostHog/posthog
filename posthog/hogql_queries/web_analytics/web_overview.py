@@ -58,7 +58,7 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner):
                 to_data("sessions", "unit", self._unsample(row[4]), self._unsample(row[5])),
                 to_data("session duration", "duration_s", row[6], row[7]),
                 to_data("bounce rate", "percentage", row[8], row[9], is_increase_bad=True),
-                to_data("lcp_p90", "duration_s", row[10], row[11], is_increase_bad=True),
+                to_data("lcp_p90", "duration_ms", row[10], row[11], is_increase_bad=True),
             ]
 
         return WebOverviewQueryResponse(
@@ -364,6 +364,12 @@ def to_data(
             value = value * 100
         if previous is not None:
             previous = previous * 100
+    if kind == "duration_ms":
+        kind = "duration_s"
+        if value is not None:
+            value = value / 1000
+        if previous is not None:
+            previous = previous / 1000
 
     try:
         if value is not None and previous:
