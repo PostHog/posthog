@@ -1,13 +1,14 @@
 use std::{collections::HashMap, sync::Arc};
 
 use bytes::Bytes;
+use common_metrics::inc;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tracing::instrument;
 
 use crate::{
     api::FlagError, database::Client as DatabaseClient, flag_definitions::FeatureFlagList,
-    redis::Client as RedisClient, team::Team,
+    metrics_consts::FLAG_CACHE_HIT_COUNTER, redis::Client as RedisClient, team::Team,
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -160,25 +161,38 @@ impl FlagRequest {
         redis_client: Arc<dyn RedisClient + Send + Sync>,
         pg_client: Arc<dyn DatabaseClient + Send + Sync>,
     ) -> Result<FeatureFlagList, FlagError> {
-        // TODO add a cache hit/miss counter
-        match FeatureFlagList::from_redis(redis_client.clone(), team_id).await {
-            Ok(flags) => Ok(flags),
+        let mut cache_hit = false;
+        let flags = match FeatureFlagList::from_redis(redis_client.clone(), team_id).await {
+            Ok(flags) => {
+                cache_hit = true;
+                Ok(flags)
+            }
             Err(_) => match FeatureFlagList::from_pg(pg_client, team_id).await {
                 Ok(flags) => {
-                    // If we have the flags in postgres, but not redis, update redis so we're faster next time
-                    // TODO: we have some counters in django for tracking these cache misses
-                    // we should probably do the same here
                     if let Err(e) =
                         FeatureFlagList::update_flags_in_redis(redis_client, team_id, &flags).await
                     {
                         tracing::warn!("Failed to update Redis cache: {}", e);
+                        // TODO add metrics for this
                     }
                     Ok(flags)
                 }
-                // TODO what kind of error should we return here?
+                // TODO what kind of error should we return here?  This should be postgres
+                // I guess it can be whatever the FlagError is
                 Err(e) => Err(e),
             },
-        }
+        };
+
+        inc(
+            FLAG_CACHE_HIT_COUNTER,
+            &[
+                ("team_id".to_string(), team_id.to_string()),
+                ("cache_hit".to_string(), cache_hit.to_string()),
+            ],
+            1,
+        );
+
+        flags
     }
 }
 
