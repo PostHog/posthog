@@ -29,8 +29,16 @@ export const maxLogic = kea<maxLogicType>([
         addMessage: (message: ThreadMessage) => ({ message }),
         replaceMessage: (index: number, message: ThreadMessage) => ({ index, message }),
         setMessageStatus: (index: number, status: ThreadMessage['status']) => ({ index, status }),
+        setQuestion: (question: string) => ({ question }),
     }),
     reducers({
+        question: [
+            '',
+            {
+                setQuestion: (_, { question }) => question,
+                askMax: () => '',
+            },
+        ],
         thread: [
             [] as ThreadMessage[],
             {

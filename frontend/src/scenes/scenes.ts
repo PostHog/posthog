@@ -261,7 +261,7 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
     },
     [Scene.Max]: {
         projectBased: true,
-        name: 'Max',
+        name: 'Max AI',
         layout: 'app-raw',
         hideProjectNotice: true, // FIXME: Currently doesn't render well...
     },
