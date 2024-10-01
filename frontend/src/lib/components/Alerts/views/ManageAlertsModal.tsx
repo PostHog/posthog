@@ -1,3 +1,4 @@
+import { IconCheck, IconX } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -14,9 +15,13 @@ import { AlertType } from '../types'
 
 export function AlertStateIndicator({ alert }: { alert: AlertType }): JSX.Element {
     return alert.state === AlertState.NOT_FIRING ? (
-        <span className="inline-block align-middle rounded-full w-4 h-4 bg-success-light" />
+        <span className="text-success-dark">
+            <IconCheck />
+        </span>
     ) : (
-        <span className="inline-block align-middle rounded-full w-4 h-4 bg-danger-light" />
+        <span className="text-danger-dark">
+            <IconX />
+        </span>
     )
 }
 

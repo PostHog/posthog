@@ -16,7 +16,7 @@ from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager import (
     conversion_to_query_based,
 )
-from posthog.models import AlertConfiguration, Team
+from posthog.models import AlertConfiguration
 from posthog.models.alert import AlertCheck
 from posthog.tasks.utils import CeleryQueue
 from posthog.schema import (
@@ -34,6 +34,7 @@ from posthog.clickhouse.client.limit import limit_concurrency
 from prometheus_client import Counter, Gauge
 from django.db.models import Q
 from typing import TypedDict, NotRequired
+from collections import defaultdict
 
 
 # TODO: move the TrendResult UI type to schema.ts and use that instead
@@ -66,9 +67,15 @@ DAILY_ALERTS_BACKLOG_GAUGE = Gauge(
     "Number of daily alerts that are not being checked in the last 24 hours.",
 )
 
-API_REQUESTS_ERROR_COUNTER = Counter(
+ALERT_CHECK_ERROR_COUNTER = Counter(
     "alerts_check_failures",
     "Number of alert check errors that don't notify the user",
+)
+
+ALERT_CHECK_COUNTER = Counter(
+    "alerts_check",
+    "Number of alerts we tried to check",
+    labelnames=["interval"],
 )
 
 
@@ -90,14 +97,15 @@ NON_TIME_SERIES_DISPLAY_TYPES = {
     ignore_result=True,
     expires=60 * 60,
 )
-def hourly_alerts_backlog_task() -> None:
+def alerts_backlog_task() -> None:
     """
-    This runs every 5min to check for alerts with hourly check SLA
-    but haven't been checked in the last hour + 5min
+    This runs every 5min to check backlog for alerts
+    - hourly alerts - alerts that haven't been checked in the last hour + 5min
+    - daily alerts - alerts that haven't been checked in the last hour + 15min
     """
     now = datetime.now(UTC)
 
-    alerts_breaching_sla = AlertConfiguration.objects.filter(
+    hourly_alerts_breaching_sla = AlertConfiguration.objects.filter(
         Q(
             enabled=True,
             calculation_interval=AlertCalculationInterval.HOURLY,
@@ -105,21 +113,11 @@ def hourly_alerts_backlog_task() -> None:
         )
     ).count()
 
-    HOURLY_ALERTS_BACKLOG_GAUGE.set(alerts_breaching_sla)
+    HOURLY_ALERTS_BACKLOG_GAUGE.set(hourly_alerts_breaching_sla)
 
-
-@shared_task(
-    ignore_result=True,
-    expires=60 * 60,
-)
-def daily_alerts_backlog_task() -> None:
-    """
-    This runs every 15min to check for alerts with hourly check SLA
-    but haven't been checked in the last hour + 15min
-    """
     now = datetime.now(UTC)
 
-    alerts_breaching_sla = AlertConfiguration.objects.filter(
+    daily_alerts_breaching_sla = AlertConfiguration.objects.filter(
         Q(
             enabled=True,
             calculation_interval=AlertCalculationInterval.HOURLY,
@@ -127,7 +125,7 @@ def daily_alerts_backlog_task() -> None:
         )
     ).count()
 
-    DAILY_ALERTS_BACKLOG_GAUGE.set(alerts_breaching_sla)
+    DAILY_ALERTS_BACKLOG_GAUGE.set(daily_alerts_breaching_sla)
 
 
 @shared_task(
@@ -166,7 +164,7 @@ def check_alert_task(alert_id: str) -> None:
     try:
         check_alert(alert_id)
     except Exception as err:
-        API_REQUESTS_ERROR_COUNTER.inc()
+        ALERT_CHECK_ERROR_COUNTER.inc()
         capture_exception(Exception(f"Error checking alert, user wasn't notified: {err}"))
         raise
 
@@ -181,22 +179,21 @@ def check_alerts(interval: AlertCalculationInterval) -> None:
     # Use a fixed expiration time since tasks in the chain are executed sequentially
     expire_after = now + timedelta(minutes=30)
 
-    teams = Team.objects.filter(alertconfiguration__isnull=False).distinct()
-
-    # find all tasks with the provided interval that are due to be calculated (next_check_at is null or less than now)
-    for team in teams:
-        alert_ids = list(
-            AlertConfiguration.objects.filter(
-                Q(team=team, enabled=True, calculation_interval=interval, next_check_at__lte=now)
-                | Q(
-                    team=team,
-                    enabled=True,
-                    calculation_interval=interval,
-                    next_check_at__isnull=True,
-                )
-            ).values_list("id", flat=True)
+    # find all alerts with the provided interval that are due to be calculated (next_check_at is null or less than now)
+    alerts = AlertConfiguration.objects.filter(
+        Q(enabled=True, calculation_interval=interval, next_check_at__lte=now)
+        | Q(
+            enabled=True,
+            calculation_interval=interval,
+            next_check_at__isnull=True,
         )
+    ).only("id", "team")
 
+    grouped_by_team = defaultdict(list)
+    for alert in alerts:
+        grouped_by_team[alert.team].append(alert.id)
+
+    for alert_ids in grouped_by_team.values():
         # We chain the task execution to prevent queries *for a single team* running at the same time
         chain(*(check_alert_task.si(str(alert_id)).set(expires=expire_after) for alert_id in alert_ids))()
 
@@ -207,6 +204,17 @@ def check_alert(alert_id: str) -> None:
         alert = AlertConfiguration.objects.get(id=alert_id, enabled=True)
     except AlertConfiguration.DoesNotExist:
         logger.warning("Alert not found or not enabled", alert_id=alert_id)
+        return
+
+    ALERT_CHECK_COUNTER.labels(interval=alert.calculation_interval).inc()
+
+    now = datetime.now(UTC)
+    if alert.next_check_at > now:
+        logger.warning(
+            """Alert took too long to compute or was queued too long during which it already got computed.
+            So not attempting to compute it again until it's due next""",
+            alert=alert,
+        )
         return
 
     insight = alert.insight

@@ -12,8 +12,7 @@ from posthog.tasks.alerts.checks import (
     hourly_alerts_task,
     daily_alerts_task,
     checks_cleanup_task,
-    daily_alerts_backlog_task,
-    hourly_alerts_backlog_task,
+    alerts_backlog_task,
 )
 from posthog.tasks.integrations import refresh_integrations
 from posthog.tasks.tasks import (
@@ -265,7 +264,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
 
     sender.add_periodic_task(
         crontab(hour="*", minute="*/12"),
-        hourly_alerts_backlog_task.s(),
+        alerts_backlog_task.s(),
         name="check number of hourly alerts that are not being checked in the last hour",
     )
 
@@ -273,12 +272,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="*", minute="*/6"),
         daily_alerts_task.s(),
         name="check alerts which require daily recalculation for matches and send notifications",
-    )
-
-    sender.add_periodic_task(
-        crontab(hour="*", minute="*/4"),
-        daily_alerts_backlog_task.s(),
-        name="check number of daily alerts that are not being checked in the last 24 hours.",
     )
 
     sender.add_periodic_task(
