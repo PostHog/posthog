@@ -673,13 +673,14 @@ class S3BatchExportWorkflow(PostHogWorkflow):
         """Workflow implementation to export data to S3 bucket."""
         data_interval_start, data_interval_end = get_data_interval(inputs.interval, inputs.data_interval_end)
 
-        if inputs.is_backfill and inputs.batch_export_model is not None and inputs.batch_export_model.name == "persons":
-            data_interval_start = None
+        should_backfill_from_beginning = (
+            inputs.is_backfill and inputs.batch_export_model is not None and inputs.batch_export_model.name == "persons"
+        )
 
         start_batch_export_run_inputs = StartBatchExportRunInputs(
             team_id=inputs.team_id,
             batch_export_id=inputs.batch_export_id,
-            data_interval_start=data_interval_start.isoformat() if data_interval_start else None,
+            data_interval_start=data_interval_start.isoformat() if not should_backfill_from_beginning else None,
             data_interval_end=data_interval_end.isoformat(),
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
