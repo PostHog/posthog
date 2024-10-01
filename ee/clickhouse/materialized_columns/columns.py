@@ -67,9 +67,15 @@ def get_materialized_column_info(
 
 def get_materialized_columns(
     table: TablesWithMaterializedColumns,
+    use_cache: bool | None = None,
 ) -> dict[tuple[PropertyName, TableColumn], ColumnName]:
+    extra_kwargs = {}
+    if use_cache is not None:
+        extra_kwargs = {"use_cache": use_cache}
     return {
-        key: value.column_name for key, value in get_materialized_column_info(table).items() if not value.is_nullable
+        key: value.column_name
+        for key, value in get_materialized_column_info(table, **extra_kwargs).items()
+        if not value.is_nullable
     }
 
 
