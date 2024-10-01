@@ -89,17 +89,17 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
     -- verify correctness and as a backup. Ideally we will be able to delete the uniq columns in the future when we're
     -- satisfied that counts are accurate.
     pageview_count SimpleAggregateFunction(sum, Int64),
-    pageview_uniq AggregateFunction(uniq, UUID),
+    pageview_uniq AggregateFunction(uniq, Nullable(UUID)),
     autocapture_count SimpleAggregateFunction(sum, Int64),
-    autocapture_uniq AggregateFunction(uniq, UUID),
+    autocapture_uniq AggregateFunction(uniq, Nullable(UUID)),
     screen_count SimpleAggregateFunction(sum, Int64),
-    screen_uniq AggregateFunction(uniq, UUID),
+    screen_uniq AggregateFunction(uniq, Nullable(UUID)),
 
     -- replay
     maybe_has_session_replay SimpleAggregateFunction(max, Bool), -- will be written False to by the events table mv and True to by the replay table mv
 
     -- as a performance optimisation, also keep track of the uniq events for all of these combined, a bounce is a session with <2 of these
-    page_screen_autocapture_uniq_up_to AggregateFunction(uniqUpTo(1), UUID),
+    page_screen_autocapture_uniq_up_to AggregateFunction(uniqUpTo(1), Nullable(UUID)),
 
     -- web vitals
     vitals_lcp AggregateFunction(argMin, Nullable(Float64), DateTime64(6, 'UTC'))
