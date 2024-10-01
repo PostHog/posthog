@@ -1,5 +1,7 @@
 use crate::limiters::redis::RedisLimiter;
+use crate::v0_request::{DataType, ProcessedEvent};
 use async_trait::async_trait;
+
 use health::HealthHandle;
 use metrics::{counter, gauge, histogram};
 use rdkafka::error::{KafkaError, RDKafkaErrorCode};
@@ -12,7 +14,7 @@ use tokio::task::JoinSet;
 use tracing::log::{debug, error, info};
 use tracing::{info_span, instrument, Instrument};
 
-use crate::api::{CaptureError, DataType, ProcessedEvent};
+use crate::api::CaptureError;
 use crate::config::KafkaConfig;
 use crate::limiters::overflow::OverflowLimiter;
 use crate::prometheus::report_dropped_events;
@@ -195,15 +197,17 @@ impl KafkaSink {
     }
 
     async fn kafka_send(&self, event: ProcessedEvent) -> Result<DeliveryFuture, CaptureError> {
+        let (event, metadata) = (event.event, event.metadata);
+
         let payload = serde_json::to_string(&event).map_err(|e| {
             error!("failed to serialize event: {}", e);
             CaptureError::NonRetryableSinkError
         })?;
 
         let token = event.token.clone();
-        let data_type = event.data_type;
+        let data_type = metadata.data_type;
         let event_key = event.key();
-        let session_id = event.session_id.clone();
+        let session_id = metadata.session_id.clone();
 
         drop(event); // Events can be EXTREMELY memory hungry
 
@@ -349,12 +353,14 @@ impl Event for KafkaSink {
 
 #[cfg(test)]
 mod tests {
-    use crate::api::{CaptureError, DataType, ProcessedEvent};
+    use crate::api::CaptureError;
     use crate::config;
     use crate::limiters::overflow::OverflowLimiter;
     use crate::sinks::kafka::KafkaSink;
     use crate::sinks::Event;
     use crate::utils::uuid_v7;
+    use crate::v0_request::{DataType, ProcessedEvent, ProcessedEventMetadata};
+    use common_types::CapturedEvent;
     use health::HealthRegistry;
     use rand::distributions::Alphanumeric;
     use rand::Rng;
@@ -405,8 +411,7 @@ mod tests {
         // We test different cases in a single test to amortize the startup cost of the producer.
 
         let (cluster, sink) = start_on_mocked_sink(Some(3000000)).await;
-        let event: ProcessedEvent = ProcessedEvent {
-            data_type: DataType::AnalyticsMain,
+        let event: CapturedEvent = CapturedEvent {
             uuid: uuid_v7(),
             distinct_id: "id1".to_string(),
             ip: "".to_string(),
@@ -414,7 +419,16 @@ mod tests {
             now: "".to_string(),
             sent_at: None,
             token: "token1".to_string(),
+        };
+
+        let metadata = ProcessedEventMetadata {
+            data_type: DataType::AnalyticsMain,
             session_id: None,
+        };
+
+        let event = ProcessedEvent {
+            event,
+            metadata: metadata.clone(),
         };
 
         // Wait for producer to be healthy, to keep kafka_message_timeout_ms short and tests faster
@@ -438,8 +452,7 @@ mod tests {
             .take(2_000_000)
             .map(char::from)
             .collect();
-        let big_event: ProcessedEvent = ProcessedEvent {
-            data_type: DataType::AnalyticsMain,
+        let captured = CapturedEvent {
             uuid: uuid_v7(),
             distinct_id: "id1".to_string(),
             ip: "".to_string(),
@@ -447,8 +460,13 @@ mod tests {
             now: "".to_string(),
             sent_at: None,
             token: "token1".to_string(),
-            session_id: None,
         };
+
+        let big_event = ProcessedEvent {
+            event: captured,
+            metadata: metadata.clone(),
+        };
+
         sink.send(big_event)
             .await
             .expect("failed to send event larger than default max size");
@@ -459,17 +477,20 @@ mod tests {
             .take(4_000_000)
             .map(char::from)
             .collect();
-        let big_event: ProcessedEvent = ProcessedEvent {
-            data_type: DataType::AnalyticsMain,
-            uuid: uuid_v7(),
-            distinct_id: "id1".to_string(),
-            ip: "".to_string(),
-            data: big_data,
-            now: "".to_string(),
-            sent_at: None,
-            token: "token1".to_string(),
-            session_id: None,
+
+        let big_event = ProcessedEvent {
+            event: CapturedEvent {
+                uuid: uuid_v7(),
+                distinct_id: "id1".to_string(),
+                ip: "".to_string(),
+                data: big_data,
+                now: "".to_string(),
+                sent_at: None,
+                token: "token1".to_string(),
+            },
+            metadata: metadata.clone(),
         };
+
         match sink.send(big_event).await {
             Err(CaptureError::EventTooBig) => {} // Expected
             Err(err) => panic!("wrong error code {}", err),

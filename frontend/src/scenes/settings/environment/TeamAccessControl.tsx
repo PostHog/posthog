@@ -130,7 +130,7 @@ function ActionsComponent(member: FusedTeamMemberType): JSX.Element | null {
     ) : null
 }
 
-export function ProjectTeamMembers(): JSX.Element | null {
+export function TeamMembers(): JSX.Element | null {
     const { user } = useValues(userLogic)
     const { allMembers, allMembersLoading } = useValues(teamMembersLogic)
     const restrictionReason = useRestrictedArea({
@@ -204,7 +204,7 @@ export function ProjectTeamMembers(): JSX.Element | null {
     )
 }
 
-export function ProjectAccessControl(): JSX.Element {
+export function TeamAccessControl(): JSX.Element {
     const { currentOrganization, currentOrganizationLoading } = useValues(organizationLogic)
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
@@ -263,7 +263,7 @@ export function ProjectAccessControl(): JSX.Element {
                 label="Make project private"
             />
 
-            {currentTeam?.access_control && <ProjectTeamMembers />}
+            {currentTeam?.access_control && <TeamMembers />}
         </>
     )
 }

@@ -1,4 +1,4 @@
-from posthog.hogql_queries.experiment_funnel_query_runner import ExperimentFunnelQueryRunner
+from posthog.hogql_queries.experiments.experiment_funnel_query_runner import ExperimentFunnelQueryRunner
 from posthog.models.experiment import Experiment
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.schema import (

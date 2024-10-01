@@ -131,6 +131,13 @@ class IntermittentUploadPartTimeoutError(Exception):
         super().__init__(f"An intermittent `RequestTimeout` was raised while attempting to upload part {part_number}")
 
 
+class EmptyS3EndpointURLError(Exception):
+    """Exception raised when an S3 endpoint URL is empty string."""
+
+    def __init__(self):
+        super().__init__("Endpoint URL cannot be empty.")
+
+
 Part = dict[str, str | int]
 
 
@@ -177,6 +184,9 @@ class S3MultiPartUpload:
         self.kms_key_id = kms_key_id
         self.upload_id: str | None = None
         self.parts: list[Part] = []
+
+        if self.endpoint_url == "":
+            raise EmptyS3EndpointURLError()
 
     def to_state(self) -> S3MultiPartUploadState:
         """Produce state tuple that can be used to resume this S3MultiPartUpload."""
@@ -727,6 +737,8 @@ class S3BatchExportWorkflow(PostHogWorkflow):
                 "NoSuchBucket",
                 # Couldn't connect to custom S3 endpoint
                 "EndpointConnectionError",
+                # Input contained an empty S3 endpoint URL
+                "EmptyS3EndpointURLError",
             ],
             finish_inputs=finish_inputs,
         )

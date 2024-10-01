@@ -10,6 +10,12 @@ use crate::{
     redis::Client as RedisClient, team::Team,
 };
 
+#[derive(Debug, Clone, Copy)]
+pub enum FlagRequestType {
+    Decide,
+    LocalEvaluation,
+}
+
 #[derive(Default, Debug, Deserialize, Serialize)]
 pub struct FlagRequest {
     #[serde(

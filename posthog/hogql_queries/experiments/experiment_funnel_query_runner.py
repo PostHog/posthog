@@ -1,7 +1,7 @@
 from posthog.hogql import ast
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.models.experiment import Experiment
-from .insights.funnels.funnels_query_runner import FunnelsQueryRunner
+from ..insights.funnels.funnels_query_runner import FunnelsQueryRunner
 from posthog.schema import (
     ExperimentFunnelQuery,
     ExperimentFunnelQueryResponse,
@@ -69,7 +69,8 @@ class ExperimentFunnelQueryRunner(QueryRunner):
     def _process_results(self, funnels_results: list[list[dict[str, Any]]]) -> dict[str, ExperimentVariantFunnelResult]:
         variants = self.feature_flag.variants
         processed_results = {
-            variant["key"]: ExperimentVariantFunnelResult(success_count=0, failure_count=0) for variant in variants
+            variant["key"]: ExperimentVariantFunnelResult(key=variant["key"], success_count=0, failure_count=0)
+            for variant in variants
         }
 
         for result in funnels_results:
