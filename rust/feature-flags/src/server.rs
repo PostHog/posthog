@@ -69,9 +69,7 @@ where
         postgres_writer,
         geoip_service,
         health,
-        config.enable_metrics,
-        config.max_concurrency,
-        config.team_ids_to_track,
+        config,
     );
 
     tracing::info!("listening on {:?}", listener.local_addr().unwrap());

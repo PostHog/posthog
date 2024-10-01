@@ -9,8 +9,12 @@ use health::HealthRegistry;
 use tower::limit::ConcurrencyLimitLayer;
 
 use crate::{
-    config::TeamIdsToTrack, database::Client as DatabaseClient, geoip::GeoIpClient,
-    redis::Client as RedisClient, utils::team_id_label_filter, v0_endpoint,
+    config::{Config, TeamIdsToTrack},
+    database::Client as DatabaseClient,
+    geoip::GeoIpClient,
+    redis::Client as RedisClient,
+    utils::team_id_label_filter,
+    v0_endpoint,
 };
 
 #[derive(Clone)]
@@ -28,9 +32,7 @@ pub fn router<R, D>(
     postgres_writer: Arc<D>,
     geoip: Arc<GeoIpClient>,
     liveness: HealthRegistry,
-    metrics: bool,
-    concurrency: usize,
-    team_ids_to_track: TeamIdsToTrack,
+    config: Config,
 ) -> Router
 where
     R: RedisClient + Send + Sync + 'static,
@@ -41,7 +43,7 @@ where
         postgres_reader,
         postgres_writer,
         geoip,
-        team_ids_to_track: team_ids_to_track.clone(),
+        team_ids_to_track: config.team_ids_to_track.clone(),
     };
 
     let status_router = Router::new()
@@ -51,15 +53,15 @@ where
 
     let flags_router = Router::new()
         .route("/flags", post(v0_endpoint::flags).get(v0_endpoint::flags))
-        .layer(ConcurrencyLimitLayer::new(concurrency))
+        .layer(ConcurrencyLimitLayer::new(config.max_concurrency))
         .with_state(state);
 
     let router = Router::new().merge(status_router).merge(flags_router);
 
     // Don't install metrics unless asked to
     // Global metrics recorders can play poorly with e.g. tests
-    if metrics {
-        common_metrics::set_label_filter(team_id_label_filter(team_ids_to_track.clone()));
+    if config.enable_metrics {
+        common_metrics::set_label_filter(team_id_label_filter(config.team_ids_to_track.clone()));
         let recorder_handle = setup_metrics_recorder();
         router.route("/metrics", get(move || ready(recorder_handle.render())))
     } else {
