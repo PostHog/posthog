@@ -130,6 +130,7 @@ class RawSessionsTableV2(Table):
             "screen_uniq",
             "last_external_click_url",
             "page_screen_autocapture_uniq_up_to",
+            "vitals_lcp",
         ]
 
 
