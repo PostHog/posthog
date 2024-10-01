@@ -89,7 +89,7 @@
     flex-shrink: 0;
     align-items: center;
     overflow: hidden;
-    color: var(--text-3000);
+    color: var(--muted);
     white-space: pre;
     cursor: default;
 
@@ -97,8 +97,21 @@
         color: inherit;
     }
 
+    .LemonIcon {
+        margin-left: 0.125rem;
+        font-size: 1rem;
+    }
+
+    .LemonTag--default {
+        font-weight: 600; // Aligning with breadcrumb font-weightq
+        text-transform: uppercase; // Increase readability at tiny size
+        border-color: var(--muted); // The default is --border, which is invisible on the top bar's background
+        opacity: 0.5;
+    }
+
     &.TopBar3000__breadcrumb--here {
         flex-shrink: 1;
+        color: var(--text-3000);
         cursor: default;
 
         .TopBar3000--full & {
@@ -108,7 +121,6 @@
         }
 
         > * {
-            opacity: 1;
             transform: translateY(calc(100% * (1 - var(--breadcrumbs-compaction-rate))));
         }
     }
@@ -116,21 +128,14 @@
     &.TopBar3000__breadcrumb--actionable {
         cursor: pointer;
 
-        &:hover > span,
-        &.TopBar3000__breadcrumb--open > span {
-            opacity: 1;
+        &:hover,
+        &.TopBar3000__breadcrumb--open {
+            color: var(--text-3000);
+
+            .LemonTag--default {
+                opacity: 1;
+            }
         }
-    }
-
-    > span {
-        opacity: 0.5;
-        transition: opacity 200ms ease;
-    }
-
-    > .LemonIcon {
-        margin-left: 0.125rem;
-        font-size: 1rem;
-        opacity: 0.5;
     }
 }
 

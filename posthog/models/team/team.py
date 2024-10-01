@@ -178,6 +178,8 @@ class WeekStartDay(models.IntegerChoices):
 
 
 class Team(UUIDClassicModel):
+    """Team means "environment" (historically it meant "project", but now we have the Project model for that)."""
+
     class Meta:
         verbose_name = "team (soon to be environment)"
         verbose_name_plural = "teams (soon to be environments)"
