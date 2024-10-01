@@ -28,7 +28,9 @@ import { LineGraph } from './Components/Charts/LineGraph'
 import { SideBar } from './Components/SideBar'
 import { Table } from './Components/Table'
 import { TableDisplay } from './Components/TableDisplay'
+import { AddVariableButton } from './Components/Variables/AddVariableButton'
 import { Variables } from './Components/Variables/Variables'
+import { variablesLogic } from './Components/Variables/variablesLogic'
 import { dataVisualizationLogic, DataVisualizationLogicProps } from './dataVisualizationLogic'
 import { displayLogic } from './displayLogic'
 
@@ -82,14 +84,19 @@ export function DataTableVisualization({
         <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
             <BindLogic logic={dataVisualizationLogic} props={dataVisualizationLogicProps}>
                 <BindLogic logic={displayLogic} props={{ key: dataVisualizationLogicProps.key }}>
-                    <InternalDataTableVisualization
-                        uniqueKey={key}
-                        query={query}
-                        setQuery={setQuery}
-                        context={context}
-                        cachedResults={cachedResults}
-                        readOnly={readOnly}
-                    />
+                    <BindLogic
+                        logic={variablesLogic}
+                        props={{ key: dataVisualizationLogicProps.key, readOnly: readOnly ?? false }}
+                    >
+                        <InternalDataTableVisualization
+                            uniqueKey={key}
+                            query={query}
+                            setQuery={setQuery}
+                            context={context}
+                            cachedResults={cachedResults}
+                            readOnly={readOnly}
+                        />
+                    </BindLogic>
                 </BindLogic>
             </BindLogic>
         </BindLogic>
@@ -118,15 +125,16 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
         [props.setQuery]
     )
 
+    let component: JSX.Element | null = null
+
+    // TODO(@Gilbert09): Better loading support for all components - e.g. using the `loading` param of `Table`
     if (!showEditingUI && (!response || responseLoading)) {
-        return (
+        component = (
             <div className="flex flex-col flex-1 justify-center items-center border rounded bg-bg-light">
                 <Animation type={AnimationType.LaptopHog} />
             </div>
         )
-    }
-    let component: JSX.Element | null = null
-    if (visualizationType === ChartDisplayType.ActionsTable) {
+    } else if (visualizationType === ChartDisplayType.ActionsTable) {
         component = (
             <Table
                 uniqueKey={props.uniqueKey}
@@ -169,6 +177,8 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                             </div>
                             <div className="flex gap-4 items-center">
                                 <div className="flex gap-4 items-center flex-wrap">
+                                    <AddVariableButton />
+
                                     {sourceFeatures.has(QueryFeature.dateRangePicker) &&
                                         !router.values.location.pathname.includes(urls.dataWarehouse()) && ( // decouple this component from insights tab and datawarehouse scene
                                             <DateRange
