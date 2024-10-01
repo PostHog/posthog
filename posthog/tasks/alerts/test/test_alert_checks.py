@@ -145,7 +145,8 @@ class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
             alert = AlertCheck.objects.filter(alert_configuration=self.alert["id"]).latest("created_at")
             assert alert.state == AlertState.FIRING
 
-        with freeze_time("2024-06-02T09:55:00.000Z"):
+        # move to next interval - next day
+        with freeze_time("2024-06-03T09:55:00.000Z"):
             self.set_thresholds(lower=0)
 
             check_alert(self.alert["id"])
@@ -156,7 +157,7 @@ class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
                 == AlertState.NOT_FIRING
             )
 
-        with freeze_time("2024-06-02T11:00:00.000Z"):
+        with freeze_time("2024-06-04T11:00:00.000Z"):
             self.set_thresholds(lower=1)
 
             check_alert(self.alert["id"])
@@ -254,7 +255,7 @@ class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
         ) as mock_calculate_for_query_based_insight:
             mock_calculate_for_query_based_insight.side_effect = Exception("Some error")
 
-            with freeze_time("2024-06-02T09:00:00.000Z"):
+            with freeze_time("2024-06-03T09:00:00.000Z"):
                 check_alert(self.alert["id"])
                 assert mock_send_notifications_for_breaches.call_count == 1
                 assert mock_send_notifications_for_errors.call_count == 1
@@ -282,7 +283,7 @@ class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
         ) as mock_calculate_for_query_based_insight:
             mock_calculate_for_query_based_insight.side_effect = Exception("Some error")
 
-            with freeze_time("2024-06-02T09:00:00.000Z"):
+            with freeze_time("2024-06-03T09:00:00.000Z"):
                 check_alert(self.alert["id"])
                 assert mock_send_notifications_for_breaches.call_count == 0
                 assert mock_send_notifications_for_errors.call_count == 1
@@ -323,3 +324,30 @@ class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
         assert email.to[0]["recipient"] == "user1@posthog.com"
         assert "first anomaly description" in email.html_body
         assert "second anomaly description" in email.html_body
+
+    def test_alert_not_recalculated_when_not_due(
+        self, mock_send_notifications_for_breaches: MagicMock, mock_send_errors: MagicMock
+    ) -> None:
+        self.set_thresholds(lower=1)
+
+        # no events so this should fire
+        check_alert(self.alert["id"])
+
+        assert mock_send_notifications_for_breaches.call_count == 1
+        alert = AlertCheck.objects.filter(alert_configuration=self.alert["id"]).latest("created_at")
+        assert alert.state == AlertState.FIRING
+
+        with freeze_time("2024-06-02T09:00:00.000Z"):
+            check_alert(self.alert["id"])
+
+            assert mock_send_notifications_for_breaches.call_count == 1
+            check = AlertCheck.objects.filter(alert_configuration=self.alert["id"]).latest("created_at")
+            assert alert.state == AlertState.FIRING
+
+        # same day for daily alert so won't recalculate as haven't passed next_check_at
+        with freeze_time("2024-06-02T09:55:00.000Z"):
+            check_alert(self.alert["id"])
+
+            second_check = AlertCheck.objects.filter(alert_configuration=self.alert["id"]).latest("created_at")
+            # didn't recalculate alert as it was not due
+            assert check.id == second_check.id
