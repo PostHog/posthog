@@ -1,6 +1,6 @@
 import re
 from datetime import timedelta
-from typing import Literal, NamedTuple, Union, cast
+from typing import Any, Literal, NamedTuple, Union, cast
 
 from clickhouse_driver.errors import ServerException
 from django.utils.timezone import now
@@ -42,16 +42,22 @@ class MaterializedColumnInfo(NamedTuple):
             type_name = f"Nullable({type_name})"
         return type_name
 
-    def get_expression_template(self, source_column: str) -> str:
+    def get_expression_template(self, source_column: str, property_name: str) -> tuple[str, dict[str, Any]]:
         """
-        Returns an expression template that can be used to extract the property value from the source column. Expects
-        that the caller will be providing the property name as the ``property`` parameter when executing the query.
+        Returns an expression and query parameter mapping that can be used to extract the property value from the source
+        column.
         """
-        parameter_name = "property"  # XXX: assumes the caller is aware of this dependency
+        property_parameter_name = "property_name"
         if self.is_nullable:
-            return f"JSONExtract({source_column}, %({parameter_name})s, 'Nullable(String)')"
+            extract_type_parameter_name = "column_type"
+            return (
+                f"JSONExtract({source_column}, %({property_parameter_name})s, %({extract_type_parameter_name})s)",
+                {property_parameter_name: property_name, extract_type_parameter_name: self.column_type},
+            )
         else:
-            return trim_quotes_expr(f"JSONExtractRaw({source_column}, %({parameter_name})s)")
+            return trim_quotes_expr(f"JSONExtractRaw({source_column}, %({property_parameter_name})s)"), {
+                property_parameter_name: property_name,
+            }
 
 
 @cache_for(timedelta(minutes=15))
@@ -73,6 +79,7 @@ def get_materialized_column_info(
         {"database": CLICKHOUSE_DATABASE, "table": table},
     )
     if rows and get_instance_setting("MATERIALIZED_COLUMNS_ENABLED"):
+        # XXX: behavior is undefined if the source column + property is materialized into multiple destination columns
         return {
             _extract_property(comment): MaterializedColumnInfo(column_name, bool(is_nullable))
             for comment, column_name, is_nullable in rows
@@ -121,16 +128,17 @@ def materialize(
     # :TRICKY: On cloud, we ON CLUSTER updates to events/sharded_events but not to persons. Why? ¯\_(ツ)_/¯
     execute_on_cluster = f"ON CLUSTER '{CLICKHOUSE_CLUSTER}'" if table == "events" else ""
 
+    expr, parameters = column_info.get_expression_template(table_column, property)
+
     if table == "events":
         sync_execute(
             f"""
             ALTER TABLE sharded_{table}
             {execute_on_cluster}
             ADD COLUMN IF NOT EXISTS
-            {column_info.column_name} {column_info.column_type}
-                MATERIALIZED {column_info.get_expression_template(table_column)}
+            {column_info.column_name} {column_info.column_type} MATERIALIZED {expr}
         """,
-            {"property": property},
+            parameters,
             settings={"alter_sync": 2 if TEST else 1},
         )
         sync_execute(
@@ -148,10 +156,9 @@ def materialize(
             ALTER TABLE {table}
             {execute_on_cluster}
             ADD COLUMN IF NOT EXISTS
-            {column_info.column_name} {column_info.column_type}
-                MATERIALIZED {column_info.get_expression_template(table_column)}
+            {column_info.column_name} {column_info.column_type} MATERIALIZED {expr}
         """,
-            {"property": property},
+            parameters,
             settings={"alter_sync": 2 if TEST else 1},
         )
 
@@ -216,15 +223,15 @@ def backfill_materialized_columns(
     assignments = []
     for property, table_column in properties:
         column_info = materialized_columns[(property, table_column)]
+        expr, parameters = column_info.get_expression_template(table_column, property)
         sync_execute(
             f"""
             ALTER TABLE {updated_table}
             {execute_on_cluster}
             MODIFY COLUMN
-            {column_info.column_name} {column_info.column_type}
-                DEFAULT {column_info.get_expression_template(table_column)}
+            {column_info.column_name} {column_info.column_type} DEFAULT {expr}
             """,
-            {"property": property},
+            parameters,
             settings=test_settings,
         )
         assignments.append(f"{column_info.column_name} = {column_info.column_name}")

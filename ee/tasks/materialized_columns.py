@@ -26,15 +26,15 @@ def mark_all_materialized() -> None:
         # :TRICKY: On cloud, we ON CLUSTER updates to events/sharded_events but not to persons. Why? ¯\_(ツ)_/¯
         execute_on_cluster = f"ON CLUSTER '{CLICKHOUSE_CLUSTER}'" if table == "events" else ""
 
+        expr, parameters = column_info.get_expression_template(table_column, property_name)
         sync_execute(
             f"""
             ALTER TABLE {updated_table}
             {execute_on_cluster}
             MODIFY COLUMN
-            {column_info.column_name} {column_info.column_type}
-                MATERIALIZED {column_info.get_expression_template(table_column)}
+            {column_info.column_name} {column_info.column_type} MATERIALIZED {expr}
             """,
-            {"property": property_name},
+            parameters,
         )
 
 

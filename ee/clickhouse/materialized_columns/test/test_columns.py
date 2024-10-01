@@ -200,6 +200,23 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
             mark_all_materialized()
             self.assertEqual(("String", "MATERIALIZED", expr), self._get_column_types("mat_myprop"))
 
+    def test_column_types_nullable(self):
+        materialize("events", "myprop", create_minmax_index=True, is_nullable=True)
+
+        expr = "JSONExtract(properties, 'myprop', 'Nullable(String)')"
+        self.assertEqual(("Nullable(String)", "MATERIALIZED", expr), self._get_column_types("mat_myprop"))
+
+        backfill_materialized_columns("events", [("myprop", "properties")], timedelta(days=50))
+        self.assertEqual(("Nullable(String)", "DEFAULT", expr), self._get_column_types("mat_myprop"))
+
+        try:
+            from ee.tasks.materialized_columns import mark_all_materialized
+        except ImportError:
+            pass
+        else:
+            mark_all_materialized()
+            self.assertEqual(("Nullable(String)", "MATERIALIZED", expr), self._get_column_types("mat_myprop"))
+
     def _count_materialized_rows(self, column):
         return sync_execute(
             """
