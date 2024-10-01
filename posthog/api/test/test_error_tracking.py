@@ -93,7 +93,7 @@ class TestErrorTracking(APIBaseTest):
         self.assertEqual(groups[0].merged_fingerprints, merging_fingerprints)
 
     def test_can_upload_a_source_map(self) -> None:
-        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_ERROR_TRACKING_SOURCEMAPS_FOLDER=TEST_BUCKET):
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_ERROR_TRACKING_SOURCE_MAPS_FOLDER=TEST_BUCKET):
             with open(get_path_to("source.js.map"), "rb") as image:
                 response = self.client.post(
                     f"/api/projects/{self.team.id}/error_tracking/upload_source_maps",

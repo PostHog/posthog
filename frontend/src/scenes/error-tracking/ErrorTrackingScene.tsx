@@ -190,7 +190,7 @@ const Header = (): JSX.Element => {
 }
 
 const ConfigurationModal = (): JSX.Element => {
-    const { isConfigurationModalOpen, isUploadSourcemapSubmitting } = useValues(errorTrackingSceneLogic)
+    const { isConfigurationModalOpen, isUploadSourceMapSubmitting } = useValues(errorTrackingSceneLogic)
     const { setIsConfigurationModalOpen } = useActions(errorTrackingSceneLogic)
 
     return (
@@ -200,9 +200,9 @@ const ConfigurationModal = (): JSX.Element => {
             isOpen={isConfigurationModalOpen}
             simple
         >
-            <Form logic={errorTrackingSceneLogic} formKey="uploadSourcemap" className="gap-1" enableFormOnSubmit>
+            <Form logic={errorTrackingSceneLogic} formKey="uploadSourceMap" className="gap-1" enableFormOnSubmit>
                 <LemonModal.Header>
-                    <h3>Upload sourcemap</h3>
+                    <h3>Upload source map</h3>
                 </LemonModal.Header>
                 <LemonModal.Content className="space-y-2">
                     <LemonField name="files">
@@ -212,10 +212,10 @@ const ConfigurationModal = (): JSX.Element => {
                             callToAction={
                                 <div className="flex flex-col items-center justify-center space-y-2 border border-dashed rounded p-4">
                                     <span className="flex items-center gap-2 font-semibold">
-                                        <IconUploadFile className="text-2xl" /> Add sourcemap
+                                        <IconUploadFile className="text-2xl" /> Add source map
                                     </span>
                                     <div>
-                                        Drag and drop your local sourcemap here or click to open the file browser.
+                                        Drag and drop your local source map here or click to open the file browser.
                                     </div>
                                 </div>
                             }
@@ -226,7 +226,7 @@ const ConfigurationModal = (): JSX.Element => {
                     <LemonButton type="secondary" onClick={() => setIsConfigurationModalOpen(false)}>
                         Cancel
                     </LemonButton>
-                    <LemonButton type="primary" status="alt" htmlType="submit" loading={isUploadSourcemapSubmitting}>
+                    <LemonButton type="primary" status="alt" htmlType="submit" loading={isUploadSourceMapSubmitting}>
                         Upload
                     </LemonButton>
                 </LemonModal.Footer>

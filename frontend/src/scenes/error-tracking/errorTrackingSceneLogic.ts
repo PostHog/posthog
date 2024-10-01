@@ -84,7 +84,7 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
     })),
 
     forms(({ actions }) => ({
-        uploadSourcemap: {
+        uploadSourceMap: {
             defaults: { files: [] } as { files: File[] },
             submit: async ({ files }) => {
                 if (files.length > 0) {

@@ -57,7 +57,7 @@ class ErrorTrackingGroupViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
                     raise ValidationError(code="file_too_large", detail="Source maps must be less than 50MB")
 
                 upload_path = (
-                    f"{settings.OBJECT_STORAGE_ERROR_TRACKING_SOURCEMAPS_FOLDER}/team-{self.team_id}/{file.name}"
+                    f"{settings.OBJECT_STORAGE_ERROR_TRACKING_SOURCE_MAPS_FOLDER}/team-{self.team_id}/{file.name}"
                 )
 
                 object_storage.write(upload_path, file)
