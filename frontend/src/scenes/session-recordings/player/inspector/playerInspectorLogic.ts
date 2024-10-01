@@ -145,6 +145,21 @@ function estimateSize(snapshot: unknown): number {
     return new Blob([JSON.stringify(snapshot || '')]).size
 }
 
+function getPayloadFor(customEvent: customEvent, tag: string): Record<string, any> {
+    if (tag === '$posthog_config') {
+        return (customEvent.data.payload as any)?.config as Record<string, any>
+    }
+
+    if (tag === '$session_options') {
+        return {
+            ...((customEvent.data.payload as any)?.sessionRecordingOptions as Record<string, any>),
+            activePlugins: (customEvent.data.payload as any)?.activePlugins,
+        }
+    }
+
+    return customEvent.data.payload as Record<string, any>
+}
+
 export const playerInspectorLogic = kea<playerInspectorLogicType>([
     path((key) => ['scenes', 'session-recordings', 'player', 'playerInspectorLogic', key]),
     props({} as PlayerInspectorLogicProps),
@@ -365,7 +380,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                                 tag: niceify(tag),
                                 search: niceify(tag),
                                 window_id: windowId,
-                                data: customEvent.data.payload as Record<string, any>,
+                                data: getPayloadFor(customEvent, tag),
                             })
                         }
                         if (isFullSnapshotEvent(snapshot)) {
