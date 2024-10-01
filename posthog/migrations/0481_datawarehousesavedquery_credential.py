@@ -5,16 +5,43 @@ import django.db.models.deletion
 
 
 class Migration(migrations.Migration):
+    atomic = False
     dependencies = [
         ("posthog", "0480_insightvariable"),
     ]
 
     operations = [
-        migrations.AddField(
-            model_name="datawarehousesavedquery",
-            name="credential",
-            field=models.ForeignKey(
-                blank=True, null=True, on_delete=django.db.models.deletion.CASCADE, to="posthog.datawarehousecredential"
-            ),
+        migrations.SeparateDatabaseAndState(
+            state_operations=[
+                migrations.AddField(
+                    model_name="datawarehousesavedquery",
+                    name="credential",
+                    field=models.ForeignKey(
+                        blank=True,
+                        null=True,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        to="posthog.datawarehousecredential",
+                    ),
+                ),
+            ],
+            database_operations=[
+                migrations.RunSQL(
+                    """
+                    ALTER TABLE "posthog_datawarehousesavedquery" ADD COLUMN "credential_id" uuid NULL CONSTRAINT "posthog_datawarehousesavedquery_credential_id_8d1c67e2_fk_posthog_d" REFERENCES "posthog_datawarehousecredential"("id") DEFERRABLE INITIALLY DEFERRED; -- existing-table-constraint-ignore
+                    SET CONSTRAINTS "posthog_datawarehousesavedquery_credential_id_8d1c67e2_fk_posthog_d" IMMEDIATE; -- existing-table-constraint-ignore
+                    """,
+                    reverse_sql="""
+                        ALTER TABLE "posthog_datawarehousesavedquery" DROP COLUMN IF EXISTS "credential_id";
+                    """,
+                ),
+                migrations.RunSQL(
+                    """
+                    CREATE INDEX CONCURRENTLY "posthog_datawarehousesavedquery_credential_id_8d1c67e2" ON "posthog_datawarehousesavedquery" ("credential_id");
+                    """,
+                    reverse_sql="""
+                        DROP INDEX IF EXISTS "posthog_datawarehousesavedquery_credential_id_8d1c67e2";
+                    """,
+                ),
+            ],
         ),
     ]
