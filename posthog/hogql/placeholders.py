@@ -2,7 +2,7 @@ from typing import Optional
 
 from posthog.hogql import ast
 from posthog.hogql.errors import QueryError
-from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
+from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 
 
 def replace_placeholders(node: ast.Expr, placeholders: Optional[dict[str, ast.Expr]]) -> ast.Expr:
@@ -48,7 +48,7 @@ class ReplacePlaceholders(CloningVisitor):
         bytecode = create_bytecode(node.expr)
         response = execute_bytecode(bytecode, self.placeholders)
         if isinstance(response.result, ast.Expr):
-            expr = clone_expr(response.result)
+            expr = response.result
             expr.start = node.start
             expr.end = node.end
             return expr
@@ -70,13 +70,7 @@ class ReplacePlaceholders(CloningVisitor):
 
     def visit_placeholder(self, node):
         # TODO: HOG_PLACEHOLDERS feature flag
-        bytecode_result = self._visit_placeholder_via_bytecode(node)
-        fields_result = self._visit_placeholder_via_fields(node)
-        if bytecode_result != fields_result:
-            print("------")  # noqa: T201
-            print(node)  # noqa: T201
-            print(bytecode_result)  # noqa: T201
-            print(fields_result)  # noqa: T201
-            print(bytecode_result == fields_result)  # noqa: T201
-        # return bytecode_result
-        return fields_result
+        if True:
+            return self._visit_placeholder_via_bytecode(node)
+        else:
+            return self._visit_placeholder_via_fields(node)

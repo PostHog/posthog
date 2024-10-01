@@ -114,7 +114,6 @@ def execute_hogql_query(
             hogql = print_prepared_ast(
                 select_query_hogql, hogql_query_context, "hogql", pretty=pretty if pretty is not None else True
             )
-            print(hogql)  # noqa: T201
             print_columns = []
             columns_query = (
                 select_query_hogql.select_queries[0]

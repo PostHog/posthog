@@ -1,7 +1,6 @@
 from datetime import timedelta
 import re
 import time
-from copy import deepcopy
 from typing import Any, Optional, TYPE_CHECKING
 from collections.abc import Callable
 
@@ -248,7 +247,7 @@ def execute_bytecode(
             case Operation.GET_GLOBAL:
                 chain = [pop_stack() for _ in range(next_token())]
                 if globals and chain[0] in globals:
-                    push_stack(deepcopy(get_nested_value(globals, chain, True)))
+                    push_stack(get_nested_value(globals, chain, True))
                 elif functions and chain[0] in functions:
                     push_stack(
                         new_hog_closure(
