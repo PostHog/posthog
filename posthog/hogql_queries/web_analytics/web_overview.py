@@ -339,8 +339,10 @@ HAVING and(
             if self.query.includeLCPScore:
                 select.extend(
                     [
-                        current_period_aggregate("quantiles", "lcp", "lcp_p90", params=[ast.Constant(value=0.9)]),
-                        previous_period_aggregate("quantiles", "lcp", "prev_lcp_p90", params=[ast.Constant(value=0.9)]),
+                        current_period_aggregate("quantiles", "lcp", "lcp_p75", params=[ast.Constant(value=0.75)]),
+                        previous_period_aggregate(
+                            "quantiles", "lcp", "prev_lcp_p75", params=[ast.Constant(value=0.75)]
+                        ),
                     ]
                 )
 

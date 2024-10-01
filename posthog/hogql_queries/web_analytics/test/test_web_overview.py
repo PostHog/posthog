@@ -528,7 +528,7 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     [
                         ("2023-12-02", s1a, "/", {"$web_vitals_LCP_value": 1000}),
                         ("2023-12-03", s1a, "/", {"$web_vitals_LCP_value": 400}),
-                        ("2023-12-12", s1b, "/", {"$web_vitals_LCP_value": 300}),
+                        ("2023-12-12", s1b, "/", {"$web_vitals_LCP_value": 320}),
                     ],
                 ),
                 ("p2", [("2023-12-11", s2, "/", {"$web_vitals_LCP_value": 200})]),
