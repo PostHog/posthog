@@ -12,15 +12,14 @@ from posthog.hogql.database.models import FieldOrTable, SavedQuery
 from posthog.models.team import Team
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UUIDModel
 from posthog.schema import HogQLQueryModifiers
-from posthog.warehouse.models.table import DataWarehouseTable
 from posthog.warehouse.models.util import (
     CLICKHOUSE_HOGQL_MAPPING,
     STR_TO_HOGQL_MAPPING,
     clean_type,
     remove_named_tuples,
 )
-from .credential import DataWarehouseCredential
 from posthog.hogql.database.s3_table import S3Table
+from posthog.warehouse.util import database_sync_to_async
 
 
 def validate_saved_query_name(value):
@@ -68,7 +67,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
         null=True,
         help_text="The timestamp of this SavedQuery's last run (if any).",
     )
-    credential = models.ForeignKey(DataWarehouseCredential, on_delete=models.CASCADE, null=True, blank=True)
+    table = models.ForeignKey("posthog.DataWarehouseTable", on_delete=models.SET_NULL, null=True, blank=True)
 
     class Meta:
         constraints = [
@@ -199,16 +198,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
                 send_feature_flag_events=False,
             )
         ):
-            return S3Table(
-                name=self.name,
-                url=self.url_pattern,
-                format=DataWarehouseTable.TableFormat.Delta,
-                access_key=self.credential.access_key,
-                access_secret=self.credential.access_secret,
-                fields=fields,
-                structure=", ".join(structure),
-                query=self.query["query"],
-            )
+            return self.table.hogql_definition(modifiers)
         else:
             return SavedQuery(
                 id=str(self.id),
@@ -216,3 +206,13 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
                 query=self.query["query"],
                 fields=fields,
             )
+
+
+@database_sync_to_async
+def aget_saved_query_by_id(saved_query_id: str, team_id: int) -> DataWarehouseSavedQuery | None:
+    return DataWarehouseSavedQuery.objects.exclude(deleted=True).get(id=saved_query_id, team_id=team_id)
+
+
+@database_sync_to_async
+def asave_saved_query(saved_query: DataWarehouseSavedQuery) -> None:
+    saved_query.save()

@@ -16,9 +16,6 @@ from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.metadata import is_valid_view
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast
-from posthog.warehouse.models import (
-    get_or_create_datawarehouse_credential,
-)
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.data_modeling.run_workflow import RunWorkflowInputs, Selector
 from posthog.warehouse.models import DataWarehouseJoin, DataWarehouseModelPath, DataWarehouseSavedQuery
@@ -177,13 +174,6 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
         )
         workflow_id = f"data-modeling-run-{saved_query.id.hex}"
         saved_query.status = DataWarehouseSavedQuery.Status.RUNNING
-
-        saved_query.credential = get_or_create_datawarehouse_credential(
-            team_id=saved_query.team_id,
-            access_key=settings.AIRBYTE_BUCKET_KEY,
-            access_secret=settings.AIRBYTE_BUCKET_SECRET,
-        )
-
         saved_query.save()
 
         async_to_sync(temporal.start_workflow)(  # type: ignore

@@ -31,6 +31,8 @@ from posthog.temporal.batch_exports.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.warehouse.models import DataWarehouseModelPath, DataWarehouseSavedQuery
 from posthog.warehouse.util import database_sync_to_async
+from posthog.warehouse.data_load.create_table import create_table_from_saved_query
+from dlt.common.schema.typing import TSchemaTables
 
 logger = structlog.get_logger()
 
@@ -122,6 +124,7 @@ class QueueMessage:
 
     status: ModelStatus
     label: str
+    schema: typing.Optional[TSchemaTables] = None
 
 
 Results = collections.namedtuple("Results", ("completed", "failed", "ancestor_failed"))
@@ -259,16 +262,16 @@ async def handle_model_ready(model: ModelNode, team_id: int, queue: asyncio.Queu
     try:
         if model.selected is True:
             team = await database_sync_to_async(Team.objects.get)(id=team_id)
-            await materialize_model(model.label, team)
+            _, _, schema = await materialize_model(model.label, team)
     except Exception:
         await queue.put(QueueMessage(status=ModelStatus.FAILED, label=model.label))
     else:
-        await queue.put(QueueMessage(status=ModelStatus.COMPLETED, label=model.label))
+        await queue.put(QueueMessage(status=ModelStatus.COMPLETED, label=model.label, schema=schema))
     finally:
         queue.task_done()
 
 
-async def materialize_model(model_label: str, team: Team) -> tuple[str, DeltaTable]:
+async def materialize_model(model_label: str, team: Team) -> tuple[str, DeltaTable, TSchemaTables]:
     """Materialize a given model by running its query in a dlt pipeline.
 
     Arguments:
@@ -317,11 +320,12 @@ async def materialize_model(model_label: str, team: Team) -> tuple[str, DeltaTab
         destination=destination,
         dataset_name=f"team_{team.pk}_model_{model_label}",
     )
-    _ = await asyncio.to_thread(pipeline.run, hogql_table(hogql_query, team, saved_query.name, table_columns))
+    source = hogql_table(hogql_query, team, saved_query.name, table_columns)
+    _ = await asyncio.to_thread(pipeline.run, source)
 
     tables = get_delta_tables(pipeline)
     key, delta_table = tables.popitem()
-    return (key, delta_table)
+    return (key, delta_table, source.schema.tables)
 
 
 @dlt.source(max_table_nesting=0)
@@ -568,6 +572,19 @@ async def finish_run_activity(inputs: FinishRunActivityInputs) -> None:
         raise
 
 
+@dataclasses.dataclass
+class CreateTableActivityInputs:
+    models: list[str]
+    team_id: int
+
+
+@temporalio.activity.defn
+async def create_table_activity(inputs: CreateTableActivityInputs) -> None:
+    """Activity that creates tables for a list of saved queries."""
+    for model in inputs.models:
+        await create_table_from_saved_query(model, inputs.team_id)
+
+
 async def update_saved_query_status(
     label: str, status: DataWarehouseSavedQuery.Status, run_at: dt.datetime, team_id: int
 ):
@@ -651,6 +668,21 @@ class RunWorkflow(PostHogWorkflow):
             ),
         )
         completed, failed, ancestor_failed = results
+
+        selected_labels = [selector.label for selector in inputs.select]
+        create_table_activity_inputs = CreateTableActivityInputs(
+            models=[label for label in completed if label in selected_labels], team_id=inputs.team_id
+        )
+        await temporalio.workflow.execute_activity(
+            create_table_activity,
+            create_table_activity_inputs,
+            start_to_close_timeout=dt.timedelta(minutes=5),
+            retry_policy=temporalio.common.RetryPolicy(
+                initial_interval=dt.timedelta(seconds=10),
+                maximum_interval=dt.timedelta(seconds=60),
+                maximum_attempts=0,
+            ),
+        )
 
         finish_run_activity_inputs = FinishRunActivityInputs(
             completed=[label for label in completed if dag[label].selected is True],

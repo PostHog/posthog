@@ -20,6 +20,7 @@ from posthog.models.utils import (
 from posthog.schema import DatabaseSerializedFieldType, HogQLQueryModifiers
 from posthog.warehouse.models.util import remove_named_tuples
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
+from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from django.db.models import Q
 from .credential import DataWarehouseCredential
 from uuid import UUID
@@ -286,6 +287,11 @@ def get_table_by_url_pattern_and_source(url_pattern: str, source_id: UUID, team_
 @database_sync_to_async
 def get_table_by_schema_id(schema_id: str, team_id: int):
     return ExternalDataSchema.objects.get(id=schema_id, team_id=team_id).table
+
+
+@database_sync_to_async
+def aget_table_by_saved_query_id(saved_query_id: UUID, team_id: int):
+    return DataWarehouseSavedQuery.objects.get(id=saved_query_id, team_id=team_id).table
 
 
 @database_sync_to_async
