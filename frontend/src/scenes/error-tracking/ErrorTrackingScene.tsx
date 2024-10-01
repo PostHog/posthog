@@ -108,6 +108,7 @@ const CustomVolumeColumnHeader: QueryContextColumnTitleComponent = ({ columnName
 }
 
 const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
+    const { hasGroupActions } = useValues(errorTrackingLogic)
     const { selectedRowIndexes } = useValues(errorTrackingSceneLogic)
     const { setSelectedRowIndexes } = useActions(errorTrackingSceneLogic)
 
@@ -118,15 +119,19 @@ const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
 
     return (
         <div className="flex items-start space-x-1.5 group">
-            <LemonCheckbox
-                className={clsx('pt-1 group-hover:visible', !checked && 'invisible')}
-                checked={checked}
-                onChange={(newValue) => {
-                    setSelectedRowIndexes(
-                        newValue ? [...selectedRowIndexes, rowIndex] : selectedRowIndexes.filter((id) => id != rowIndex)
-                    )
-                }}
-            />
+            {hasGroupActions && (
+                <LemonCheckbox
+                    className={clsx('pt-1 group-hover:visible', !checked && 'invisible')}
+                    checked={checked}
+                    onChange={(newValue) => {
+                        setSelectedRowIndexes(
+                            newValue
+                                ? [...selectedRowIndexes, rowIndex]
+                                : selectedRowIndexes.filter((id) => id != rowIndex)
+                        )
+                    }}
+                />
+            )}
             <LemonTableLink
                 title={record.exception_type || 'Unknown Type'}
                 description={
