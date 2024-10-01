@@ -45,7 +45,6 @@ pub async fn index() -> &'static str {
 }
 
 fn start_health_liveness_server(config: &Config, context: Arc<AppContext>) -> JoinHandle<()> {
-    // Why is the context cloned outside but the config cloned inside the function
     let config = config.clone();
     let router = Router::new()
         .route("/", get(index))
