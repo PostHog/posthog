@@ -6,7 +6,7 @@ import api from 'lib/api'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { getCoreFilterDefinition } from 'lib/taxonomy'
-import { eventToDescription, objectsEqual, toParams } from 'lib/utils'
+import { eventToDescription, humanizeBytes, objectsEqual, toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import {
     InspectorListItemPerformance,
@@ -135,6 +135,29 @@ function timeRelativeToStart(
     const timestamp = dayjs(thingWithTime.timestamp)
     const timeInRecording = timestamp.valueOf() - (start?.valueOf() ?? 0)
     return { timestamp, timeInRecording }
+}
+
+function niceify(tag: string): string {
+    return tag.replace(/\$/g, '').replace(/_/g, ' ')
+}
+
+function estimateSize(snapshot: unknown): number {
+    return new Blob([JSON.stringify(snapshot || '')]).size
+}
+
+function getPayloadFor(customEvent: customEvent, tag: string): Record<string, any> {
+    if (tag === '$posthog_config') {
+        return (customEvent.data.payload as any)?.config as Record<string, any>
+    }
+
+    if (tag === '$session_options') {
+        return {
+            ...((customEvent.data.payload as any)?.sessionRecordingOptions as Record<string, any>),
+            activePlugins: (customEvent.data.payload as any)?.activePlugins,
+        }
+    }
+
+    return customEvent.data.payload as Record<string, any>
 }
 
 export const playerInspectorLogic = kea<playerInspectorLogicType>([
@@ -336,7 +359,15 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                             const customEvent = snapshot as customEvent
                             const tag = customEvent.data.tag
 
-                            if (['$pageview', 'window hidden', 'browser offline', 'browser online'].includes(tag)) {
+                            if (
+                                [
+                                    '$pageview',
+                                    'window hidden',
+                                    'browser offline',
+                                    'browser online',
+                                    'window visible',
+                                ].includes(tag)
+                            ) {
                                 return
                             }
 
@@ -346,10 +377,10 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                                 type: SessionRecordingPlayerTab.DOCTOR,
                                 timestamp,
                                 timeInRecording,
-                                tag,
-                                search: tag,
+                                tag: niceify(tag),
+                                search: niceify(tag),
                                 window_id: windowId,
-                                data: customEvent.data.payload as Record<string, any>,
+                                data: getPayloadFor(customEvent, tag),
                             })
                         }
                         if (isFullSnapshotEvent(snapshot)) {
@@ -359,10 +390,10 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                                 type: SessionRecordingPlayerTab.DOCTOR,
                                 timestamp,
                                 timeInRecording,
-                                tag: 'fullSnapshotEvent',
-                                search: 'fullSnapshotEvent',
+                                tag: 'full snapshot event',
+                                search: 'full snapshot event',
                                 window_id: windowId,
-                                data: {},
+                                data: { snapshotSize: humanizeBytes(estimateSize(snapshot)) },
                             })
                         }
                     })
