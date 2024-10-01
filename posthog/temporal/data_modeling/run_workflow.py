@@ -32,7 +32,7 @@ from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.warehouse.models import DataWarehouseModelPath, DataWarehouseSavedQuery
 from posthog.warehouse.util import database_sync_to_async
 from posthog.warehouse.data_load.create_table import create_table_from_saved_query
-from dlt.common.schema.typing import TSchemaTables
+from posthog.warehouse.s3 import get_s3_client
 
 logger = structlog.get_logger()
 
@@ -124,7 +124,6 @@ class QueueMessage:
 
     status: ModelStatus
     label: str
-    schema: typing.Optional[TSchemaTables] = None
 
 
 Results = collections.namedtuple("Results", ("completed", "failed", "ancestor_failed"))
@@ -262,16 +261,16 @@ async def handle_model_ready(model: ModelNode, team_id: int, queue: asyncio.Queu
     try:
         if model.selected is True:
             team = await database_sync_to_async(Team.objects.get)(id=team_id)
-            _, _, schema = await materialize_model(model.label, team)
+            await materialize_model(model.label, team)
     except Exception:
         await queue.put(QueueMessage(status=ModelStatus.FAILED, label=model.label))
     else:
-        await queue.put(QueueMessage(status=ModelStatus.COMPLETED, label=model.label, schema=schema))
+        await queue.put(QueueMessage(status=ModelStatus.COMPLETED, label=model.label))
     finally:
         queue.task_done()
 
 
-async def materialize_model(model_label: str, team: Team) -> tuple[str, DeltaTable, TSchemaTables]:
+async def materialize_model(model_label: str, team: Team) -> tuple[str, DeltaTable]:
     """Materialize a given model by running its query in a dlt pipeline.
 
     Arguments:
@@ -288,7 +287,9 @@ async def materialize_model(model_label: str, team: Team) -> tuple[str, DeltaTab
         model_name = model_label
         filter_params["name"] = model_name
 
-    saved_query = await database_sync_to_async(DataWarehouseSavedQuery.objects.filter(team=team, **filter_params).get)()
+    saved_query = await database_sync_to_async(
+        DataWarehouseSavedQuery.objects.prefetch_related("team").filter(team=team, **filter_params).get
+    )()
 
     query_columns = saved_query.columns
     if not query_columns:
@@ -320,12 +321,34 @@ async def materialize_model(model_label: str, team: Team) -> tuple[str, DeltaTab
         destination=destination,
         dataset_name=f"team_{team.pk}_model_{model_label}",
     )
-    source = hogql_table(hogql_query, team, saved_query.name, table_columns)
-    _ = await asyncio.to_thread(pipeline.run, source)
+    _ = await asyncio.to_thread(pipeline.run, hogql_table(hogql_query, team, saved_query.name, table_columns))
 
     tables = get_delta_tables(pipeline)
+
+    for table in tables.values():
+        table.optimize.compact()
+        table.vacuum(retention_hours=24, enforce_retention_duration=False, dry_run=False)
+
+        file_uris = table.file_uris()
+        prepare_s3_files_for_querying(saved_query, file_uris)
+
     key, delta_table = tables.popitem()
-    return (key, delta_table, source.schema.tables)
+    return (key, delta_table)
+
+
+def prepare_s3_files_for_querying(saved_query: DataWarehouseSavedQuery, file_uris: list[str]) -> list[str]:
+    s3 = get_s3_client()
+
+    folder_path = f"{settings.BUCKET_URL}/{saved_query.folder_path}"
+    staging_url_pattern = f"{folder_path}/{saved_query.name}"
+    querying_url_pattern = f"{folder_path}/{saved_query.name}__query"
+
+    if s3.exists(querying_url_pattern):
+        s3.delete(querying_url_pattern, recursive=True)
+
+    for file in file_uris:
+        file_name = file.replace(f"{staging_url_pattern}/", "")
+        s3.copy(file, f"{querying_url_pattern}/{file_name}")
 
 
 @dlt.source(max_table_nesting=0)
@@ -640,7 +663,7 @@ class RunWorkflow(PostHogWorkflow):
             retry_policy=temporalio.common.RetryPolicy(
                 initial_interval=dt.timedelta(seconds=10),
                 maximum_interval=dt.timedelta(seconds=60),
-                maximum_attempts=0,
+                maximum_attempts=1,
             ),
         )
 
@@ -654,7 +677,7 @@ class RunWorkflow(PostHogWorkflow):
             retry_policy=temporalio.common.RetryPolicy(
                 initial_interval=dt.timedelta(seconds=10),
                 maximum_interval=dt.timedelta(seconds=60),
-                maximum_attempts=0,
+                maximum_attempts=1,
             ),
         )
 
@@ -664,7 +687,7 @@ class RunWorkflow(PostHogWorkflow):
             run_model_activity_inputs,
             start_to_close_timeout=dt.timedelta(hours=1),
             retry_policy=temporalio.common.RetryPolicy(
-                maximum_attempts=0,
+                maximum_attempts=1,
             ),
         )
         completed, failed, ancestor_failed = results
@@ -680,7 +703,7 @@ class RunWorkflow(PostHogWorkflow):
             retry_policy=temporalio.common.RetryPolicy(
                 initial_interval=dt.timedelta(seconds=10),
                 maximum_interval=dt.timedelta(seconds=60),
-                maximum_attempts=0,
+                maximum_attempts=1,
             ),
         )
 
@@ -697,7 +720,7 @@ class RunWorkflow(PostHogWorkflow):
             retry_policy=temporalio.common.RetryPolicy(
                 initial_interval=dt.timedelta(seconds=10),
                 maximum_interval=dt.timedelta(seconds=60),
-                maximum_attempts=0,
+                maximum_attempts=1,
             ),
         )
 

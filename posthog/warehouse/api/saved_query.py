@@ -21,6 +21,7 @@ from posthog.temporal.data_modeling.run_workflow import RunWorkflowInputs, Selec
 from posthog.warehouse.models import DataWarehouseJoin, DataWarehouseModelPath, DataWarehouseSavedQuery
 import uuid
 
+
 logger = structlog.get_logger(__name__)
 
 
@@ -168,6 +169,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
         saved_query = self.get_object()
 
         temporal = sync_connect()
+
         inputs = RunWorkflowInputs(
             team_id=saved_query.team_id,
             select=[Selector(label=saved_query.id.hex, ancestors=ancestors, descendants=descendants)],

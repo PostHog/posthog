@@ -38,7 +38,7 @@ async def create_table_from_saved_query(
     try:
         table_name = f"mat_{saved_query.name}"
         url_pattern = saved_query.url_pattern
-        table_format = DataWarehouseTable.TableFormat.Delta
+        table_format = DataWarehouseTable.TableFormat.DeltaS3Wrapper
 
         table_params = {
             "credential": credential,

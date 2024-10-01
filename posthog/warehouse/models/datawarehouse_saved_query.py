@@ -133,6 +133,10 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
         return list(table_collector.tables)
 
     @property
+    def folder_path(self):
+        return f"team_{self.team.pk}_model_{self.id.hex}/modeling"
+
+    @property
     def url_pattern(self):
         return (
             f"https://{settings.AIRBYTE_BUCKET_DOMAIN}/dlt/team_{self.team.pk}_model_{self.id.hex}/modeling/{self.name}"
@@ -177,7 +181,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
             fields[column] = hogql_type(name=column)
 
         if (
-            self.credential is not None
+            self.table is not None
             and (self.status == DataWarehouseSavedQuery.Status.COMPLETED or self.last_run_at is not None)
             and posthoganalytics.feature_enabled(
                 "data-modeling",
@@ -210,7 +214,11 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
 
 @database_sync_to_async
 def aget_saved_query_by_id(saved_query_id: str, team_id: int) -> DataWarehouseSavedQuery | None:
-    return DataWarehouseSavedQuery.objects.exclude(deleted=True).get(id=saved_query_id, team_id=team_id)
+    return (
+        DataWarehouseSavedQuery.objects.prefetch_related("team")
+        .exclude(deleted=True)
+        .get(id=saved_query_id, team_id=team_id)
+    )
 
 
 @database_sync_to_async
