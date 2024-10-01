@@ -92,4 +92,5 @@ url = { version = "2.5.0 " }
 uuid = { version = "1.6.1", features = ["v7", "serde"] }
 neon = "1"
 moka = {version = "0.12.8", features = ["sync"] }
+quick_cache = "0.6.9"
 ahash = "0.8.11"

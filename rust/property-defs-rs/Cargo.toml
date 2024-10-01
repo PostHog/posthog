@@ -18,12 +18,13 @@ axum = { workspace = true }
 serve-metrics = { path = "../common/serve_metrics" }
 metrics = { workspace = true }
 chrono = { workspace = true }
-moka = { workspace = true }
+quick_cache = { workspace = true }
 common-metrics = { path = "../common/metrics" }
 common-alloc = { path = "../common/alloc" }
 common-kafka = { path = "../common/kafka" }
 ahash = { workspace = true }
 uuid = { workspace = true }
+rand = { workspace = true }
 
 [lints]
 workspace = true

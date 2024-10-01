@@ -37,7 +37,9 @@ class ErrorTrackingQueryRunner(QueryRunner):
 
     def select(self):
         exprs: list[ast.Expr] = [
-            ast.Alias(alias="occurrences", expr=ast.Call(name="count", args=[])),
+            ast.Alias(
+                alias="occurrences", expr=ast.Call(name="count", distinct=True, args=[ast.Field(chain=["uuid"])])
+            ),
             ast.Alias(
                 alias="sessions", expr=ast.Call(name="count", distinct=True, args=[ast.Field(chain=["$session_id"])])
             ),
@@ -124,6 +126,34 @@ class ErrorTrackingQueryRunner(QueryRunner):
                         self.extracted_fingerprint_property(),
                     ],
                 ),
+            )
+
+        if self.query.searchQuery:
+            # TODO: Refine this so it only searches the frames inside $exception_list
+            # TODO: Split out spaces and search for each word separately
+            # TODO: Add support for searching for specific properties
+            # TODO: Add fuzzy search support
+            props_to_search = ["$exception_list", "$exception_stack_trace_raw", "$exception_type", "$exception_message"]
+            or_exprs: list[ast.Expr] = []
+            for prop in props_to_search:
+                or_exprs.append(
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.Gt,
+                        left=ast.Call(
+                            name="position",
+                            args=[
+                                ast.Call(name="lower", args=[ast.Field(chain=["properties", prop])]),
+                                ast.Call(name="lower", args=[ast.Constant(value=self.query.searchQuery)]),
+                            ],
+                        ),
+                        right=ast.Constant(value=0),
+                    )
+                )
+
+            exprs.append(
+                ast.Or(
+                    exprs=or_exprs,
+                )
             )
 
         return ast.And(exprs=exprs)

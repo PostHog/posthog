@@ -1,5 +1,5 @@
 import { LemonButton } from '@posthog/lemon-ui'
-import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { SimpleKeyValueList } from 'scenes/session-recordings/player/inspector/components/SimpleKeyValueList'
 
 import { InspectorListItemDoctor } from '../playerInspectorLogic'
 
@@ -23,13 +23,7 @@ export function ItemDoctor({ item, expanded, setExpanded }: ItemDoctorProps): JS
             </LemonButton>
 
             {expanded && (
-                <div className="p-2 text-xs border-t">
-                    {item.data && (
-                        <CodeSnippet language={Language.JSON} wrap thing={`custom event - ${item.tag}`}>
-                            {JSON.stringify(item.data, null, 2)}
-                        </CodeSnippet>
-                    )}
-                </div>
+                <div className="p-2 text-xs border-t">{item.data && <SimpleKeyValueList item={item.data} />}</div>
             )}
         </>
     )

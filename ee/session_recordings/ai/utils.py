@@ -3,7 +3,6 @@ from datetime import datetime
 
 from typing import Any
 
-from posthog.models.element import chain_to_elements
 from hashlib import shake_256
 
 
@@ -18,6 +17,9 @@ class SessionSummaryPromptData:
     # we replace URLs with a placeholder and then pass this mapping of placeholder to URL into the prompt
     url_mapping: dict[str, str] = dataclasses.field(default_factory=dict)
 
+    # one for each result in results
+    processed_elements_chain: list[dict] = dataclasses.field(default_factory=list)
+
     def is_empty(self) -> bool:
         return not self.columns or not self.results
 
@@ -26,34 +28,6 @@ class SessionSummaryPromptData:
             if c == column:
                 return i
         return None
-
-
-def reduce_elements_chain(session_events: SessionSummaryPromptData) -> SessionSummaryPromptData:
-    if session_events.is_empty():
-        return session_events
-
-    # find elements_chain column index
-    elements_chain_index = session_events.column_index("elements_chain")
-
-    reduced_results = []
-    for result in session_events.results:
-        if elements_chain_index is None:
-            reduced_results.append(result)
-            continue
-
-        elements_chain: str | None = result[elements_chain_index]
-        if not elements_chain:
-            reduced_results.append(result)
-            continue
-
-        # the elements chain has lots of information that we don't need
-        elements = [e for e in chain_to_elements(elements_chain) if e.tag_name in e.USEFUL_ELEMENTS]
-
-        result_list = list(result)
-        result_list[elements_chain_index] = [{"tag": e.tag_name, "text": e.text, "href": e.href} for e in elements]
-        reduced_results.append(result_list)
-
-    return dataclasses.replace(session_events, results=reduced_results)
 
 
 def simplify_window_id(session_events: SessionSummaryPromptData) -> SessionSummaryPromptData:

@@ -59,7 +59,8 @@ SETTINGS
     -- This is half of configured MAX_MEMORY_USAGE for batch exports.
     -- TODO: Make the setting available to all queries.
     max_bytes_before_external_group_by=50000000000,
-    max_bytes_before_external_sort=50000000000
+    max_bytes_before_external_sort=50000000000,
+    optimize_aggregation_in_order=1
 """
 
 SELECT_FROM_EVENTS_VIEW = Template(
@@ -76,6 +77,9 @@ FROM
         exclude_events={exclude_events}::Array(String)
     ) AS events
 FORMAT ArrowStream
+SETTINGS
+    -- This is half of configured MAX_MEMORY_USAGE for batch exports.
+    max_bytes_before_external_sort=50000000000
 """
 )
 
@@ -92,6 +96,9 @@ FROM
         exclude_events={exclude_events}::Array(String)
     ) AS events
 FORMAT ArrowStream
+SETTINGS
+    -- This is half of configured MAX_MEMORY_USAGE for batch exports.
+    max_bytes_before_external_sort=50000000000
 """
 )
 
@@ -108,6 +115,9 @@ FROM
         exclude_events={exclude_events}::Array(String)
     ) AS events
 FORMAT ArrowStream
+SETTINGS
+    -- This is half of configured MAX_MEMORY_USAGE for batch exports.
+    max_bytes_before_external_sort=50000000000
 """
 )
 

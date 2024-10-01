@@ -267,6 +267,7 @@ export interface HogQLFilters {
 
 export interface HogQLVariable {
     variableId: string
+    code_name: string
     value?: any
 }
 
@@ -426,6 +427,8 @@ export interface HogQLMetadata extends DataNode<HogQLMetadataResponse> {
     globals?: Record<string, any>
     /** Extra filters applied to query via {filters} */
     filters?: HogQLFilters
+    /** Variables to be subsituted into the query */
+    variables?: Record<string, HogQLVariable>
     /** Enable more verbose output, usually run from the /debug page */
     debug?: boolean
 }
@@ -1536,6 +1539,7 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
     assignee?: integer | null
     filterGroup?: PropertyGroupFilter
     filterTestAccounts?: boolean
+    searchQuery?: string
     limit?: integer
 }
 

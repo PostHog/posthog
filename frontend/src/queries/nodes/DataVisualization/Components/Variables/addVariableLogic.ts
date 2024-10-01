@@ -10,6 +10,7 @@ const DEFAULT_VARIABLE: StringVariable = {
     type: 'String',
     name: '',
     default_value: '',
+    code_name: '',
 }
 
 export const addVariableLogic = kea<addVariableLogicType>([
@@ -43,6 +44,7 @@ export const addVariableLogic = kea<addVariableLogicType>([
                             type: 'String',
                             name: '',
                             default_value: '',
+                            code_name: '',
                         } as StringVariable
                     }
 
@@ -52,6 +54,7 @@ export const addVariableLogic = kea<addVariableLogicType>([
                             type: 'Number',
                             name: '',
                             default_value: 0,
+                            code_name: '',
                         } as NumberVariable
                     }
 
@@ -61,6 +64,7 @@ export const addVariableLogic = kea<addVariableLogicType>([
                             type: 'Boolean',
                             name: '',
                             default_value: false,
+                            code_name: '',
                         } as BooleanVariable
                     }
 
@@ -71,12 +75,13 @@ export const addVariableLogic = kea<addVariableLogicType>([
                             name: '',
                             values: [],
                             default_value: '',
+                            code_name: '',
                         } as ListVariable
                     }
 
                     throw new Error(`Unsupported variable type ${variableType}`)
                 },
-                updateVariable: (state, { variable }) => ({ ...state, ...variable }),
+                updateVariable: (state, { variable }) => ({ ...state, ...variable } as Variable),
                 closeModal: () => DEFAULT_VARIABLE,
             },
         ],
