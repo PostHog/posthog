@@ -54,14 +54,18 @@ export default meta
 
 const Template: StoryFn<typeof LemonInputSelect> = (props: LemonInputSelectProps) => {
     const [value, setValue] = useState(props.value || [])
-    return <LemonInputSelect {...props} value={value} onChange={setValue} className="w-140" />
+    return (
+        <div className="w-160">
+            <LemonInputSelect {...props} value={value} onChange={setValue} className="w-140" />
+        </div>
+    )
 }
 
-// export const Default: Story = Template.bind({})
-// Default.args = {
-//     placeholder: 'Pick one email',
-//     mode: 'single',
-// }
+export const Default: Story = Template.bind({})
+Default.args = {
+    placeholder: 'Pick one email',
+    mode: 'single',
+}
 
 export const MultipleSelect: Story = Template.bind({})
 MultipleSelect.args = {
