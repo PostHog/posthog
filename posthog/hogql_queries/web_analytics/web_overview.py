@@ -58,7 +58,7 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner):
                 to_data("sessions", "unit", self._unsample(row[4]), self._unsample(row[5])),
                 to_data("session duration", "duration_s", row[6], row[7]),
                 to_data("bounce rate", "percentage", row[8], row[9], is_increase_bad=True),
-                to_data("lcp_p90", "duration_ms", row[10], row[11], is_increase_bad=True),
+                to_data("lcp score", "duration_ms", row[10], row[11], is_increase_bad=True),
             ]
 
         return WebOverviewQueryResponse(
@@ -218,7 +218,7 @@ HAVING and(
                 )
             )
             lcp = (
-                ast.Constant(value=None)
+                ast.Call(name="toFloat", args=[ast.Constant(value=None)])
                 if self.modifiers.sessionTableVersion == SessionTableVersion.V1
                 else ast.Call(name="any", args=[ast.Field(chain=["session", "$vitals_lcp"])])
             )
@@ -263,7 +263,9 @@ HAVING and(
                     ),
                 )
             else:
-                return ast.Alias(alias=alias, expr=ast.Call(name=function_name, args=[ast.Field(chain=[column_name])]))
+                return ast.Alias(
+                    alias=alias, expr=ast.Call(name=function_name, params=params, args=[ast.Field(chain=[column_name])])
+                )
 
         def previous_period_aggregate(function_name, column_name, alias, params=None):
             if self.query.compare:

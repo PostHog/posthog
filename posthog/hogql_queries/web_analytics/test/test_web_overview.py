@@ -102,6 +102,7 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "sessions",
             "session duration",
             "bounce rate",
+            "lcp score",
         ]
 
         action = Action.objects.create(

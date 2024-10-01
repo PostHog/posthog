@@ -184,7 +184,7 @@ const labelFromKey = (key: string): string => {
             return 'Session duration'
         case 'bounce rate':
             return 'Bounce rate'
-        case 'lcp_p90':
+        case 'lcp score':
             return 'LCP Score'
         case 'conversion rate':
             return 'Conversion rate'
