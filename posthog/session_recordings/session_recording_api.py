@@ -409,20 +409,19 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         }
         user = request.user
 
-        if "viewed" in serializer.validated_data:
-            if not request.user.is_anonymous:
-                recording.check_viewed_for_user(user, save_viewed=True)
-                # TODO: make sure this has all the props we want
-                report_user_action(
-                    user=user,
-                    event="recording viewed",
-                    properties=event_properties,
-                    team=self.team,
-                )
-
-        if "analyzed" in serializer.validated_data:
+        if "viewed" in serializer.validated_data and not request.user.is_anonymous:
+            recording.check_viewed_for_user(user, save_viewed=True)
+            # TODO: make sure this has all the props we want
             report_user_action(
-                user=user,
+                user=User(user),
+                event="recording viewed",
+                properties=event_properties,
+                team=self.team,
+            )
+
+        if "analyzed" in serializer.validated_data and not request.user.is_anonymous:
+            report_user_action(
+                user=User(user),
                 event="recording analyzed",
                 properties=event_properties,
                 team=self.team,
