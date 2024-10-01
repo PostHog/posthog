@@ -47,6 +47,18 @@ export function sanitizePossibleWildCardedURL(url: string): URL {
     return new URL(deWildCardedURL)
 }
 
+/**
+ * Checks if the URL has a wildcard (*) in the port position eg https://*.example.com or http://localhost:*
+ */
+export function hasPortWildcard(input: string): boolean {
+    if (!input || typeof input !== 'string') {
+        return false
+    }
+    // This regex matches URLs with a wildcard (*) in the port position
+    const portWildcardRegex = /^(https?:\/\/[^:/]+):\*(.*)$/
+    return portWildcardRegex.test(input.trim())
+}
+
 export const validateProposedUrl = (
     proposedUrl: string,
     currentUrls: string[],
@@ -54,6 +66,10 @@ export const validateProposedUrl = (
 ): string | undefined => {
     if (!isURL(proposedUrl)) {
         return 'Please enter a valid URL'
+    }
+
+    if (hasPortWildcard(proposedUrl)) {
+        return 'Wildcards are not allowed in the port position'
     }
 
     if (onlyAllowDomains && !isDomain(sanitizePossibleWildCardedURL(proposedUrl))) {
