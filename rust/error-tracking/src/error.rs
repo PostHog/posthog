@@ -7,4 +7,6 @@ pub enum Error {
     ConfigError(#[from] envconfig::Error),
     #[error("Kafka error: {0}")]
     KafkaError(#[from] KafkaError),
+    #[error("Sqlx error: {0}")]
+    SqlxError(#[from] sqlx::Error),
 }

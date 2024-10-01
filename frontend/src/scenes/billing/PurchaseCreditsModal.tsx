@@ -145,10 +145,10 @@ export const PurchaseCreditsModal = (): JSX.Element | null => {
                                 text:
                                     creditInputValue >= 100000 ? (
                                         <>
-                                            <IconCheckCircle className="text-success" /> 30% off
+                                            <IconCheckCircle className="text-success" /> 35% off
                                         </>
                                     ) : (
-                                        '30% off'
+                                        '35% off'
                                     ),
                                 prefix: '$',
                                 value: 100000,

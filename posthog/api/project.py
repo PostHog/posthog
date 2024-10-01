@@ -10,7 +10,7 @@ from rest_framework.permissions import IsAuthenticated
 
 from posthog.geoip import get_geoip_properties
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.shared import ProjectBasicSerializer
+from posthog.api.shared import ProjectBackwardCompatBasicSerializer
 from posthog.api.team import PremiumMultiProjectPermissions, TeamSerializer, validate_team_attrs
 from posthog.event_usage import report_user_action
 from posthog.jwt import PosthogJwtAudience, encode_jwt
@@ -28,7 +28,6 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.personal_api_key import APIScopeObjectOrNotSupported
 from posthog.models.project import Project
 from posthog.models.signals import mute_selected_signals
-from posthog.models.team.team import Team
 from posthog.models.team.util import delete_batch_exports, delete_bulky_postgres_data
 from posthog.models.utils import UUIDT
 from posthog.permissions import (
@@ -42,9 +41,14 @@ from posthog.user_permissions import UserPermissions, UserPermissionsSerializerM
 from posthog.utils import get_ip_address, get_week_start_for_country_code
 
 
-class ProjectSerializer(ProjectBasicSerializer, UserPermissionsSerializerMixin):
-    instance: Optional[Project]
+class ProjectSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Project
+        fields = ["id", "organization_id", "name", "created_at"]
+        read_only_fields = ["id", "organization_id", "created_at"]
 
+
+class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, UserPermissionsSerializerMixin):
     effective_membership_level = serializers.SerializerMethodField()  # Compat with TeamSerializer
     has_group_types = serializers.SerializerMethodField()  # Compat with TeamSerializer
     live_events_token = serializers.SerializerMethodField()  # Compat with TeamSerializer
@@ -339,7 +343,7 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """
 
     scope_object: APIScopeObjectOrNotSupported = "project"
-    serializer_class = ProjectSerializer
+    serializer_class = ProjectBackwardCompatSerializer
     queryset = Project.objects.all().select_related("organization").prefetch_related("teams")
     lookup_field = "id"
     ordering = "-created_by"
@@ -351,7 +355,7 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def get_serializer_class(self) -> type[serializers.BaseSerializer]:
         if self.action == "list":
-            return ProjectBasicSerializer
+            return ProjectBackwardCompatBasicSerializer
         return super().get_serializer_class()
 
     # NOTE: Team permissions are somewhat complex so we override the underlying viewset's get_permissions method
@@ -408,9 +412,9 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         user = cast(User, self.request.user)
 
-        teams: list[Team] = list(project.teams.all())
+        teams = list(project.teams.only("id", "uuid", "name", "organization_id").all())
         delete_bulky_postgres_data(team_ids=[team.id for team in teams])
-        delete_batch_exports(team_ids=[team.pk for team in teams])
+        delete_batch_exports(team_ids=[team.id for team in teams])
 
         with mute_selected_signals():
             super().perform_destroy(project)
@@ -469,7 +473,7 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         project.passthrough_team.reset_token_and_save(
             user=request.user, is_impersonated_session=is_impersonated_session(request)
         )
-        return response.Response(ProjectSerializer(project, context=self.get_serializer_context()).data)
+        return response.Response(ProjectBackwardCompatSerializer(project, context=self.get_serializer_context()).data)
 
     @action(
         methods=["GET"],
