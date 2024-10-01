@@ -37,6 +37,13 @@ class MaterializedColumnInfo(NamedTuple):
     column_name: str
     is_nullable: bool
 
+    @property
+    def column_type(self) -> str:
+        type_name = "String"
+        if self.is_nullable:
+            type_name = f"Nullable({type_name})"
+        return type_name
+
     def get_expression_template(self, source_column: str) -> str:
         """
         Returns an expression template that can be used to extract the property value from the source column. Expects
@@ -122,7 +129,7 @@ def materialize(
             ALTER TABLE sharded_{table}
             {execute_on_cluster}
             ADD COLUMN IF NOT EXISTS
-            {column_info.column_name} VARCHAR
+            {column_info.column_name} {column_info.column_type}
                 MATERIALIZED {column_info.get_expression_template(table_column)}
         """,
             {"property": property},
@@ -133,7 +140,7 @@ def materialize(
             ALTER TABLE {table}
             {execute_on_cluster}
             ADD COLUMN IF NOT EXISTS
-            {column_info.column_name} VARCHAR
+            {column_info.column_name} {column_info.column_type}
         """,
             settings={"alter_sync": 2 if TEST else 1},
         )
@@ -143,7 +150,7 @@ def materialize(
             ALTER TABLE {table}
             {execute_on_cluster}
             ADD COLUMN IF NOT EXISTS
-            {column_info.column_name} VARCHAR
+            {column_info.column_name} {column_info.column_type}
                 MATERIALIZED {column_info.get_expression_template(table_column)}
         """,
             {"property": property},
@@ -216,7 +223,7 @@ def backfill_materialized_columns(
             ALTER TABLE {updated_table}
             {execute_on_cluster}
             MODIFY COLUMN
-            {column_info.column_name} VARCHAR
+            {column_info.column_name} {column_info.column_type}
                 DEFAULT {column_info.get_expression_template(table_column)}
             """,
             {"property": property},
