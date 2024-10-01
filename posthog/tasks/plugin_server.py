@@ -1,6 +1,7 @@
 from typing import Optional
 from celery import shared_task
 from django.conf import settings
+import posthoganalytics
 
 from posthog.event_usage import report_team_action
 from posthog.tasks.email import send_hog_function_disabled, send_fatal_plugin_error
@@ -41,6 +42,9 @@ def hog_function_state_transition(hog_function_id: str, state: int) -> None:
             "state": state,
         },
     )
+
+    # TRICKY: It seems like without this call the events don't get flushed, possibly due to celery worker threads exiting...
+    posthoganalytics.flush()
 
     if state >= 2:  # 2 and 3 are disabled
         send_hog_function_disabled.delay(hog_function_id)
