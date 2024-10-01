@@ -358,20 +358,92 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         assert response_data["results"][0]["viewed"] is False
         assert response_data["results"][0]["id"] == "1"
 
-        # can set it to viewed
-        save_as_viewed_response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/1?save_view=True")
-        assert save_as_viewed_response.status_code == 200
+    @patch("posthoganalytics.capture")
+    def test_update_session_recording_viewed(self, mock_capture: MagicMock):
+        session_id = "test_update_viewed_state"
+        base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
+        produce_replay_summary(
+            session_id=session_id,
+            team_id=self.team.pk,
+            first_timestamp=base_time.isoformat(),
+            last_timestamp=base_time.isoformat(),
+            distinct_id="u1",
+        )
 
+        # Verify initial state
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/{session_id}")
+        assert response.status_code == 200
+        assert response.json()["viewed"] is False
+
+        # Update viewed state
+        update_response = self.client.patch(
+            f"/api/projects/{self.team.id}/session_recordings/{session_id}",
+            {"viewed": True},
+        )
+        assert update_response.status_code == 200
+        assert update_response.json()["success"] is True
+
+        # Verify updated state
+        # We don't get the viewed state back in the retrieve endpoint, so we need to list them
         final_view_response = self.client.get(f"/api/projects/{self.team.id}/session_recordings")
         response_data = final_view_response.json()
-        # Make sure the query param sets it to viewed
         assert response_data["results"][0]["viewed"] is True
-        assert response_data["results"][0]["id"] == "1"
+        assert response_data["results"][0]["id"] == "test_update_viewed_state"
 
-        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/1")
-        response_data = response.json()
-        # In the metadata response too
-        self.assertEqual(response_data["viewed"], True)
+        assert len(mock_capture.call_args_list) == 1
+        assert mock_capture.call_args_list[0][0][1] == "recording viewed"
+
+    @patch("posthoganalytics.capture")
+    def test_update_session_recording_analyzed(self, mock_capture: MagicMock):
+        session_id = "test_update_analyzed_state"
+        base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
+        produce_replay_summary(
+            session_id=session_id,
+            team_id=self.team.pk,
+            first_timestamp=base_time.isoformat(),
+            last_timestamp=base_time.isoformat(),
+            distinct_id="u1",
+        )
+
+        # Update analyzed state
+        update_response = self.client.patch(
+            f"/api/projects/{self.team.id}/session_recordings/{session_id}",
+            {"analyzed": True},
+        )
+        assert update_response.status_code == 200
+        assert update_response.json()["success"] is True
+
+        # Verify that the appropriate event was reported
+        assert len(mock_capture.call_args_list) == 1
+        assert mock_capture.call_args_list[0][0][1] == "recording analyzed"
+
+    def test_update_session_recording_invalid_data(self):
+        session_id = "test_update_invalid_data"
+        base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
+        produce_replay_summary(
+            session_id=session_id,
+            team_id=self.team.pk,
+            first_timestamp=base_time.isoformat(),
+            last_timestamp=base_time.isoformat(),
+            distinct_id="u1",
+        )
+
+        # Attempt to update with invalid data
+        update_response = self.client.patch(
+            f"/api/projects/{self.team.id}/session_recordings/{session_id}",
+            {"invalid_field": True},
+        )
+        assert update_response.status_code == 400
+
+    def test_update_nonexistent_session_recording(self):
+        nonexistent_session_id = "nonexistent_session"
+
+        # Attempt to update a non-existent session recording
+        update_response = self.client.patch(
+            f"/api/projects/{self.team.id}/session_recordings/{nonexistent_session_id}",
+            {"viewed": True},
+        )
+        assert update_response.status_code == 404
 
     def test_get_single_session_recording_metadata(self):
         with freeze_time("2023-01-01T12:00:00.000Z"):

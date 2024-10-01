@@ -13,9 +13,9 @@ from django.contrib.auth.models import AnonymousUser
 from django.core.cache import cache
 from django.http import HttpResponse, JsonResponse
 from drf_spectacular.utils import extend_schema
-from loginas.utils import is_impersonated_session
 from prometheus_client import Counter, Histogram
 from rest_framework import exceptions, request, serializers, viewsets
+from rest_framework.mixins import UpdateModelMixin
 from rest_framework.renderers import JSONRenderer
 from rest_framework.response import Response
 from rest_framework.utils.encoders import JSONEncoder
@@ -29,6 +29,7 @@ from posthog.api.utils import action, safe_clickhouse_string
 from posthog.auth import PersonalAPIKeyAuthentication, SharingAccessTokenAuthentication
 from posthog.cloud_utils import is_cloud
 from posthog.constants import SESSION_RECORDINGS_FILTER_IDS
+from posthog.event_usage import report_user_action
 from posthog.models import Team, User
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.person.person import PersonDistinctId
@@ -226,6 +227,18 @@ class SessionRecordingSourcesSerializer(serializers.Serializer):
     snapshots = serializers.ListField(required=False)
 
 
+class SessionRecordingUpdateSerializer(serializers.Serializer):
+    viewed = serializers.BooleanField(required=False)
+    analyzed = serializers.BooleanField(required=False)
+    player_metadata = serializers.JSONField(required=False)
+    durations = serializers.JSONField(required=False)
+
+    def validate(self, data):
+        if not data.get("viewed") and not data.get("analyzed"):
+            raise serializers.ValidationError("At least one of 'viewed' or 'analyzed' must be provided.")
+        return data
+
+
 def list_recordings_response(
     filter: SessionRecordingsFilter, request: request.Request, serializer_context: dict[str, Any]
 ) -> Response:
@@ -281,7 +294,7 @@ class SnapshotsSustainedRateThrottle(PersonalApiKeyRateThrottle):
 
 
 # NOTE: Could we put the sharing stuff in the shared mixin :thinking:
-class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, UpdateModelMixin):
     scope_object = "session_recording"
     scope_object_read_actions = ["list", "retrieve", "snapshots"]
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
@@ -359,13 +372,63 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         recording.load_person()
 
-        if not request.user.is_anonymous:
-            save_viewed = request.GET.get("save_view") is not None and not is_impersonated_session(request)
-            recording.check_viewed_for_user(request.user, save_viewed=save_viewed)
-
         serializer = self.get_serializer(recording)
 
         return Response(serializer.data)
+
+    def update(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+        recording = self.get_object()
+
+        serializer = SessionRecordingUpdateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        current_url = request.headers.get("Referer")
+        session_id = request.headers.get("X-Posthog-Session-Id")
+        durations = serializer.validated_data.get("durations", {})
+        player_metadata = serializer.validated_data.get("player_metadata", {})
+
+        event_properties = {
+            "$current_url": current_url,
+            "$session_id": session_id,
+            "snapshots_load_time": durations.get("snapshots"),
+            "metadata_load_time": durations.get("metadata"),
+            "events_load_time": durations.get("events"),
+            "first_paint_load_time": durations.get("firstPaint"),
+            "duration": player_metadata.get("duration"),
+            "recording_id": player_metadata.get("sessionRecordingId"),
+            "start_time": player_metadata.get("start"),
+            "end_time": player_metadata.get("end"),
+            "page_change_events_length": player_metadata.get("pageChangeEventsLength"),
+            "recording_width": player_metadata.get("recordingWidth"),
+            "load_time": durations.get(
+                "firstPaint", 0
+            ),  # TODO: DEPRECATED field. Keep around so dashboards don't break
+            # older recordings did not store this and so "null" is equivalent to web
+            # but for reporting we want to distinguish between not loaded and no value to load
+            "snapshot_source": player_metadata.get("snapshotSource", "unknown"),
+        }
+        user = request.user
+
+        if "viewed" in serializer.validated_data:
+            if not request.user.is_anonymous:
+                recording.check_viewed_for_user(user, save_viewed=True)
+                # TODO: make sure this has all the props we want
+                report_user_action(
+                    user=user,
+                    event="recording viewed",
+                    properties=event_properties,
+                    team=self.team,
+                )
+
+        if "analyzed" in serializer.validated_data:
+            report_user_action(
+                user=user,
+                event="recording analyzed",
+                properties=event_properties,
+                team=self.team,
+            )
+
+        return Response({"success": True})
 
     def destroy(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         recording = self.get_object()

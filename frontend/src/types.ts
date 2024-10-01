@@ -1397,6 +1397,13 @@ export interface SessionRecordingType {
     ongoing?: boolean
 }
 
+export interface SessionRecordingUpdateType {
+    viewed?: boolean
+    analyzed?: boolean
+    player_metadata?: Record<string, any> | null
+    durations?: Record<string, any> | null
+}
+
 export interface SessionRecordingPropertiesType {
     id: string
     properties?: Record<string, any>

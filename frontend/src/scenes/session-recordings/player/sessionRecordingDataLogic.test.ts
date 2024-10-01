@@ -364,7 +364,7 @@ describe('sessionRecordingDataLogic', () => {
                     action.payload.source?.source === 'blob',
                 'loadSnapshotsForSourceSuccess',
                 // and then we report having viewed the recording
-                'reportViewed',
+                'markViewed',
                 // the response to the success action triggers loading of the second item which is the realtime source
                 (action) =>
                     action.type === logic.actionTypes.loadSnapshotsForSource &&
