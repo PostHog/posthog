@@ -1,3 +1,7 @@
+from unittest.mock import ANY
+
+from rest_framework import status
+
 from posthog.test.base import APIBaseTest
 from posthog.models import Team, ErrorTrackingGroup
 from django.utils.http import urlsafe_base64_encode
@@ -47,7 +51,36 @@ class TestErrorTracking(APIBaseTest):
         self.send_request(fingerprint, {"merging_fingerprints": merging_fingerprints}, endpoint="merge")
 
         group.refresh_from_db()
+
         self.assertEqual(group.merged_fingerprints, merging_fingerprints)
+
+        self._assert_logs_the_activity(
+            group.id,
+            [
+                {
+                    "activity": "merged_fingerprints",
+                    "created_at": ANY,
+                    "detail": {
+                        "changes": [
+                            {
+                                "action": "merged",
+                                "after": [["NewFingerprint"]],
+                                "before": [],
+                                "field": "merged_fingerprints",
+                                "type": "ErrorTrackingGroup",
+                            }
+                        ],
+                        "name": None,
+                        "short_id": None,
+                        "trigger": None,
+                        "type": None,
+                    },
+                    "item_id": str(group.id),
+                    "scope": "ErrorTrackingGroup",
+                    "user": {"email": "user1@posthog.com", "first_name": ""},
+                }
+            ],
+        )
 
     def test_merging_when_no_group_exists(self):
         fingerprint = ["CustomFingerprint"]
@@ -58,3 +91,19 @@ class TestErrorTracking(APIBaseTest):
         self.assertEqual(ErrorTrackingGroup.objects.count(), 1)
         groups = ErrorTrackingGroup.objects.only("merged_fingerprints")
         self.assertEqual(groups[0].merged_fingerprints, merging_fingerprints)
+
+    def _assert_logs_the_activity(self, error_tracking_group_id: int, expected: list[dict]) -> None:
+        activity_response = self._get_error_group_activity(error_tracking_group_id)
+
+        activity: list[dict] = activity_response["results"]
+
+        self.maxDiff = None
+        self.assertEqual(activity, expected)
+
+    def _get_error_group_activity(
+        self, error_tracking_group_id: int, expected_status: int = status.HTTP_200_OK
+    ) -> dict:
+        url = f"/api/projects/{self.team.id}/error_tracking/{error_tracking_group_id}/activity"
+        activity = self.client.get(url)
+        self.assertEqual(activity.status_code, expected_status)
+        return activity.json()

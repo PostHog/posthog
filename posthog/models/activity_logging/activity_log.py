@@ -42,6 +42,7 @@ ActivityScope = Literal[
     "Comment",
     "Team",
     "Project",
+    "ErrorTrackingGroup",
 ]
 ChangeAction = Literal["changed", "created", "deleted", "merged", "split", "exported"]
 
