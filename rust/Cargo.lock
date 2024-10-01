@@ -2933,7 +2933,8 @@ dependencies = [
  "futures",
  "health",
  "metrics",
- "moka",
+ "quick_cache",
+ "rand",
  "serde",
  "serde_json",
  "serve-metrics",
@@ -2997,6 +2998,18 @@ dependencies = [
  "wasi 0.11.0+wasi-snapshot-preview1",
  "web-sys",
  "winapi",
+]
+
+[[package]]
+name = "quick_cache"
+version = "0.6.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7d7c94f8935a9df96bb6380e8592c70edf497a643f94bd23b2f76b399385dbf4"
+dependencies = [
+ "ahash",
+ "equivalent",
+ "hashbrown 0.14.3",
+ "parking_lot",
 ]
 
 [[package]]
