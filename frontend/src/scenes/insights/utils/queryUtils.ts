@@ -6,6 +6,7 @@ import {
     filterKeyForQuery,
     isEventsNode,
     isFunnelsQuery,
+    isHogQLQuery,
     isInsightQueryNode,
     isInsightQueryWithDisplay,
     isInsightQueryWithSeries,
@@ -28,6 +29,26 @@ export const compareQuery = (a: Node, b: Node, opts?: CompareQueryOpts): boolean
     }
 
     return objectsEqual(objectCleanWithEmpty(a as any), objectCleanWithEmpty(b as any))
+}
+
+export const haveVariablesOrFiltersChanged = (a: Node, b: Node): boolean => {
+    if (!isHogQLQuery(a) || !isHogQLQuery(b)) {
+        return false
+    }
+
+    if (a.variables && b.variables) {
+        if (!objectsEqual(a.variables, b.variables)) {
+            return true
+        }
+    }
+
+    if (a.filters && b.filters) {
+        if (!objectsEqual(a.filters, b.filters)) {
+            return true
+        }
+    }
+
+    return false
 }
 
 /** Compares two queries for semantic equality to prevent double-fetching of data. */

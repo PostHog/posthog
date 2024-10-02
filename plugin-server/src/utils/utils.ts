@@ -330,15 +330,26 @@ export async function tryTwice<T>(callback: () => Promise<T>, errorMessage: stri
         return await callback()
     }
 }
+
 export async function createRedis(serverConfig: PluginsServerConfig): Promise<Redis.Redis> {
-    const credentials: Partial<RedisOptions> | undefined = serverConfig.POSTHOG_REDIS_HOST
+    // TRICKY: We added dedicated Redis's for different scenarios. The POSTHOG_REDIS_HOST refers to the shared
+    // instance for the core django app but was previously used for the INGESTION_REDIS_HOST. We need both, hence we check
+    // for the INGESTION_REDIS_HOST first and then fall back to POSTHOG_REDIS_HOST and finally REDIS_URL (used by docker compose).
+    const params = serverConfig.INGESTION_REDIS_HOST
         ? {
-              password: serverConfig.POSTHOG_REDIS_PASSWORD,
+              host: serverConfig.INGESTION_REDIS_HOST,
+              port: serverConfig.INGESTION_REDIS_PORT,
+              password: serverConfig.INGESTION_REDIS_PASSWORD,
+          }
+        : serverConfig.POSTHOG_REDIS_HOST
+        ? {
+              host: serverConfig.POSTHOG_REDIS_HOST,
               port: serverConfig.POSTHOG_REDIS_PORT,
+              password: serverConfig.POSTHOG_REDIS_PASSWORD,
           }
         : undefined
 
-    return createRedisClient(credentials ? serverConfig.POSTHOG_REDIS_HOST : serverConfig.REDIS_URL, credentials)
+    return createRedisClient(params ? params.host : serverConfig.REDIS_URL, params)
 }
 
 export async function createRedisClient(url: string, options?: RedisOptions): Promise<Redis.Redis> {

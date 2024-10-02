@@ -21,7 +21,6 @@ const mockConfig = {
 describe('LazyPluginVM', () => {
     const db = {
         queuePluginLogEntry: jest.fn(),
-        celeryApplyAsync: jest.fn(),
     }
 
     const mockServer: any = {
@@ -31,6 +30,9 @@ describe('LazyPluginVM', () => {
             pluginScheduledTasks: true,
             processPluginJobs: true,
             processAsyncHandlers: true,
+        },
+        celery: {
+            applyAsync: jest.fn(),
         },
     }
 
@@ -244,12 +246,10 @@ describe('LazyPluginVM', () => {
             )
 
             // An email to project members about the failure is queued
-            expect(mockServer.db.celeryApplyAsync).toHaveBeenCalledWith('posthog.tasks.email.send_fatal_plugin_error', [
-                pluginConfig39.id,
-                null,
-                'RetryError (attempt 5/5)',
-                false,
-            ])
+            expect(mockServer.celery.applyAsync).toHaveBeenCalledWith(
+                'posthog.tasks.plugin_server.fatal_plugin_error',
+                [pluginConfig39.id, null, 'RetryError (attempt 5/5)', false]
+            )
         })
     })
 })

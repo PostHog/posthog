@@ -3,14 +3,14 @@ from unittest.mock import MagicMock, patch
 
 from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.instance_setting import set_instance_setting
-from posthog.tasks.hog_functions import hog_function_state_transition
+from posthog.tasks.plugin_server import hog_function_state_transition
 from posthog.tasks.test.utils_email_tests import mock_email_messages
 from posthog.test.base import APIBaseTest
 
 
 @patch("posthog.tasks.email.EmailMessage")
-@patch("posthog.tasks.hog_functions.report_team_action")
-class TestHogFunctionTasks(APIBaseTest):
+@patch("posthog.tasks.plugin_server.report_team_action")
+class TestPluginServerTasks(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         set_instance_setting("EMAIL_HOST", "fake_host")
