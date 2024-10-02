@@ -80,7 +80,7 @@ export const availableOnboardingProducts: AvailableOnboardingProducts = {
     [ProductKey.SURVEYS]: {
         name: 'Surveys',
         icon: 'IconMessage',
-        iconColor: 'salmon',
+        iconColor: 'blue',
         url: urls.surveys(),
         scene: Scene.Surveys,
     },
