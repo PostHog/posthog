@@ -1022,7 +1022,11 @@ email@example.org,
         # only "p4" had events
         self.assertEqual(1, _calc("select person_id from events"))
 
-        # raises if not selecting a column with this name
+        # works with selecting anything from persons and events
+        self.assertEqual(4, _calc("select 1 from persons"))
+        self.assertEqual(1, _calc("select 1 from events"))
+
+        # raises on all other cases
         response = self.client.post(
             f"/api/projects/{self.team.id}/cohorts",
             data={
@@ -1030,7 +1034,7 @@ email@example.org,
                 "is_static": True,
                 "query": {
                     "kind": "HogQLQuery",
-                    "query": "select 1 from persons",
+                    "query": "select 1 from groups",
                 },
             },
         )

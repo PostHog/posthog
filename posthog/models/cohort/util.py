@@ -98,7 +98,14 @@ def print_cohort_hogql_query(cohort: Cohort, hogql_context: HogQLContext) -> str
         elif isinstance(column, ast.Field):
             select_query.select = [ast.Alias(expr=column, alias="actor_id")]
         else:
-            raise ValueError("Could not find person_id, actor_id, or id in the select query")
+            # Support the most common use cases
+            table = select_query.select_from.table if select_query.select_from else None
+            if isinstance(table, ast.Field) and table.chain[-1] == "events":
+                select_query.select = [ast.Alias(expr=ast.Field(chain=["person", "id"]), alias="actor_id")]
+            elif isinstance(table, ast.Field) and table.chain[-1] == "persons":
+                select_query.select = [ast.Alias(expr=ast.Field(chain=["id"]), alias="actor_id")]
+            else:
+                raise ValueError("Could not find a person_id, actor_id, or id column in the query")
 
     hogql_context.enable_select_queries = True
     hogql_context.limit_top_select = False

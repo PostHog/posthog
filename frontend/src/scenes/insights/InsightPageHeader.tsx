@@ -1,6 +1,5 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
-import api from 'lib/api'
 import { AddToDashboard } from 'lib/components/AddToDashboard/AddToDashboard'
 import { AddToDashboardModal } from 'lib/components/AddToDashboard/AddToDashboardModal'
 import { AlertsButton } from 'lib/components/Alerts/AlertsButton'
@@ -9,6 +8,7 @@ import { EditAlertModal } from 'lib/components/Alerts/views/EditAlertModal'
 import { ManageAlertsModal } from 'lib/components/Alerts/views/ManageAlertsModal'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
+import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
@@ -21,7 +21,6 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
-import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
 import { useState } from 'react'
 import { NewDashboardModal } from 'scenes/dashboard/NewDashboardModal'
@@ -37,7 +36,6 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { cohortsModel } from '~/models/cohortsModel'
 import { tagsModel } from '~/models/tagsModel'
 import { DataTableNode, NodeKind } from '~/queries/schema'
 import {
@@ -78,6 +76,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
         insightDataLogic(insightProps)
     )
     const { toggleQueryEditorPanel, toggleDebugPanel } = useActions(insightDataLogic(insightProps))
+    const { createStaticCohort } = useActions(exportsLogic)
 
     // other logics
     useMountedLogic(insightCommandLogic(insightProps))
@@ -267,8 +266,14 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                                 onClick={() => {
                                                     LemonDialog.openForm({
                                                         title: 'Save as static cohort',
-                                                        description:
-                                                            'Your query must export one actor_id column, which must match the id column on the persons table',
+                                                        description: (
+                                                            <div className="mt-2">
+                                                                Your query must export a <code>person_id</code>,{' '}
+                                                                <code>actor_id</code> or <code>id</code> column, which
+                                                                must match the <code>id</code> of the{' '}
+                                                                <code>persons</code> table
+                                                            </div>
+                                                        ),
                                                         initialValues: {
                                                             name: '',
                                                         },
@@ -286,24 +291,10 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                                                 !name ? 'You must enter a name' : undefined,
                                                         },
                                                         onSubmit: async ({ name }) => {
-                                                            try {
-                                                                const cohort = await api.create('api/cohort', {
-                                                                    is_static: true,
-                                                                    name: name || 'Query cohort',
-                                                                    query: { kind: NodeKind.HogQLQuery, query: hogQL },
-                                                                })
-                                                                cohortsModel.actions.cohortCreated(cohort)
-                                                                lemonToast.success('Cohort saved', {
-                                                                    toastId: `cohort-saved-${cohort.id}`,
-                                                                    button: {
-                                                                        label: 'View cohort',
-                                                                        action: () =>
-                                                                            router.actions.push(urls.cohort(cohort.id)),
-                                                                    },
-                                                                })
-                                                            } catch (e) {
-                                                                lemonToast.error('Cohort save failed')
-                                                            }
+                                                            createStaticCohort(name, {
+                                                                kind: NodeKind.HogQLQuery,
+                                                                query: hogQL,
+                                                            })
                                                         },
                                                     })
                                                 }}
