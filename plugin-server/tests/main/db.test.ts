@@ -872,33 +872,6 @@ describe('DB', () => {
             expect(fetchedTeam).toEqual(null)
         })
     })
-
-    describe('fetchTeamByToken()', () => {
-        it('fetches a team by token', async () => {
-            const organizationId = await createOrganization(db.postgres)
-            const teamId = await createTeam(db.postgres, organizationId, 'token2')
-
-            const fetchedTeam = await hub.db.fetchTeamByToken('token2')
-            expect(fetchedTeam).toEqual({
-                anonymize_ips: false,
-                api_token: 'token2',
-                id: teamId,
-                ingested_event: true,
-                name: 'TEST PROJECT',
-                organization_id: organizationId,
-                session_recording_opt_in: true,
-                heatmaps_opt_in: null,
-                slack_incoming_webhook: null,
-                uuid: expect.any(String),
-                test_account_filters: {} as any, // NOTE: Test insertion data gets set as an object weirdly
-            })
-        })
-
-        it('returns null if the team does not exist', async () => {
-            const fetchedTeam = await hub.db.fetchTeamByToken('token2')
-            expect(fetchedTeam).toEqual(null)
-        })
-    })
 })
 
 describe('PostgresRouter()', () => {
