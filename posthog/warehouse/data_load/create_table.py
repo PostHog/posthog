@@ -51,8 +51,8 @@ async def create_table_from_saved_query(
         # create or update
         table_created: DataWarehouseTable | None = await aget_table_by_saved_query_id(saved_query_id_converted, team_id)
         if table_created:
-            table_created.credential = table_params.get("credential")
-            table_created.format = table_params.get("format")
+            table_created.credential = credential
+            table_created.format = table_format
             table_created.url_pattern = url_pattern
             await asave_datawarehousetable(table_created)
 
