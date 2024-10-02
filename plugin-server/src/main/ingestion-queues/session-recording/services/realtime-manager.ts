@@ -2,9 +2,9 @@ import { captureException } from '@sentry/node'
 import { randomUUID } from 'crypto'
 import { Redis } from 'ioredis'
 import { EventEmitter } from 'node:events'
-import { createRedis } from 'utils/db/redis'
 
 import { PluginsServerConfig, RedisPool } from '../../../../types'
+import { createRedis } from '../../../../utils/db/redis'
 import { timeoutGuard } from '../../../../utils/db/utils'
 import { status } from '../../../../utils/status'
 
