@@ -32,13 +32,14 @@ import { TeamManager } from '../../worker/ingestion/team-manager'
 import { RustyHook } from '../../worker/rusty-hook'
 import { isTestEnv } from '../env-utils'
 import { status } from '../status'
-import { createRedisPool, UUIDT } from '../utils'
+import { UUIDT } from '../utils'
 import { PluginsApiKeyManager } from './../../worker/vm/extensions/helpers/api-key-manager'
 import { RootAccessManager } from './../../worker/vm/extensions/helpers/root-acess-manager'
 import { Celery } from './celery'
 import { DB } from './db'
 import { KafkaProducerWrapper } from './kafka-producer-wrapper'
 import { PostgresRouter } from './postgres'
+import { createRedisIngestion, createRedisPool } from './redis'
 
 // `node-postgres` would return dates as plain JS Date objects, which would use the local timezone.
 // This converts all date fields to a proper luxon UTC DateTime and then casts them to a string
@@ -120,7 +121,7 @@ export async function createHub(
     status.info('👍', `Postgres Router ready`)
 
     status.info('🤔', `Connecting to Redis...`)
-    const redisPool = createRedisPool(serverConfig)
+    const redisPool = createRedisPool(serverConfig, () => createRedisIngestion(serverConfig))
     status.info('👍', `Redis ready`)
 
     status.info('🤔', `Connecting to object storage...`)

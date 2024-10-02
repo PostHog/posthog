@@ -4,9 +4,9 @@ import { Redis } from 'ioredis'
 import { EventEmitter } from 'node:events'
 
 import { PluginsServerConfig, RedisPool } from '../../../../types'
+import { createRedisSessionRecording } from '../../../../utils/db/redis'
 import { timeoutGuard } from '../../../../utils/db/utils'
 import { status } from '../../../../utils/status'
-import { createRedis } from '../../../../utils/utils'
 
 const Keys = {
     snapshots(prefix: string, teamId: number, suffix: string): string {
@@ -45,7 +45,7 @@ export class RealtimeManager extends EventEmitter {
     }
 
     public async subscribe(): Promise<void> {
-        this.pubsubRedis = await createRedis(this.serverConfig)
+        this.pubsubRedis = await createRedisSessionRecording(this.serverConfig)
         await this.pubsubRedis.subscribe(Keys.realtimeSubscriptions(this.serverConfig.SESSION_RECORDING_REDIS_PREFIX))
 
         this.pubsubRedis.on('message', (channel, message) => {
