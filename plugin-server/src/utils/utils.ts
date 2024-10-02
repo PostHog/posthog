@@ -1,6 +1,8 @@
 import { Properties } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
 import { randomBytes } from 'crypto'
+import { createPool } from 'generic-pool'
+import Redis, { RedisOptions } from 'ioredis'
 import { DateTime } from 'luxon'
 import { Pool } from 'pg'
 import { Readable } from 'stream'
@@ -12,12 +14,15 @@ import {
     Plugin,
     PluginConfigId,
     PluginsServerConfig,
+    RedisPool,
     TimestampFormat,
 } from '../types'
 import { status } from './status'
 
 /** Time until autoexit (due to error) gives up on graceful exit and kills the process right away. */
 const GRACEFUL_EXIT_PERIOD_SECONDS = 5
+/** Number of Redis error events until the server is killed gracefully. */
+const REDIS_ERROR_COUNTER_LIMIT = 10
 
 export class NoRowsUpdatedError extends Error {}
 
@@ -324,6 +329,69 @@ export async function tryTwice<T>(callback: () => Promise<T>, errorMessage: stri
         // try one more time
         return await callback()
     }
+}
+
+export async function createRedis(serverConfig: PluginsServerConfig): Promise<Redis.Redis> {
+    // TRICKY: We added dedicated Redis's for different scenarios. The POSTHOG_REDIS_HOST refers to the shared
+    // instance for the core django app but was previously used for the INGESTION_REDIS_HOST. We need both, hence we check
+    // for the INGESTION_REDIS_HOST first and then fall back to POSTHOG_REDIS_HOST and finally REDIS_URL (used by docker compose).
+    const params = serverConfig.INGESTION_REDIS_HOST
+        ? {
+              host: serverConfig.INGESTION_REDIS_HOST,
+              port: serverConfig.INGESTION_REDIS_PORT,
+              password: serverConfig.INGESTION_REDIS_PASSWORD,
+          }
+        : serverConfig.POSTHOG_REDIS_HOST
+        ? {
+              host: serverConfig.POSTHOG_REDIS_HOST,
+              port: serverConfig.POSTHOG_REDIS_PORT,
+              password: serverConfig.POSTHOG_REDIS_PASSWORD,
+          }
+        : undefined
+
+    return createRedisClient(params ? params.host : serverConfig.REDIS_URL, params)
+}
+
+export async function createRedisClient(url: string, options?: RedisOptions): Promise<Redis.Redis> {
+    const redis = new Redis(url, {
+        ...options,
+        maxRetriesPerRequest: -1,
+    })
+    let errorCounter = 0
+    redis
+        .on('error', (error) => {
+            errorCounter++
+            Sentry.captureException(error)
+            if (errorCounter > REDIS_ERROR_COUNTER_LIMIT) {
+                status.error('😡', 'Redis error encountered! Enough of this, I quit!\n', error)
+                killGracefully()
+            } else {
+                status.error('🔴', 'Redis error encountered! Trying to reconnect...\n', error)
+            }
+        })
+        .on('ready', () => {
+            if (process.env.NODE_ENV !== 'test') {
+                status.info('✅', 'Connected to Redis!')
+            }
+        })
+    await redis.info()
+    return redis
+}
+
+export function createRedisPool(serverConfig: PluginsServerConfig): RedisPool {
+    return createPool<Redis.Redis>(
+        {
+            create: () => createRedis(serverConfig),
+            destroy: async (client) => {
+                await client.quit()
+            },
+        },
+        {
+            min: serverConfig.REDIS_POOL_MIN_SIZE,
+            max: serverConfig.REDIS_POOL_MAX_SIZE,
+            autostart: true,
+        }
+    )
 }
 
 export function pluginDigest(plugin: Plugin | Plugin['id'], teamId?: number): string {

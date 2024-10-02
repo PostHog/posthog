@@ -1,9 +1,10 @@
 import { CacheOptions } from '@posthog/plugin-scaffold'
+import { createPool, Pool as GenericPool } from 'generic-pool'
+import Redis from 'ioredis'
 
-import { PluginsServerConfig, RedisPool } from '../../types'
+import { PluginsServerConfig } from '../../types'
 import { instrumentQuery } from '../metrics'
-import { UUIDT } from '../utils'
-import { createRedisPool } from './redis'
+import { createRedisClient, UUIDT } from '../utils'
 import { timeoutGuard } from './utils'
 
 const CELERY_DEFAULT_QUEUE = 'celery'
@@ -14,10 +15,29 @@ const CELERY_DEFAULT_QUEUE = 'celery'
  * such as a shared message bus or an internal HTTP API.
  */
 export class Celery {
-    private redisPool: RedisPool
+    private redisPool: GenericPool<Redis.Redis>
 
     constructor(config: PluginsServerConfig) {
-        this.redisPool = createRedisPool(config, 'posthog')
+        // NOTE: We define a redis pool explicitly using the POSTHOG_REDIS_HOST as celery
+        // only works if it is talking to the same redis instance as the django "posthog" app
+        this.redisPool = createPool<Redis.Redis>(
+            {
+                create: async () => {
+                    return await createRedisClient(config.POSTHOG_REDIS_HOST, {
+                        port: config.POSTHOG_REDIS_PORT,
+                        password: config.POSTHOG_REDIS_PASSWORD,
+                    })
+                },
+                destroy: async (client) => {
+                    await client.quit()
+                },
+            },
+            {
+                min: config.REDIS_POOL_MIN_SIZE,
+                max: config.REDIS_POOL_MAX_SIZE,
+                autostart: true,
+            }
+        )
     }
 
     private redisLPush(key: string, value: unknown, options: CacheOptions = {}): Promise<number> {

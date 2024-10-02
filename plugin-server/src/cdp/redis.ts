@@ -5,9 +5,9 @@ import { createPool } from 'generic-pool'
 import { Pipeline, Redis } from 'ioredis'
 
 import { PluginsServerConfig } from '../types'
-import { createRedisClient } from '../utils/db/redis'
 import { timeoutGuard } from '../utils/db/utils'
 import { status } from '../utils/status'
+import { createRedisClient } from '../utils/utils'
 
 type WithCheckRateLimit<T> = {
     checkRateLimit: (key: string, now: number, cost: number, poolMax: number, fillRate: number, expiry: number) => T
