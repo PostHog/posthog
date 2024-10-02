@@ -192,7 +192,12 @@ def check_alerts() -> None:
         .only("id", "team", "calculation_interval")
     )
 
-    sorted_alerts = sorted(alerts, key=lambda alert: calculation_interval_to_order(alert.calculation_interval))
+    sorted_alerts = sorted(
+        alerts,
+        key=lambda alert: calculation_interval_to_order(
+            cast(AlertCalculationInterval | None, alert.calculation_interval)
+        ),
+    )
 
     grouped_by_team = defaultdict(list)
     for alert in sorted_alerts:
