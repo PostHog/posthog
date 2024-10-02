@@ -4,7 +4,7 @@ import { mkdirSync, rmSync } from 'node:fs'
 import { CODES, features, KafkaConsumer, librdkafkaVersion, Message, TopicPartition } from 'node-rdkafka'
 import { Counter, Gauge, Histogram, Summary } from 'prom-client'
 
-import { buildIntegerMatcher, sessionRecordingConsumerConfig } from '../../../config/config'
+import { buildIntegerMatcher } from '../../../config/config'
 import {
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW,
@@ -16,8 +16,8 @@ import { PluginServerService, PluginsServerConfig, RedisPool, TeamId, ValueMatch
 import { BackgroundRefresher } from '../../../utils/background-refresher'
 import { KafkaProducerWrapper } from '../../../utils/db/kafka-producer-wrapper'
 import { PostgresRouter } from '../../../utils/db/postgres'
+import { createRedis, createRedisPool } from '../../../utils/db/redis'
 import { status } from '../../../utils/status'
-import { createRedisClient, createRedisPool } from '../../../utils/utils'
 import { fetchTeamTokensWithRecordings } from '../../../worker/ingestion/team-manager'
 import { ObjectStorage } from '../../services/object_storage'
 import { runInstrumentedFunction } from '../../utils'
@@ -142,7 +142,6 @@ export class SessionRecordingIngester {
     partitionMetrics: Record<number, PartitionMetrics> = {}
     teamsRefresher: BackgroundRefresher<Record<string, TeamIDWithConfig>>
     latestOffsetsRefresher: BackgroundRefresher<Record<number, number | undefined>>
-    config: PluginsServerConfig
     topic: string
     consumerGroupId: string
     totalNumPartitions = 0
@@ -156,29 +155,38 @@ export class SessionRecordingIngester {
     private sharedClusterProducerWrapper: KafkaProducerWrapper | undefined = undefined
     private isDebugLoggingEnabled: ValueMatcher<number>
 
+    private sessionRecordingKafkaConfig = (): PluginsServerConfig => {
+        // TRICKY: We re-use the kafka helpers which assume KAFKA_HOSTS hence we overwrite it if set
+        return {
+            ...this.config,
+            KAFKA_HOSTS: this.config.SESSION_RECORDING_KAFKA_HOSTS || this.config.KAFKA_HOSTS,
+            KAFKA_SECURITY_PROTOCOL:
+                this.config.SESSION_RECORDING_KAFKA_SECURITY_PROTOCOL || this.config.KAFKA_SECURITY_PROTOCOL,
+        }
+    }
+
     constructor(
-        private globalServerConfig: PluginsServerConfig,
+        private config: PluginsServerConfig,
         private postgres: PostgresRouter,
         private objectStorage: ObjectStorage,
         private consumeOverflow: boolean
     ) {
-        this.isDebugLoggingEnabled = buildIntegerMatcher(globalServerConfig.SESSION_RECORDING_DEBUG_PARTITION, true)
+        this.isDebugLoggingEnabled = buildIntegerMatcher(config.SESSION_RECORDING_DEBUG_PARTITION, true)
 
         this.topic = consumeOverflow
             ? KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW
             : KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS
         this.consumerGroupId = this.consumeOverflow ? KAFKA_CONSUMER_GROUP_ID_OVERFLOW : KAFKA_CONSUMER_GROUP_ID
 
-        // NOTE: globalServerConfig contains the default pluginServer values, typically not pointing at dedicated resources like kafka or redis
-        // We still connect to some of the non-dedicated resources such as postgres or the Replay events kafka.
-        this.config = sessionRecordingConsumerConfig(globalServerConfig)
-        this.redisPool = createRedisPool(this.config)
-
+        this.redisPool = createRedisPool(this.config, 'session-recording')
         this.realtimeManager = new RealtimeManager(this.redisPool, this.config)
 
         // We create a hash of the cluster to use as a unique identifier for the high-water marks
         // This enables us to swap clusters without having to worry about resetting the high-water marks
-        const kafkaClusterIdentifier = crypto.createHash('md5').update(this.config.KAFKA_HOSTS).digest('hex')
+        const kafkaClusterIdentifier = crypto
+            .createHash('md5')
+            .update(this.sessionRecordingKafkaConfig().KAFKA_HOSTS)
+            .digest('hex')
 
         this.sessionHighWaterMarker = new OffsetHighWaterMarker(
             this.redisPool,
@@ -450,9 +458,9 @@ export class SessionRecordingIngester {
         // Load teams into memory
         await this.teamsRefresher.refresh()
 
-        // NOTE: This is the only place where we need to use the shared server config
-        const globalConnectionConfig = createRdConnectionConfigFromEnvVars(this.globalServerConfig)
-        const globalProducerConfig = createRdProducerConfigFromEnvVars(this.globalServerConfig)
+        // NOTE: We use the standard config as we connect to the analytics kafka for producing
+        const globalConnectionConfig = createRdConnectionConfigFromEnvVars(this.config)
+        const globalProducerConfig = createRdProducerConfigFromEnvVars(this.config)
 
         this.sharedClusterProducerWrapper = new KafkaProducerWrapper(
             await createKafkaProducer(globalConnectionConfig, globalProducerConfig)
@@ -481,14 +489,14 @@ export class SessionRecordingIngester {
                 24 * 3600, // One day,
                 CAPTURE_OVERFLOW_REDIS_KEY,
                 // Dedicated redis used only used for this service - connects to the shared posthog redis
-                await createRedisClient(this.config.POSTHOG_REDIS_HOST)
+                await createRedis(this.config, 'posthog')
             )
         }
 
         // Create a node-rdkafka consumer that fetches batches of messages, runs
         // eachBatchWithContext, then commits offsets for the batch.
         // the batch consumer reads from the session replay kafka cluster
-        const replayClusterConnectionConfig = createRdConnectionConfigFromEnvVars(this.config)
+        const replayClusterConnectionConfig = createRdConnectionConfigFromEnvVars(this.sessionRecordingKafkaConfig())
 
         this.batchConsumer = await startBatchConsumer({
             connectionConfig: replayClusterConnectionConfig,

@@ -208,19 +208,6 @@ export function getDefaultConfig(): PluginsServerConfig {
     }
 }
 
-export const sessionRecordingConsumerConfig = (config: PluginsServerConfig): PluginsServerConfig => {
-    // When running the blob consumer we override a bunch of settings to use the session recording ones if available
-    return {
-        ...config,
-        KAFKA_HOSTS: config.SESSION_RECORDING_KAFKA_HOSTS || config.KAFKA_HOSTS,
-        KAFKA_SECURITY_PROTOCOL: config.SESSION_RECORDING_KAFKA_SECURITY_PROTOCOL || config.KAFKA_SECURITY_PROTOCOL,
-        POSTHOG_REDIS_HOST:
-            config.POSTHOG_SESSION_RECORDING_REDIS_HOST || config.INGESTION_REDIS_HOST || config.POSTHOG_REDIS_HOST,
-        POSTHOG_REDIS_PORT:
-            config.POSTHOG_SESSION_RECORDING_REDIS_PORT || config.INGESTION_REDIS_PORT || config.POSTHOG_REDIS_PORT,
-    }
-}
-
 export function overrideWithEnv(
     config: PluginsServerConfig,
     env: Record<string, string | undefined> = process.env
