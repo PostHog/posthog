@@ -192,7 +192,7 @@ function decompressEvent(ev: unknown): unknown {
  *
  * If it can't be case as eventWithTime by this point then it's probably not a valid event anyway
  */
-function coerceToEvent(d: unknown, withMobileTransformer: boolean): eventWithTime {
+function coerceToEventWithTime(d: unknown, withMobileTransformer: boolean): eventWithTime {
     // we decompress first so that we could support partial compression on mobile in future
     const currentEvent = decompressEvent(d)
     return withMobileTransformer
@@ -228,7 +228,7 @@ export const parseEncodedSnapshots = async (
             }
 
             return snapshotData.map((d: unknown) => {
-                const snap = coerceToEvent(d, withMobileTransformer)
+                const snap = coerceToEventWithTime(d, withMobileTransformer)
 
                 return {
                     // this handles parsing data that was loaded from blob storage "window_id"
