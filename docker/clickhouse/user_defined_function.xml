@@ -29,7 +29,8 @@
             <name>value</name>
         </argument>
         <format>JSONEachRow</format>
-        <command>aggregate_funnel.py</command>
+        <command>aggregate_funnel</command>
+        <lifetime>600</lifetime>
     </function>
 
     <function>
@@ -62,7 +63,8 @@
             <name>value</name>
         </argument>
         <format>JSONEachRow</format>
-        <command>aggregate_funnel_cohort.py</command>
+        <command>aggregate_funnel</command>
+        <lifetime>600</lifetime>
     </function>
 
     <function>
@@ -95,7 +97,8 @@
             <name>value</name>
         </argument>
         <format>JSONEachRow</format>
-        <command>aggregate_funnel_array.py</command>
+        <command>aggregate_funnel</command>
+        <lifetime>600</lifetime>
     </function>
 
     <function>
@@ -129,6 +132,7 @@
         </argument>
         <format>JSONEachRow</format>
         <command>aggregate_funnel_test.py</command>
+        <lifetime>600</lifetime>
     </function>
 
     <function>
@@ -170,6 +174,7 @@
         </argument>
         <format>JSONEachRow</format>
         <command>aggregate_funnel_trends.py</command>
+        <lifetime>600</lifetime>
     </function>
 
     <function>
@@ -208,6 +213,7 @@
         </argument>
         <format>JSONEachRow</format>
         <command>aggregate_funnel_array_trends.py</command>
+        <lifetime>600</lifetime>
     </function>
 
     <function>
@@ -246,6 +252,7 @@
         </argument>
         <format>JSONEachRow</format>
         <command>aggregate_funnel_cohort_trends.py</command>
+        <lifetime>600</lifetime>
     </function>
 
     <function>
@@ -283,5 +290,6 @@
         </argument>
         <format>JSONEachRow</format>
         <command>aggregate_funnel_array_trends_test.py</command>
+        <lifetime>600</lifetime>
     </function>
 </functions>
