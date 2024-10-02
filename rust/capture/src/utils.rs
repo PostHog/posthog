@@ -1,3 +1,5 @@
+use std::ops::RangeInclusive;
+
 use rand::RngCore;
 use uuid::Uuid;
 
@@ -45,49 +47,54 @@ pub fn replace_invalid_hex_escape_strings(
     let len = bytes.len();
     let mut i = 0;
 
+    const REPLACEMENT: &[u8; 4] = b"FFFD";
+    const HIGH_SURROGATE_RANGE: RangeInclusive<u16> = 0xD800..=0xDBFF;
+    const LOW_SURROGATE_RANGE: RangeInclusive<u16> = 0xDC00..=0xDFFF;
+
     while i < len {
         if bytes[i] == b'\\' && i + 1 < len && bytes[i + 1] == b'u' {
             // Check if there are enough bytes for a Unicode escape sequence
             if i + 6 <= len {
                 // Extract the four escape sequence bytes
-                let mut code_point_bytes: [u8; 4] =
+                let mut codepoint_bytes: [u8; 4] =
                     [bytes[i + 2], bytes[i + 3], bytes[i + 4], bytes[i + 5]];
 
                 // Convert the bytes to a string, then parse it into a u16 to check if it's a valid escape sequence
-                if let Ok(Ok(num)) =
-                    std::str::from_utf8(&code_point_bytes).map(|s| u16::from_str_radix(s, 16))
+                if let Ok(Ok(codepoint)) =
+                    std::str::from_utf8(&codepoint_bytes).map(|s| u16::from_str_radix(s, 16))
                 {
-                    if (0xD800..=0xDBFF).contains(&num) {
+                    if (HIGH_SURROGATE_RANGE).contains(&codepoint) {
                         // High surrogate without a following low surrogate
                         if !is_next_low_surrogate(&bytes, i + 6) {
                             // Replace with 'FFFD' (Unicode replacement character)
-                            code_point_bytes.copy_from_slice(b"FFFD");
+                            codepoint_bytes.copy_from_slice(REPLACEMENT);
                         } else {
                             // This is a high surrogate, and the next is a low one, so we should skip over both
                             // without modification
                             i += 12;
                             continue;
                         }
-                    } else if (0xDC00..=0xDFFF).contains(&num) {
+                    } else if (LOW_SURROGATE_RANGE).contains(&codepoint) {
                         // Unpaired low surrogate - we know this, because if it had a preceding high surrogate,
                         // we would have skipped over it in the previous iteration (above) - replace it
-                        code_point_bytes.copy_from_slice(b"FFFD");
+                        codepoint_bytes.copy_from_slice(REPLACEMENT);
                     }
                     // The unhandled else case is that this isn't part of a surrogate pair, so we don't need to do anything
                 } else {
                     // if we couldn't parse those 4 bytes as a hex escape code, or couldn't go from that hex escape code to a u16, replace with 'FFFD'
-                    code_point_bytes.copy_from_slice(b"FFFD");
+                    codepoint_bytes.copy_from_slice(REPLACEMENT);
                 }
-                bytes[i + 2] = code_point_bytes[0];
-                bytes[i + 3] = code_point_bytes[1];
-                bytes[i + 4] = code_point_bytes[2];
-                bytes[i + 5] = code_point_bytes[3];
+                bytes[i + 2] = codepoint_bytes[0];
+                bytes[i + 3] = codepoint_bytes[1];
+                bytes[i + 4] = codepoint_bytes[2];
+                bytes[i + 5] = codepoint_bytes[3];
                 i += 6; // Move past the Unicode escape sequence
                 continue;
             } else {
-                // Not enough bytes for a Unicode escape sequence, truncate the buffer to before the slash, then append the replacement characters
-                bytes.truncate(i);
-                bytes.extend_from_slice("\\uFFFD".as_bytes());
+                // Not enough bytes for a Unicode escape sequence, truncate the buffer
+                // to the 'u', and then append 'FFFD'
+                bytes.truncate(i + 2);
+                bytes.extend_from_slice(REPLACEMENT);
                 break; // We're done, we just replaced the last 4 bytes
             }
         }
