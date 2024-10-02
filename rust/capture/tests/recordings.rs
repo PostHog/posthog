@@ -9,65 +9,20 @@ use time::Duration;
 
 mod common;
 
-fn make_console_plugin_event(level: Option<&str>,
-                             message: Option<&str>,
-                             text: Option<&str>) -> Value {
-    let level = level.unwrap_or("warn");
-    let message = message.unwrap_or("Default message");
-    let text = text.unwrap_or("#text");
-
-    json!({
-        "windowId": "01924ccf-34f9-764e-b7f9-73c74eb7ed55",
-        "data": {
-          "payload": {
-            "level": level,
-            "payload": [
-                           format!("\"{}\"", message),
-              format!("\"{}\"", text)
-            ],
-            "trace": [
-              "q/< (https://internal-t.posthog.com/static/recorder.js?v=1.166.0:1:19808)",
-              "q (https://internal-t.posthog.com/static/recorder.js?v=1.166.0:1:20042)",
-              "z (https://internal-t.posthog.com/static/recorder.js?v=1.166.0:1:21009)",
-              "a (https://internal-t.posthog.com/static/recorder.js?v=1.166.0:1:34064)",
-              "e/this.emit (https://internal-t.posthog.com/static/recorder.js?v=1.166.0:1:35299)",
-              "e/this.processMutations (https://internal-t.posthog.com/static/recorder.js?v=1.166.0:1:33691)"
-            ]
-          },
-          "plugin": "rrweb/console@1"
-        },
-        "timestamp": 1727865503680_u64,
-        "type": 6,
-        "seen": 1185537021728171_u64
-      })
-}
-
 #[tokio::test]
 async fn it_captures_one_recording() -> Result<()> {
     setup_tracing();
     let token = random_string("token", 16);
     let distinct_id = random_string("id", 16);
-    let session_id = random_string("id", 16);
-    let window_id = random_string("id", 16);
+    // let session_id = random_string("id", 16);
+    // let window_id = random_string("id", 16);
 
     let main_topic = EphemeralTopic::new().await;
     let server = ServerHandle::for_recordings(&main_topic).await;
 
-    let event = json!({
-        "token": token,
-        "event": "testing",
-        "distinct_id": distinct_id,
-        "$session_id": session_id,
-        "properties": {
-            "$session_id": session_id,
-            "$window_id": window_id,
-            "$snapshot_data": [
-                make_console_plugin_event(Some("log"), Some("info"), Some("Hello, \0world! \u{1F600} \u{1F4A9} \\\\\\\",\"emoji_flag\":\"\u{d83c}...[truncated]")),
-            ],
-        }
-    });
-    let res = server.capture_recording(event.to_string()).await;
-    assert_eq!(StatusCode::OK, res.status());
+    let file_contents = include_str!("../tests/session_recording_utf_surrogate_console.json");
+    let res = server.capture_recording(file_contents.to_string()).await;
+    assert_eq!(StatusCode::OK, res.status(), "{}", res.text().await?);
 
     let event = main_topic.next_event()?;
     assert_json_include!(
