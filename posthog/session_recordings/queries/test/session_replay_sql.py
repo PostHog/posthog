@@ -4,6 +4,7 @@ from uuid import uuid4
 
 from dateutil.parser import parse
 from dateutil.relativedelta import relativedelta
+from django.conf import settings
 
 from posthog.clickhouse.log_entries import INSERT_LOG_ENTRY_SQL
 from posthog.kafka_client.client import ClickhouseProducer
@@ -29,7 +30,8 @@ INSERT INTO sharded_session_replay_events (
     console_log_count,
     console_warn_count,
     console_error_count,
-    snapshot_source
+    snapshot_source,
+    _timestamp
 )
 SELECT
     %(session_id)s,
@@ -45,7 +47,8 @@ SELECT
     %(console_log_count)s,
     %(console_warn_count)s,
     %(console_error_count)s,
-    argMinState(cast(%(snapshot_source)s, 'LowCardinality(Nullable(String))'), toDateTime64(%(first_timestamp)s, 6, 'UTC'))
+    argMinState(cast(%(snapshot_source)s, 'LowCardinality(Nullable(String))'), toDateTime64(%(first_timestamp)s, 6, 'UTC')),
+    %(_timestamp)s
 """
 
 
@@ -115,6 +118,7 @@ def produce_replay_summary(
     console_error_count: Optional[int] = None,
     log_messages: dict[str, list[str]] | None = None,
     snapshot_source: str | None = None,
+    kafka_timestamp: Optional[datetime] = None,
     *,
     ensure_analytics_event_in_session: bool = True,
 ):
@@ -141,6 +145,11 @@ def produce_replay_summary(
         "console_error_count": console_error_count or 0,
         "snapshot_source": snapshot_source,
     }
+    if settings.TEST:
+        # we don't want to set _timestamp if we're using a real KafkaProducer
+        # and `ClickhouseProducer` does not use kafka when in test mode
+        data["_timestamp"] = kafka_timestamp or datetime.utcnow().timestamp()
+
     p = ClickhouseProducer()
     # because this is in a test it will write directly using SQL not really with Kafka
     p.produce(

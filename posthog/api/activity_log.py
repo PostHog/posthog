@@ -76,6 +76,7 @@ class ActivityLogViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, mixins
     queryset = ActivityLog.objects.all()
     serializer_class = ActivityLogSerializer
     pagination_class = ActivityLogPagination
+    filter_rewrite_rules = {"project_id": "team_id"}
 
     def safely_get_queryset(self, queryset) -> QuerySet:
         params = self.request.GET.dict()

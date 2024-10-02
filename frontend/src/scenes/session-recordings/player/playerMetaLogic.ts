@@ -1,6 +1,13 @@
 import { eventWithTime } from '@rrweb/types'
-import { connect, kea, key, listeners, path, props, selectors } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
+import api from 'lib/api'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { getCoreFilterDefinition } from 'lib/taxonomy'
 import { ceilMsToClosestSecond, findLastIndex, objectsEqual } from 'lib/utils'
+import posthog from 'posthog-js'
+import { countryCodeToName } from 'scenes/insights/views/WorldMap'
 import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 import {
     sessionRecordingPlayerLogic,
@@ -11,6 +18,22 @@ import { PersonType } from '~/types'
 
 import { sessionRecordingsListPropertiesLogic } from '../playlist/sessionRecordingsListPropertiesLogic'
 import type { playerMetaLogicType } from './playerMetaLogicType'
+
+export interface OverviewItem {
+    property: string
+    label: string
+    value: string
+    type: 'text' | 'icon'
+    tooltipTitle?: string
+}
+
+const browserPropertyKeys = ['$geoip_country_code', '$browser', '$device_type', '$os']
+const mobilePropertyKeys = ['$geoip_country_code', '$device_type', '$os_name']
+const recordingPropertyKeys = ['click_count', 'keypress_count', 'console_error_count'] as const
+
+export interface SessionSummaryResponse {
+    content: string
+}
 
 export const playerMetaLogic = kea<playerMetaLogicType>([
     path((key) => ['scenes', 'session-recordings', 'player', 'playerMetaLogic', key]),
@@ -39,6 +62,32 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
             sessionRecordingsListPropertiesLogic,
             ['maybeLoadPropertiesForSessions'],
         ],
+    })),
+    actions({
+        sessionSummaryFeedback: (feedback: 'good' | 'bad') => ({ feedback }),
+    }),
+    reducers(() => ({
+        summaryHasHadFeedback: [
+            false,
+            {
+                sessionSummaryFeedback: () => true,
+            },
+        ],
+    })),
+    loaders(({ props }) => ({
+        sessionSummary: {
+            summarizeSession: async (): Promise<SessionSummaryResponse | null> => {
+                const id = props.sessionRecordingId || props.sessionRecordingData?.sessionRecordingId
+                if (!id) {
+                    return null
+                }
+                const response = await api.recordings.summarize(id)
+                if (!response.content) {
+                    lemonToast.warning('Unable to load session summary')
+                }
+                return { content: response.content }
+            },
+        },
     })),
     selectors(() => ({
         sessionPerson: [
@@ -136,12 +185,66 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 return recordingPropertiesById[props.sessionRecordingId] ?? sessionPlayerData.person?.properties
             },
         ],
+        overviewItems: [
+            (s) => [s.sessionPlayerMetaData],
+            (sessionPlayerMetaData) => {
+                const items: OverviewItem[] = []
+
+                recordingPropertyKeys.forEach((property) => {
+                    if (sessionPlayerMetaData?.[property]) {
+                        items.push({
+                            label: `${sessionPlayerMetaData[property]} ${
+                                getCoreFilterDefinition(property, TaxonomicFilterGroupType.Replay)?.label ?? property
+                            }`,
+                            value: '',
+                            type: 'text',
+                            property,
+                        })
+                    }
+                })
+
+                const personProperties = sessionPlayerMetaData?.person?.properties ?? {}
+
+                const deviceType = personProperties['$device_type'] || personProperties['$initial_device_type']
+                const deviceTypePropertyKeys = deviceType === 'Mobile' ? mobilePropertyKeys : browserPropertyKeys
+
+                deviceTypePropertyKeys.forEach((property) => {
+                    if (personProperties[property]) {
+                        const value = personProperties[property]
+
+                        const tooltipTitle =
+                            property === '$geoip_country_code' && value in countryCodeToName
+                                ? countryCodeToName[value as keyof typeof countryCodeToName]
+                                : value
+
+                        items.push({
+                            label:
+                                getCoreFilterDefinition(property, TaxonomicFilterGroupType.PersonProperties)?.label ??
+                                property,
+                            value,
+                            tooltipTitle,
+                            type: 'icon',
+                            property,
+                        })
+                    }
+                })
+
+                return items
+            },
+        ],
     })),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, props }) => ({
         loadRecordingMetaSuccess: () => {
             if (values.sessionPlayerMetaData && !values.recordingPropertiesLoading) {
                 actions.maybeLoadPropertiesForSessions([values.sessionPlayerMetaData])
             }
+        },
+        sessionSummaryFeedback: ({ feedback }) => {
+            posthog.capture('session summary feedback', {
+                feedback,
+                session_summary: values.sessionSummary,
+                summarized_session_id: props.sessionRecordingId,
+            })
         },
     })),
 ])

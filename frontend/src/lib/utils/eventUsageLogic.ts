@@ -547,6 +547,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportInstanceSettingChange: (name: string, value: string | boolean | number) => ({ name, value }),
         reportAxisUnitsChanged: (properties: Record<string, any>) => ({ ...properties }),
         reportTeamSettingChange: (name: string, value: any) => ({ name, value }),
+        reportProjectSettingChange: (name: string, value: any) => ({ name, value }),
         reportActivationSideBarTaskClicked: (key: string) => ({ key }),
         reportBillingUpgradeClicked: (plan: string) => ({ plan }),
         reportBillingDowngradeClicked: (plan: string) => ({ plan }),
@@ -1191,6 +1192,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportTeamSettingChange: ({ name, value }) => {
             posthog.capture(`${name} team setting updated`, {
+                setting: name,
+                value,
+            })
+        },
+        reportProjectSettingChange: ({ name, value }) => {
+            posthog.capture(`${name} project setting updated`, {
                 setting: name,
                 value,
             })

@@ -7,7 +7,7 @@
          if(ifNull(greater(reached_from_step_count, 0), 0), round(multiply(divide(reached_to_step_count, reached_from_step_count), 100), 2), 0) AS conversion_rate,
          data.breakdown AS prop
   FROM
-    (SELECT arrayJoin(aggregate_funnel_array_trends(0, 3, 1209600, 'first_touch', 'ordered', [[]], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), toStartOfDay(timestamp), [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))))) AS af_tuple,
+    (SELECT arrayJoin(aggregate_funnel_array_trends_v0(0, 3, 1209600, 'first_touch', 'ordered', [[]], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), toStartOfDay(timestamp), [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))))) AS af_tuple,
             toTimeZone(af_tuple.1, 'UTC') AS entrance_period_start,
             af_tuple.2 AS success_bool,
             af_tuple.3 AS breakdown
@@ -58,7 +58,7 @@
          if(ifNull(greater(reached_from_step_count, 0), 0), round(multiply(divide(reached_to_step_count, reached_from_step_count), 100), 2), 0) AS conversion_rate,
          data.breakdown AS prop
   FROM
-    (SELECT arrayJoin(aggregate_funnel_array_trends(0, 3, 1209600, 'first_touch', 'ordered', [[]], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), toStartOfDay(timestamp), [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))))) AS af_tuple,
+    (SELECT arrayJoin(aggregate_funnel_array_trends_v0(0, 3, 1209600, 'first_touch', 'ordered', [[]], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), toStartOfDay(timestamp), [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))))) AS af_tuple,
             toTimeZone(af_tuple.1, 'US/Pacific') AS entrance_period_start,
             af_tuple.2 AS success_bool,
             af_tuple.3 AS breakdown
@@ -109,7 +109,7 @@
          if(ifNull(greater(reached_from_step_count, 0), 0), round(multiply(divide(reached_to_step_count, reached_from_step_count), 100), 2), 0) AS conversion_rate,
          data.breakdown AS prop
   FROM
-    (SELECT arrayJoin(aggregate_funnel_array_trends(0, 3, 1209600, 'first_touch', 'ordered', [[]], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), toStartOfWeek(timestamp, 0), [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))))) AS af_tuple,
+    (SELECT arrayJoin(aggregate_funnel_array_trends_v0(0, 3, 1209600, 'first_touch', 'ordered', [[]], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), toStartOfWeek(timestamp, 0), [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))))) AS af_tuple,
             toTimeZone(af_tuple.1, 'UTC') AS entrance_period_start,
             af_tuple.2 AS success_bool,
             af_tuple.3 AS breakdown
@@ -197,8 +197,8 @@
                                                                                               ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
                  FROM
                    (SELECT e.timestamp as timestamp,
-                           pdi.person_id as aggregation_target,
-                           pdi.person_id as person_id,
+                           if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                           if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                            if(event = 'step one', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'step two', 1, 0) as step_1,
@@ -206,7 +206,7 @@
                            if(event = 'step three', 1, 0) as step_2,
                            if(step_2 = 1, timestamp, null) as latest_2
                     FROM events e
-                    INNER JOIN
+                    LEFT OUTER JOIN
                       (SELECT distinct_id,
                               argMax(person_id, version) as person_id
                        FROM person_distinct_id2

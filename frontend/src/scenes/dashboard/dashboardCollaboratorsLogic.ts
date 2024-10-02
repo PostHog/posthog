@@ -2,7 +2,7 @@ import { actions, connect, events, kea, key, path, props, reducers, selectors } 
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { DashboardPrivilegeLevel, DashboardRestrictionLevel } from 'lib/constants'
-import { teamMembersLogic } from 'scenes/settings/project/teamMembersLogic'
+import { teamMembersLogic } from 'scenes/settings/environment/teamMembersLogic'
 
 import {
     DashboardCollaboratorType,

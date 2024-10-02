@@ -7,7 +7,6 @@ import { Sparkline } from 'lib/components/Sparkline'
 import { useState } from 'react'
 import { urls } from 'scenes/urls'
 
-import { SessionPlayerModal } from '../player/modal/SessionPlayerModal'
 import { sessionPlayerModalLogic } from '../player/modal/sessionPlayerModalLogic'
 import { sessionRecordingErrorsLogic } from './sessionRecordingErrorsLogic'
 
@@ -114,7 +113,6 @@ export function SessionRecordingErrors(): JSX.Element {
                     expandedRowRender: (cluster) => <ExpandedError error={cluster.sample} />,
                 }}
             />
-            <SessionPlayerModal />
         </>
     )
 }

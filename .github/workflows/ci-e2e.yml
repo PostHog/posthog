@@ -232,6 +232,9 @@ jobs:
                   config: retries=2
                   spec: ${{ matrix.chunk }}
                   install: false
+                  # We were seeing suprising crashes in headless mode
+                  # See https://github.com/cypress-io/cypress/issues/28893#issuecomment-1956480875
+                  headed: true
               env:
                   E2E_TESTING: 1
                   OPT_OUT_CAPTURE: 0

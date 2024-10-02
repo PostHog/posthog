@@ -1,3 +1,4 @@
+import Hls from 'hls.js'
 import { EventType, eventWithTime, IncrementalSource } from 'rrweb'
 import { playerConfig, ReplayPlugin } from 'rrweb/typings/types'
 
@@ -120,6 +121,44 @@ export const WindowTitlePlugin = (cb: (windowId: string, title: string) => void)
             }
         },
     }
+}
+
+export const HLSPlayerPlugin: ReplayPlugin = {
+    onBuild: (node) => {
+        if (node && node.nodeName === 'VIDEO' && node.nodeType === 1) {
+            const videoEl = node as HTMLVideoElement
+            const hlsSrc = videoEl.getAttribute('hls-src')
+
+            if (videoEl && hlsSrc) {
+                if (Hls.isSupported()) {
+                    const hls = new Hls()
+                    hls.loadSource(hlsSrc)
+                    hls.attachMedia(videoEl)
+
+                    hls.on(Hls.Events.ERROR, (_, data) => {
+                        if (data.fatal) {
+                            switch (data.type) {
+                                case Hls.ErrorTypes.NETWORK_ERROR:
+                                    hls.startLoad()
+                                    break
+                                case Hls.ErrorTypes.MEDIA_ERROR:
+                                    hls.recoverMediaError()
+                                    break
+                                // Unrecoverable error
+                                default:
+                                    hls.destroy()
+                                    break
+                            }
+                        }
+                    })
+                }
+                // HLS not supported natively but can play in Safari
+                else if (videoEl.canPlayType('application/vnd.apple.mpegurl')) {
+                    videoEl.src = hlsSrc
+                }
+            }
+        }
+    },
 }
 
 const defaultStyleRules = `.ph-no-capture { background-image: ${PLACEHOLDER_SVG_DATA_IMAGE_URL} }`

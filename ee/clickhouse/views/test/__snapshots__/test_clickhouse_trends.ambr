@@ -17,11 +17,11 @@
          count() AS actor_value
   FROM
     (SELECT e.timestamp as timestamp,
-            pdi.person_id as person_id,
+            if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
             e.distinct_id as distinct_id,
             e.team_id as team_id
      FROM events e
-     INNER JOIN
+     LEFT OUTER JOIN
        (SELECT distinct_id,
                argMax(person_id, version) as person_id
         FROM person_distinct_id2
@@ -63,7 +63,7 @@
         UNION ALL SELECT count(DISTINCT pdi.person_id) AS total,
                          toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
         FROM events e
-        INNER JOIN
+        LEFT OUTER JOIN
           (SELECT distinct_id,
                   argMax(person_id, version) as person_id
            FROM person_distinct_id2
@@ -93,11 +93,11 @@
          count() AS actor_value
   FROM
     (SELECT e.timestamp as timestamp,
-            pdi.person_id as person_id,
+            if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
             e.distinct_id as distinct_id,
             e.team_id as team_id
      FROM events e
-     INNER JOIN
+     LEFT OUTER JOIN
        (SELECT distinct_id,
                argMax(person_id, version) as person_id
         FROM person_distinct_id2
@@ -157,11 +157,11 @@
   FROM
     (SELECT e.timestamp as timestamp,
             e."properties" as "properties",
-            pdi.person_id as person_id,
+            if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
             e.distinct_id as distinct_id,
             e.team_id as team_id
      FROM events e
-     INNER JOIN
+     LEFT OUTER JOIN
        (SELECT distinct_id,
                argMax(person_id, version) as person_id
         FROM person_distinct_id2
@@ -220,11 +220,11 @@
          count() AS actor_value
   FROM
     (SELECT e.timestamp as timestamp,
-            pdi.person_id as person_id,
+            if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
             e.distinct_id as distinct_id,
             e.team_id as team_id
      FROM events e
-     INNER JOIN
+     LEFT OUTER JOIN
        (SELECT distinct_id,
                argMax(person_id, version) as person_id
         FROM person_distinct_id2
@@ -333,11 +333,11 @@
   FROM
     (SELECT e.timestamp as timestamp,
             e."properties" as "properties",
-            pdi.person_id as person_id,
+            if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
             e.distinct_id as distinct_id,
             e.team_id as team_id
      FROM events e
-     INNER JOIN
+     LEFT OUTER JOIN
        (SELECT distinct_id,
                argMax(person_id, version) as person_id
         FROM person_distinct_id2
@@ -383,7 +383,7 @@
           (SELECT pdi.person_id AS actor_id,
                   min(timestamp) AS first_seen_timestamp
            FROM events e
-           INNER JOIN
+           LEFT OUTER JOIN
              (SELECT distinct_id,
                      argMax(person_id, version) as person_id
               FROM person_distinct_id2
@@ -414,11 +414,11 @@
          count() AS actor_value
   FROM
     (SELECT e.timestamp as timestamp,
-            pdi.person_id as person_id,
+            if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
             e.distinct_id as distinct_id,
             e.team_id as team_id
      FROM events e
-     INNER JOIN
+     LEFT OUTER JOIN
        (SELECT distinct_id,
                argMax(person_id, version) as person_id
         FROM person_distinct_id2
@@ -512,11 +512,11 @@
   FROM
     (SELECT e.timestamp as timestamp,
             e."properties" as "properties",
-            pdi.person_id as person_id,
+            if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
             e.distinct_id as distinct_id,
             e.team_id as team_id
      FROM events e
-     INNER JOIN
+     LEFT OUTER JOIN
        (SELECT distinct_id,
                argMax(person_id, version) as person_id
         FROM person_distinct_id2
@@ -676,11 +676,11 @@
   FROM
     (SELECT e.timestamp as timestamp,
             e."properties" as "properties",
-            pdi.person_id as person_id,
+            if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
             e.distinct_id as distinct_id,
             e.team_id as team_id
      FROM events e
-     INNER JOIN
+     LEFT OUTER JOIN
        (SELECT distinct_id,
                argMax(person_id, version) as person_id
         FROM person_distinct_id2
@@ -737,7 +737,7 @@
         UNION ALL SELECT count(DISTINCT pdi.person_id) AS total,
                          toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
         FROM events e
-        INNER JOIN
+        LEFT OUTER JOIN
           (SELECT distinct_id,
                   argMax(person_id, version) as person_id
            FROM person_distinct_id2
@@ -777,7 +777,7 @@
         UNION ALL SELECT count(DISTINCT pdi.person_id) AS total,
                          toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
         FROM events e
-        INNER JOIN
+        LEFT OUTER JOIN
           (SELECT distinct_id,
                   argMax(person_id, version) as person_id
            FROM person_distinct_id2
@@ -817,7 +817,7 @@
         UNION ALL SELECT count(DISTINCT pdi.person_id) AS total,
                          toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
         FROM events e
-        INNER JOIN
+        LEFT OUTER JOIN
           (SELECT distinct_id,
                   argMax(person_id, version) as person_id
            FROM person_distinct_id2
@@ -857,7 +857,7 @@
         UNION ALL SELECT count(DISTINCT pdi.person_id) AS total,
                          toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
         FROM events e
-        INNER JOIN
+        LEFT OUTER JOIN
           (SELECT distinct_id,
                   argMax(person_id, version) as person_id
            FROM person_distinct_id2
@@ -965,11 +965,11 @@
   FROM
     (SELECT e.timestamp as timestamp,
             e."$session_id" as "$session_id",
-            pdi.person_id as person_id,
+            if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
             e.distinct_id as distinct_id,
             e.team_id as team_id
      FROM events e
-     INNER JOIN
+     LEFT OUTER JOIN
        (SELECT distinct_id,
                argMax(person_id, version) as person_id
         FROM person_distinct_id2

@@ -27,7 +27,7 @@
                        AND event = '$pageview'
                        AND 1=1) > 0 AS performed_event_condition_X_level_level_0_level_1_level_0_0
         FROM events e
-        INNER JOIN
+        LEFT OUTER JOIN
           (SELECT distinct_id,
                   argMax(person_id, version) as person_id
            FROM person_distinct_id2

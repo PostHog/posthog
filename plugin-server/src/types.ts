@@ -20,6 +20,7 @@ import { VM } from 'vm2'
 
 import { EncryptedFields } from './cdp/encryption-utils'
 import { ObjectStorage } from './main/services/object_storage'
+import { Celery } from './utils/db/celery'
 import { DB } from './utils/db/db'
 import { KafkaProducerWrapper } from './utils/db/kafka-producer-wrapper'
 import { PostgresRouter } from './utils/db/postgres'
@@ -114,6 +115,7 @@ export type CdpConfig = {
     CDP_WATCHER_DISABLED_TEMPORARY_TTL: number // How long a function should be temporarily disabled for
     CDP_WATCHER_DISABLED_TEMPORARY_MAX_COUNT: number // How many times a function can be disabled before it is disabled permanently
     CDP_ASYNC_FUNCTIONS_RUSTY_HOOK_TEAMS: string
+    CDP_HOG_FILTERS_TELEMETRY_TEAMS: string
     CDP_CYCLOTRON_ENABLED_TEAMS: string
     CDP_CYCLOTRON_BATCH_SIZE: number
     CDP_CYCLOTRON_BATCH_DELAY_MS: number
@@ -151,10 +153,17 @@ export interface PluginsServerConfig extends CdpConfig {
     CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS_TEAMS: string // (advanced) a comma separated list of teams to disable clickhouse external schemas for
     CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: string // (advanced) topic to send events to for clickhouse ingestion
     CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: string // (advanced) topic to send heatmap data to for clickhouse ingestion
+    // Redis url pretty much only used locally / self hosted
     REDIS_URL: string
+    // Redis params for the ingestion services
+    INGESTION_REDIS_PASSWORD: string
+    INGESTION_REDIS_HOST: string
+    INGESTION_REDIS_PORT: number
+    // Redis params for the core posthog (django+celery) services
     POSTHOG_REDIS_PASSWORD: string
     POSTHOG_REDIS_HOST: string
     POSTHOG_REDIS_PORT: number
+    // Common redis params
     REDIS_POOL_MIN_SIZE: number // minimum number of Redis connections to use per thread
     REDIS_POOL_MAX_SIZE: number // maximum number of Redis connections to use per thread
     KAFKA_HOSTS: string // comma-delimited Kafka hosts
@@ -323,6 +332,7 @@ export interface Hub extends PluginsServerConfig {
     appMetrics: AppMetrics
     rustyHook: RustyHook
     groupTypeManager: GroupTypeManager
+    celery: Celery
     // geoip database, setup in workers
     mmdb?: ReaderModel
     // functions
@@ -1227,5 +1237,6 @@ export type AppMetric2Type = {
         | 'disabled_permanently'
         | 'masked'
         | 'filtering_failed'
+        | 'fetch'
     count: number
 }

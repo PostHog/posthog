@@ -330,15 +330,26 @@ export async function tryTwice<T>(callback: () => Promise<T>, errorMessage: stri
         return await callback()
     }
 }
+
 export async function createRedis(serverConfig: PluginsServerConfig): Promise<Redis.Redis> {
-    const credentials: Partial<RedisOptions> | undefined = serverConfig.POSTHOG_REDIS_HOST
+    // TRICKY: We added dedicated Redis's for different scenarios. The POSTHOG_REDIS_HOST refers to the shared
+    // instance for the core django app but was previously used for the INGESTION_REDIS_HOST. We need both, hence we check
+    // for the INGESTION_REDIS_HOST first and then fall back to POSTHOG_REDIS_HOST and finally REDIS_URL (used by docker compose).
+    const params = serverConfig.INGESTION_REDIS_HOST
         ? {
-              password: serverConfig.POSTHOG_REDIS_PASSWORD,
+              host: serverConfig.INGESTION_REDIS_HOST,
+              port: serverConfig.INGESTION_REDIS_PORT,
+              password: serverConfig.INGESTION_REDIS_PASSWORD,
+          }
+        : serverConfig.POSTHOG_REDIS_HOST
+        ? {
+              host: serverConfig.POSTHOG_REDIS_HOST,
               port: serverConfig.POSTHOG_REDIS_PORT,
+              password: serverConfig.POSTHOG_REDIS_PASSWORD,
           }
         : undefined
 
-    return createRedisClient(credentials ? serverConfig.POSTHOG_REDIS_HOST : serverConfig.REDIS_URL, credentials)
+    return createRedisClient(params ? params.host : serverConfig.REDIS_URL, params)
 }
 
 export async function createRedisClient(url: string, options?: RedisOptions): Promise<Redis.Redis> {
@@ -593,4 +604,98 @@ export function getPropertyValueByPath(properties: Properties, [firstKey, ...nes
 
 export async function sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+// Values of the $lib property that have been seen in the wild
+export const KNOWN_LIB_VALUES = new Set([
+    'web',
+    'posthog-python',
+    '',
+    'js',
+    'posthog-node',
+    'posthog-react-native',
+    'posthog-ruby',
+    'posthog-ios',
+    'posthog-android',
+    'Segment',
+    'posthog-go',
+    'analytics-node',
+    'RudderLabs JavaScript SDK',
+    'mobile',
+    'posthog-php',
+    'zapier',
+    'Webflow',
+    'posthog-flutter',
+    'com.rudderstack.android.sdk.core',
+    'rudder-analytics-python',
+    'rudder-ios-library',
+    'rudder-analytics-php',
+    'macos',
+    'service_data',
+    'flow',
+    'PROD',
+    'unknown',
+    'api',
+    'unbounce',
+    'backend',
+    'analytics-python',
+    'windows',
+    'cf-analytics-go',
+    'server',
+    'core',
+    'Marketing',
+    'Product',
+    'com.rudderstack.android.sdk',
+    'net-gibraltar',
+    'posthog-java',
+    'rudderanalytics-ruby',
+    'GSHEETS_AIRBYTE',
+    'posthog-plugin-server',
+    'DotPostHog',
+    'analytics-go',
+    'serverless',
+    'wordpress',
+    'hog_function',
+    'http',
+    'desktop',
+    'elixir',
+    'DEV',
+    'RudderAnalytics.NET',
+    'PR',
+    'railway',
+    'HTTP',
+    'extension',
+    'cyclotron-testing',
+    'RudderStack Shopify Cloud',
+    'GSHEETS_MONITOR',
+    'Rudder',
+    'API',
+    'rudder-sdk-ruby-sync',
+    'curl',
+])
+
+export const getKnownLibValueOrSentinel = (lib: string): string => {
+    if (lib === '') {
+        return '$empty'
+    }
+    if (!lib) {
+        return '$nil'
+    }
+    if (KNOWN_LIB_VALUES.has(lib)) {
+        return lib
+    }
+    return '$other'
+}
+
+// Check if 2 maps with primitive values are equal
+export const areMapsEqual = <K, V>(map1: Map<K, V>, map2: Map<K, V>): boolean => {
+    if (map1.size !== map2.size) {
+        return false
+    }
+    for (const [key, value] of map1) {
+        if (!map2.has(key) || map2.get(key) !== value) {
+            return false
+        }
+    }
+    return true
 }

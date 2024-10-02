@@ -244,6 +244,7 @@ export function FeatureFlagReleaseConditions({
                                           })
                                         : null
                                 }
+                                exactMatchFeatureFlagCohortOperators={true}
                             />
                         </div>
                     )}

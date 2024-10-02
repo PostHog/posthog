@@ -387,7 +387,7 @@
                                  groups.group_type_index AS index,
                                  groups.group_key AS key
                           FROM groups
-                          WHERE and(equals(groups.team_id, 2), ifNull(equals(index, 0), 0))
+                          WHERE and(equals(groups.team_id, 2), equals(index, 0))
                           GROUP BY groups.group_type_index,
                                    groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
                        WHERE and(equals(e.team_id, 2), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-08 23:59:59.999999', 6, 'UTC')))))))
@@ -502,7 +502,7 @@
                                  groups.group_type_index AS index,
                                  groups.group_key AS key
                           FROM groups
-                          WHERE and(equals(groups.team_id, 2), ifNull(equals(index, 0), 0))
+                          WHERE and(equals(groups.team_id, 2), equals(index, 0))
                           GROUP BY groups.group_type_index,
                                    groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
                        WHERE and(equals(e.team_id, 2), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-08 23:59:59.999999', 6, 'UTC')))))))
@@ -624,7 +624,7 @@
                                  groups.group_type_index AS index,
                                  groups.group_key AS key
                           FROM groups
-                          WHERE and(equals(groups.team_id, 2), ifNull(equals(index, 0), 0))
+                          WHERE and(equals(groups.team_id, 2), equals(index, 0))
                           GROUP BY groups.group_type_index,
                                    groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
                        WHERE and(equals(e.team_id, 2), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-08 23:59:59.999999', 6, 'UTC')))))))
@@ -717,8 +717,8 @@
                         prop_vals as prop
                  FROM
                    (SELECT e.timestamp as timestamp,
-                           pdi.person_id as aggregation_target,
-                           pdi.person_id as person_id,
+                           if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                           if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                            if(event = 'sign up', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'play movie', 1, 0) as step_1,
@@ -729,7 +729,7 @@
                            prop_basic as prop,
                            argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
                     FROM events e
-                    INNER JOIN
+                    LEFT OUTER JOIN
                       (SELECT distinct_id,
                               argMax(person_id, version) as person_id
                        FROM person_distinct_id2
@@ -837,8 +837,8 @@
                         prop_vals as prop
                  FROM
                    (SELECT e.timestamp as timestamp,
-                           pdi.person_id as aggregation_target,
-                           pdi.person_id as person_id,
+                           if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                           if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                            if(event = 'sign up', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'play movie', 1, 0) as step_1,
@@ -849,7 +849,7 @@
                            prop_basic as prop,
                            argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
                     FROM events e
-                    INNER JOIN
+                    LEFT OUTER JOIN
                       (SELECT distinct_id,
                               argMax(person_id, version) as person_id
                        FROM person_distinct_id2
@@ -957,8 +957,8 @@
                         prop_vals as prop
                  FROM
                    (SELECT e.timestamp as timestamp,
-                           pdi.person_id as aggregation_target,
-                           pdi.person_id as person_id,
+                           if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                           if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                            if(event = 'sign up', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'play movie', 1, 0) as step_1,
@@ -969,7 +969,7 @@
                            prop_basic as prop,
                            argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
                     FROM events e
-                    INNER JOIN
+                    LEFT OUTER JOIN
                       (SELECT distinct_id,
                               argMax(person_id, version) as person_id
                        FROM person_distinct_id2
@@ -1077,8 +1077,8 @@
                         prop_vals as prop
                  FROM
                    (SELECT e.timestamp as timestamp,
-                           pdi.person_id as aggregation_target,
-                           pdi.person_id as person_id,
+                           if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                           if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                            if(event = 'sign up', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'play movie', 1, 0) as step_1,
@@ -1089,7 +1089,7 @@
                            prop_basic as prop,
                            argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
                     FROM events e
-                    INNER JOIN
+                    LEFT OUTER JOIN
                       (SELECT distinct_id,
                               argMax(person_id, version) as person_id
                        FROM person_distinct_id2
@@ -1141,7 +1141,7 @@
             rowNumberInBlock() AS row_number,
             if(ifNull(less(row_number, 25), 0), breakdown, ['Other']) AS final_prop
      FROM
-       (SELECT arrayJoin(aggregate_funnel_array(2, 1209600, 'first_touch', 'strict', groupUniqArray(prop), arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), prop, arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))))) AS af_tuple,
+       (SELECT arrayJoin(aggregate_funnel_array_v0(2, 1209600, 'first_touch', 'strict', groupUniqArray(prop), arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), prop, arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))))) AS af_tuple,
                af_tuple.1 AS af,
                af_tuple.2 AS breakdown,
                af_tuple.3 AS timings
@@ -1209,7 +1209,7 @@
             rowNumberInBlock() AS row_number,
             if(ifNull(less(row_number, 25), 0), breakdown, ['Other']) AS final_prop
      FROM
-       (SELECT arrayJoin(aggregate_funnel_array(2, 1209600, 'step_1', 'strict', groupUniqArray(prop), arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), prop, arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))))) AS af_tuple,
+       (SELECT arrayJoin(aggregate_funnel_array_v0(2, 1209600, 'step_1', 'strict', groupUniqArray(prop), arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), prop, arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))))) AS af_tuple,
                af_tuple.1 AS af,
                af_tuple.2 AS breakdown,
                af_tuple.3 AS timings
@@ -1284,7 +1284,7 @@
             rowNumberInBlock() AS row_number,
             if(ifNull(less(row_number, 25), 0), breakdown, ['Other']) AS final_prop
      FROM
-       (SELECT arrayJoin(aggregate_funnel_array(2, 1209600, 'first_touch', 'strict', groupUniqArray(prop), arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), prop, arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))))) AS af_tuple,
+       (SELECT arrayJoin(aggregate_funnel_array_v0(2, 1209600, 'first_touch', 'strict', groupUniqArray(prop), arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), prop, arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))))) AS af_tuple,
                af_tuple.1 AS af,
                af_tuple.2 AS breakdown,
                af_tuple.3 AS timings
@@ -1357,7 +1357,7 @@
             rowNumberInBlock() AS row_number,
             if(ifNull(less(row_number, 25), 0), breakdown, 'Other') AS final_prop
      FROM
-       (SELECT arrayJoin(aggregate_funnel(3, 1209600, 'first_touch', 'strict', groupUniqArray(prop), arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), prop, arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))))) AS af_tuple,
+       (SELECT arrayJoin(aggregate_funnel_v0(3, 1209600, 'first_touch', 'strict', groupUniqArray(prop), arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), prop, arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))))) AS af_tuple,
                af_tuple.1 AS af,
                af_tuple.2 AS breakdown,
                af_tuple.3 AS timings
@@ -1398,7 +1398,7 @@
                         groups.group_type_index AS index,
                         groups.group_key AS key
                  FROM groups
-                 WHERE and(equals(groups.team_id, 2), ifNull(equals(index, 0), 0))
+                 WHERE and(equals(groups.team_id, 2), equals(index, 0))
                  GROUP BY groups.group_type_index,
                           groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
               WHERE and(equals(e.team_id, 2), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-08 23:59:59.999999', 6, 'UTC'))))))
@@ -1437,7 +1437,7 @@
             rowNumberInBlock() AS row_number,
             if(ifNull(less(row_number, 25), 0), breakdown, 'Other') AS final_prop
      FROM
-       (SELECT arrayJoin(aggregate_funnel(3, 1209600, 'first_touch', 'strict', groupUniqArray(prop), arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), prop, arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))))) AS af_tuple,
+       (SELECT arrayJoin(aggregate_funnel_v0(3, 1209600, 'first_touch', 'strict', groupUniqArray(prop), arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), prop, arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))))) AS af_tuple,
                af_tuple.1 AS af,
                af_tuple.2 AS breakdown,
                af_tuple.3 AS timings
@@ -1478,7 +1478,7 @@
                         groups.group_type_index AS index,
                         groups.group_key AS key
                  FROM groups
-                 WHERE and(equals(groups.team_id, 2), ifNull(equals(index, 0), 0))
+                 WHERE and(equals(groups.team_id, 2), equals(index, 0))
                  GROUP BY groups.group_type_index,
                           groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
               WHERE and(equals(e.team_id, 2), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-08 23:59:59.999999', 6, 'UTC'))))))
@@ -1517,7 +1517,7 @@
             rowNumberInBlock() AS row_number,
             if(ifNull(less(row_number, 25), 0), breakdown, 'Other') AS final_prop
      FROM
-       (SELECT arrayJoin(aggregate_funnel(3, 1209600, 'first_touch', 'strict', groupUniqArray(prop), arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), prop, arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))))) AS af_tuple,
+       (SELECT arrayJoin(aggregate_funnel_v0(3, 1209600, 'first_touch', 'strict', groupUniqArray(prop), arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), prop, arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))))) AS af_tuple,
                af_tuple.1 AS af,
                af_tuple.2 AS breakdown,
                af_tuple.3 AS timings
@@ -1565,7 +1565,7 @@
                         groups.group_type_index AS index,
                         groups.group_key AS key
                  FROM groups
-                 WHERE and(equals(groups.team_id, 2), ifNull(equals(index, 0), 0))
+                 WHERE and(equals(groups.team_id, 2), equals(index, 0))
                  GROUP BY groups.group_type_index,
                           groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
               WHERE and(equals(e.team_id, 2), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-08 23:59:59.999999', 6, 'UTC'))))))
@@ -1655,8 +1655,8 @@
                         prop_vals as prop
                  FROM
                    (SELECT e.timestamp as timestamp,
-                           pdi.person_id as aggregation_target,
-                           pdi.person_id as person_id,
+                           if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                           if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                            if(event = 'sign up', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'play movie', 1, 0) as step_1,
@@ -1667,7 +1667,7 @@
                            prop_basic as prop,
                            argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
                     FROM events e
-                    INNER JOIN
+                    LEFT OUTER JOIN
                       (SELECT distinct_id,
                               argMax(person_id, version) as person_id
                        FROM person_distinct_id2
@@ -1775,8 +1775,8 @@
                         prop_vals as prop
                  FROM
                    (SELECT e.timestamp as timestamp,
-                           pdi.person_id as aggregation_target,
-                           pdi.person_id as person_id,
+                           if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                           if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                            if(event = 'sign up', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'play movie', 1, 0) as step_1,
@@ -1787,7 +1787,7 @@
                            prop_basic as prop,
                            argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
                     FROM events e
-                    INNER JOIN
+                    LEFT OUTER JOIN
                       (SELECT distinct_id,
                               argMax(person_id, version) as person_id
                        FROM person_distinct_id2
@@ -1895,8 +1895,8 @@
                         prop_vals as prop
                  FROM
                    (SELECT e.timestamp as timestamp,
-                           pdi.person_id as aggregation_target,
-                           pdi.person_id as person_id,
+                           if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                           if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                            if(event = 'sign up', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'play movie', 1, 0) as step_1,
@@ -1907,7 +1907,7 @@
                            prop_basic as prop,
                            argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
                     FROM events e
-                    INNER JOIN
+                    LEFT OUTER JOIN
                       (SELECT distinct_id,
                               argMax(person_id, version) as person_id
                        FROM person_distinct_id2
@@ -2015,8 +2015,8 @@
                         prop_vals as prop
                  FROM
                    (SELECT e.timestamp as timestamp,
-                           pdi.person_id as aggregation_target,
-                           pdi.person_id as person_id,
+                           if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                           if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                            if(event = 'sign up', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'play movie', 1, 0) as step_1,
@@ -2027,7 +2027,7 @@
                            prop_basic as prop,
                            argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
                     FROM events e
-                    INNER JOIN
+                    LEFT OUTER JOIN
                       (SELECT distinct_id,
                               argMax(person_id, version) as person_id
                        FROM person_distinct_id2

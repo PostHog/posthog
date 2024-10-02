@@ -3,7 +3,7 @@ import { cssEscape } from 'lib/utils/cssEscape'
 import { ElementType } from '~/types'
 
 // these plus any element with cursor:pointer will be click targets
-export const CLICK_TARGETS = ['a', 'button', 'input', 'select', 'textarea', 'label']
+export const CLICK_TARGETS = ['a', 'button', 'input', 'select', 'textarea', 'label', 'h1']
 export const CLICK_TARGET_SELECTOR = CLICK_TARGETS.join(', ')
 
 // always ignore the following

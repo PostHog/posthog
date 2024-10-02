@@ -1,6 +1,7 @@
 import posthogEE from '@posthog/ee/exports'
-import { customEvent, EventType, eventWithTime, fullSnapshotEvent } from '@rrweb/types'
+import { customEvent, EventType, eventWithTime, fullSnapshotEvent, IncrementalSource } from '@rrweb/types'
 import { captureException, captureMessage } from '@sentry/react'
+import { gunzipSync, strFromU8, strToU8 } from 'fflate'
 import {
     actions,
     afterMount,
@@ -25,6 +26,7 @@ import { isObject } from 'lib/utils'
 import { chainToElements } from 'lib/utils/elements-chain'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import posthog from 'posthog-js'
+import { compressedEventWithTime } from 'posthog-js/lib/src/extensions/replay/sessionrecording'
 
 import { HogQLQuery, NodeKind } from '~/queries/schema'
 import { hogql } from '~/queries/utils'
@@ -112,6 +114,92 @@ function hasAnyWireframes(snapshotData: Record<string, any>[]): boolean {
     })
 }
 
+function isCompressedEvent(ev: unknown): ev is compressedEventWithTime {
+    return typeof ev === 'object' && ev !== null && 'cv' in ev
+}
+
+function unzip(compressedStr: string): any {
+    return JSON.parse(strFromU8(gunzipSync(strToU8(compressedStr, true))))
+}
+
+/**
+ *
+ * takes an event that might be from web, might be from mobile,
+ * and might be partially compressed,
+ * and decompresses it when possible
+ *
+ * you can't return a union of `KnownType | unknown`
+ * so even though this returns `eventWithTime | unknown`
+ * it has to be typed as only unknown
+ */
+function decompressEvent(ev: unknown): unknown {
+    try {
+        if (isCompressedEvent(ev)) {
+            if (ev.cv === '2024-10') {
+                if (ev.type === EventType.FullSnapshot) {
+                    return {
+                        ...ev,
+                        data: unzip(ev.data),
+                    }
+                } else if (ev.type === EventType.IncrementalSnapshot) {
+                    if (ev.data.source === IncrementalSource.StyleSheetRule) {
+                        return {
+                            ...ev,
+                            data: {
+                                ...ev.data,
+                                source: IncrementalSource.StyleSheetRule,
+                                adds: unzip(ev.data.adds),
+                                removes: unzip(ev.data.removes),
+                            },
+                        }
+                    } else if (ev.data.source === IncrementalSource.Mutation) {
+                        return {
+                            ...ev,
+                            data: {
+                                ...ev.data,
+                                source: IncrementalSource.Mutation,
+                                adds: unzip(ev.data.adds),
+                                removes: unzip(ev.data.removes),
+                                texts: unzip(ev.data.texts),
+                                attributes: unzip(ev.data.attributes),
+                            },
+                        }
+                    }
+                }
+            } else {
+                posthog.captureException(new Error('Unknown compressed event version'), {
+                    feature: 'session-recording-compressed-event-decompression',
+                    compressedEvent: ev,
+                    compressionVersion: ev.cv,
+                })
+                // probably unplayable but we don't know how to decompress it
+                return ev
+            }
+        }
+        return ev
+    } catch (e) {
+        posthog.captureException((e as Error) || new Error('Cound not decompress event'), {
+            feature: 'session-recording-compressed-event-decompression',
+            compressedEvent: ev,
+        })
+        return ev
+    }
+}
+
+/**
+ * We can receive data in one of multiple formats, so we treat it as unknown
+ * And if we can't process it force it into eventWithTime
+ *
+ * If it can't be case as eventWithTime by this point then it's probably not a valid event anyway
+ */
+function coerceToEventWithTime(d: unknown, withMobileTransformer: boolean): eventWithTime {
+    // we decompress first so that we could support partial compression on mobile in future
+    const currentEvent = decompressEvent(d)
+    return withMobileTransformer
+        ? postHogEEModule?.mobileReplay?.transformEventToWeb(currentEvent) || (currentEvent as eventWithTime)
+        : (currentEvent as eventWithTime)
+}
+
 export const parseEncodedSnapshots = async (
     items: (RecordingSnapshot | EncodedRecordingSnapshot | string)[],
     sessionId: string,
@@ -140,16 +228,15 @@ export const parseEncodedSnapshots = async (
             }
 
             return snapshotData.map((d: unknown) => {
-                const snap = withMobileTransformer
-                    ? postHogEEModule?.mobileReplay?.transformEventToWeb(d) || (d as eventWithTime)
-                    : (d as eventWithTime)
+                const snap = coerceToEventWithTime(d, withMobileTransformer)
+
                 return {
                     // this handles parsing data that was loaded from blob storage "window_id"
                     // and data that was exported from the front-end "windowId"
                     // we have more than one format of data that we store/pass around
                     // but only one that we play back
                     windowId: snapshotLine['window_id'] || snapshotLine['windowId'],
-                    ...(snap || (d as eventWithTime)),
+                    ...snap,
                 }
             })
         } catch (e) {
@@ -167,10 +254,9 @@ export const parseEncodedSnapshots = async (
             unparseableLinesCount: unparseableLines.length,
             exampleLines: unparseableLines.slice(0, 3),
         }
-        posthog.capture('session recording had unparseable lines', extra)
-        captureException(new Error('session recording had unparseable lines'), {
-            tags: { feature: 'session-recording-snapshot-processing' },
-            extra,
+        posthog.capture('session recording had unparseable lines', {
+            ...extra,
+            feature: 'session-recording-snapshot-processing',
         })
     }
 

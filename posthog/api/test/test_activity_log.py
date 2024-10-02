@@ -52,6 +52,24 @@ class TestActivityLog(APIBaseTest, QueryMatchingTest):
         super().tearDown()
         self.client.force_login(self.user)
 
+    def _create_insight(
+        self,
+        data: dict[str, Any],
+        team_id: Optional[int] = None,
+        expected_status: int = status.HTTP_201_CREATED,
+    ) -> tuple[int, dict[str, Any]]:
+        if team_id is None:
+            team_id = self.team.id
+
+        if "filters" not in data:
+            data["filters"] = {"events": [{"id": "$pageview"}]}
+
+        response = self.client.post(f"/api/projects/{team_id}/insights", data=data)
+        self.assertEqual(response.status_code, expected_status)
+
+        response_json = response.json()
+        return response_json.get("id", None), response_json
+
     def _create_and_edit_things(self):
         with freeze_time("2023-08-17") as frozen_time:
             # almost every change below will be more than 5 minutes apart
@@ -283,20 +301,14 @@ class TestActivityLog(APIBaseTest, QueryMatchingTest):
             with self.assertNumQueries(FuzzyInt(37, 37)):
                 self.client.get(f"/api/projects/{self.team.id}/activity_log/important_changes")
 
-    def _create_insight(
-        self,
-        data: dict[str, Any],
-        team_id: Optional[int] = None,
-        expected_status: int = status.HTTP_201_CREATED,
-    ) -> tuple[int, dict[str, Any]]:
-        if team_id is None:
-            team_id = self.team.id
+    def test_can_list_all_activity(self) -> None:
+        res = self.client.get(f"/api/projects/{self.team.id}/activity_log")
 
-        if "filters" not in data:
-            data["filters"] = {"events": [{"id": "$pageview"}]}
+        assert res.status_code == status.HTTP_200_OK
+        assert len(res.json()["results"]) == 31
 
-        response = self.client.post(f"/api/projects/{team_id}/insights", data=data)
-        self.assertEqual(response.status_code, expected_status)
-
-        response_json = response.json()
-        return response_json.get("id", None), response_json
+    def test_can_list_all_activity_filtered_by_scope(self) -> None:
+        res = self.client.get(f"/api/projects/{self.team.id}/activity_log?scope=FeatureFlag")
+        assert res.status_code == status.HTTP_200_OK
+        assert len(res.json()["results"]) == 6
+        assert [r["scope"] for r in res.json()["results"]] == ["FeatureFlag"] * 6

@@ -1,4 +1,4 @@
-import { ActionStepType, ActionType, ElementType } from '~/types'
+import { ActionStepType, ActionType, ElementType, Experiment } from '~/types'
 
 export type ElementsEventType = {
     count: number
@@ -69,6 +69,12 @@ export interface ActionElementWithMetadata extends ElementWithMetadata {
 
 export type ActionDraftType = Omit<ActionType, 'id' | 'created_at' | 'created_by'>
 
+export type ExperimentDraftType = Omit<Experiment, 'id' | 'created_at' | 'created_by'>
+
+export interface ExperimentForm extends ExperimentDraftType {
+    variants?: Record<string, WebExperimentVariant>
+}
+
 export interface ActionStepForm extends ActionStepType {
     href_selected?: boolean
     text_selected?: boolean
@@ -78,4 +84,37 @@ export interface ActionStepForm extends ActionStepType {
 
 export interface ActionForm extends ActionDraftType {
     steps?: ActionStepForm[]
+}
+
+export type WebExperimentUrlMatchType = 'regex' | 'not_regex' | 'exact' | 'is_not' | 'icontains' | 'not_icontains'
+
+export interface WebExperiment extends Experiment {
+    variants?: Record<string, WebExperimentVariant>
+}
+
+export interface WebExperimentVariant {
+    conditions: {
+        url?: string
+        urlMatchType?: WebExperimentUrlMatchType
+        utm: {
+            utm_source?: string
+            utm_medium?: string
+            utm_campaign?: string
+            utm_term?: string
+        }
+    } | null
+    transforms: WebExperimentTransform[]
+    rollout_percentage?: number
+}
+
+export interface WebExperimentTransform {
+    selector?: string
+    attributes: {
+        attribute_name: string
+        attribute_value: string
+    }[]
+    text?: string
+    html?: string
+    imgUrl?: string
+    className?: string
 }
