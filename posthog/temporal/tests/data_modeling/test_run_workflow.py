@@ -28,6 +28,7 @@ from posthog.temporal.data_modeling.run_workflow import (
     RunWorkflowInputs,
     Selector,
     build_dag_activity,
+    create_table_activity,
     finish_run_activity,
     get_dlt_destination,
     materialize_model,
@@ -588,6 +589,7 @@ async def test_run_workflow_with_minio_bucket(
                 build_dag_activity,
                 run_dag_activity,
                 finish_run_activity,
+                create_table_activity,
             ],
             workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
         ):
