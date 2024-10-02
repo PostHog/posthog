@@ -335,6 +335,54 @@ describe('EventPipelineRunner', () => {
                 ])
             })
         })
+
+        describe('$exception events', () => {
+            let exceptionEvent: PipelineEvent
+            beforeEach(() => {
+                exceptionEvent = {
+                    ...pipelineEvent,
+                    event: '$exception',
+                    properties: {
+                        ...pipelineEvent.properties,
+                        $heatmap_data: {
+                            url1: ['data'],
+                            url2: ['more data'],
+                        },
+                    },
+                }
+
+                // setup just enough mocks that the right pipeline runs
+
+                runner = new TestEventPipelineRunner(hub, exceptionEvent, new EventsProcessor(hub))
+
+                jest.mocked(populateTeamDataStep).mockResolvedValue(exceptionEvent as any)
+
+                const heatmapPreIngestionEvent = {
+                    ...preIngestionEvent,
+                    event: '$exception',
+                    properties: {
+                        ...exceptionEvent.properties,
+                    },
+                }
+                jest.mocked(prepareEventStep).mockResolvedValue(heatmapPreIngestionEvent)
+            })
+
+            it('runs the expected steps for heatmap_data', async () => {
+                await runner.runEventPipeline(exceptionEvent)
+
+                expect(runner.steps).toEqual([
+                    'populateTeamDataStep',
+                    'pluginsProcessEventStep',
+                    'normalizeEventStep',
+                    'processPersonsStep',
+                    'prepareEventStep',
+                    'extractHeatmapDataStep',
+                    'enrichExceptionEventStep',
+                    'createEventStep',
+                    'produceExceptionSymbolificationEventStep',
+                ])
+            })
+        })
     })
 })
 

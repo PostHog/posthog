@@ -26,7 +26,7 @@ import { pluginsProcessEventStep } from './pluginsProcessEventStep'
 import { populateTeamDataStep } from './populateTeamDataStep'
 import { prepareEventStep } from './prepareEventStep'
 import { processPersonsStep } from './processPersonsStep'
-import { produceExceptionEventStep } from './produceExceptionEventStep'
+import { produceExceptionSymbolificationEventStep } from './produceExceptionSymbolificationEventStep'
 
 export type EventPipelineResult = {
     // Promises that the batch handler should await on before committing offsets,
@@ -267,12 +267,12 @@ export class EventPipelineRunner {
 
         if (event.event === '$exception') {
             const [exceptionAck] = await this.runStep(
-                produceExceptionEventStep,
+                produceExceptionSymbolificationEventStep,
                 [this, rawClickhouseEvent],
                 event.team_id
             )
             kafkaAcks.push(exceptionAck)
-            return this.registerLastStep('produceExceptionEventStep', [rawClickhouseEvent], kafkaAcks)
+            return this.registerLastStep('produceExceptionSymbolificationEventStep', [rawClickhouseEvent], kafkaAcks)
         }
 
         return this.registerLastStep('createEventStep', [rawClickhouseEvent], kafkaAcks)

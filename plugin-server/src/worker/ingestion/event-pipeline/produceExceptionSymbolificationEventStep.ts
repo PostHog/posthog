@@ -1,7 +1,7 @@
 import { RawClickHouseEvent } from '../../../types'
 import { EventPipelineRunner } from './runner'
 
-export function produceExceptionEventStep(
+export function produceExceptionSymbolificationEventStep(
     runner: EventPipelineRunner,
     event: RawClickHouseEvent
 ): Promise<[Promise<void>]> {
