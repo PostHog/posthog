@@ -173,6 +173,7 @@ impl RawRequest {
                 report_dropped_events("event_too_big", 1);
                 return Err(CaptureError::EventTooBig);
             }
+            println!("{}", s);
             s
         };
 
@@ -541,5 +542,16 @@ mod tests {
         let json = serde_json::json!({"uuid": invalid_uuid});
         let result = test_deserialize(json);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_bad_utf() {
+        let the_bytes = include_bytes!("../tests/session_recording_utf_surrogate_console.json");
+        let the_payload = RawRequest::from_bytes(Bytes::from_static(the_bytes), 25*1024*1024);
+
+        if let Err(e) = &the_payload {
+            println!("{:?}", e);
+        }
+        assert!(the_payload.is_ok());
     }
 }
