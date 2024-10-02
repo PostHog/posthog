@@ -1,3 +1,5 @@
+import { status } from 'utils/status'
+
 import { RawClickHouseEvent } from '../../../types'
 import { EventPipelineRunner } from './runner'
 
@@ -12,8 +14,13 @@ export function produceExceptionSymbolificationEventStep(
             value: Buffer.from(JSON.stringify(event)),
             waitForAck: true,
         })
-        .catch((_) => {
-            // Skipping error handling for now as it's taken care of above
+        .catch((error) => {
+            status.warn('⚠️', 'Failed to produce exception event for symbolification', {
+                team_id: event.team_id,
+                uuid: event.uuid,
+                error,
+            })
+            throw error
         })
 
     return Promise.resolve([ack])
