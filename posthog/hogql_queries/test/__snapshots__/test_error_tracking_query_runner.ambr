@@ -205,7 +205,7 @@
   FROM "posthog_errortrackinggroup"
   WHERE ("posthog_errortrackinggroup"."team_id" = 2
          AND "posthog_errortrackinggroup"."fingerprint" = (ARRAY['SyntaxError',
-                                                                 'Cannot use ''in'' operator to search for ''wireframes'' in �    ýf�ì½é"¹0ø*Lö¹SY    A�Î÷Ôf
+                                                                 'Cannot use ''in'' operator to search for ''wireframes'' in �      ýf�ì½é"¹0ø*Lö¹SY      A�Î÷Ôf
   �Ø'])::text[])
   '''
 # ---
