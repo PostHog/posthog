@@ -654,6 +654,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             compare,
                             filterTestAccounts,
                             conversionGoal,
+                            includeLCPScore: featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LCP_SCORE] ? true : undefined,
                         },
                         insightProps: createInsightProps(TileId.OVERVIEW),
                         canOpenModal: false,

@@ -145,13 +145,13 @@ export function Members(): JSX.Element | null {
     const { preflight } = useValues(preflightLogic)
     const { user } = useValues(userLogic)
 
-    if (!user) {
-        return null
-    }
-
     useEffect(() => {
         ensureAllMembersLoaded()
     }, [])
+
+    if (!user) {
+        return null
+    }
 
     const columns: LemonTableColumns<OrganizationMemberType> = [
         {

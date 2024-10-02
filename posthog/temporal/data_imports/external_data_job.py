@@ -201,13 +201,13 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             timeout_params = (
                 {"start_to_close_timeout": dt.timedelta(weeks=1), "retry_policy": RetryPolicy(maximum_attempts=1)}
                 if incremental
-                else {"start_to_close_timeout": dt.timedelta(hours=5), "retry_policy": RetryPolicy(maximum_attempts=3)}
+                else {"start_to_close_timeout": dt.timedelta(hours=12), "retry_policy": RetryPolicy(maximum_attempts=3)}
             )
 
             await workflow.execute_activity(
                 import_data_activity,
                 job_inputs,
-                heartbeat_timeout=dt.timedelta(minutes=2),
+                heartbeat_timeout=dt.timedelta(minutes=5),
                 **timeout_params,
             )  # type: ignore
 

@@ -387,7 +387,7 @@
                                  groups.group_type_index AS index,
                                  groups.group_key AS key
                           FROM groups
-                          WHERE and(equals(groups.team_id, 2), ifNull(equals(index, 0), 0))
+                          WHERE and(equals(groups.team_id, 2), equals(index, 0))
                           GROUP BY groups.group_type_index,
                                    groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
                        WHERE and(equals(e.team_id, 2), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-08 23:59:59.999999', 6, 'UTC')))))))
@@ -502,7 +502,7 @@
                                  groups.group_type_index AS index,
                                  groups.group_key AS key
                           FROM groups
-                          WHERE and(equals(groups.team_id, 2), ifNull(equals(index, 0), 0))
+                          WHERE and(equals(groups.team_id, 2), equals(index, 0))
                           GROUP BY groups.group_type_index,
                                    groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
                        WHERE and(equals(e.team_id, 2), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-08 23:59:59.999999', 6, 'UTC')))))))
@@ -624,7 +624,7 @@
                                  groups.group_type_index AS index,
                                  groups.group_key AS key
                           FROM groups
-                          WHERE and(equals(groups.team_id, 2), ifNull(equals(index, 0), 0))
+                          WHERE and(equals(groups.team_id, 2), equals(index, 0))
                           GROUP BY groups.group_type_index,
                                    groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
                        WHERE and(equals(e.team_id, 2), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-08 23:59:59.999999', 6, 'UTC')))))))
@@ -1514,7 +1514,7 @@
                                  groups.group_type_index AS index,
                                  groups.group_key AS key
                           FROM groups
-                          WHERE and(equals(groups.team_id, 2), ifNull(equals(index, 0), 0))
+                          WHERE and(equals(groups.team_id, 2), equals(index, 0))
                           GROUP BY groups.group_type_index,
                                    groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
                        WHERE and(equals(e.team_id, 2), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-08 23:59:59.999999', 6, 'UTC')))))))
@@ -1629,7 +1629,7 @@
                                  groups.group_type_index AS index,
                                  groups.group_key AS key
                           FROM groups
-                          WHERE and(equals(groups.team_id, 2), ifNull(equals(index, 0), 0))
+                          WHERE and(equals(groups.team_id, 2), equals(index, 0))
                           GROUP BY groups.group_type_index,
                                    groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
                        WHERE and(equals(e.team_id, 2), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-08 23:59:59.999999', 6, 'UTC')))))))
@@ -1751,7 +1751,7 @@
                                  groups.group_type_index AS index,
                                  groups.group_key AS key
                           FROM groups
-                          WHERE and(equals(groups.team_id, 2), ifNull(equals(index, 0), 0))
+                          WHERE and(equals(groups.team_id, 2), equals(index, 0))
                           GROUP BY groups.group_type_index,
                                    groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
                        WHERE and(equals(e.team_id, 2), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-08 23:59:59.999999', 6, 'UTC')))))))

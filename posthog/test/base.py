@@ -98,7 +98,7 @@ freezegun.configure(extend_ignore_list=["posthog.test.assert_faster_than"])
 
 persons_cache_tests: list[dict[str, Any]] = []
 events_cache_tests: list[dict[str, Any]] = []
-persons_ordering_int: int = 1
+persons_ordering_int: int = 0
 
 
 # Expand string diffs

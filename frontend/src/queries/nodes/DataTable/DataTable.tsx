@@ -13,7 +13,6 @@ import { useCallback, useState } from 'react'
 import { EventDetails } from 'scenes/activity/explore/EventDetails'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 import { PersonDeleteModal } from 'scenes/persons/PersonDeleteModal'
-import { SessionPlayerModal } from 'scenes/session-recordings/player/modal/SessionPlayerModal'
 
 import { AutoLoad } from '~/queries/nodes/DataNode/AutoLoad'
 import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
@@ -591,7 +590,6 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
                         />
                     )}
                     {/* TODO: this doesn't seem like the right solution... */}
-                    <SessionPlayerModal />
                     <PersonDeleteModal />
                 </div>
             </BindLogic>

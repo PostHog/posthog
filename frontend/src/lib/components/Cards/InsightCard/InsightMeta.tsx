@@ -108,8 +108,8 @@ export function InsightMeta({
                                     title="This insight is queued to check for newer results. It will be updated soon."
                                     placement="top-end"
                                 >
-                                    <span className="text-primary text-sm font-medium">
-                                        <Spinner className="mx-1" />
+                                    <span className="text-primary text-sm font-medium ml-1.5">
+                                        <Spinner className="mr-1.5 text-base" />
                                         Refreshing
                                     </span>
                                 </Tooltip>

@@ -45,6 +45,9 @@ export function AggregationSelect({
     const { querySource } = useValues(insightVizDataLogic(insightProps))
     const { updateQuerySource } = useActions(insightVizDataLogic(insightProps))
 
+    const { groupTypes, aggregationLabel } = useValues(groupsModel)
+    const { needsUpgradeForGroups, canStartUsingGroups } = useValues(groupsAccessLogic)
+
     if (!isInsightQueryNode(querySource)) {
         return null
     }
@@ -64,8 +67,6 @@ export function AggregationSelect({
             updateQuerySource({ aggregation_group_type_index: groupIndex } as FunnelsQuery)
         }
     }
-    const { groupTypes, aggregationLabel } = useValues(groupsModel)
-    const { needsUpgradeForGroups, canStartUsingGroups } = useValues(groupsAccessLogic)
 
     const baseValues = [UNIQUE_USERS]
     const optionSections: LemonSelectSection<string>[] = [

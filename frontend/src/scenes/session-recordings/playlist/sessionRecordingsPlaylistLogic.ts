@@ -12,6 +12,7 @@ import {
     isLogEntryPropertyFilter,
     isRecordingPropertyFilter,
 } from 'lib/components/UniversalFilters/utils'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectClean } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -264,11 +265,6 @@ export interface SessionRecordingPlaylistLogicProps {
     onPinnedChange?: (recording: SessionRecordingType, pinned: boolean) => void
 }
 
-export interface SessionSummaryResponse {
-    id: SessionRecordingType['id']
-    content: string
-}
-
 export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogicType>([
     path((key) => ['scenes', 'session-recordings', 'playlist', 'sessionRecordingsPlaylistLogic', key]),
     props({} as SessionRecordingPlaylistLogicProps),
@@ -296,7 +292,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         setFilters: (filters: Partial<RecordingUniversalFilters>) => ({ filters }),
         setShowFilters: (showFilters: boolean) => ({ showFilters }),
         setShowSettings: (showSettings: boolean) => ({ showSettings }),
-        setOrderBy: (orderBy: RecordingsQuery['order']) => ({ orderBy }),
+        setOrderBy: (orderBy: RecordingsQuery['order'] | null) => ({ orderBy }),
         resetFilters: true,
         setSelectedRecordingId: (id: SessionRecordingType['id'] | null) => ({
             id,
@@ -305,7 +301,6 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         loadPinnedRecordings: true,
         loadSessionRecordings: (direction?: 'newer' | 'older') => ({ direction }),
         maybeLoadSessionRecordings: (direction?: 'newer' | 'older') => ({ direction }),
-        summarizeSession: (id: SessionRecordingType['id']) => ({ id }),
         loadNext: true,
         loadPrev: true,
         setShowOtherRecordings: (show: boolean) => ({ show }),
@@ -321,15 +316,6 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
     }),
 
     loaders(({ props, values, actions }) => ({
-        sessionSummary: {
-            summarizeSession: async ({ id }): Promise<SessionSummaryResponse | null> => {
-                if (!id) {
-                    return null
-                }
-                const response = await api.recordings.summarize(id)
-                return { content: response.content, id: id }
-            },
-        },
         eventsHaveSessionId: [
             {} as Record<string, boolean>,
             {
@@ -424,18 +410,11 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         ],
     })),
     reducers(({ props }) => ({
-        orderBy: [
-            'start_time' as RecordingsQuery['order'],
-            { persist: true },
+        selectedOrderBy: [
+            null as RecordingsQuery['order'] | null,
+            { persist: true, prefix: 'orderByExperiment' },
             {
                 setOrderBy: (_, { orderBy }) => orderBy,
-            },
-        ],
-        sessionBeingSummarized: [
-            null as null | SessionRecordingType['id'],
-            {
-                summarizeSession: (_, { id }) => id,
-                sessionSummarySuccess: () => null,
             },
         ],
         // If we initialise with pinned recordings then we don't show others by default
@@ -520,20 +499,6 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                         }
                         return { ...s }
                     }),
-
-                summarizeSessionSuccess: (state, { sessionSummary }) => {
-                    return sessionSummary
-                        ? state.map((s) => {
-                              if (s.id === sessionSummary.id) {
-                                  return {
-                                      ...s,
-                                      summary: sessionSummary.content,
-                                  }
-                              }
-                              return s
-                          })
-                        : state
-                },
             },
         ],
         selectedRecordingId: [
@@ -729,6 +694,29 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 return showOtherRecordings ? otherRecordings.length + pinnedRecordings.length : pinnedRecordings.length
             },
         ],
+        orderByExperimentFeatureFlag: [
+            (s) => [s.featureFlags],
+            (featureFlags): RecordingsQuery['order'] | 'control' | null =>
+                typeof featureFlags[FEATURE_FLAGS.REPLAY_DEFAULT_SORT_ORDER_EXPERIMENT] === 'string'
+                    ? (featureFlags[FEATURE_FLAGS.REPLAY_DEFAULT_SORT_ORDER_EXPERIMENT] as
+                          | RecordingsQuery['order']
+                          | 'control')
+                    : null,
+        ],
+        orderBy: [
+            (s) => [s.selectedOrderBy, s.orderByExperimentFeatureFlag],
+            (selectedOrderBy, orderByExperimentFeatureFlag): RecordingsQuery['order'] => {
+                if (selectedOrderBy) {
+                    return selectedOrderBy
+                }
+
+                if (orderByExperimentFeatureFlag === 'control' || !orderByExperimentFeatureFlag) {
+                    return 'start_time'
+                }
+
+                return orderByExperimentFeatureFlag
+            },
+        ],
     }),
 
     actionToUrl(({ props, values }) => {
@@ -795,6 +783,9 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             if (showOtherRecordings) {
                 actions.loadSessionRecordings()
             }
+        },
+        orderBy: () => {
+            actions.loadSessionRecordings()
         },
     })),
 

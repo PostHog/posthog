@@ -127,7 +127,7 @@ describe('Hog Executor', () => {
                   "{\\"foo\\":\\"***REDACTED***\\",\\"null\\":null,\\"bool\\":false}",
                   "substring: ***REDACTED***",
                   "{\\"input_1\\":\\"test\\",\\"secret_input_2\\":{\\"foo\\":\\"***REDACTED***\\",\\"null\\":null,\\"bool\\":false},\\"secret_input_3\\":\\"***REDACTED***\\"}",
-                  "Function completed in 0ms. Sync: 0ms. Mem: 169 bytes. Ops: 28.",
+                  "Function completed in 0ms. Sync: 0ms. Mem: 169 bytes. Ops: 28. Event: 'http://localhost:8000/events/1'",
                 ]
             `)
         })
@@ -190,7 +190,7 @@ describe('Hog Executor', () => {
                   "Suspending function due to async function call 'fetch'. Payload: 1872 bytes",
                   "Resuming function",
                   "Fetch response:, {\\"status\\":200,\\"body\\":\\"success\\"}",
-                  "Function completed in 100ms. Sync: 0ms. Mem: 779 bytes. Ops: 22.",
+                  "Function completed in 100ms. Sync: 0ms. Mem: 779 bytes. Ops: 22. Event: 'http://localhost:8000/events/1'",
                 ]
             `)
         })
@@ -209,7 +209,7 @@ describe('Hog Executor', () => {
                   "Suspending function due to async function call 'fetch'. Payload: 1872 bytes",
                   "Resuming function",
                   "Fetch response:, {\\"status\\":200,\\"body\\":{\\"foo\\":\\"bar\\"}}",
-                  "Function completed in 100ms. Sync: 0ms. Mem: 779 bytes. Ops: 22.",
+                  "Function completed in 100ms. Sync: 0ms. Mem: 779 bytes. Ops: 22. Event: 'http://localhost:8000/events/1'",
                 ]
             `)
         })

@@ -31,11 +31,13 @@ runs:
     steps:
         # Pre-tests
 
+        # Copies the fully versioned UDF xml file for use in CI testing
         - name: Stop/Start stack with Docker Compose
           shell: bash
           run: |
               export CLICKHOUSE_SERVER_IMAGE=${{ inputs.clickhouse-server-image }}
               export DOCKER_REGISTRY_PREFIX="us-east1-docker.pkg.dev/posthog-301601/mirror/"
+              cp posthog/user_scripts/latest_user_defined_function.xml docker/clickhouse/user_defined_function.xml
               docker compose -f docker-compose.dev.yml down
               docker compose -f docker-compose.dev.yml up -d
 

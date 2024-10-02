@@ -56,27 +56,32 @@ export function execHog(bytecode: any, options?: ExecOptions): ExecResult {
     })
 }
 
-export const formatInput = (bytecode: any, globals: HogFunctionInvocation['globals']): any => {
+export const formatInput = (bytecode: any, globals: HogFunctionInvocation['globals'], key?: string): any => {
     // Similar to how we generate the bytecode by iterating over the values,
     // here we iterate over the object and replace the bytecode with the actual values
     // bytecode is indicated as an array beginning with ["_H"] (versions 1+) or ["_h"] (version 0)
 
     if (Array.isArray(bytecode) && (bytecode[0] === '_h' || bytecode[0] === '_H')) {
         const res = execHog(bytecode, { globals })
-        if (!res.finished) {
-            // NOT ALLOWED
-            throw new Error('Input fields must be simple sync values')
-        }
         if (res.error) {
             throw res.error
+        }
+        if (!res.finished) {
+            // NOT ALLOWED
+            throw new Error(`Could not execute bytecode for input field: ${key}`)
         }
         return convertHogToJS(res.result)
     }
 
     if (Array.isArray(bytecode)) {
-        return bytecode.map((item) => formatInput(item, globals))
+        return bytecode.map((item) => formatInput(item, globals, key))
     } else if (typeof bytecode === 'object') {
-        return Object.fromEntries(Object.entries(bytecode).map(([key, value]) => [key, formatInput(value, globals)]))
+        return Object.fromEntries(
+            Object.entries(bytecode).map(([key2, value]) => [
+                key2,
+                formatInput(value, globals, key ? `${key}.${key2}` : key2),
+            ])
+        )
     } else {
         return bytecode
     }
@@ -422,6 +427,7 @@ export class HogExecutor {
                     messages.push(`Sync: ${execRes.state.syncDuration}ms.`)
                     messages.push(`Mem: ${execRes.state.maxMemUsed} bytes.`)
                     messages.push(`Ops: ${execRes.state.ops}.`)
+                    messages.push(`Event: '${globals.event.url}'`)
 
                     hogFunctionStateMemory.observe(execRes.state.maxMemUsed / 1024)
 
@@ -431,7 +437,7 @@ export class HogExecutor {
                             hogFunctionId: invocation.hogFunction.id,
                             hogFunctionName: invocation.hogFunction.name,
                             teamId: invocation.teamId,
-                            eventId: invocation.globals.event.uuid,
+                            eventId: invocation.globals.event.url,
                             memoryUsedKb: execRes.state.maxMemUsed / 1024,
                         })
                     }
@@ -447,7 +453,7 @@ export class HogExecutor {
             result.finished = true // Explicitly set to true to prevent infinite loops
             status.error(
                 '🦔',
-                `[HogExecutor] Error executing function ${invocation.hogFunction.id} - ${invocation.hogFunction.name}`,
+                `[HogExecutor] Error executing function ${invocation.hogFunction.id} - ${invocation.hogFunction.name}. Event: '${invocation.globals.event.url}'`,
                 err
             )
         }
@@ -463,7 +469,7 @@ export class HogExecutor {
 
             if (item.bytecode) {
                 // Use the bytecode to compile the field
-                builtInputs[key] = formatInput(item.bytecode, invocation.globals)
+                builtInputs[key] = formatInput(item.bytecode, invocation.globals, key)
             }
         })
 
@@ -472,7 +478,7 @@ export class HogExecutor {
 
             if (item.bytecode) {
                 // Use the bytecode to compile the field
-                builtInputs[key] = formatInput(item.bytecode, invocation.globals)
+                builtInputs[key] = formatInput(item.bytecode, invocation.globals, key)
             }
         })
 
