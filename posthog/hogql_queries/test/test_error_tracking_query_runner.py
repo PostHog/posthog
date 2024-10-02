@@ -17,7 +17,6 @@ from posthog.test.base import (
     _create_person,
     _create_event,
     flush_persons_and_events,
-    snapshot_postgres_queries,
 )
 from posthog.models import ErrorTrackingGroup
 from datetime import datetime
@@ -294,7 +293,6 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(results[0]["fingerprint"], ["SyntaxError"])
         self.assertEqual(results[0]["occurrences"], 2)
 
-    @snapshot_postgres_queries
     @snapshot_clickhouse_queries
     def test_fingerprints_with_null_characters(self):
         fingerprint_with_null_bytes = [
