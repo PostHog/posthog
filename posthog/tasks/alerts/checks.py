@@ -93,7 +93,7 @@ NON_TIME_SERIES_DISPLAY_TYPES = {
 }
 
 
-def calculation_interval_to_order(interval: AlertCalculationInterval) -> int:
+def calculation_interval_to_order(interval: AlertCalculationInterval | None) -> int:
     match interval:
         case AlertCalculationInterval.HOURLY:
             return 0
@@ -192,10 +192,10 @@ def check_alerts() -> None:
         .only("id", "team", "calculation_interval")
     )
 
-    alerts = sorted(alerts, key=lambda alert: calculation_interval_to_order(alert.calculation_interval))
+    sorted_alerts = sorted(alerts, key=lambda alert: calculation_interval_to_order(alert.calculation_interval))
 
     grouped_by_team = defaultdict(list)
-    for alert in alerts:
+    for alert in sorted_alerts:
         grouped_by_team[alert.team].append(alert.id)
 
     for alert_ids in grouped_by_team.values():
