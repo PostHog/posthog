@@ -153,6 +153,7 @@ async def create_clickhouse_tables_and_views(clickhouse_client, django_db_setup)
         CREATE_EVENTS_BATCH_EXPORT_VIEW_BACKFILL,
         CREATE_EVENTS_BATCH_EXPORT_VIEW_UNBOUNDED,
         CREATE_PERSONS_BATCH_EXPORT_VIEW,
+        CREATE_PERSONS_BATCH_EXPORT_VIEW_BACKFILL,
     )
     from posthog.clickhouse.schema import CREATE_KAFKA_TABLE_QUERIES, build_query
 
@@ -161,6 +162,7 @@ async def create_clickhouse_tables_and_views(clickhouse_client, django_db_setup)
         CREATE_EVENTS_BATCH_EXPORT_VIEW_BACKFILL,
         CREATE_EVENTS_BATCH_EXPORT_VIEW_UNBOUNDED,
         CREATE_PERSONS_BATCH_EXPORT_VIEW,
+        CREATE_PERSONS_BATCH_EXPORT_VIEW_BACKFILL,
     )
 
     clickhouse_tasks = set()
@@ -182,8 +184,13 @@ async def create_clickhouse_tables_and_views(clickhouse_client, django_db_setup)
 
 
 @pytest.fixture
-def data_interval_start(data_interval_end, interval):
+def data_interval_start(request, data_interval_end, interval):
     """Set a test interval start based on interval end and interval."""
+    try:
+        return request.param
+    except AttributeError:
+        pass
+
     if interval == "hour":
         interval_time_delta = dt.timedelta(hours=1)
     elif interval == "day":
@@ -259,7 +266,7 @@ async def generate_test_data(ateam, clickhouse_client, exclude_events, data_inte
         properties={"utm_medium": "referral", "$initial_os": "Linux"},
     )
 
-    persons_exported = []
+    persons_to_export_created = []
     for person in persons:
         person_distinct_id, _ = await generate_test_person_distinct_id2_in_clickhouse(
             client=clickhouse_client,
@@ -268,13 +275,13 @@ async def generate_test_data(ateam, clickhouse_client, exclude_events, data_inte
             distinct_id=f"distinct-id-{uuid.UUID(person['id'])}",
             timestamp=dt.datetime.fromisoformat(person["_timestamp"]),
         )
-        person_exported = {
+        person_to_export = {
             "team_id": person["team_id"],
             "person_id": person["id"],
             "distinct_id": person_distinct_id["distinct_id"],
             "version": person_distinct_id["version"],
             "_timestamp": dt.datetime.fromisoformat(person["_timestamp"]),
         }
-        persons_exported.append(person_exported)
+        persons_to_export_created.append(person_to_export)
 
-    return (events_to_export_created, persons_exported)
+    return (events_to_export_created, persons_to_export_created)

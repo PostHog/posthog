@@ -6,7 +6,6 @@ import structlog
 from django.db import transaction
 from django.utils.timezone import now
 from rest_framework import filters, request, response, serializers, viewsets
-from posthog.api.utils import action
 from rest_framework.exceptions import (
     NotAuthenticated,
     NotFound,
@@ -17,6 +16,7 @@ from rest_framework.pagination import CursorPagination
 
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.utils import action
 from posthog.batch_exports.models import BATCH_EXPORT_INTERVALS
 from posthog.batch_exports.service import (
     BatchExportIdError,
