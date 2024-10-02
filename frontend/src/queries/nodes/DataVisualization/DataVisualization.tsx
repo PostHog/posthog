@@ -117,6 +117,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
         queryCancelled,
         isChartSettingsPanelOpen,
     } = useValues(dataVisualizationLogic)
+    const { setEditorQuery } = useActions(variablesLogic)
 
     const { toggleChartSettingsPanel } = useActions(dataVisualizationLogic)
 
@@ -164,7 +165,12 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
             <div className="relative w-full flex flex-col gap-4 flex-1 overflow-hidden">
                 {!readOnly && showEditingUI && (
                     <>
-                        <HogQLQueryEditor query={query.source} setQuery={setQuerySource} embedded />
+                        <HogQLQueryEditor
+                            query={query.source}
+                            setQuery={setQuerySource}
+                            embedded
+                            onChange={setEditorQuery}
+                        />
                     </>
                 )}
                 {!readOnly && showResultControls && (
