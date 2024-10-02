@@ -336,7 +336,7 @@ async def materialize_model(model_label: str, team: Team) -> tuple[str, DeltaTab
     return (key, delta_table)
 
 
-def prepare_s3_files_for_querying(saved_query: DataWarehouseSavedQuery, file_uris: list[str]) -> list[str]:
+def prepare_s3_files_for_querying(saved_query: DataWarehouseSavedQuery, file_uris: list[str]):
     s3 = get_s3_client()
 
     folder_path = f"{settings.BUCKET_URL}/{saved_query.folder_path}"
