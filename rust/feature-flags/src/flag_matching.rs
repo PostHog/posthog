@@ -19,8 +19,9 @@ use tokio::time::{sleep, timeout};
 use tracing::{error, info};
 
 type TeamId = i32;
-type PostgresClientArc = Arc<dyn DatabaseClient + Send + Sync>;
 type GroupTypeIndex = i32;
+type PostgresReader = Arc<dyn DatabaseClient + Send + Sync>;
+type PostgresWriter = Arc<dyn DatabaseClient + Send + Sync>;
 
 #[derive(Debug)]
 struct SuperConditionEvaluation {
@@ -65,11 +66,11 @@ pub struct GroupTypeMappingCache {
     failed_to_fetch_flags: bool,
     group_types_to_indexes: HashMap<String, GroupTypeIndex>,
     group_indexes_to_types: HashMap<GroupTypeIndex, String>,
-    postgres_reader: PostgresClientArc,
+    postgres_reader: PostgresReader,
 }
 
 impl GroupTypeMappingCache {
-    pub fn new(team_id: TeamId, postgres_reader: PostgresClientArc) -> Self {
+    pub fn new(team_id: TeamId, postgres_reader: PostgresReader) -> Self {
         GroupTypeMappingCache {
             team_id,
             failed_to_fetch_flags: false,
@@ -131,7 +132,7 @@ impl GroupTypeMappingCache {
 
     async fn fetch_group_type_mapping(
         &mut self,
-        postgres_reader: PostgresClientArc,
+        postgres_reader: PostgresReader,
         team_id: TeamId,
     ) -> Result<HashMap<String, GroupTypeIndex>, FlagError> {
         let mut conn = postgres_reader.as_ref().get_connection().await?;
@@ -173,8 +174,8 @@ pub struct PropertiesCache {
 pub struct FeatureFlagMatcher {
     pub distinct_id: String,
     pub team_id: TeamId,
-    pub postgres_reader: PostgresClientArc,
-    pub postgres_writer: PostgresClientArc,
+    pub postgres_reader: PostgresReader,
+    pub postgres_writer: PostgresWriter,
     group_type_mapping_cache: GroupTypeMappingCache,
     properties_cache: PropertiesCache,
     groups: HashMap<String, Value>,
@@ -186,8 +187,8 @@ impl FeatureFlagMatcher {
     pub fn new(
         distinct_id: String,
         team_id: TeamId,
-        postgres_reader: PostgresClientArc,
-        postgres_writer: PostgresClientArc,
+        postgres_reader: PostgresReader,
+        postgres_writer: PostgresWriter,
         group_type_mapping_cache: Option<GroupTypeMappingCache>,
         properties_cache: Option<PropertiesCache>,
         groups: Option<HashMap<String, Value>>,
@@ -984,7 +985,7 @@ impl FeatureFlagMatcher {
 /// It updates the properties cache with the fetched properties and returns the result.
 async fn fetch_and_locally_cache_all_properties(
     properties_cache: &mut PropertiesCache,
-    postgres_reader: PostgresClientArc,
+    postgres_reader: PostgresReader,
     distinct_id: String,
     team_id: TeamId,
     group_type_indexes: &HashSet<GroupTypeIndex>,
@@ -1057,7 +1058,7 @@ async fn fetch_and_locally_cache_all_properties(
 /// This function constructs and executes a SQL query to fetch the person properties for a specified distinct ID and team ID.
 /// It returns the fetched properties as a HashMap.
 async fn fetch_person_properties_from_db(
-    postgres_reader: PostgresClientArc,
+    postgres_reader: PostgresReader,
     distinct_id: String,
     team_id: TeamId,
 ) -> Result<HashMap<String, Value>, FlagError> {
@@ -1092,7 +1093,7 @@ async fn fetch_person_properties_from_db(
 /// This function constructs and executes a SQL query to fetch the group properties for a specified team ID and group type index.
 /// It returns the fetched properties as a HashMap.
 async fn fetch_group_properties_from_db(
-    postgres_reader: PostgresClientArc,
+    postgres_reader: PostgresReader,
     team_id: TeamId,
     group_type_index: GroupTypeIndex,
 ) -> Result<HashMap<String, Value>, FlagError> {
@@ -1154,7 +1155,7 @@ fn all_properties_match(
 }
 
 async fn get_feature_flag_hash_key_overrides(
-    postgres_reader: PostgresClientArc,
+    postgres_reader: PostgresReader,
     team_id: TeamId,
     distinct_id_and_hash_key_override: Vec<String>,
 ) -> Result<HashMap<String, String>, FlagError> {
@@ -1209,7 +1210,7 @@ async fn get_feature_flag_hash_key_overrides(
 }
 
 async fn set_feature_flag_hash_key_overrides(
-    postgres_writer: PostgresClientArc,
+    postgres_writer: PostgresReader,
     team_id: TeamId,
     distinct_ids: Vec<String>,
     hash_key_override: String,
@@ -1285,7 +1286,7 @@ async fn set_feature_flag_hash_key_overrides(
 }
 
 async fn should_write_hash_key_override(
-    postgres_reader: PostgresClientArc,
+    postgres_reader: PostgresReader,
     team_id: TeamId,
     distinct_id: String,
     hash_key_override: String,
