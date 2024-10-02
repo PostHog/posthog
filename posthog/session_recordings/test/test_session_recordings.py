@@ -362,12 +362,24 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
     def test_update_session_recording_viewed(self, mock_capture: MagicMock):
         session_id = "test_update_viewed_state"
         base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["u1"],
+            properties={"$some_prop": "something", "email": "bob@bob.com"},
+        )
+        base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
+
         produce_replay_summary(
             session_id=session_id,
             team_id=self.team.pk,
             first_timestamp=base_time.isoformat(),
             last_timestamp=base_time.isoformat(),
             distinct_id="u1",
+            first_url="https://example.io/home",
+            click_count=2,
+            keypress_count=2,
+            mouse_activity_count=2,
+            active_milliseconds=50 * 1000 * 0.5,
         )
 
         # Verify initial state
