@@ -36,3 +36,148 @@ pub fn uuid_v7() -> Uuid {
 
     encode_unix_timestamp_millis(now_millis, &bytes)
 }
+
+pub fn replace_invalid_hex_escape_strings(
+    json_str: String,
+) -> Result<String, std::string::FromUtf8Error> {
+    // Consume the String and get its bytes
+    let mut bytes = json_str.into_bytes();
+    let len = bytes.len();
+    let mut i = 0;
+
+    while i < len {
+        if bytes[i] == b'\\' && i + 1 < len && bytes[i + 1] == b'u' {
+            // Check if there are enough bytes for a Unicode escape sequence
+            if i + 6 <= len {
+                // Extract the four escape sequence bytes
+                let mut code_point_bytes: [u8; 4] =
+                    [bytes[i + 2], bytes[i + 3], bytes[i + 4], bytes[i + 5]];
+
+                // Convert the bytes to a string, then parse it into a u16 to check if it's a valid escape sequence
+                if let Ok(Ok(num)) =
+                    std::str::from_utf8(&code_point_bytes).map(|s| u16::from_str_radix(s, 16))
+                {
+                    if (0xD800..=0xDBFF).contains(&num) {
+                        // High surrogate without a following low surrogate
+                        if !is_next_low_surrogate(&bytes, i + 6) {
+                            // Replace with 'FFFD' (Unicode replacement character)
+                            code_point_bytes.copy_from_slice(b"FFFD");
+                        } else {
+                            // This is a high surrogate, and the next is a low one, so we should skip over both
+                            // without modification
+                            i += 12;
+                            continue;
+                        }
+                    } else if (0xDC00..=0xDFFF).contains(&num) {
+                        // Unpaired low surrogate - we know this, because if it had a preceding high surrogate,
+                        // we would have skipped over it in the previous iteration (above) - replace it
+                        code_point_bytes.copy_from_slice(b"FFFD");
+                    }
+                    // The unhandled else case is that this isn't part of a surrogate pair, so we don't need to do anything
+                } else {
+                    // if we couldn't parse those 4 bytes as a hex escape code, or couldn't go from that hex escape code to a u16, replace with 'FFFD'
+                    code_point_bytes.copy_from_slice(b"FFFD");
+                }
+                bytes[i + 2] = code_point_bytes[0];
+                bytes[i + 3] = code_point_bytes[1];
+                bytes[i + 4] = code_point_bytes[2];
+                bytes[i + 5] = code_point_bytes[3];
+                i += 6; // Move past the Unicode escape sequence
+                continue;
+            } else {
+                // Not enough bytes for a Unicode escape sequence, truncate the buffer to before the slash, then append the replacement characters
+                bytes.truncate(i);
+                bytes.extend_from_slice("\\uFFFD".as_bytes());
+                break; // We're done, we just replaced the last 4 bytes
+            }
+        }
+        i += 1;
+    }
+
+    // Convert bytes back to String
+    String::from_utf8(bytes)
+}
+
+fn is_next_low_surrogate(bytes: &[u8], start: usize) -> bool {
+    let len = bytes.len();
+    if start + 6 <= len && bytes[start] == b'\\' && bytes[start + 1] == b'u' {
+        let code_point_bytes = &bytes[start + 2..start + 6];
+        if let Ok(code_point_str) = std::str::from_utf8(code_point_bytes) {
+            if let Ok(num) = u16::from_str_radix(code_point_str, 16) {
+                return (0xDC00..=0xDFFF).contains(&num);
+            }
+        }
+    }
+    false
+}
+
+#[cfg(test)]
+mod test {
+
+    #[test]
+    pub fn treplace_unpaired_high_surrogate() {
+        let json_str = r#"{"key":"\uD800"}"#.to_string();
+        let expected = r#"{"key":"\uFFFD"}"#.to_string();
+        assert_eq!(
+            super::replace_invalid_hex_escape_strings(json_str).unwrap(),
+            expected
+        );
+    }
+
+    #[test]
+    pub fn replace_unpaired_low_surrogate() {
+        let json_str = r#"{"key":"\uDC00"}"#.to_string();
+        let expected = r#"{"key":"\uFFFD"}"#.to_string();
+        assert_eq!(
+            super::replace_invalid_hex_escape_strings(json_str).unwrap(),
+            expected
+        );
+    }
+
+    #[test]
+    pub fn replace_two_unpaired_low_surrogates() {
+        let json_str = r#"{"key":"\uDC00\uDC00"}"#.to_string();
+        let expected = r#"{"key":"\uFFFD\uFFFD"}"#.to_string();
+        assert_eq!(
+            super::replace_invalid_hex_escape_strings(json_str).unwrap(),
+            expected
+        );
+    }
+
+    #[test]
+    pub fn replace_two_unpaired_high_surrogates() {
+        let json_str = r#"{"key":"\uD800\uD800"}"#.to_string();
+        let expected = r#"{"key":"\uFFFD\uFFFD"}"#.to_string();
+        assert_eq!(
+            super::replace_invalid_hex_escape_strings(json_str).unwrap(),
+            expected
+        );
+    }
+
+    #[test]
+    pub fn replace_out_of_order_low_high_surrogates() {
+        let json_str = r#"{"key":"\uDC00\uD800"}"#.to_string();
+        let expected = r#"{"key":"\uFFFD\uFFFD"}"#.to_string();
+        assert_eq!(
+            super::replace_invalid_hex_escape_strings(json_str).unwrap(),
+            expected
+        );
+    }
+
+    #[test]
+    pub fn replace_unfinished_surrogate() {
+        let json_str = r#"{"key":"\uD800\uDC0"#.to_string();
+        let expected = r#"{"key":"\uFFFD\uFFFD"#.to_string();
+        assert_eq!(
+            super::replace_invalid_hex_escape_strings(json_str).unwrap(),
+            expected
+        );
+    }
+
+    #[test]
+    pub fn test_from_bad_data() {
+        let string = include_str!("../tests/session_recording_utf_surrogate_console.json");
+        let replaced = super::replace_invalid_hex_escape_strings(string.to_string()).unwrap();
+        let _result: serde_json::Value = serde_json::from_str(&replaced).unwrap();
+    }
+}
