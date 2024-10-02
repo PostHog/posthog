@@ -36,7 +36,7 @@ async def create_table_from_saved_query(
     saved_query = await aget_saved_query_by_id(saved_query_id=saved_query_id_converted, team_id=team_id)
 
     try:
-        table_name = f"mat_{saved_query.name}"
+        table_name = f"{saved_query.name}"
         url_pattern = saved_query.url_pattern
         table_format = DataWarehouseTable.TableFormat.DeltaS3Wrapper
 

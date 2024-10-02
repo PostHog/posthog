@@ -289,11 +289,18 @@ def create_hogql_database(
     warehouse_tables: dict[str, Table] = {}
     views: dict[str, Table] = {}
 
+    for saved_query in DataWarehouseSavedQuery.objects.filter(team_id=team.pk).exclude(deleted=True):
+        views[saved_query.name] = saved_query.hogql_definition()
+
     for table in (
         DataWarehouseTable.objects.filter(team_id=team.pk)
         .exclude(deleted=True)
         .select_related("credential", "external_data_source")
     ):
+        # Skip adding data warehouse tables that are materialized from views (in this case they have the same names)
+        if table.name in views.keys():
+            continue
+
         s3_table = table.hogql_definition(modifiers)
 
         # If the warehouse table has no _properties_ field, then set it as a virtual table
@@ -312,9 +319,6 @@ def create_hogql_database(
             s3_table.fields["properties"] = WarehouseProperties()
 
         warehouse_tables[table.name] = s3_table
-
-    for saved_query in DataWarehouseSavedQuery.objects.filter(team_id=team.pk).exclude(deleted=True):
-        views[saved_query.name] = saved_query.hogql_definition()
 
     def define_mappings(warehouse: dict[str, Table], get_table: Callable):
         if "id" not in warehouse[warehouse_modifier.table_name].fields.keys():

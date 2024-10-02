@@ -156,6 +156,10 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
         instance: DataWarehouseSavedQuery = self.get_object()
         DataWarehouseJoin.objects.filter(source_table_name=instance.name).delete()
         DataWarehouseJoin.objects.filter(joining_table_name=instance.name).delete()
+
+        if instance.table is not None:
+            instance.table.soft_delete()
+
         self.perform_destroy(instance)
 
         return response.Response(status=status.HTTP_204_NO_CONTENT)
