@@ -14,7 +14,7 @@ import {
 } from 'lib/components/UniversalFilters/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { objectClean } from 'lib/utils'
+import { objectClean, objectsEqual } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import posthog from 'posthog-js'
 
@@ -67,7 +67,6 @@ interface BackendEventsMatching {
 }
 
 export type MatchingEventsMatchType = NoEventsToMatch | EventNamesMatching | EventUUIDsMatching | BackendEventsMatching
-export type SimpleFiltersType = Pick<LegacyRecordingFilters, 'events' | 'properties'>
 
 export const RECORDINGS_LIMIT = 20
 export const PINNED_RECORDINGS_LIMIT = 100 // NOTE: This is high but avoids the need for pagination for now...
@@ -307,10 +306,10 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
     }),
     propsChanged(({ actions, props }, oldProps) => {
         // If the defined list changes, we need to call the loader to either load the new items or change the list
-        if (props.pinnedRecordings !== oldProps.pinnedRecordings) {
+        if (!objectsEqual(props.pinnedRecordings, oldProps.pinnedRecordings)) {
             actions.loadPinnedRecordings()
         }
-        if (props.filters && props.filters !== oldProps.filters) {
+        if (props.filters && !objectsEqual(props.filters, oldProps.filters)) {
             actions.setFilters(props.filters)
         }
     }),
