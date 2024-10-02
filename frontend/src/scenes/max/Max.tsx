@@ -5,7 +5,7 @@ import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { uuid } from 'lib/utils'
-import React, { useMemo } from 'react'
+import { useMemo } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { Intro } from './Intro'
