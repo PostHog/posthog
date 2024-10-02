@@ -102,7 +102,7 @@ export const errorTrackingLogic = kea<errorTrackingLogicType>([
     selectors({
         hasGroupActions: [
             (s) => [s.featureFlags],
-            (featureFlags): boolean => featureFlags[FEATURE_FLAGS.ERROR_TRACKING_GROUP_ACTIONS],
+            (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.ERROR_TRACKING_GROUP_ACTIONS],
         ],
     }),
     listeners(({ values, actions }) => ({
