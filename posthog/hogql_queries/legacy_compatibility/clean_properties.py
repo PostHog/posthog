@@ -1,3 +1,6 @@
+from posthog.schema import PropertyOperator
+
+
 def clean_global_properties(properties: dict | list[dict] | None):
     if properties is None or len(properties) == 0:
         # empty properties
@@ -90,8 +93,14 @@ def clean_property(property: dict):
         cleaned_property["type"] = "cohort"
 
     # fix invalid property key for cohorts
-    if cleaned_property.get("type") == "cohort" and cleaned_property.get("key") != "id":
-        cleaned_property["key"] = "id"
+    if cleaned_property.get("type") == "cohort":
+        if cleaned_property.get("key") != "id":
+            cleaned_property["key"] = "id"
+        if cleaned_property.get("operator") is None:
+            cleaned_property["operator"] = (
+                PropertyOperator.NOT_IN.value if cleaned_property.get("negation", False) else PropertyOperator.IN_.value
+            )
+        del cleaned_property["negation"]
 
     # set a default operator for properties that support it, but don't have an operator set
     if is_property_with_operator(cleaned_property) and cleaned_property.get("operator") is None:
@@ -112,7 +121,7 @@ def clean_property(property: dict):
 
 
 def is_property_with_operator(property: dict):
-    return property.get("type") not in ("cohort", "hogql")
+    return property.get("type") not in ("hogql",)
 
 
 # old style dict properties e.g. {"utm_medium__icontains": "email"}
