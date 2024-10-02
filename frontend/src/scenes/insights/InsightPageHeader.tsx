@@ -3,7 +3,10 @@ import { router } from 'kea-router'
 import api from 'lib/api'
 import { AddToDashboard } from 'lib/components/AddToDashboard/AddToDashboard'
 import { AddToDashboardModal } from 'lib/components/AddToDashboard/AddToDashboardModal'
-import { AlertsButton, AlertsModal } from 'lib/components/Alerts/AlertsModal'
+import { AlertsButton } from 'lib/components/Alerts/AlertsButton'
+import { insightAlertsLogic } from 'lib/components/Alerts/insightAlertsLogic'
+import { EditAlertModal } from 'lib/components/Alerts/views/EditAlertModal'
+import { ManageAlertsModal } from 'lib/components/Alerts/views/ManageAlertsModal'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
@@ -48,7 +51,8 @@ import {
 
 export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: InsightLogicProps }): JSX.Element {
     // insightSceneLogic
-    const { insightMode, itemId } = useValues(insightSceneLogic)
+    const { insightMode, itemId, alertId } = useValues(insightSceneLogic)
+
     const { setInsightMode } = useActions(insightSceneLogic)
 
     // insightLogic
@@ -56,6 +60,15 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
         insightLogic(insightLogicProps)
     )
     const { setInsightMetadata, saveAs, saveInsight } = useActions(insightLogic(insightLogicProps))
+
+    // insightAlertsLogic
+    const { loadAlerts } = useActions(
+        insightAlertsLogic({
+            insightLogicProps,
+            insightId: insight.id as number,
+            insightShortId: insight.short_id as InsightShortId,
+        })
+    )
 
     // savedInsightsLogic
     const { duplicateInsight, loadInsights } = useActions(savedInsightsLogic)
@@ -100,14 +113,29 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         insightProps={insightProps}
                         canEditInsight={canEditInsight}
                     />
-                    <AlertsModal
-                        closeModal={() => push(urls.insightView(insight.short_id as InsightShortId))}
-                        isOpen={insightMode === ItemMode.Alerts}
-                        insightLogicProps={insightLogicProps}
-                        insightId={insight.id as number}
-                        insightShortId={insight.short_id as InsightShortId}
-                        alertId={typeof itemId === 'string' ? itemId : null}
-                    />
+                    {insightMode === ItemMode.Alerts && (
+                        <ManageAlertsModal
+                            onClose={() => push(urls.insightView(insight.short_id as InsightShortId))}
+                            isOpen={insightMode === ItemMode.Alerts}
+                            insightLogicProps={insightLogicProps}
+                            insightId={insight.id as number}
+                            insightShortId={insight.short_id as InsightShortId}
+                        />
+                    )}
+
+                    {!!alertId && (
+                        <EditAlertModal
+                            onClose={() => push(urls.insightAlerts(insight.short_id as InsightShortId))}
+                            isOpen={!!alertId}
+                            alertId={alertId === null || alertId === 'new' ? undefined : alertId}
+                            insightShortId={insight.short_id as InsightShortId}
+                            insightId={insight.id!}
+                            onEditSuccess={() => {
+                                loadAlerts()
+                                push(urls.insightAlerts(insight.short_id as InsightShortId))
+                            }}
+                        />
+                    )}
                     <NewDashboardModal />
                 </>
             )}
