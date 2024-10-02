@@ -86,6 +86,8 @@ pub enum FlagError {
     NoTokenError,
     #[error("API key is not valid")]
     TokenValidationError,
+    #[error("Row not found in postgres")]
+    RowNotFound,
     #[error("failed to parse redis cache data")]
     DataParsingError,
     #[error("failed to update redis cache")]
@@ -94,6 +96,8 @@ pub enum FlagError {
     RedisUnavailable,
     #[error("database unavailable")]
     DatabaseUnavailable,
+    #[error("Database error: {0}")]
+    DatabaseError(String),
     #[error("Timed out while fetching data")]
     TimeoutError,
     #[error("No group type mappings")]
@@ -162,6 +166,13 @@ impl IntoResponse for FlagError {
                     "Our database service is currently unavailable. This is likely a temporary issue. Please try again later.".to_string(),
                 )
             }
+            FlagError::DatabaseError(msg) => {
+                tracing::error!("Database error: {}", msg);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "A database error occurred. Please try again later or contact support if the problem persists.".to_string(),
+                )
+            }
             FlagError::TimeoutError => {
                 tracing::error!("Timeout error: {:?}", self);
                 (
@@ -174,6 +185,13 @@ impl IntoResponse for FlagError {
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     "No group type mappings found. This is likely a configuration issue. Please contact support.".to_string(),
+                )
+            }
+            FlagError::RowNotFound => {
+                tracing::error!("Row not found in postgres: {:?}", self);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "The requested row was not found in the database. Please try again later or contact support if the problem persists.".to_string(),
                 )
             }
         }
@@ -216,8 +234,8 @@ impl From<sqlx::Error> for FlagError {
         tracing::error!("sqlx error: {}", e);
         println!("sqlx error: {}", e);
         match e {
-            sqlx::Error::RowNotFound => FlagError::TokenValidationError,
-            _ => FlagError::DatabaseUnavailable,
+            sqlx::Error::RowNotFound => FlagError::RowNotFound,
+            _ => FlagError::DatabaseError(e.to_string()),
         }
     }
 }

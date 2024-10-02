@@ -1395,6 +1395,7 @@ interface WebAnalyticsQueryBase<R extends Record<string, any>> extends DataNode<
 export interface WebOverviewQuery extends WebAnalyticsQueryBase<WebOverviewQueryResponse> {
     kind: NodeKind.WebOverviewQuery
     compare?: boolean
+    includeLCPScore?: boolean
 }
 
 export interface WebOverviewItem {
