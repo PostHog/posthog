@@ -417,13 +417,14 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         loadSnapshotsForSource: (source: Pick<SessionRecordingSnapshotSource, 'source' | 'blob_key'>) => ({ source }),
         loadEvents: true,
         loadFullEventData: (event: RecordingEventType) => ({ event }),
-        reportViewed: true,
+        markViewed: (delay?: number) => ({ delay }),
         reportUsageIfFullyLoaded: true,
         persistRecording: true,
         maybePersistRecording: true,
         pollRealtimeSnapshots: true,
         stopRealtimePolling: true,
         setTrackedWindow: (windowId: string | null) => ({ windowId }),
+        setWasMarkedViewed: (wasMarkedViewed: boolean) => ({ wasMarkedViewed }),
     }),
     reducers(() => ({
         trackedWindow: [
@@ -466,6 +467,12 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 },
             },
         ],
+        wasMarkedViewed: [
+            false as boolean,
+            {
+                setWasMarkedViewed: (_, { wasMarkedViewed }) => wasMarkedViewed,
+            },
+        ],
     })),
     loaders(({ values, props, cache }) => ({
         sessionPlayerMetaData: {
@@ -476,9 +483,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
 
                 cache.metaStartTime = performance.now()
 
-                const response = await api.recordings.get(props.sessionRecordingId, {
-                    save_view: true,
-                })
+                const response = await api.recordings.get(props.sessionRecordingId)
                 breakpoint()
 
                 return response
@@ -750,7 +755,9 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 })
             } else if (!cache.firstPaintDuration) {
                 cache.firstPaintDuration = Math.round(performance.now() - cache.snapshotsStartTime)
-                actions.reportViewed()
+            }
+            if (!values.wasMarkedViewed) {
+                actions.markViewed()
             }
 
             actions.loadNextSnapshotSource()
@@ -815,25 +822,27 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 resetTimingsCache(cache)
             }
         },
-        reportViewed: async (_, breakpoint) => {
+        markViewed: async ({ delay }, breakpoint) => {
             const durations = generateRecordingReportDurations(cache)
-            breakpoint()
             // Triggered on first paint
-            eventUsageLogic.actions.reportRecording(
-                values.sessionPlayerData,
+            breakpoint()
+            if (values.wasMarkedViewed) {
+                return
+            }
+            actions.setWasMarkedViewed(true) // this prevents us from calling the function multiple times
+
+            await breakpoint(IS_TEST_MODE ? 1 : delay ?? 3000)
+            await api.recordings.update(props.sessionRecordingId, {
+                viewed: true,
+                player_metadata: values.sessionPlayerMetaData,
                 durations,
-                SessionRecordingUsageType.VIEWED,
-                values.sessionPlayerMetaData,
-                0
-            )
+            })
             await breakpoint(IS_TEST_MODE ? 1 : 10000)
-            eventUsageLogic.actions.reportRecording(
-                values.sessionPlayerData,
+            await api.recordings.update(props.sessionRecordingId, {
+                analyzed: true,
+                player_metadata: values.sessionPlayerMetaData,
                 durations,
-                SessionRecordingUsageType.ANALYZED,
-                values.sessionPlayerMetaData,
-                10
-            )
+            })
         },
 
         maybePersistRecording: () => {
