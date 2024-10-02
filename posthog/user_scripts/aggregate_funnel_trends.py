@@ -1,8 +1,8 @@
 #!/usr/bin/python3
 import sys
 from dataclasses import dataclass, replace
-from typing import Any
-from collections.abc import Sequence
+from typing import Any, Union
+import typing
 import json
 
 
@@ -40,7 +40,7 @@ def calculate_funnel_trends_from_user_events(
     breakdown_attribution_type: str,
     funnel_order_type: str,
     prop_vals: list[Any],
-    events: Sequence[tuple[float, int, list[str] | int | str, list[int]]],
+    events: typing.Sequence[tuple[float, int, Union[list[str], int, str], list[int]]],
 ):
     default_entered_timestamp = EnteredTimestamp(0, [])
     # If the attribution mode is a breakdown step, set this to the integer that represents that step
