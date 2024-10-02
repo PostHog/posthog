@@ -14,15 +14,25 @@ async fn it_captures_one_recording() -> Result<()> {
     setup_tracing();
     let token = random_string("token", 16);
     let distinct_id = random_string("id", 16);
-    // let session_id = random_string("id", 16);
-    // let window_id = random_string("id", 16);
+    let session_id = random_string("id", 16);
+    let window_id = random_string("id", 16);
 
     let main_topic = EphemeralTopic::new().await;
     let server = ServerHandle::for_recordings(&main_topic).await;
 
-    let file_contents = include_str!("../tests/session_recording_utf_surrogate_console.json");
-    let res = server.capture_recording(file_contents.to_string()).await;
-    assert_eq!(StatusCode::OK, res.status(), "{}", res.text().await?);
+    let event = json!({
+        "token": token,
+        "event": "testing",
+        "distinct_id": distinct_id,
+        "$session_id": session_id,
+        "properties": {
+            "$session_id": session_id,
+            "$window_id": window_id,
+            "$snapshot_data": [],
+        }
+    });
+    let res = server.capture_recording(event.to_string()).await;
+    assert_eq!(StatusCode::OK, res.status());
 
     let event = main_topic.next_event()?;
     assert_json_include!(
