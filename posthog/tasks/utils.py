@@ -3,7 +3,7 @@
 # The goal should be to split up queues based on the type of work being done, so that we can scale effectively
 # and change the consumer configs without the need for code changes
 #
-# Worker consumers config here https://github.com/PostHog/posthog-cloud-infra/blob/main/helm/values/prod.yml#L368
+# Worker consumers config here https://github.com/PostHog/charts/blob/main/config/posthog/prod-us.yaml.gotmpl
 # e.g.
 #   consumers:
 #     - name: priority
@@ -32,6 +32,7 @@ class CeleryQueue(Enum):
     LONG_RUNNING = "long_running"  # any task that has a good chance of taking more than a few seconds should go here
     ANALYTICS_QUERIES = "analytics_queries"
     ANALYTICS_LIMITED = "analytics_limited"
+    ALERTS = "alerts"
     EXPORTS = "exports"
     SUBSCRIPTION_DELIVERY = "subscription_delivery"
     USAGE_REPORTS = "usage_reports"
