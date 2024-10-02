@@ -16,7 +16,6 @@ import { Thread } from './Thread'
 
 export const scene: SceneExport = {
     component: Max,
-    logic: maxLogic,
 }
 
 export function Max(): JSX.Element {
@@ -35,7 +34,7 @@ export function Max(): JSX.Element {
     )
 }
 
-function MaxInstance(): JSX.Element {
+export function MaxInstance(): JSX.Element {
     const { thread } = useValues(maxLogic)
 
     return (
