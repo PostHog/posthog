@@ -157,7 +157,7 @@ export class SessionRecordingIngester {
     private isDebugLoggingEnabled: ValueMatcher<number>
 
     private sessionRecordingKafkaConfig = (): PluginsServerConfig => {
-        // When running the blob consumer we override a bunch of settings to use the session recording ones if available
+        // TRICKY: We re-use the kafka helpers which assume KAFKA_HOSTS hence we overwrite it if set
         return {
             ...this.config,
             KAFKA_HOSTS: this.config.SESSION_RECORDING_KAFKA_HOSTS || this.config.KAFKA_HOSTS,
