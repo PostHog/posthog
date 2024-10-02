@@ -100,7 +100,8 @@ def clean_property(property: dict):
             cleaned_property["operator"] = (
                 PropertyOperator.NOT_IN.value if cleaned_property.get("negation", False) else PropertyOperator.IN_.value
             )
-        del cleaned_property["negation"]
+        if "negation" in cleaned_property:
+            del cleaned_property["negation"]
 
     # set a default operator for properties that support it, but don't have an operator set
     if is_property_with_operator(cleaned_property) and cleaned_property.get("operator") is None:
