@@ -435,8 +435,8 @@ export function humanFriendlyNumber(d: number, precision: number = DEFAULT_DECIM
     return d.toLocaleString('en-US', { maximumFractionDigits: precision })
 }
 
-/** Format currency from string with commas and 2 decimal places. */
-export function humanFriendlyCurrency(d: string | undefined | number): string {
+/** Format currency from string with commas and a number of decimal places (defaults to 2). */
+export function humanFriendlyCurrency(d: string | undefined | number, precision: number = 2): string {
     if (!d) {
         d = '0.00'
     }
@@ -448,7 +448,7 @@ export function humanFriendlyCurrency(d: string | undefined | number): string {
         number = d
     }
 
-    return `$${number.toLocaleString('en-US', { maximumFractionDigits: 2, minimumFractionDigits: 2 })}`
+    return `$${number.toLocaleString('en-US', { maximumFractionDigits: precision, minimumFractionDigits: precision })}`
 }
 
 export function humanFriendlyLargeNumber(d: number): string {

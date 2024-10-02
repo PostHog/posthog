@@ -656,6 +656,7 @@ export enum SavedInsightsTabs {
     Yours = 'yours',
     Favorites = 'favorites',
     History = 'history',
+    Alerts = 'alerts',
 }
 
 export enum ReplayTabs {
