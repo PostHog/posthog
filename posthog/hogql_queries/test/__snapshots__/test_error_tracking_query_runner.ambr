@@ -186,8 +186,8 @@
          "posthog_propertydefinition"."property_type"
   FROM "posthog_propertydefinition"
   WHERE ("posthog_propertydefinition"."name" IN ('$exception_message',
-                                                 '$exception_fingerprint',
-                                                 '$exception_type')
+                                                 '$exception_type',
+                                                 '$exception_fingerprint')
          AND "posthog_propertydefinition"."team_id" = 2
          AND "posthog_propertydefinition"."type" IN (1,
                                                      2,
