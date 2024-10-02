@@ -1040,7 +1040,6 @@ UDFS: dict[str, HogQLFunctionMeta] = {
     "aggregate_funnel_test": HogQLFunctionMeta("aggregate_funnel_test", 6, 6, aggregate=False),
 }
 # We want CI to fail if there is a breaking change and the version hasn't been incremented
-# Remove UDF versioning for now
 if is_cloud() or is_ci():
     from posthog.udf_versioner import augment_function_name
 
