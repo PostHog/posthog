@@ -21,7 +21,7 @@ describe('HogFunctionManager', () => {
         await resetTestDatabase()
         manager = new HogFunctionManager(hub)
 
-        const team = await hub.teamManager.fetchTeam(1)
+        const team = await hub.teamManager.fetchTeam(2)
 
         teamId1 = await createTeam(hub.db.postgres, team!.organization_id)
         teamId2 = await createTeam(hub.db.postgres, team!.organization_id)
