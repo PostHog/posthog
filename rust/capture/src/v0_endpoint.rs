@@ -26,7 +26,7 @@ use crate::{
 };
 
 /// Flexible endpoint that targets wide compatibility with the wide range of requests
-/// processed by posthog-events. 
+/// processed by posthog-events.
 ///
 /// TODO Because it must accommodate several shapes, it is inefficient in places. A v1 endpoint should be created, that only accepts the BatchedRequest payload shape.
 async fn handle_common(
