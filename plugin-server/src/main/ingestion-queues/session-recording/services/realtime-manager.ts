@@ -2,9 +2,9 @@ import { captureException } from '@sentry/node'
 import { randomUUID } from 'crypto'
 import { Redis } from 'ioredis'
 import { EventEmitter } from 'node:events'
+import { createRedis } from 'utils/db/redis'
 
 import { PluginsServerConfig, RedisPool } from '../../../../types'
-import { createRedisSessionRecording } from '../../../../utils/db/redis'
 import { timeoutGuard } from '../../../../utils/db/utils'
 import { status } from '../../../../utils/status'
 
@@ -45,7 +45,7 @@ export class RealtimeManager extends EventEmitter {
     }
 
     public async subscribe(): Promise<void> {
-        this.pubsubRedis = await createRedisSessionRecording(this.serverConfig)
+        this.pubsubRedis = await createRedis(this.serverConfig, 'session-recording')
         await this.pubsubRedis.subscribe(Keys.realtimeSubscriptions(this.serverConfig.SESSION_RECORDING_REDIS_PREFIX))
 
         this.pubsubRedis.on('message', (channel, message) => {

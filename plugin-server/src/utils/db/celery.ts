@@ -3,7 +3,7 @@ import { CacheOptions } from '@posthog/plugin-scaffold'
 import { PluginsServerConfig, RedisPool } from '../../types'
 import { instrumentQuery } from '../metrics'
 import { UUIDT } from '../utils'
-import { createRedisPool, createRedisPostHog } from './redis'
+import { createRedisPool } from './redis'
 import { timeoutGuard } from './utils'
 
 const CELERY_DEFAULT_QUEUE = 'celery'
@@ -17,7 +17,7 @@ export class Celery {
     private redisPool: RedisPool
 
     constructor(config: PluginsServerConfig) {
-        this.redisPool = createRedisPool(config, () => createRedisPostHog(config))
+        this.redisPool = createRedisPool(config, 'posthog')
     }
 
     private redisLPush(key: string, value: unknown, options: CacheOptions = {}): Promise<number> {

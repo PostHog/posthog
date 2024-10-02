@@ -9,46 +9,43 @@ import { killGracefully } from '../../utils/utils'
 /** Number of Redis error events until the server is killed gracefully. */
 const REDIS_ERROR_COUNTER_LIMIT = 10
 
-export async function createRedisPostHog(serverConfig: PluginsServerConfig): Promise<Redis.Redis> {
-    const params = serverConfig.POSTHOG_REDIS_HOST
-        ? {
-              host: serverConfig.POSTHOG_REDIS_HOST,
-              port: serverConfig.POSTHOG_REDIS_PORT,
-              password: serverConfig.POSTHOG_REDIS_PASSWORD,
-          }
-        : undefined
+export type REDIS_SERVER_KIND = 'posthog' | 'ingestion' | 'session-recording'
 
-    return createRedisClient(params ? params.host : serverConfig.REDIS_URL, params)
-}
-
-export async function createRedisIngestion(serverConfig: PluginsServerConfig): Promise<Redis.Redis> {
-    // TRICKY: We added the INGESTION_REDIS_HOST later to free up POSTHOG_REDIS_HOST to be clear that it is
-    // the shared django redis, hence we fallback to it if not set.
-
-    const params = serverConfig.INGESTION_REDIS_HOST
-        ? {
-              host: serverConfig.INGESTION_REDIS_HOST,
-              port: serverConfig.INGESTION_REDIS_PORT,
-              password: serverConfig.INGESTION_REDIS_PASSWORD,
-          }
-        : serverConfig.POSTHOG_REDIS_HOST
-        ? {
-              host: serverConfig.POSTHOG_REDIS_HOST,
-              port: serverConfig.POSTHOG_REDIS_PORT,
-              password: serverConfig.POSTHOG_REDIS_PASSWORD,
-          }
-        : undefined
-
-    return createRedisClient(params ? params.host : serverConfig.REDIS_URL, params)
-}
-
-export async function createRedisSessionRecording(serverConfig: PluginsServerConfig): Promise<Redis.Redis> {
-    const params = serverConfig.POSTHOG_SESSION_RECORDING_REDIS_HOST
-        ? {
-              host: serverConfig.POSTHOG_SESSION_RECORDING_REDIS_HOST,
-              port: serverConfig.POSTHOG_SESSION_RECORDING_REDIS_PORT,
-          }
-        : undefined
+export async function createRedis(serverConfig: PluginsServerConfig, kind: REDIS_SERVER_KIND): Promise<Redis.Redis> {
+    let params: { host: string; port: number; password?: string } | undefined
+    switch (kind) {
+        case 'posthog':
+            params = serverConfig.POSTHOG_REDIS_HOST
+                ? {
+                      host: serverConfig.POSTHOG_REDIS_HOST,
+                      port: serverConfig.POSTHOG_REDIS_PORT,
+                      password: serverConfig.POSTHOG_REDIS_PASSWORD,
+                  }
+                : undefined
+        case 'ingestion':
+            // TRICKY: We added the INGESTION_REDIS_HOST later to free up POSTHOG_REDIS_HOST to be clear that it is
+            // the shared django redis, hence we fallback to it if not set.
+            params = serverConfig.INGESTION_REDIS_HOST
+                ? {
+                      host: serverConfig.INGESTION_REDIS_HOST,
+                      port: serverConfig.INGESTION_REDIS_PORT,
+                      password: serverConfig.INGESTION_REDIS_PASSWORD,
+                  }
+                : serverConfig.POSTHOG_REDIS_HOST
+                ? {
+                      host: serverConfig.POSTHOG_REDIS_HOST,
+                      port: serverConfig.POSTHOG_REDIS_PORT,
+                      password: serverConfig.POSTHOG_REDIS_PASSWORD,
+                  }
+                : undefined
+        case 'session-recording':
+            params = serverConfig.POSTHOG_SESSION_RECORDING_REDIS_HOST
+                ? {
+                      host: serverConfig.POSTHOG_SESSION_RECORDING_REDIS_HOST,
+                      port: serverConfig.POSTHOG_SESSION_RECORDING_REDIS_PORT ?? 6379,
+                  }
+                : undefined
+    }
 
     return createRedisClient(params ? params.host : serverConfig.REDIS_URL, params)
 }
@@ -79,13 +76,10 @@ export async function createRedisClient(url: string, options?: RedisOptions): Pr
     return redis
 }
 
-export function createRedisPool(
-    options: Pick<PluginsServerConfig, 'REDIS_POOL_MIN_SIZE' | 'REDIS_POOL_MAX_SIZE'>,
-    create: () => Promise<Redis.Redis>
-): RedisPool {
+export function createRedisPool(options: PluginsServerConfig, kind: REDIS_SERVER_KIND): RedisPool {
     return createPool<Redis.Redis>(
         {
-            create,
+            create: () => createRedis(options, kind),
             destroy: async (client) => {
                 await client.quit()
             },

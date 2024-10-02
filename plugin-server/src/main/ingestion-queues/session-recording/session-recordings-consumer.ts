@@ -17,7 +17,7 @@ import { PluginServerService, PluginsServerConfig, RedisPool, TeamId, ValueMatch
 import { BackgroundRefresher } from '../../../utils/background-refresher'
 import { KafkaProducerWrapper } from '../../../utils/db/kafka-producer-wrapper'
 import { PostgresRouter } from '../../../utils/db/postgres'
-import { createRedisPool, createRedisSessionRecording } from '../../../utils/db/redis'
+import { createRedisPool } from '../../../utils/db/redis'
 import { status } from '../../../utils/status'
 import { fetchTeamTokensWithRecordings } from '../../../worker/ingestion/team-manager'
 import { ObjectStorage } from '../../services/object_storage'
@@ -182,7 +182,7 @@ export class SessionRecordingIngester {
 
         // NOTE: globalServerConfig contains the default pluginServer values, typically not pointing at dedicated resources like kafka or redis
         // We still connect to some of the non-dedicated resources such as postgres or the Replay events kafka.
-        this.redisPool = createRedisPool(this.config, () => createRedisSessionRecording(this.config))
+        this.redisPool = createRedisPool(this.config, 'session-recording')
 
         this.realtimeManager = new RealtimeManager(this.redisPool, this.config)
 

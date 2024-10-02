@@ -39,7 +39,7 @@ import { Celery } from './celery'
 import { DB } from './db'
 import { KafkaProducerWrapper } from './kafka-producer-wrapper'
 import { PostgresRouter } from './postgres'
-import { createRedisIngestion, createRedisPool } from './redis'
+import { createRedisPool } from './redis'
 
 // `node-postgres` would return dates as plain JS Date objects, which would use the local timezone.
 // This converts all date fields to a proper luxon UTC DateTime and then casts them to a string
@@ -121,7 +121,7 @@ export async function createHub(
     status.info('👍', `Postgres Router ready`)
 
     status.info('🤔', `Connecting to Redis...`)
-    const redisPool = createRedisPool(serverConfig, () => createRedisIngestion(serverConfig))
+    const redisPool = createRedisPool(serverConfig, 'ingestion')
     status.info('👍', `Redis ready`)
 
     status.info('🤔', `Connecting to object storage...`)
