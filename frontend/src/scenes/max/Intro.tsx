@@ -3,6 +3,8 @@ import { HedgehogBuddy } from 'lib/components/HedgehogBuddy/HedgehogBuddy'
 import { hedgehogBuddyLogic } from 'lib/components/HedgehogBuddy/hedgehogBuddyLogic'
 import { useMemo } from 'react'
 
+import { maxLogic } from './maxLogic'
+
 const HEADLINES = [
     'How can I help you build?',
     'What are you curious about?',
@@ -12,14 +14,14 @@ const HEADLINES = [
 
 export function Intro(): JSX.Element {
     const { hedgehogConfig } = useValues(hedgehogBuddyLogic)
+    const { sessionId } = useValues(maxLogic)
 
     const headline = useMemo(() => {
-        return HEADLINES[Math.floor(Math.random() * HEADLINES.length)]
+        return HEADLINES[parseInt(sessionId.split('-').at(-1) as string, 16) % HEADLINES.length]
     }, [])
 
     return (
         <>
-            {' '}
             <div className="flex">
                 <HedgehogBuddy
                     static
@@ -43,7 +45,7 @@ export function Intro(): JSX.Element {
                 <span className="text-muted">
                     I'm Max, here to help you build a succesful product. Ask me about your product and your users.
                 </span>
-            </div>{' '}
+            </div>
         </>
     )
 }

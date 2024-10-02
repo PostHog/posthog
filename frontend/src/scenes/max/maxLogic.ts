@@ -1,4 +1,4 @@
-import { actions, kea, key, listeners, path, props, reducers } from 'kea'
+import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import api from 'lib/api'
 
 import { ExperimentalAITrendsQuery } from '~/queries/schema'
@@ -118,6 +118,9 @@ export const maxLogic = kea<maxLogicType>([
             actions.setThreadLoaded()
         },
     })),
+    selectors({
+        sessionId: [(_, p) => [p.sessionId], (sessionId) => sessionId],
+    }),
 ])
 
 /**
