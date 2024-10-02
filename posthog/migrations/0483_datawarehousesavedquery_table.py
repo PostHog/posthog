@@ -5,6 +5,7 @@ import django.db.models.deletion
 
 
 class Migration(migrations.Migration):
+    atomic = False
     dependencies = [
         ("posthog", "0482_alertconfiguration_calculation_interval_and_more"),
     ]
