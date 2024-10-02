@@ -38,6 +38,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { tagsModel } from '~/models/tagsModel'
 import { DataTableNode, NodeKind } from '~/queries/schema'
+import { isDataTableNode, isDataVisualizationNode, isHogQLQuery } from '~/queries/utils'
 import {
     ExporterFormat,
     InsightLogicProps,
@@ -72,7 +73,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
     const { duplicateInsight, loadInsights } = useActions(savedInsightsLogic)
 
     // insightDataLogic
-    const { queryChanged, showQueryEditor, showDebugPanel, hogQL, exportContext } = useValues(
+    const { query, queryChanged, showQueryEditor, showDebugPanel, hogQL, exportContext } = useValues(
         insightDataLogic(insightProps)
     )
     const { toggleQueryEditorPanel, toggleDebugPanel } = useActions(insightDataLogic(insightProps))
@@ -87,6 +88,10 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
     const { push } = useActions(router)
 
     const [addToDashboardModalOpen, setAddToDashboardModalOpenModal] = useState<boolean>(false)
+
+    const showCohortButton =
+        isHogQLQuery(query) ||
+        ((isDataTableNode(query) || isDataVisualizationNode(query)) && isHogQLQuery(query.source))
 
     return (
         <>
@@ -261,47 +266,49 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                             >
                                                 Edit SQL directly
                                             </LemonButton>
-                                            <LemonButton
-                                                data-attr="edit-insight-sql"
-                                                onClick={() => {
-                                                    LemonDialog.openForm({
-                                                        title: 'Save as static cohort',
-                                                        description: (
-                                                            <div className="mt-2">
-                                                                Your query must export a <code>person_id</code>,{' '}
-                                                                <code>actor_id</code> or <code>id</code> column, which
-                                                                must match the <code>id</code> of the{' '}
-                                                                <code>persons</code> table
-                                                            </div>
-                                                        ),
-                                                        initialValues: {
-                                                            name: '',
-                                                        },
-                                                        content: (
-                                                            <LemonField name="name">
-                                                                <LemonInput
-                                                                    data-attr="insight-name"
-                                                                    placeholder="Name of the new cohort"
-                                                                    autoFocus
-                                                                />
-                                                            </LemonField>
-                                                        ),
-                                                        errors: {
-                                                            name: (name) =>
-                                                                !name ? 'You must enter a name' : undefined,
-                                                        },
-                                                        onSubmit: async ({ name }) => {
-                                                            createStaticCohort(name, {
-                                                                kind: NodeKind.HogQLQuery,
-                                                                query: hogQL,
-                                                            })
-                                                        },
-                                                    })
-                                                }}
-                                                fullWidth
-                                            >
-                                                Save as static cohort
-                                            </LemonButton>
+                                            {showCohortButton && (
+                                                <LemonButton
+                                                    data-attr="edit-insight-sql"
+                                                    onClick={() => {
+                                                        LemonDialog.openForm({
+                                                            title: 'Save as static cohort',
+                                                            description: (
+                                                                <div className="mt-2">
+                                                                    Your query must export a <code>person_id</code>,{' '}
+                                                                    <code>actor_id</code> or <code>id</code> column,
+                                                                    which must match the <code>id</code> of the{' '}
+                                                                    <code>persons</code> table
+                                                                </div>
+                                                            ),
+                                                            initialValues: {
+                                                                name: '',
+                                                            },
+                                                            content: (
+                                                                <LemonField name="name">
+                                                                    <LemonInput
+                                                                        data-attr="insight-name"
+                                                                        placeholder="Name of the new cohort"
+                                                                        autoFocus
+                                                                    />
+                                                                </LemonField>
+                                                            ),
+                                                            errors: {
+                                                                name: (name) =>
+                                                                    !name ? 'You must enter a name' : undefined,
+                                                            },
+                                                            onSubmit: async ({ name }) => {
+                                                                createStaticCohort(name, {
+                                                                    kind: NodeKind.HogQLQuery,
+                                                                    query: hogQL,
+                                                                })
+                                                            },
+                                                        })
+                                                    }}
+                                                    fullWidth
+                                                >
+                                                    Save as static cohort
+                                                </LemonButton>
+                                            )}
                                         </>
                                     )}
                                     {hasDashboardItemId && (
