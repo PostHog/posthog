@@ -1,6 +1,5 @@
-import { status } from 'utils/status'
-
 import { RawClickHouseEvent } from '../../../types'
+import { status } from '../../../utils/status'
 import { EventPipelineRunner } from './runner'
 
 export function produceExceptionSymbolificationEventStep(
