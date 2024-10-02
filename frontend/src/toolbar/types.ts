@@ -110,7 +110,7 @@ export interface WebExperimentVariant {
 
 export interface WebExperimentTransform {
     selector?: string
-    attributes: {
+    attributes?: {
         attribute_name: string
         attribute_value: string
     }[]

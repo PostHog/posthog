@@ -10,7 +10,7 @@ interface WebExperimentVariantHeaderProps {
 }
 
 export function WebExperimentVariantHeader({ variant }: WebExperimentVariantHeaderProps): JSX.Element {
-    const { experimentForm } = useValues(experimentsTabLogic)
+    const { experimentForm, removeVariantAvailable } = useValues(experimentsTabLogic)
     const { removeVariant } = useActions(experimentsTabLogic)
     return (
         <div className="flex w-full gap-4 items-center">
@@ -28,11 +28,7 @@ export function WebExperimentVariantHeader({ variant }: WebExperimentVariantHead
                     </span>
                 </LemonTag>
             </div>
-
-            {/*Only show the remove button if there's more than one test variant, and the variant is not control*/}
-            {variant !== 'control' &&
-            experimentForm?.variants &&
-            Object.keys(experimentForm.variants || {}).length > 2 ? (
+            {removeVariantAvailable ? (
                 <LemonButton
                     icon={<IconTrash />}
                     size="small"

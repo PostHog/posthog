@@ -67,7 +67,7 @@ export function WebExperimentTransformField({
                             switch (e) {
                                 case 'html':
                                     if (transform.html === '') {
-                                        transform.html = element.outerHTML
+                                        transform.html = element.innerHTML
                                     }
                                     break
 
@@ -117,7 +117,7 @@ export function WebExperimentTransformField({
                                 webVariant.transforms[tIndex].html = value
                                 const element = document.querySelector(transform.selector) as HTMLElement
                                 if (element) {
-                                    element.outerHTML = value
+                                    element.innerHTML = value
                                 }
                             }
                         }

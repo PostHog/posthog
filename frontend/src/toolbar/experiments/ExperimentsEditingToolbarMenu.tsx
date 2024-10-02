@@ -13,7 +13,7 @@ import { WebExperimentVariant } from '~/toolbar/experiments/WebExperimentVariant
 import { WebExperimentVariantHeader } from '~/toolbar/experiments/WebExperimentVariantHeader'
 
 export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
-    const { selectedExperimentId, experimentForm, selectedVariant, experimentFormErrors } =
+    const { selectedExperimentId, experimentForm, addVariantAvailable, selectedVariant, experimentFormErrors } =
         useValues(experimentsTabLogic)
     const {
         selectExperiment,
@@ -29,7 +29,7 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
             selectVariant('test')
             inspectForElementWithIndex('test', 0)
         }
-    }, [selectedExperimentId])
+    }, [selectedExperimentId, selectVariant, inspectForElementWithIndex])
 
     return (
         <ToolbarMenu>
@@ -95,7 +95,7 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
                                                 header: <WebExperimentVariantHeader variant={variant} />,
                                                 content:
                                                     variant == 'control' ? (
-                                                        "You're viewing the control variant, which represents your page in its original state."
+                                                        'This is the control variant, which represents your page in its original state.'
                                                     ) : (
                                                         <WebExperimentVariant variant={variant} />
                                                     ),
@@ -104,18 +104,19 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
                                 />
                             </div>
                         </Group>
-
-                        <div className="grid grid-cols-3 mt-2 mb-1">
-                            <LemonButton
-                                type="secondary"
-                                size="small"
-                                className="col-span-1"
-                                sideIcon={<IconPlus />}
-                                onClick={addNewVariant}
-                            >
-                                Add variant
-                            </LemonButton>
-                        </div>
+                        {addVariantAvailable && (
+                            <div className="grid grid-cols-3 mt-2 mb-1">
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    className="col-span-1"
+                                    sideIcon={<IconPlus />}
+                                    onClick={addNewVariant}
+                                >
+                                    Add variant
+                                </LemonButton>
+                            </div>
+                        )}
                     </div>
                 </ToolbarMenu.Body>
                 <ToolbarMenu.Footer>
@@ -125,8 +126,7 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
                         </LemonButton>
 
                         <LemonButton type="primary" htmlType="submit" size="small">
-                            {selectedExperimentId === 'new' ? 'Create ' : 'Save '}
-                            experiment
+                            {selectedExperimentId === 'new' ? 'Save as  draft' : 'Save experiment'}
                         </LemonButton>
                     </div>
                 </ToolbarMenu.Footer>

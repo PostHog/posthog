@@ -187,6 +187,30 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
     })),
 
     selectors({
+        removeVariantAvailable: [
+            (s) => [s.experimentForm, s.selectedExperimentId],
+            (experimentForm: ExperimentForm, selectedExperimentId: number | 'new' | null): boolean | undefined => {
+                /*Only show the remove button if all of these conditions are met:
+                1. Its a new Experiment
+                2. The experiment is still in draft form
+                3. there's more than one test variant, and the variant is not control*/
+                return (
+                    selectedExperimentId === 'new' &&
+                    experimentForm.start_date == null &&
+                    experimentForm.variants &&
+                    Object.keys(experimentForm.variants).length > 2
+                )
+            },
+        ],
+        addVariantAvailable: [
+            (s) => [s.experimentForm, s.selectedExperimentId],
+            (experimentForm: ExperimentForm, selectedExperimentId: number | 'new' | null): boolean | undefined => {
+                /*Only show the add button if all of these conditions are met:
+                1. Its a new Experiment
+                2. The experiment is still in draft form*/
+                return selectedExperimentId === 'new' && experimentForm.start_date == null
+            },
+        ],
         selectedExperiment: [
             (s) => [s.selectedExperimentId, s.allExperiments],
             (selectedExperimentId, allExperiments: WebExperiment[]): Experiment | ExperimentDraftType | null => {
@@ -243,6 +267,7 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
                         if (element.textContent) {
                             transform.text = element.textContent
                         }
+                        transform.html = element.innerHTML
                         actions.setExperimentFormValue('variants', values.experimentForm.variants)
                     }
                 }
@@ -270,7 +295,7 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
                                     }
 
                                     if (transform.html) {
-                                        htmlElement.outerHTML = transform.html
+                                        htmlElement.innerHTML = transform.html
                                     }
 
                                     if (transform.css) {
