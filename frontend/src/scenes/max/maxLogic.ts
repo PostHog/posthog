@@ -1,4 +1,4 @@
-import { actions, kea, listeners, path, props, reducers } from 'kea'
+import { actions, kea, key, listeners, path, props, reducers } from 'kea'
 import api from 'lib/api'
 
 import { ExperimentalAITrendsQuery } from '~/queries/schema'
@@ -23,9 +23,10 @@ export interface ThreadMessage {
 export const maxLogic = kea<maxLogicType>([
     path(['scenes', 'max', 'maxLogic']),
     props({} as MaxLogicProps),
+    key(({ sessionId }) => sessionId),
     actions({
         askMax: (prompt: string) => ({ prompt }),
-        setThreadLoaded: true,
+        setThreadLoaded: (testOnlyOverride = false) => ({ testOnlyOverride }),
         addMessage: (message: ThreadMessage) => ({ message }),
         replaceMessage: (index: number, message: ThreadMessage) => ({ index, message }),
         setMessageStatus: (index: number, status: ThreadMessage['status']) => ({ index, status }),
@@ -62,7 +63,7 @@ export const maxLogic = kea<maxLogicType>([
             false,
             {
                 askMax: () => true,
-                setThreadLoaded: () => false,
+                setThreadLoaded: (_, { testOnlyOverride }) => testOnlyOverride,
             },
         ],
     }),
