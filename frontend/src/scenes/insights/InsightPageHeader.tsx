@@ -38,7 +38,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { tagsModel } from '~/models/tagsModel'
 import { DataTableNode, NodeKind } from '~/queries/schema'
-import { isDataTableNode, isDataVisualizationNode, isHogQLQuery } from '~/queries/utils'
+import { isDataTableNode, isDataVisualizationNode, isEventsQuery, isHogQLQuery } from '~/queries/utils'
 import {
     ExporterFormat,
     InsightLogicProps,
@@ -90,8 +90,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
     const [addToDashboardModalOpen, setAddToDashboardModalOpenModal] = useState<boolean>(false)
 
     const showCohortButton =
-        isHogQLQuery(query) ||
-        ((isDataTableNode(query) || isDataVisualizationNode(query)) && isHogQLQuery(query.source))
+        isDataTableNode(query) || isDataVisualizationNode(query) || isHogQLQuery(query) || isEventsQuery(query)
 
     return (
         <>
