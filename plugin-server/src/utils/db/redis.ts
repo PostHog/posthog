@@ -15,6 +15,7 @@ export async function createRedis(serverConfig: PluginsServerConfig, kind: REDIS
     let params: { host: string; port: number; password?: string } | undefined
     switch (kind) {
         case 'posthog':
+            // The shared redis instance used by django, celery etc.
             params = serverConfig.POSTHOG_REDIS_HOST
                 ? {
                       host: serverConfig.POSTHOG_REDIS_HOST,
@@ -23,6 +24,8 @@ export async function createRedis(serverConfig: PluginsServerConfig, kind: REDIS
                   }
                 : undefined
         case 'ingestion':
+            // The dedicated ingestion redis instance.
+
             // TRICKY: We added the INGESTION_REDIS_HOST later to free up POSTHOG_REDIS_HOST to be clear that it is
             // the shared django redis, hence we fallback to it if not set.
             params = serverConfig.INGESTION_REDIS_HOST
@@ -39,6 +42,7 @@ export async function createRedis(serverConfig: PluginsServerConfig, kind: REDIS
                   }
                 : undefined
         case 'session-recording':
+            // The dedicated session recording redis instance
             params = serverConfig.POSTHOG_SESSION_RECORDING_REDIS_HOST
                 ? {
                       host: serverConfig.POSTHOG_SESSION_RECORDING_REDIS_HOST,
@@ -47,6 +51,7 @@ export async function createRedis(serverConfig: PluginsServerConfig, kind: REDIS
                 : undefined
     }
 
+    // Fallback to REDIS_URL if not set (primarily for docker compose)
     return createRedisClient(params ? params.host : serverConfig.REDIS_URL, params)
 }
 
