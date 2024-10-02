@@ -180,10 +180,7 @@ export class SessionRecordingIngester {
             : KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS
         this.consumerGroupId = this.consumeOverflow ? KAFKA_CONSUMER_GROUP_ID_OVERFLOW : KAFKA_CONSUMER_GROUP_ID
 
-        // NOTE: globalServerConfig contains the default pluginServer values, typically not pointing at dedicated resources like kafka or redis
-        // We still connect to some of the non-dedicated resources such as postgres or the Replay events kafka.
         this.redisPool = createRedisPool(this.config, 'session-recording')
-
         this.realtimeManager = new RealtimeManager(this.redisPool, this.config)
 
         if (config.SESSION_RECORDING_OVERFLOW_ENABLED && captureRedis && !consumeOverflow) {
