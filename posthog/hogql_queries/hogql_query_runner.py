@@ -59,6 +59,7 @@ class HogQLQueryRunner(QueryRunner):
             modifiers=self.query.modifiers or self.modifiers,
             team=self.team,
             timings=self.timings,
+            variables=self.query.variables,
             limit_context=self.limit_context,
         )
         if paginator:

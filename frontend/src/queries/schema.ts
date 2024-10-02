@@ -36,7 +36,6 @@ import {
     SessionRecordingType,
     StickinessFilterType,
     TrendsFilterType,
-    UserBasicType,
 } from '~/types'
 
 export { ChartDisplayCategory }
@@ -267,6 +266,7 @@ export interface HogQLFilters {
 
 export interface HogQLVariable {
     variableId: string
+    code_name: string
     value?: any
 }
 
@@ -426,6 +426,8 @@ export interface HogQLMetadata extends DataNode<HogQLMetadataResponse> {
     globals?: Record<string, any>
     /** Extra filters applied to query via {filters} */
     filters?: HogQLFilters
+    /** Variables to be subsituted into the query */
+    variables?: Record<string, HogQLVariable>
     /** Enable more verbose output, usually run from the /debug page */
     debug?: boolean
 }
@@ -1392,6 +1394,7 @@ interface WebAnalyticsQueryBase<R extends Record<string, any>> extends DataNode<
 export interface WebOverviewQuery extends WebAnalyticsQueryBase<WebOverviewQueryResponse> {
     kind: NodeKind.WebOverviewQuery
     compare?: boolean
+    includeLCPScore?: boolean
 }
 
 export interface WebOverviewItem {
@@ -1536,6 +1539,7 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
     assignee?: integer | null
     filterGroup?: PropertyGroupFilter
     filterTestAccounts?: boolean
+    searchQuery?: string
     limit?: integer
 }
 
@@ -1948,34 +1952,22 @@ export interface AlertCondition {
     // TODO: Think about things like relative thresholds, rate of change, etc.
 }
 
-export interface AlertCheck {
-    id: string
-    created_at: string
-    calculated_value: number
-    state: string
-    targets_notified: boolean
+export enum AlertState {
+    FIRING = 'Firing',
+    NOT_FIRING = 'Not firing',
+    ERRORED = 'Errored',
 }
 
-export interface AlertTypeBase {
-    name: string
-    condition: AlertCondition
-    enabled: boolean
-    insight: number
+export enum AlertCalculationInterval {
+    HOURLY = 'hourly',
+    DAILY = 'daily',
+    WEEKLY = 'weekly',
+    MONTHLY = 'monthly',
 }
 
-export interface AlertTypeWrite extends AlertTypeBase {
-    subscribed_users: integer[]
-}
-
-export interface AlertType extends AlertTypeBase {
-    id: string
-    subscribed_users: UserBasicType[]
-    threshold: { configuration: InsightThreshold }
-    created_by: UserBasicType
-    created_at: string
-    state: string
-    last_notified_at: string
-    checks: AlertCheck[]
+export interface TrendsAlertConfig {
+    type: 'TrendsAlertConfig'
+    series_index: integer
 }
 
 export interface HogCompileResponse {
