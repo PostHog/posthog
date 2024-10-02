@@ -75,13 +75,11 @@ def format_person_query(cohort: Cohort, index: int, hogql_context: HogQLContext)
 def print_cohort_hogql_query(cohort: Cohort, hogql_context: HogQLContext) -> str:
     from posthog.hogql_queries.query_runner import get_query_runner
 
-    source_query = cast(dict, cohort.query)
-
-    if source_query.get("kind") == "ActorsQuery":
-        source_query["select"] = ["id as actor_id"]
+    if not cohort.query:
+        raise ValueError("Cohort has no query")
 
     query = get_query_runner(
-        source_query, team=cast(Team, cohort.team), limit_context=LimitContext.COHORT_CALCULATION
+        cast(dict, cohort.query), team=cast(Team, cohort.team), limit_context=LimitContext.COHORT_CALCULATION
     ).to_query()
 
     select_queries: list[ast.SelectQuery] = [query] if isinstance(query, ast.SelectQuery) else query.select_queries
