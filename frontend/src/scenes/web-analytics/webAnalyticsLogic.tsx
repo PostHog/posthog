@@ -679,7 +679,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                       ])
                                     : null,
                                 !conversionGoal
-                                    ? createGraphsTrendsTab(GraphsTab.NUM_SESSION, 'Unique visitors', 'Visitors', [
+                                    ? createGraphsTrendsTab(GraphsTab.NUM_SESSION, 'Unique sessions', 'Sessions', [
                                           sessionsSeries,
                                       ])
                                     : null,
