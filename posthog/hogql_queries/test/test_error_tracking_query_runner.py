@@ -17,6 +17,7 @@ from posthog.test.base import (
     _create_person,
     _create_event,
     flush_persons_and_events,
+    snapshot_postgres_queries,
 )
 from posthog.models import ErrorTrackingGroup
 from datetime import datetime
@@ -218,6 +219,65 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(results), 0)
 
     @snapshot_clickhouse_queries
+    def test_search_query_with_null_characters(self):
+        fingerprint_with_null_bytes = [
+            "SyntaxError",
+            "Cannot use 'in' operator to search for 'wireframes' in \x1f\x8b\x08\x00\x94\x0cýf\x00\x03ì½é\x96\"¹\x920ø*Lö¹SY\x1dA\x00Î\x9e÷Ô\x9df\r\x88\x00Ø",
+        ]
+        exception_type_with_null_bytes = "SyntaxError\x00"
+        exception_message_with_null_bytes = "this is the same error message\x00"
+        exception_stack_trace_with_null_bytes = {
+            "frames": [
+                {
+                    "filename": "file.py\x00",
+                    "lineno": 1,
+                    "colno": 1,
+                    "function": "function\x00",
+                    "extra": "Cannot use 'in' operator to search for 'wireframes' in \x1f\x8b\x08\x00\x94\x0cýf\x00\x03ì½é\x96\"¹\x920ø*Lö¹SY\x1dA\x00Î\x9e÷Ô\x9df\r\x88\x00Ø",
+                }
+            ]
+        }
+        with freeze_time("2021-01-10 12:11:00"):
+            _create_event(
+                distinct_id=self.distinct_id_one,
+                event="$exception",
+                team=self.team,
+                properties={
+                    "$exception_fingerprint": fingerprint_with_null_bytes,
+                    "$exception_type": exception_type_with_null_bytes,
+                    "$exception_message": exception_message_with_null_bytes,
+                    "$exception_list": [{"stack_trace": exception_stack_trace_with_null_bytes}],
+                },
+            )
+        flush_persons_and_events()
+
+        runner = ErrorTrackingQueryRunner(
+            team=self.team,
+            query=ErrorTrackingQuery(
+                kind="ErrorTrackingQuery",
+                searchQuery="wireframe",
+                dateRange=DateRange(date_from="2021-01-10", date_to="2021-01-11"),
+            ),
+        )
+
+        results = self._calculate(runner)["results"]
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["fingerprint"], fingerprint_with_null_bytes)
+        self.assertEqual(results[0]["occurrences"], 1)
+
+        # TODO: Searching for null characters doesn't work, probs because of how clickhouse handles this. Should it work???
+        runner = ErrorTrackingQueryRunner(
+            team=self.team,
+            query=ErrorTrackingQuery(
+                kind="ErrorTrackingQuery",
+                searchQuery="\x1f\x8b\x08\x00\x94\x0cýf\x00\x03ì½é",
+                dateRange=DateRange(date_from="2021-01-10", date_to="2021-01-11"),
+            ),
+        )
+        results = self._calculate(runner)["results"]
+        self.assertEqual(len(results), 0)
+
+    @snapshot_clickhouse_queries
     def test_fingerprints(self):
         runner = ErrorTrackingQueryRunner(
             team=self.team,
@@ -233,6 +293,46 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0]["fingerprint"], ["SyntaxError"])
         self.assertEqual(results[0]["occurrences"], 2)
+
+    @snapshot_postgres_queries
+    @snapshot_clickhouse_queries
+    def test_fingerprints_with_null_characters(self):
+        fingerprint_with_null_bytes = [
+            "SyntaxError",
+            "Cannot use 'in' operator to search for 'wireframes' in \x1f\x8b\x08\x00\x94\x0cýf\x00\x03ì½é\x96\"¹\x920ø*Lö¹SY\x1dA\x00Î\x9e÷Ô\x9df\r\x88\x00Ø",
+        ]
+        exception_type_with_null_bytes = "SyntaxError\x00"
+        exception_message_with_null_bytes = "this is the same error message\x00"
+        exception_stack_trace_with_null_bytes = {
+            "frames": [{"filename": "file.py\x00", "lineno": 1, "colno": 1, "function": "function\x00"}]
+        }
+        with freeze_time("2020-01-10 12:11:00"):
+            _create_event(
+                distinct_id=self.distinct_id_one,
+                event="$exception",
+                team=self.team,
+                properties={
+                    "$exception_fingerprint": fingerprint_with_null_bytes,
+                    "$exception_type": exception_type_with_null_bytes,
+                    "$exception_message": exception_message_with_null_bytes,
+                    "$exception_list": [{"stack_trace": exception_stack_trace_with_null_bytes}],
+                },
+            )
+        flush_persons_and_events()
+
+        runner = ErrorTrackingQueryRunner(
+            team=self.team,
+            query=ErrorTrackingQuery(
+                kind="ErrorTrackingQuery",
+                fingerprint=fingerprint_with_null_bytes,
+                dateRange=DateRange(),
+            ),
+        )
+
+        results = self._calculate(runner)["results"]
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["fingerprint"], fingerprint_with_null_bytes)
+        self.assertEqual(results[0]["occurrences"], 1)
 
     def test_only_returns_exception_events(self):
         with freeze_time("2020-01-10 12:11:00"):
