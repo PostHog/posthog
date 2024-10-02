@@ -32,7 +32,7 @@ from posthog.utils import get_from_dict_or_attr
 from posthog.caching.fetch_from_cache import InsightResult
 from posthog.clickhouse.client.limit import limit_concurrency
 from prometheus_client import Counter, Gauge
-from django.db.models import Q
+from django.db.models import Q, F
 from typing import TypedDict, NotRequired
 from collections import defaultdict
 
@@ -180,14 +180,19 @@ def check_alerts(interval: AlertCalculationInterval) -> None:
     expire_after = now + timedelta(minutes=30)
 
     # find all alerts with the provided interval that are due to be calculated (next_check_at is null or less than now)
-    alerts = AlertConfiguration.objects.filter(
-        Q(enabled=True, calculation_interval=interval, next_check_at__lte=now)
-        | Q(
-            enabled=True,
-            calculation_interval=interval,
-            next_check_at__isnull=True,
+    alerts = (
+        AlertConfiguration.objects.filter(
+            Q(enabled=True, is_calculating=False, calculation_interval=interval, next_check_at__lte=now)
+            | Q(
+                enabled=True,
+                is_calculating=False,
+                calculation_interval=interval,
+                next_check_at__isnull=True,
+            )
         )
-    ).only("id", "team")
+        .order_by(F("next_check_at").asc(nulls_first=True))
+        .only("id", "team")
+    )
 
     grouped_by_team = defaultdict(list)
     for alert in alerts:
@@ -198,7 +203,6 @@ def check_alerts(interval: AlertCalculationInterval) -> None:
         chain(*(check_alert_task.si(str(alert_id)).set(expires=expire_after) for alert_id in alert_ids))()
 
 
-@transaction.atomic
 def check_alert(alert_id: str) -> None:
     try:
         alert = AlertConfiguration.objects.get(id=alert_id, enabled=True)
@@ -217,6 +221,35 @@ def check_alert(alert_id: str) -> None:
         )
         return
 
+    if alert.is_calculating:
+        logger.warning(
+            "Alert is already being computed so skipping checking it now",
+            alert=alert,
+        )
+        return
+
+    alert.is_calculating = True
+    alert.save()
+
+    try:
+        check_alert_atomically(alert)
+    except Exception:
+        raise
+    finally:
+        # Get all updates with alert checks
+        alert.refresh_from_db()
+        alert.is_calculating = False
+        alert.save()
+
+
+@transaction.atomic
+def check_alert_atomically(alert: AlertConfiguration) -> None:
+    """
+    Alert check only gets updated when we successfully
+    1. Compute the aggregated value for the insight for the interval
+    2. Compare the aggregated value with the threshold
+    3. Send notifications if breaches are found
+    """
     insight = alert.insight
     aggregated_value: Optional[float] = None
     error: Optional[dict] = None
@@ -232,7 +265,6 @@ def check_alert(alert_id: str) -> None:
 
             if kind == "TrendsQuery":
                 query = TrendsQuery.model_validate(query)
-                alert.config = TrendsAlertConfig.model_validate(alert.config)
 
                 filters_override = _calculate_date_range_override_for_alert(query)
 
@@ -255,28 +287,55 @@ def check_alert(alert_id: str) -> None:
     except Exception as err:
         # error possibly on user's config side
         # notify user that alert check errored
-        event_id = capture_exception(err)
+        error_message = f"AlertCheckError: error computing aggregate value for insight, alert_id = {alert.id}"
+        logger.exception(error_message)
+
+        event_id = capture_exception(
+            Exception(error_message),
+            {"alert_id": alert.id, "query": str(query), "message": str(err)},
+        )
+
         error = {
             "sentry_event_id": event_id,
-            "message": str(err),
+            "message": f"{error_message}: {str(err)}",
         }
 
-    # Lock alert to prevent concurrent state changes
-    alert = AlertConfiguration.objects.select_for_update().get(id=alert_id, enabled=True)
-    check, breaches, error, notify = alert.add_check(aggregated_value=aggregated_value, error=error)
+    try:
+        # Lock alert to prevent concurrent state changes
+        alert = AlertConfiguration.objects.select_for_update().get(id=alert.id, enabled=True)
+        check, breaches, error, notify = alert.add_check(aggregated_value=aggregated_value, error=error)
+    except Exception as err:
+        error_message = f"AlertCheckError: error comparing insight value with threshold for alert_id = {alert.id}"
+        logger.exception(error_message)
+
+        event_id = capture_exception(
+            Exception(error_message),
+            {"alert_id": alert.id, "query": str(query), "message": str(err)},
+        )
+        raise
 
     if not notify:
         # no need to notify users
         return
 
-    match check.state:
-        case AlertState.NOT_FIRING:
-            logger.info("Check state is %s", check.state, alert_id=alert.id)
-        case AlertState.ERRORED:
-            if error:
-                _send_notifications_for_errors(alert, error)
-        case AlertState.FIRING:
-            _send_notifications_for_breaches(alert, breaches)
+    try:
+        match check.state:
+            case AlertState.NOT_FIRING:
+                logger.info("Check state is %s", check.state, alert_id=alert.id)
+            case AlertState.ERRORED:
+                if error:
+                    _send_notifications_for_errors(alert, error)
+            case AlertState.FIRING:
+                _send_notifications_for_breaches(alert, breaches)
+    except Exception as err:
+        error_message = f"AlertCheckError: error sending notifications for alert_id = {alert.id}"
+        logger.exception(error_message)
+
+        event_id = capture_exception(
+            Exception(error_message),
+            {"alert_id": alert.id, "query": str(query), "message": str(err)},
+        )
+        raise
 
 
 def _calculate_date_range_override_for_alert(query: TrendsQuery) -> Optional[dict]:
@@ -298,9 +357,9 @@ def _calculate_date_range_override_for_alert(query: TrendsQuery) -> Optional[dic
 
 
 def _aggregate_insight_result_value(alert: AlertConfiguration, query: TrendsQuery, results: InsightResult) -> float:
-    if alert.config.type == "TrendsAlertConfig":
-        alert.config = cast(TrendsAlertConfig, alert.config)
-        series_index = alert.config.series_index
+    if "type" in alert.config and alert.config["type"] == "TrendsAlertConfig":
+        alert_config = TrendsAlertConfig.model_validate(alert.config)
+        series_index = alert_config.series_index
         result = cast(list[TrendResult], results.result)[series_index]
 
         if query.trendsFilter and query.trendsFilter.display in NON_TIME_SERIES_DISPLAY_TYPES:
@@ -308,7 +367,7 @@ def _aggregate_insight_result_value(alert: AlertConfiguration, query: TrendsQuer
 
         return result["data"][-1]
 
-    raise ValueError(f"Unsupported alert config type: {alert.config.type}")
+    raise ValueError(f"Unsupported alert config type: {alert_config.type}")
 
 
 def _send_notifications_for_breaches(alert: AlertConfiguration, breaches: list[str]) -> None:

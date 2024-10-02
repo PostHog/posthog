@@ -47,6 +47,7 @@ class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
                 "name": "alert name",
                 "insight": self.insight["id"],
                 "subscribed_users": [self.user.id],
+                "calculation_interval": "daily",
                 "config": {
                     "type": "TrendsAlertConfig",
                     "series_index": 0,
@@ -235,10 +236,12 @@ class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
                 latest_alert_check = AlertCheck.objects.filter(alert_configuration=self.alert["id"]).latest(
                     "created_at"
                 )
-                assert latest_alert_check.state == AlertState.ERRORED
-                assert latest_alert_check.error["message"] == "Some error"
 
-    def test_error_while_calculating_no_alert_from_firing_state(
+                error_message = latest_alert_check.error["message"]
+                assert "AlertCheckError: error computing aggregate value for insight" in error_message
+                assert "Some error" in error_message
+
+    def test_error_while_calculating_on_alert_in_firing_state(
         self, mock_send_notifications_for_breaches: MagicMock, mock_send_notifications_for_errors: MagicMock
     ) -> None:
         self.set_thresholds(lower=1)
@@ -264,9 +267,12 @@ class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
                     "created_at"
                 )
                 assert latest_alert_check.state == AlertState.ERRORED
-                assert latest_alert_check.error["message"] == "Some error"
 
-    def test_error_while_calculating_no_alert_from_not_firing_state(
+                error_message = latest_alert_check.error["message"]
+                assert "AlertCheckError: error computing aggregate value for insight" in error_message
+                assert "Some error" in error_message
+
+    def test_error_while_calculating_on_alert_in_not_firing_state(
         self, mock_send_notifications_for_breaches: MagicMock, mock_send_notifications_for_errors: MagicMock
     ) -> None:
         self.set_thresholds(lower=0)
@@ -291,8 +297,10 @@ class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
                 latest_alert_check = AlertCheck.objects.filter(alert_configuration=self.alert["id"]).latest(
                     "created_at"
                 )
-                assert latest_alert_check.state == AlertState.ERRORED
-                assert latest_alert_check.error["message"] == "Some error"
+
+                error_message = latest_alert_check.error["message"]
+                assert "AlertCheckError: error computing aggregate value for insight" in error_message
+                assert "Some error" in error_message
 
     def test_alert_with_insight_with_filter(
         self, mock_send_notifications_for_breaches: MagicMock, mock_send_errors: MagicMock
@@ -342,7 +350,7 @@ class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
 
             assert mock_send_notifications_for_breaches.call_count == 1
             check = AlertCheck.objects.filter(alert_configuration=self.alert["id"]).latest("created_at")
-            assert alert.state == AlertState.FIRING
+            assert check.state == AlertState.FIRING
 
         # same day for daily alert so won't recalculate as haven't passed next_check_at
         with freeze_time("2024-06-02T09:55:00.000Z"):
@@ -351,3 +359,31 @@ class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
             second_check = AlertCheck.objects.filter(alert_configuration=self.alert["id"]).latest("created_at")
             # didn't recalculate alert as it was not due
             assert check.id == second_check.id
+
+    def test_alert_not_recalculated_when_is_calculating(
+        self, mock_send_notifications_for_breaches: MagicMock, mock_send_errors: MagicMock
+    ) -> None:
+        self.set_thresholds(lower=1)
+
+        alert = AlertConfiguration.objects.get(pk=self.alert["id"])
+        assert alert.is_calculating is False
+
+        # no events so this should fire
+        check_alert(self.alert["id"])
+
+        # False after check finished
+        alert = AlertConfiguration.objects.get(pk=self.alert["id"])
+        assert alert.is_calculating is False
+        assert mock_send_notifications_for_breaches.call_count == 1
+        first_check = AlertCheck.objects.filter(alert_configuration=self.alert["id"]).latest("created_at")
+
+        alert.next_check_at = None
+        alert.is_calculating = True
+        alert.save()
+
+        check_alert(self.alert["id"])
+
+        # should not have recalculated
+        assert mock_send_notifications_for_breaches.call_count == 1
+        second_check = AlertCheck.objects.filter(alert_configuration=self.alert["id"]).latest("created_at")
+        assert first_check.id == second_check.id

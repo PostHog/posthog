@@ -141,6 +141,7 @@ class AlertConfiguration(CreatedMetaFields, UUIDModel):
 
     state = models.CharField(max_length=10, choices=ALERT_STATE_CHOICES, default=AlertState.NOT_FIRING)
     enabled = models.BooleanField(default=True)
+    is_calculating = models.BooleanField(default=False, null=True, blank=True)
 
     last_notified_at = models.DateTimeField(null=True, blank=True)
     last_checked_at = models.DateTimeField(null=True, blank=True)
