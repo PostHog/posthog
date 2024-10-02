@@ -54,7 +54,7 @@ export const Thread: StoryFn = () => {
 export const EmptyThreadLoading: StoryFn = () => {
     useStorybookMocks({
         post: {
-            '/api/projects/:team_id/query/chat/': (req, res, ctx) => [ctx.delay('infinite')],
+            '/api/projects/:team_id/query/chat/': (_req, _res, ctx) => [ctx.delay('infinite')],
         },
     })
 
