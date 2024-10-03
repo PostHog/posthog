@@ -21,6 +21,13 @@ pub struct Config {
     // Rust service connect directly to postgres, not via pgbouncer, so we keep this low
     #[envconfig(default = "4")]
     pub max_pg_connections: u32,
+
+    // These are unused for now, but useful while iterating in prod
+    #[envconfig(default = "true")]
+    pub skip_writes: bool,
+
+    #[envconfig(default = "true")]
+    pub skip_reads: bool,
 }
 
 impl Config {

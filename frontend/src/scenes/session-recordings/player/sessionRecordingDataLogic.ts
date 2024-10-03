@@ -1,6 +1,6 @@
 import posthogEE from '@posthog/ee/exports'
 import { customEvent, EventType, eventWithTime, fullSnapshotEvent, IncrementalSource } from '@rrweb/types'
-import { captureException, captureMessage } from '@sentry/react'
+import { captureException } from '@sentry/react'
 import { gunzipSync, strFromU8, strToU8 } from 'fflate'
 import {
     actions,
@@ -178,7 +178,7 @@ function decompressEvent(ev: unknown): unknown {
         }
         return ev
     } catch (e) {
-        posthog.captureException((e as Error) || new Error('Cound not decompress event'), {
+        posthog.captureException((e as Error) || new Error('Could not decompress event'), {
             feature: 'session-recording-compressed-event-decompression',
             compressedEvent: ev,
         })
@@ -416,7 +416,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         loadNextSnapshotSource: true,
         loadSnapshotsForSource: (source: Pick<SessionRecordingSnapshotSource, 'source' | 'blob_key'>) => ({ source }),
         loadEvents: true,
-        loadFullEventData: (event: RecordingEventType) => ({ event }),
+        loadFullEventData: (event: RecordingEventType | RecordingEventType[]) => ({ event }),
         markViewed: (delay?: number) => ({ delay }),
         reportUsageIfFullyLoaded: true,
         persistRecording: true,
@@ -631,48 +631,51 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 },
 
                 loadFullEventData: async ({ event }) => {
-                    const existingEvent = values.sessionEventsData?.find((x) => x.id === event.id)
-                    if (!existingEvent || existingEvent.fullyLoaded) {
+                    // box so we're always dealing with a list
+                    const events = Array.isArray(event) ? event : [event]
+
+                    let existingEvents = values.sessionEventsData?.filter((x) => events.some((e) => e.id === x.id))
+
+                    const allEventsAreFullyLoaded =
+                        existingEvents?.every((e) => e.fullyLoaded) && existingEvents.length === events.length
+                    if (!existingEvents || allEventsAreFullyLoaded) {
                         return values.sessionEventsData
                     }
 
-                    if (!event.id) {
-                        captureMessage('event id not available for matching', {
-                            tags: { feature: 'session-recording-load-full-event-data' },
-                            extra: { event },
-                        })
-                        return values.sessionEventsData
-                    }
-
-                    let loadedProperties: Record<string, any> = existingEvent.properties
-
+                    existingEvents = existingEvents.filter((e) => !e.fullyLoaded)
+                    const timestamps = existingEvents.map((ee) => dayjs(ee.timestamp).utc().valueOf())
+                    const eventNames = Array.from(new Set(existingEvents.map((ee) => ee.event)))
+                    const eventIds = existingEvents.map((ee) => ee.id)
+                    const earliestTimestamp = timestamps.reduce((a, b) => Math.min(a, b))
+                    const latestTimestamp = timestamps.reduce((a, b) => Math.max(a, b))
                     try {
                         const query: HogQLQuery = {
                             kind: NodeKind.HogQLQuery,
                             query: hogql`SELECT properties, uuid
                                          FROM events
-                                         WHERE timestamp > ${dayjs(event.timestamp).subtract(1000, 'ms')}
-                                           AND timestamp < ${dayjs(event.timestamp).add(1000, 'ms')}
-                                           AND event = ${event.event}
-                                           AND uuid = ${event.id}`,
+                                         WHERE timestamp > ${(earliestTimestamp - 1000) / 1000}
+                                           AND timestamp < ${(latestTimestamp + 1000) / 1000}
+                                           AND event in ${eventNames}
+                                           AND uuid in ${eventIds}`,
                         }
                         const response = await api.query(query)
                         if (response.error) {
                             throw new Error(response.error)
                         }
 
-                        const result = response.results.find((x: any) => {
-                            return x[1] === event.id
-                        })
+                        for (const event of existingEvents) {
+                            const result = response.results.find((x: any) => {
+                                return x[1] === event.id
+                            })
 
-                        if (result) {
-                            loadedProperties = JSON.parse(result[0])
-                            existingEvent.properties = loadedProperties
-                            existingEvent.fullyLoaded = true
+                            if (result) {
+                                event.properties = JSON.parse(result[0])
+                                event.fullyLoaded = true
+                            }
                         }
                     } catch (e) {
                         // NOTE: This is not ideal but should happen so rarely that it is tolerable.
-                        existingEvent.fullyLoaded = true
+                        existingEvents.forEach((e) => (e.fullyLoaded = true))
                         captureException(e, {
                             tags: { feature: 'session-recording-load-full-event-data' },
                         })
@@ -682,11 +685,12 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     return !values.sessionEventsData
                         ? values.sessionEventsData
                         : values.sessionEventsData.map((x) => {
-                              return x.id === event.id
+                              const event = existingEvents?.find((ee) => ee.id === x.id)
+                              return event
                                   ? ({
                                         ...x,
-                                        properties: loadedProperties,
-                                        fullyLoaded: true,
+                                        properties: event.properties,
+                                        fullyLoaded: event.fullyLoaded,
                                     } as RecordingEventType)
                                   : x
                           })
@@ -1110,14 +1114,12 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             },
         ],
     })),
-    subscriptions(({ actions }) => ({
+    subscriptions(({ actions, values }) => ({
         webVitalsEvents: (value: RecordingEventType[]) => {
-            value.forEach((item) => {
-                // we preload all web vitals data, so it can be used before user interaction
-                if (!item.fullyLoaded) {
-                    actions.loadFullEventData(item)
-                }
-            })
+            // we preload all web vitals data, so it can be used before user interaction
+            if (!values.sessionEventsDataLoading) {
+                actions.loadFullEventData(value)
+            }
         },
     })),
     afterMount(({ cache }) => {

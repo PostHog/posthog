@@ -64,9 +64,10 @@ func TestConvertToResponseGeoEvent(t *testing.T) {
 }
 
 func TestConvertToResponsePostHogEvent(t *testing.T) {
+	timestamp := "2023-01-01T00:00:00Z"
 	event := PostHogEvent{
 		Uuid:       "123",
-		Timestamp:  "2023-01-01T00:00:00Z",
+		Timestamp:  Timestamp{Value: timestamp},
 		DistinctId: "user1",
 		Event:      "pageview",
 		Properties: map[string]interface{}{"url": "https://example.com"},
@@ -108,9 +109,10 @@ func TestFilterRun(t *testing.T) {
 	time.Sleep(10 * time.Millisecond)
 
 	// Test event filtering
+	timestamp := "2023-01-01T00:00:00Z"
 	event := PostHogEvent{
 		Uuid:       "123",
-		Timestamp:  "2023-01-01T00:00:00Z",
+		Timestamp:  Timestamp{Value: timestamp},
 		DistinctId: "user1",
 		Token:      "token1",
 		Event:      "pageview",

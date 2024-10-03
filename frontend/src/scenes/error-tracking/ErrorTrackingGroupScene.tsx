@@ -30,7 +30,7 @@ const STATUS_LABEL: Record<ErrorTrackingGroup['status'], string> = {
 }
 
 export function ErrorTrackingGroupScene(): JSX.Element {
-    const { group, groupLoading } = useValues(errorTrackingGroupSceneLogic)
+    const { group, groupLoading, hasGroupActions } = useValues(errorTrackingGroupSceneLogic)
     const { updateGroup, loadGroup } = useActions(errorTrackingGroupSceneLogic)
 
     useEffect(() => {
@@ -45,7 +45,7 @@ export function ErrorTrackingGroupScene(): JSX.Element {
         <>
             <PageHeader
                 buttons={
-                    group ? (
+                    group && hasGroupActions ? (
                         group.status === 'active' ? (
                             <div className="flex divide-x gap-x-2">
                                 <AssigneeSelect
@@ -80,10 +80,8 @@ export function ErrorTrackingGroupScene(): JSX.Element {
             />
             <ErrorTrackingFilters.FilterGroup />
             <LemonDivider className="mt-2" />
-            <ErrorTrackingFilters.Options showOrder={false} />
-            <div className="pt-2">
-                <OverviewTab />
-            </div>
+            <ErrorTrackingFilters.Options isGroup />
+            <OverviewTab />
         </>
     )
 }

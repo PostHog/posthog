@@ -145,8 +145,12 @@ export function inBounds(min: number, value: number, max: number): number {
     return Math.max(min, Math.min(max, value))
 }
 
-export function getAllClickTargets(startNode: Document | HTMLElement | ShadowRoot = document): HTMLElement[] {
-    const elements = startNode.querySelectorAll(CLICK_TARGET_SELECTOR) as unknown as HTMLElement[]
+export function getAllClickTargets(
+    startNode: Document | HTMLElement | ShadowRoot = document,
+    selector?: string
+): HTMLElement[] {
+    const targetSelector = selector || CLICK_TARGET_SELECTOR
+    const elements = startNode.querySelectorAll(targetSelector) as unknown as HTMLElement[]
 
     const allElements = [...(startNode.querySelectorAll('*') as unknown as HTMLElement[])]
 
@@ -161,7 +165,7 @@ export function getAllClickTargets(startNode: Document | HTMLElement | ShadowRoo
 
     const shadowElements = allElements
         .filter((el) => el.shadowRoot && el.getAttribute('id') !== TOOLBAR_ID)
-        .map((el: HTMLElement) => (el.shadowRoot ? getAllClickTargets(el.shadowRoot) : []))
+        .map((el: HTMLElement) => (el.shadowRoot ? getAllClickTargets(el.shadowRoot, targetSelector) : []))
         .reduce((a, b) => [...a, ...b], [])
     const selectedElements = [...elements, ...pointerElements, ...shadowElements]
         .map((e) => trimElement(e))

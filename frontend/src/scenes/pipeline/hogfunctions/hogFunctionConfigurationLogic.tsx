@@ -185,6 +185,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         loadSampleGlobals: true,
         setUnsavedConfiguration: (configuration: HogFunctionConfigurationType | null) => ({ configuration }),
         persistForUnload: true,
+        setSampleGlobalsError: (error) => ({ error }),
     }),
     reducers({
         showSource: [
@@ -215,8 +216,16 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     configuration ? { timestamp: Date.now(), configuration } : null,
             },
         ],
+
+        sampleGlobalsError: [
+            null as null | string,
+            {
+                loadSampleGlobals: () => null,
+                setSampleGlobalsError: (_, { error }) => error,
+            },
+        ],
     }),
-    loaders(({ props, values }) => ({
+    loaders(({ actions, props, values }) => ({
         template: [
             null as HogFunctionTemplateType | null,
             {
@@ -320,9 +329,17 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             null as HogFunctionInvocationGlobals | null,
             {
                 loadSampleGlobals: async (_, breakpoint) => {
+                    const errorMessage =
+                        'No events match these filters in the last 30 days. Showing an example $pageview event instead.'
                     try {
                         await breakpoint(values.sampleGlobals === null ? 10 : 1000)
-                        const response = await performQuery(values.lastEventQuery)
+                        let response = await performQuery(values.lastEventQuery)
+                        if (!response?.results?.[0]) {
+                            response = await performQuery(values.lastEventSecondQuery)
+                        }
+                        if (!response?.results?.[0]) {
+                            throw new Error(errorMessage)
+                        }
                         const event: EventType = response?.results?.[0]?.[0]
                         const person: PersonType = response?.results?.[0]?.[1]
                         const globals = convertToHogFunctionInvocationGlobals(event, person)
@@ -350,7 +367,8 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                             url: window.location.href.split('#')[0],
                         }
                         return globals
-                    } catch (e) {
+                    } catch (e: any) {
+                        actions.setSampleGlobalsError(e.message ?? errorMessage)
                         return values.exampleInvocationGlobals
                     }
                 },
@@ -651,7 +669,10 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             },
             { resultEqualityCheck: equal },
         ],
-
+        lastEventSecondQuery: [
+            (s) => [s.lastEventQuery],
+            (lastEventQuery): EventsQuery => ({ ...lastEventQuery, after: '-30d' }),
+        ],
         templateHasChanged: [
             (s) => [s.hogFunction, s.configuration],
             (hogFunction, configuration) => {
