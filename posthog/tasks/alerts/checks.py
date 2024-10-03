@@ -72,10 +72,9 @@ ALERT_CHECK_ERROR_COUNTER = Counter(
     "Number of alert check errors that don't notify the user",
 )
 
-ALERT_CHECKED_COUNTER = Counter(
-    "alerts_checked",
-    "Number of alerts we tried to check",
-    labelnames=["interval"],
+ALERT_COMPUTED_COUNTER = Counter(
+    "alerts_computed",
+    "Number of alerts we calculated",
 )
 
 
@@ -91,6 +90,16 @@ NON_TIME_SERIES_DISPLAY_TYPES = {
     ChartDisplayType.ACTIONS_TABLE,
     ChartDisplayType.WORLD_MAP,
 }
+
+
+def calculation_interval_to_order(interval: AlertCalculationInterval | None) -> int:
+    match interval:
+        case AlertCalculationInterval.HOURLY:
+            return 0
+        case AlertCalculationInterval.DAILY:
+            return 1
+        case _:
+            return 2
 
 
 @shared_task(
@@ -132,22 +141,11 @@ def alerts_backlog_task() -> None:
     ignore_result=True,
     expires=60 * 60,
 )
-def hourly_alerts_task() -> None:
+def check_alerts_task() -> None:
     """
     This runs every 2min to check for alerts that are due to recalculate
     """
-    check_alerts(AlertCalculationInterval.HOURLY)
-
-
-@shared_task(
-    ignore_result=True,
-    expires=60 * 60,
-)
-def daily_alerts_task() -> None:
-    """
-    This runs every 10min to check for alerts that are due to recalculate
-    """
-    check_alerts(AlertCalculationInterval.DAILY)
+    check_alerts()
 
 
 @shared_task(
@@ -174,7 +172,7 @@ def checks_cleanup_task() -> None:
     AlertCheck.clean_up_old_checks()
 
 
-def check_alerts(interval: AlertCalculationInterval) -> None:
+def check_alerts() -> None:
     now = datetime.now(UTC)
     # Use a fixed expiration time since tasks in the chain are executed sequentially
     expire_after = now + timedelta(minutes=30)
@@ -182,20 +180,26 @@ def check_alerts(interval: AlertCalculationInterval) -> None:
     # find all alerts with the provided interval that are due to be calculated (next_check_at is null or less than now)
     alerts = (
         AlertConfiguration.objects.filter(
-            Q(enabled=True, is_calculating=False, calculation_interval=interval, next_check_at__lte=now)
+            Q(enabled=True, is_calculating=False, next_check_at__lte=now)
             | Q(
                 enabled=True,
                 is_calculating=False,
-                calculation_interval=interval,
                 next_check_at__isnull=True,
             )
         )
         .order_by(F("next_check_at").asc(nulls_first=True))
-        .only("id", "team")
+        .only("id", "team", "calculation_interval")
+    )
+
+    sorted_alerts = sorted(
+        alerts,
+        key=lambda alert: calculation_interval_to_order(
+            cast(AlertCalculationInterval | None, alert.calculation_interval)
+        ),
     )
 
     grouped_by_team = defaultdict(list)
-    for alert in alerts:
+    for alert in sorted_alerts:
         grouped_by_team[alert.team].append(alert.id)
 
     for alert_ids in grouped_by_team.values():
@@ -209,8 +213,6 @@ def check_alert(alert_id: str) -> None:
     except AlertConfiguration.DoesNotExist:
         logger.warning("Alert not found or not enabled", alert_id=alert_id)
         return
-
-    ALERT_CHECKED_COUNTER.labels(interval=alert.calculation_interval).inc()
 
     now = datetime.now(UTC)
     if alert.next_check_at and alert.next_check_at > now:
@@ -250,6 +252,8 @@ def check_alert_atomically(alert: AlertConfiguration) -> None:
     2. Compare the aggregated value with the threshold
     3. Send notifications if breaches are found
     """
+    ALERT_COMPUTED_COUNTER.inc()
+
     insight = alert.insight
     aggregated_value: Optional[float] = None
     error: Optional[dict] = None
@@ -373,7 +377,7 @@ def _aggregate_insight_result_value(alert: AlertConfiguration, query: TrendsQuer
 def _send_notifications_for_breaches(alert: AlertConfiguration, breaches: list[str]) -> None:
     subject = f"PostHog alert {alert.name} is firing"
     campaign_key = f"alert-firing-notification-{alert.id}-{timezone.now().timestamp()}"
-    insight_url = f"/project/{alert.team.pk}/insights/{alert.insight.short_id}"
+    insight_url = f"/project/{alert.team.pk}/insights/{alert.insight.short_id}?alert_id={alert.id}"
     alert_url = f"{insight_url}/alerts/{alert.id}"
     message = EmailMessage(
         campaign_key=campaign_key,
@@ -400,7 +404,7 @@ def _send_notifications_for_breaches(alert: AlertConfiguration, breaches: list[s
 def _send_notifications_for_errors(alert: AlertConfiguration, error: dict) -> None:
     subject = f"PostHog alert {alert.name} check failed to evaluate"
     campaign_key = f"alert-firing-notification-{alert.id}-{timezone.now().timestamp()}"
-    insight_url = f"/project/{alert.team.pk}/insights/{alert.insight.short_id}"
+    insight_url = f"/project/{alert.team.pk}/insights/{alert.insight.short_id}?alert_id={alert.id}"
     alert_url = f"{insight_url}/alerts/{alert.id}"
     message = EmailMessage(
         campaign_key=campaign_key,
