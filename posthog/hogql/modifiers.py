@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 
 
 def create_default_modifiers_for_user(
-    user: "User", modifiers: Optional[HogQLQueryModifiers] = None
+    user: "User", team: "Team", modifiers: Optional[HogQLQueryModifiers] = None
 ) -> HogQLQueryModifiers:
     if modifiers is None:
         modifiers = HogQLQueryModifiers()
@@ -33,7 +33,7 @@ def create_default_modifiers_for_user(
         send_feature_flag_events=False,
     )
 
-    return create_default_modifiers_for_team(user.current_team, modifiers)
+    return create_default_modifiers_for_team(team, modifiers)
 
 
 def create_default_modifiers_for_team(

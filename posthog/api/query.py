@@ -79,7 +79,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             data.query = apply_dashboard_filters_to_dict(
                 data.query.model_dump(), data.filters_override.model_dump(), self.team
             )  # type: ignore
-        data.query.modifiers = create_default_modifiers_for_user(request.user)
+        data.query.modifiers = create_default_modifiers_for_user(request.user, self.team)
 
         client_query_id = data.client_query_id or uuid.uuid4().hex
         execution_mode = execution_mode_from_refresh(data.refresh)

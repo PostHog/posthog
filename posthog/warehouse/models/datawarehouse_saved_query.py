@@ -182,6 +182,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
         if (
             self.table is not None
             and (self.status == DataWarehouseSavedQuery.Status.COMPLETED or self.last_run_at is not None)
+            and modifiers is not None
             and modifiers.useMaterializedViews
         ):
             return self.table.hogql_definition(modifiers)
