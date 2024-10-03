@@ -16,11 +16,37 @@ type PostHogEventWrapper struct {
 	Data       string `json:"data"`
 }
 
+type Timestamp struct {
+	Value string
+	Raw   string
+}
+
+func (t *Timestamp) UnmarshalJSON(data []byte) error {
+	// Store the raw JSON string
+	t.Raw = string(data)
+
+	// Try to unmarshal into a string
+	var s string
+	if err := json.Unmarshal(data, &s); err == nil {
+		t.Value = s
+		return nil
+	}
+
+	// If unmarshalling to string fails, log the raw value
+	log.Printf("Unable to unmarshal timestamp to string. Raw value: %s", t.Raw)
+
+	// Set Value to empty string
+	t.Value = ""
+
+	// Return nil to continue unmarshalling the rest of the struct
+	return nil
+}
+
 type PostHogEvent struct {
 	Token      string                 `json:"api_key,omitempty"`
 	Event      string                 `json:"event"`
 	Properties map[string]interface{} `json:"properties"`
-	Timestamp  *string                `json:"timestamp,omitempty"`
+	Timestamp  Timestamp              `json:"timestamp,omitempty"`
 
 	Uuid       string
 	DistinctId string
@@ -103,9 +129,8 @@ func (c *PostHogKafkaConsumer) Consume() {
 
 		phEvent.Uuid = wrapperMessage.Uuid
 		phEvent.DistinctId = wrapperMessage.DistinctId
-		if phEvent.Timestamp == nil {
-			timestamp := time.Now().UTC().Format("2006-01-02T15:04:05.000Z")
-			phEvent.Timestamp = &timestamp
+		if phEvent.Timestamp.Value == "" {
+			phEvent.Timestamp.Value = time.Now().UTC().Format("2006-01-02T15:04:05.000Z")
 		}
 		if phEvent.Token == "" {
 			if tokenValue, ok := phEvent.Properties["token"].(string); ok {
