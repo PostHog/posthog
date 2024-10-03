@@ -58,9 +58,7 @@ pub fn replace_invalid_hex_escape_strings(
         // First, figure out if this byte is the start of an escape sequence,
         // and if it is, set the flag and move forward
         if bytes[i] == b'\\' {
-            println!("found possible escape sequence at {}", i);
             escaped = !escaped; // Handle e.g. "\\u1234" as not an escape sequence
-            println!("escaped: {}", escaped);
             i += 1;
             continue;
         }
