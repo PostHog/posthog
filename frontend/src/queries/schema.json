@@ -9386,6 +9386,9 @@
                         "type": "string"
                     },
                     "type": "array"
+                },
+                "user_modified_filters": {
+                    "type": "object"
                 }
             },
             "required": ["kind", "order"],

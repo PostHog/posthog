@@ -98,6 +98,7 @@ import {
     SessionRecordingSnapshotParams,
     SessionRecordingSnapshotResponse,
     SessionRecordingType,
+    SessionRecordingUpdateType,
     SharingConfigurationType,
     SlackChannelType,
     SubscriptionType,
@@ -1804,6 +1805,12 @@ const api = {
             params: Record<string, any> = {}
         ): Promise<SessionRecordingType> {
             return await new ApiRequest().recording(recordingId).withQueryString(toParams(params)).get()
+        },
+        async update(
+            recordingId: SessionRecordingType['id'],
+            data: Partial<SessionRecordingUpdateType>
+        ): Promise<SessionRecordingType> {
+            return await new ApiRequest().recording(recordingId).update({ data })
         },
 
         async persist(recordingId: SessionRecordingType['id']): Promise<{ success: boolean }> {
