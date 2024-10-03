@@ -56,7 +56,7 @@ export function HogFunctionTestPlaceholder(): JSX.Element {
 }
 
 export function HogFunctionTest(props: HogFunctionTestLogicProps): JSX.Element {
-    const { isTestInvocationSubmitting, testResult, expanded, sampleGlobalsLoading } = useValues(
+    const { isTestInvocationSubmitting, testResult, expanded, sampleGlobalsLoading, sampleGlobalsError } = useValues(
         hogFunctionTestLogic(props)
     )
     const { submitTestInvocation, setTestResult, toggleExpanded, loadSampleGlobals } = useActions(
@@ -181,12 +181,15 @@ export function HogFunctionTest(props: HogFunctionTestLogicProps): JSX.Element {
                                 <LemonField name="globals" label="Test invocation context">
                                     {({ value, onChange }) => (
                                         <>
-                                            <div className="flex items-start justify-end">
+                                            <div>
                                                 <p className="flex-1">
                                                     The globals object is the context in which your function will be
                                                     tested. It should contain all the data that your function will need
                                                     to run
                                                 </p>
+                                                {sampleGlobalsError ? (
+                                                    <p className="text-warning">{sampleGlobalsError}</p>
+                                                ) : null}
                                             </div>
 
                                             <HogFunctionTestEditor value={value} onChange={onChange} />
