@@ -9,20 +9,20 @@ from posthog.hogql_queries.insights.funnels.test.test_funnel_strict import (
 
 
 @patch("posthoganalytics.feature_enabled", new=Mock(return_value=True))
-class TestFunnelStrictStepsBreakdown(BaseTestFunnelStrictStepsBreakdown):
-    pass
+class TestFunnelStrictStepsBreakdownUDF(BaseTestFunnelStrictStepsBreakdown):
+    __test__ = True
 
 
 @patch("posthoganalytics.feature_enabled", new=Mock(return_value=True))
-class TestFunnelStrictSteps(BaseTestFunnelStrictSteps):
-    pass
+class TestFunnelStrictStepsUDF(BaseTestFunnelStrictSteps):
+    __test__ = True
 
 
 @patch("posthoganalytics.feature_enabled", new=Mock(return_value=True))
-class TestStrictFunnelGroupBreakdown(BaseTestStrictFunnelGroupBreakdown):
-    pass
+class TestStrictFunnelGroupBreakdownUDF(BaseTestStrictFunnelGroupBreakdown):
+    __test__ = True
 
 
 @patch("posthoganalytics.feature_enabled", new=Mock(return_value=True))
-class TestFunnelStrictStepsConversionTime(BaseTestFunnelStrictStepsConversionTime):
-    pass
+class TestFunnelStrictStepsConversionTimeUDF(BaseTestFunnelStrictStepsConversionTime):
+    __test__ = True

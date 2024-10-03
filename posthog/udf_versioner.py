@@ -1,7 +1,6 @@
 import argparse
 import os
 import shutil
-import glob
 import datetime
 import xml.etree.ElementTree as ET
 from xml import etree
@@ -12,7 +11,7 @@ from xml import etree
 # 3. Copy the `user_defined_function.xml` file in the newly created version folder (e.g. `user_scripts/v4/user_defined_function.xml`) to the `posthog-cloud-infra` repo and deploy it
 # 4. After that deploy goes out, it is safe to land and deploy the changes to the `posthog` repo
 # If deploys aren't seamless, look into moving the action that copies the `user_scripts` folder to the clickhouse cluster earlier in the deploy process
-UDF_VERSION = 0  # Last modified by: @aspicer, 2024-09-20
+UDF_VERSION = 0  # Last modified by: @aspicer, 2024-10-01
 
 CLICKHOUSE_XML_FILENAME = "user_defined_function.xml"
 ACTIVE_XML_CONFIG = "../../docker/clickhouse/user_defined_function.xml"
@@ -35,8 +34,9 @@ def prepare_version(force=False):
             raise FileExistsError(
                 f"A directory already exists for this version at posthog/user_scripts/{VERSION_STR}. Did you forget to increment the version? If not, delete the folder and run this again, or run this script with a -f"
             )
-    for file in glob.glob("*.py"):
-        shutil.copy(file, VERSION_STR)
+    for file in os.listdir():
+        if os.path.isfile(file) and not file.endswith(".xml"):
+            shutil.copy(file, VERSION_STR)
 
     base_xml = ET.parse(ACTIVE_XML_CONFIG)
 

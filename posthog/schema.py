@@ -4835,6 +4835,7 @@ class RecordingsQuery(BaseModel):
     ] = None
     response: Optional[RecordingsQueryResponse] = None
     session_ids: Optional[list[str]] = None
+    user_modified_filters: Optional[dict[str, Any]] = None
 
 
 class RetentionQuery(BaseModel):
