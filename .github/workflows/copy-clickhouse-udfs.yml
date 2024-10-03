@@ -1,0 +1,19 @@
+name: Trigger UDFs Workflow
+
+on:
+  pull_request:
+    # paths:
+    #   - 'posthog/user_scripts/**'
+
+jobs:
+  trigger_udfs_workflow:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger UDFs Workflow
+        uses: benc-uk/workflow-dispatch@v1
+        with:
+          workflow: .github/workflows/clickhouse-udfs.yml
+          repo: posthog/cloud-infra
+          token: ${{ secrets.PAT_TOKEN }}
+          ref: refs/heads/main
+
