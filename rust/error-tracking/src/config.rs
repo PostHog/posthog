@@ -21,17 +21,11 @@ pub struct Config {
     // Rust service connect directly to postgres, not via pgbouncer, so we keep this low
     #[envconfig(default = "4")]
     pub max_pg_connections: u32,
-
-    #[envconfig(default = "300")]
-    pub team_cache_ttl_secs: u64,
-
-    #[envconfig(default = "10000")]
-    pub team_cache_capacity: u64,
 }
 
 impl Config {
     pub fn init_with_defaults() -> Result<Self, envconfig::Error> {
-        ConsumerConfig::set_defaults("error-tracking-rs", "exceptions_ingestions");
+        ConsumerConfig::set_defaults("error-tracking-rs", "exception_symbolification_events");
         Self::init_from_env()
     }
 }
