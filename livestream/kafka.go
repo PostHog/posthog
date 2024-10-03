@@ -112,6 +112,8 @@ func (c *PostHogKafkaConsumer) Consume() {
 		if phEvent.Token == "" {
 			if tokenValue, ok := phEvent.Properties["token"].(string); ok {
 				phEvent.Token = tokenValue
+			} else {
+				log.Printf("No valid token found in event %s", string(msg.Value))
 			}
 		}
 
