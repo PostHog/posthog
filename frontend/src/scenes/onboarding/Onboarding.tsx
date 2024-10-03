@@ -229,14 +229,6 @@ const WebAnalyticsOnboarding = (): JSX.Element => {
             visible: true,
         },
         {
-            title: 'Capture console logs',
-            description: `Automatically enable console log capture`,
-            teamProperty: 'capture_console_log_opt_in',
-            value: true,
-            type: 'toggle',
-            visible: false,
-        },
-        {
             title: 'Capture network performance',
             description: `Automatically enable network performance capture`,
             teamProperty: 'capture_performance_opt_in',
