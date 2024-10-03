@@ -54,9 +54,10 @@ export const hedgehogBuddyLogic = kea<hedgehogBuddyLogicType>([
             {
                 loadRemoteConfig: async () => {
                     const endpoint = '/api/users/@me/hedgehog_config'
-                    const maybeMountedToolbarConfigLogic = toolbarConfigLogic.findMounted()
-                    if (maybeMountedToolbarConfigLogic) {
-                        if (!maybeMountedToolbarConfigLogic.values.isAuthenticated) {
+                    const mountedToolbarConfigLogic = toolbarConfigLogic.findMounted()
+                    if (mountedToolbarConfigLogic) {
+                        // If toolbarConfigLogic is mounted, we're inside the Toolbar
+                        if (!mountedToolbarConfigLogic.values.isAuthenticated) {
                             return null
                         }
                         return await (await toolbarFetch(endpoint, 'GET')).json()
@@ -69,9 +70,10 @@ export const hedgehogBuddyLogic = kea<hedgehogBuddyLogicType>([
                     const localConfig = values.localConfig
                     let newConfig: Partial<HedgehogConfig>
 
-                    const maybeMountedToolbarConfigLogic = toolbarConfigLogic.findMounted()
-                    if (maybeMountedToolbarConfigLogic) {
-                        if (!maybeMountedToolbarConfigLogic.values.isAuthenticated) {
+                    const mountedToolbarConfigLogic = toolbarConfigLogic.findMounted()
+                    if (mountedToolbarConfigLogic) {
+                        // If toolbarConfigLogic is mounted, we're inside the Toolbar
+                        if (!mountedToolbarConfigLogic.values.isAuthenticated) {
                             return null
                         }
                         newConfig = await (await toolbarFetch(endpoint, 'PATCH', config)).json()
