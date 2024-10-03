@@ -207,8 +207,8 @@ mod test {
 
     #[test]
     pub fn test_escaped_escape_sequences() {
-        let json_str = r#"{"key":"\\u1234"}"#.to_string();
-        let expected = r#"{"key":"\\u1234"}"#.to_string();
+        let json_str = r#"{"key":"\\uDC00"}"#.to_string();
+        let expected = r#"{"key":"\\uDC00"}"#.to_string();
         assert_eq!(
             super::replace_invalid_hex_escape_strings(json_str).unwrap(),
             expected
@@ -217,8 +217,8 @@ mod test {
 
     #[test]
     pub fn test_escaped_escaped_escaped_sequences() {
-        let json_str = r#"{"key":"\\\u1234"}"#.to_string();
-        let expected = r#"{"key":"\\\u1234"}"#.to_string();
+        let json_str = r#"{"key":"\\\uDC00"}"#.to_string();
+        let expected = r#"{"key":"\\\uDC00"}"#.to_string();
         assert_eq!(
             super::replace_invalid_hex_escape_strings(json_str).unwrap(),
             expected
