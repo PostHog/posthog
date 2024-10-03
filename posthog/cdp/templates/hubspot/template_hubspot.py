@@ -25,35 +25,24 @@ let headers := {
     'Content-Type': 'application/json'
 }
 
-let res := fetch('https://api.hubapi.com/crm/v3/objects/contacts', {
-  'method': 'POST',
-  'headers': headers,
-  'body': {
-    'properties': properties
-  }
+let res := fetch('https://api.hubapi.com/crm/v3/objects/contacts/batch/upsert', {
+    'method': 'POST',
+    'headers': headers,
+    'body': {
+        'inputs': [
+            {
+                'properties': properties,
+                'id': properties.email,
+                'idProperty': 'email'
+            }
+        ]
+    }
 })
 
-if (res.status == 409) {
-    let existingId := replaceOne(res.body.message, 'Contact already exists. Existing ID: ', '')
-    let updateRes := fetch(f'https://api.hubapi.com/crm/v3/objects/contacts/{existingId}', {
-        'method': 'PATCH',
-        'headers': headers,
-        'body': {
-            'properties': properties
-        }
-    })
-
-    if (updateRes.status != 200 or updateRes.body.status == 'error') {
-        print('Error updating contact:', updateRes.body)
-        return
-    }
+if (res.status == 200) {
     print('Contact updated successfully!')
-    return
-} else if (res.status >= 300 or res.body.status == 'error') {
-    print('Error creating contact:', res.body)
-    return
 } else {
-    print('Contact created successfully!')
+    throw Error(f'Error updating contact (status {res.status}): {res.body}')
 }
 """.strip(),
     inputs_schema=[
