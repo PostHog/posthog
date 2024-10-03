@@ -72,9 +72,9 @@ ALERT_CHECK_ERROR_COUNTER = Counter(
     "Number of alert check errors that don't notify the user",
 )
 
-ALERT_CHECKED_COUNTER = Counter(
-    "alerts_checked",
-    "Number of alerts we tried to check",
+ALERT_COMPUTED_COUNTER = Counter(
+    "alerts_computed",
+    "Number of alerts we calculated",
     labelnames=["calculation_interval"],
 )
 
@@ -215,8 +215,6 @@ def check_alert(alert_id: str) -> None:
         logger.warning("Alert not found or not enabled", alert_id=alert_id)
         return
 
-    ALERT_CHECKED_COUNTER.labels(calculation_interval=alert.calculation_interval).inc()
-
     now = datetime.now(UTC)
     if alert.next_check_at and alert.next_check_at > now:
         logger.warning(
@@ -255,6 +253,8 @@ def check_alert_atomically(alert: AlertConfiguration) -> None:
     2. Compare the aggregated value with the threshold
     3. Send notifications if breaches are found
     """
+    ALERT_COMPUTED_COUNTER.labels(calculation_interval=alert.calculation_interval).inc()
+
     insight = alert.insight
     aggregated_value: Optional[float] = None
     error: Optional[dict] = None
