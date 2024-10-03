@@ -665,15 +665,16 @@ class _Printer(Visitor):
                 elif constant_expr.value is False:
                     return f"equals({property_source.value_expr}, 'false')"
 
-                printed_expr = f"equals({property_source.value_expr}, {self.visit(constant_expr)})"
-                if constant_expr.value == "":
-                    # If we're comparing to an empty string literal, we need to disambiguate this from the default value
-                    # for the ``Map(String, String)`` type used for storing property group values by also ensuring that
-                    # the property key is present in the map. If this is in a ``WHERE`` clause, this also ensures we can
-                    # still use the data skipping index on keys, even though the values index cannot be used.
-                    printed_expr = f"and({property_source.has_expr}, {printed_expr})"
+                if isinstance(constant_expr.type, ast.StringType):
+                    printed_expr = f"equals({property_source.value_expr}, {self.visit(constant_expr)})"
+                    if constant_expr.value == "":
+                        # If we're comparing to an empty string literal, we need to disambiguate this from the default value
+                        # for the ``Map(String, String)`` type used for storing property group values by also ensuring that
+                        # the property key is present in the map. If this is in a ``WHERE`` clause, this also ensures we can
+                        # still use the data skipping index on keys, even though the values index cannot be used.
+                        printed_expr = f"and({property_source.has_expr}, {printed_expr})"
 
-                return printed_expr
+                    return printed_expr
 
             elif node.op == ast.CompareOperationOp.NotEq:
                 if constant_expr.value is None:
