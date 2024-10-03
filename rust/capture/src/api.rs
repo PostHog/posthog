@@ -2,8 +2,6 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use time::OffsetDateTime;
-use uuid::Uuid;
 
 use crate::token::InvalidTokenReason;
 
@@ -92,39 +90,5 @@ impl IntoResponse for CaptureError {
             }
         }
         .into_response()
-    }
-}
-
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
-pub enum DataType {
-    AnalyticsMain,
-    AnalyticsHistorical,
-    ClientIngestionWarning,
-    HeatmapMain,
-    ExceptionMain,
-    SnapshotMain,
-}
-#[derive(Clone, Debug, Serialize, Eq, PartialEq)]
-pub struct ProcessedEvent {
-    #[serde(skip_serializing)]
-    pub data_type: DataType,
-    pub uuid: Uuid,
-    pub distinct_id: String,
-    pub ip: String,
-    pub data: String,
-    pub now: String,
-    #[serde(
-        with = "time::serde::rfc3339::option",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub sent_at: Option<OffsetDateTime>,
-    pub token: String,
-    #[serde(skip_serializing)]
-    pub session_id: Option<String>,
-}
-
-impl ProcessedEvent {
-    pub fn key(&self) -> String {
-        format!("{}:{}", self.token, self.distinct_id)
     }
 }

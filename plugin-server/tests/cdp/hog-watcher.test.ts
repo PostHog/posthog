@@ -48,8 +48,7 @@ describe('HogWatcher', () => {
 
         beforeEach(async () => {
             hub = await createHub()
-            mockCeleryApplyAsync = jest.fn()
-            hub.db.celeryApplyAsync = mockCeleryApplyAsync
+            hub.celery.applyAsync = mockCeleryApplyAsync = jest.fn()
 
             now = 1720000000000
             mockNow.mockReturnValue(now)

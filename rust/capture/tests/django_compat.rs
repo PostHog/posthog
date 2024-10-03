@@ -4,13 +4,14 @@ use axum::http::StatusCode;
 use axum_test_helper::TestClient;
 use base64::engine::general_purpose;
 use base64::Engine;
-use capture::api::{CaptureError, CaptureResponse, CaptureResponseCode, DataType, ProcessedEvent};
+use capture::api::{CaptureError, CaptureResponse, CaptureResponseCode};
 use capture::config::CaptureMode;
 use capture::limiters::redis::{QuotaResource, RedisLimiter, QUOTA_LIMITER_CACHE_KEY};
 use capture::redis::MockRedisClient;
 use capture::router::router;
 use capture::sinks::Event;
 use capture::time::TimeSource;
+use capture::v0_request::{DataType, ProcessedEvent};
 use health::HealthRegistry;
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -161,9 +162,9 @@ async fn it_matches_django_capture_behaviour() -> anyhow::Result<()> {
         {
             // Ensure the data type matches
             if case.historical_migration {
-                assert_eq!(DataType::AnalyticsHistorical, message.data_type);
+                assert_eq!(DataType::AnalyticsHistorical, message.metadata.data_type);
             } else {
-                assert_eq!(DataType::AnalyticsMain, message.data_type);
+                assert_eq!(DataType::AnalyticsMain, message.metadata.data_type);
             }
 
             // Normalizing the expected event to align with known django->rust inconsistencies
@@ -193,7 +194,7 @@ async fn it_matches_django_capture_behaviour() -> anyhow::Result<()> {
                     object.remove("library_version");
                 }
 
-                let found_props: Value = serde_json::from_str(&message.data)?;
+                let found_props: Value = serde_json::from_str(&message.event.data)?;
                 let match_config =
                     assert_json_diff::Config::new(assert_json_diff::CompareMode::Strict);
                 if let Err(e) =
@@ -205,7 +206,7 @@ async fn it_matches_django_capture_behaviour() -> anyhow::Result<()> {
                     );
                     mismatches += 1;
                 } else {
-                    *expected_data = json!(&message.data)
+                    *expected_data = json!(&message.event.data)
                 }
             }
 
@@ -221,7 +222,7 @@ async fn it_matches_django_capture_behaviour() -> anyhow::Result<()> {
 
             let match_config = assert_json_diff::Config::new(assert_json_diff::CompareMode::Strict);
             if let Err(e) =
-                assert_json_matches_no_panic(&json!(expected), &json!(message), match_config)
+                assert_json_matches_no_panic(&json!(expected), &json!(message.event), match_config)
             {
                 println!(
                     "record mismatch at line {}, event {}: {}",

@@ -20,6 +20,7 @@ from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.events_query_runner import EventsQueryRunner
 from posthog.models import Organization, Plugin, Team
+from posthog.models.app_metrics2.sql import TRUNCATE_APP_METRICS2_TABLE_SQL
 from posthog.models.dashboard import Dashboard
 from posthog.models.event.util import create_event
 from posthog.models.feature_flag import FeatureFlag
@@ -52,8 +53,10 @@ from posthog.test.base import (
     _create_person,
     also_test_with_materialized_columns,
     flush_persons_and_events,
+    run_clickhouse_statement_in_parallel,
     snapshot_clickhouse_queries,
 )
+from posthog.test.fixtures import create_app_metric2
 from posthog.utils import get_machine_id, get_previous_day
 from posthog.warehouse.models import ExternalDataJob, ExternalDataSource
 
@@ -529,6 +532,8 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "event_explorer_api_rows_read": 0,
                     "event_explorer_api_duration_ms": 0,
                     "rows_synced_in_period": 0,
+                    "hog_function_calls_in_period": 0,
+                    "hog_function_fetch_calls_in_period": 0,
                     "date": "2022-01-09",
                     "organization_id": str(self.organization.id),
                     "organization_name": "Test",
@@ -581,6 +586,8 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                             "event_explorer_api_rows_read": 0,
                             "event_explorer_api_duration_ms": 0,
                             "rows_synced_in_period": 0,
+                            "hog_function_calls_in_period": 0,
+                            "hog_function_fetch_calls_in_period": 0,
                         },
                         str(self.org_1_team_2.id): {
                             "event_count_in_period": 11,
@@ -627,6 +634,8 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                             "event_explorer_api_rows_read": 0,
                             "event_explorer_api_duration_ms": 0,
                             "rows_synced_in_period": 0,
+                            "hog_function_calls_in_period": 0,
+                            "hog_function_fetch_calls_in_period": 0,
                         },
                     },
                 },
@@ -696,6 +705,8 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "event_explorer_api_rows_read": 0,
                     "event_explorer_api_duration_ms": 0,
                     "rows_synced_in_period": 0,
+                    "hog_function_calls_in_period": 0,
+                    "hog_function_fetch_calls_in_period": 0,
                     "date": "2022-01-09",
                     "organization_id": str(self.org_2.id),
                     "organization_name": "Org 2",
@@ -748,6 +759,8 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                             "event_explorer_api_rows_read": 0,
                             "event_explorer_api_duration_ms": 0,
                             "rows_synced_in_period": 0,
+                            "hog_function_calls_in_period": 0,
+                            "hog_function_fetch_calls_in_period": 0,
                         }
                     },
                 },
@@ -1270,6 +1283,45 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
 
         assert org_2_report["organization_name"] == "Org 2"
         assert org_2_report["rows_synced_in_period"] == 0
+
+
+@freeze_time("2022-01-10T00:01:00Z")
+class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, ClickhouseTestMixin):
+    def setUp(self) -> None:
+        Team.objects.all().delete()
+        run_clickhouse_statement_in_parallel([TRUNCATE_APP_METRICS2_TABLE_SQL])
+        return super().setUp()
+
+    def _setup_teams(self) -> None:
+        self.org_1 = Organization.objects.create(name="Org 1")
+        self.org_1_team_1 = Team.objects.create(pk=3, organization=self.org_1, name="Team 1 org 1")
+        self.org_1_team_2 = Team.objects.create(pk=4, organization=self.org_1, name="Team 2 org 1")
+
+    @patch("posthog.tasks.usage_report.Client")
+    @patch("posthog.tasks.usage_report.send_report_to_billing_service")
+    def test_hog_function_usage_metrics(self, billing_task_mock: MagicMock, posthog_capture_mock: MagicMock) -> None:
+        self._setup_teams()
+
+        create_app_metric2(team_id=self.org_1_team_1.id, app_source="hog_function", metric_name="succeeded", count=2)
+        create_app_metric2(team_id=self.org_1_team_2.id, app_source="hog_function", metric_name="failed", count=3)
+        create_app_metric2(team_id=self.org_1_team_1.id, app_source="hog_function", metric_name="fetch", count=1)
+        create_app_metric2(team_id=self.org_1_team_2.id, app_source="hog_function", metric_name="fetch", count=2)
+
+        period = get_previous_day(at=now() + relativedelta(days=1))
+        period_start, period_end = period
+        all_reports = _get_all_org_reports(period_start, period_end)
+
+        org_1_report = _get_full_org_usage_report_as_dict(
+            _get_full_org_usage_report(all_reports[str(self.org_1.id)], get_instance_metadata(period))
+        )
+
+        assert org_1_report["organization_name"] == "Org 1"
+        assert org_1_report["hog_function_calls_in_period"] == 5
+        assert org_1_report["hog_function_fetch_calls_in_period"] == 3
+        assert org_1_report["teams"]["3"]["hog_function_calls_in_period"] == 2
+        assert org_1_report["teams"]["3"]["hog_function_fetch_calls_in_period"] == 1
+        assert org_1_report["teams"]["4"]["hog_function_calls_in_period"] == 3
+        assert org_1_report["teams"]["4"]["hog_function_fetch_calls_in_period"] == 2
 
 
 class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest):
