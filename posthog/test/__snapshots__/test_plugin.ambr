@@ -209,7 +209,7 @@
   FROM "posthog_pluginsourcefile"
   '''
 # ---
-# name: TestPluginSourceFile.test_sync_from_plugin_archive_from_zip_without_index_ts_but_site_Ts_works
+# name: TestPluginSourceFile.test_sync_from_plugin_archive_from_zip_without_index_ts_but_site_ts_works
   '''
   SELECT "posthog_pluginsourcefile"."id",
          "posthog_pluginsourcefile"."plugin_id",
@@ -227,7 +227,7 @@
   UPDATE
   '''
 # ---
-# name: TestPluginSourceFile.test_sync_from_plugin_archive_from_zip_without_index_ts_but_site_Ts_works.1
+# name: TestPluginSourceFile.test_sync_from_plugin_archive_from_zip_without_index_ts_but_site_ts_works.1
   '''
   SELECT "posthog_pluginsourcefile"."id",
          "posthog_pluginsourcefile"."plugin_id",
@@ -245,7 +245,7 @@
   UPDATE
   '''
 # ---
-# name: TestPluginSourceFile.test_sync_from_plugin_archive_from_zip_without_index_ts_but_site_Ts_works.2
+# name: TestPluginSourceFile.test_sync_from_plugin_archive_from_zip_without_index_ts_but_site_ts_works.2
   '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_pluginsourcefile"
