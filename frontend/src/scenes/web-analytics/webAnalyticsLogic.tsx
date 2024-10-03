@@ -699,15 +699,15 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                           [totalConversionSeries]
                                       )
                                     : null,
-                                conversionGoal && totalConversionSeries && uniqueConversionsSeries
+                                conversionGoal && uniqueUserSeries && uniqueConversionsSeries
                                     ? createGraphsTrendsTab(
                                           GraphsTab.CONVERSION_RATE,
                                           'Conversion rate',
                                           'Conversion rate',
-                                          [totalConversionSeries, uniqueConversionsSeries],
+                                          [uniqueConversionsSeries, uniqueUserSeries],
                                           {
                                               formula: 'A / B',
-                                              aggregationAxisFormat: 'percentage',
+                                              aggregationAxisFormat: 'percentage_scaled',
                                           }
                                       )
                                     : null,

@@ -322,6 +322,7 @@ export interface RecordingsQuery extends DataNode<RecordingsQueryResponse> {
         | 'mouse_activity_count'
     limit?: integer
     offset?: integer
+    user_modified_filters?: Record<string, any>
 }
 
 export interface HogQLNotice {

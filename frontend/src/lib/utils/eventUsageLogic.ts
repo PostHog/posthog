@@ -361,11 +361,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportBookmarkletDragged: true,
         reportProjectCreationSubmitted: (projectCount: number, nameLength: number) => ({ projectCount, nameLength }),
         reportProjectNoticeDismissed: (key: string) => ({ key }),
-        reportBulkInviteAttempted: (inviteesCount: number, namesCount: number) => ({ inviteesCount, namesCount }),
-        reportInviteAttempted: (nameProvided: boolean, instanceEmailAvailable: boolean) => ({
-            nameProvided,
-            instanceEmailAvailable,
-        }),
         reportPersonPropertyUpdated: (
             action: 'added' | 'updated' | 'removed',
             totalProperties: number,
@@ -572,9 +567,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         }),
         reportSurveyCreated: (survey: Survey, isDuplicate?: boolean) => ({ survey, isDuplicate }),
         reportSurveyEdited: (survey: Survey) => ({ survey }),
-        reportSurveyLaunched: (survey: Survey) => ({ survey }),
-        reportSurveyStopped: (survey: Survey) => ({ survey }),
-        reportSurveyResumed: (survey: Survey) => ({ survey }),
         reportSurveyArchived: (survey: Survey) => ({ survey }),
         reportSurveyTemplateClicked: (template: SurveyTemplateType) => ({ template }),
         reportSurveyCycleDetected: (survey: Survey | NewSurvey) => ({ survey }),
@@ -740,26 +732,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportProjectNoticeDismissed: async ({ key }) => {
             // ProjectNotice was previously called DemoWarning
             posthog.capture('demo warning dismissed', { warning_key: key })
-        },
-        reportBulkInviteAttempted: async ({
-            inviteesCount,
-            namesCount,
-        }: {
-            inviteesCount: number
-            namesCount: number
-        }) => {
-            // namesCount -> Number of invitees for which a name was provided
-            posthog.capture('bulk invite attempted', { invitees_count: inviteesCount, name_count: namesCount })
-            for (let i = 0; i < inviteesCount; i++) {
-                posthog.capture('team member invited')
-            }
-        },
-        reportInviteAttempted: async ({ nameProvided, instanceEmailAvailable }) => {
-            posthog.capture('team member invited')
-            posthog.capture('team invite attempted', {
-                name_provided: nameProvided,
-                instance_email_available: instanceEmailAvailable,
-            })
         },
         reportFunnelCalculated: async ({ eventCount, actionCount, interval, funnelVizType, success, error }) => {
             posthog.capture('funnel result calculated', {
@@ -1268,16 +1240,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 ),
             })
         },
-        reportSurveyLaunched: ({ survey }) => {
-            posthog.capture('survey launched', {
-                name: survey.name,
-                id: survey.id,
-                survey_type: survey.type,
-                question_types: survey.questions.map((question) => question.type),
-                created_at: survey.created_at,
-                start_date: survey.start_date,
-            })
-        },
         reportSurveyViewed: ({ survey }) => {
             posthog.capture('survey viewed', {
                 name: survey.name,
@@ -1285,23 +1247,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 created_at: survey.created_at,
                 start_date: survey.start_date,
                 end_date: survey.end_date,
-            })
-        },
-        reportSurveyStopped: ({ survey }) => {
-            posthog.capture('survey stopped', {
-                name: survey.name,
-                id: survey.id,
-                created_at: survey.created_at,
-                start_date: survey.start_date,
-                end_date: survey.end_date,
-            })
-        },
-        reportSurveyResumed: ({ survey }) => {
-            posthog.capture('survey resumed', {
-                name: survey.name,
-                id: survey.id,
-                created_at: survey.created_at,
-                start_date: survey.start_date,
             })
         },
         reportSurveyArchived: ({ survey }) => {
