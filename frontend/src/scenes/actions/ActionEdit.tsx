@@ -6,7 +6,6 @@ import { router } from 'kea-router'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconPlayCircle } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -34,8 +33,6 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
     const { tags } = useValues(tagsModel)
 
     const slackEnabled = currentTeam?.slack_incoming_webhook
-
-    const hogFunctionsEnabled = useFeatureFlag('HOG_FUNCTIONS')
 
     const deleteButton = (): JSX.Element => (
         <LemonButton
@@ -211,47 +208,42 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
                     </LemonField>
                 </div>
 
-                {!hogFunctionsEnabled || action.post_to_slack ? (
+                {action.post_to_slack ? (
                     <div className="my-4 space-y-2">
                         <h2 className="subtitle">Webhook delivery</h2>
 
-                        {hogFunctionsEnabled && (
-                            <>
-                                <LemonBanner
-                                    type="error"
-                                    action={{
-                                        children: 'Upgrade to new version',
-                                        onClick: () =>
-                                            LemonDialog.open({
-                                                title: 'Upgrade webhook',
-                                                width: '30rem',
-                                                description:
-                                                    'This will create a new Destination in the upgraded system. The action will have its webhook disabled. There will be slight difference in the placeholder tags, so double check that everything works as expected.',
-                                                secondaryButton: {
-                                                    type: 'secondary',
-                                                    children: 'Cancel',
-                                                },
-                                                primaryButton: {
-                                                    type: 'primary',
-                                                    onClick: () => migrateToHogFunction(),
-                                                    children: 'Upgrade',
-                                                },
-                                            }),
-                                        disabledReason: hasCohortFilters
-                                            ? 'Can not upgrade because action has a cohort filter.'
-                                            : migrationLoading
-                                            ? 'Loading...'
-                                            : actionChanged
-                                            ? 'Please save the action first'
-                                            : undefined,
-                                    }}
-                                >
-                                    Action Webhooks have been replaced by the new and improved{' '}
-                                    <b>Pipeline Destinations</b>.{' '}
-                                    {!hasCohortFilters && !actionChanged ? 'Click to upgrade.' : ''}
-                                </LemonBanner>
-                            </>
-                        )}
+                        <LemonBanner
+                            type="error"
+                            action={{
+                                children: 'Upgrade to new version',
+                                onClick: () =>
+                                    LemonDialog.open({
+                                        title: 'Upgrade webhook',
+                                        width: '30rem',
+                                        description:
+                                            'This will create a new Destination in the upgraded system. The action will have its webhook disabled. There will be slight difference in the placeholder tags, so double check that everything works as expected.',
+                                        secondaryButton: {
+                                            type: 'secondary',
+                                            children: 'Cancel',
+                                        },
+                                        primaryButton: {
+                                            type: 'primary',
+                                            onClick: () => migrateToHogFunction(),
+                                            children: 'Upgrade',
+                                        },
+                                    }),
+                                disabledReason: hasCohortFilters
+                                    ? 'Can not upgrade because action has a cohort filter.'
+                                    : migrationLoading
+                                    ? 'Loading...'
+                                    : actionChanged
+                                    ? 'Please save the action first'
+                                    : undefined,
+                            }}
+                        >
+                            Action Webhooks have been replaced by the new and improved <b>Pipeline Destinations</b>.{' '}
+                            {!hasCohortFilters && !actionChanged ? 'Click to upgrade.' : ''}
+                        </LemonBanner>
 
                         <LemonField name="post_to_slack">
                             {({ value, onChange }) => (
