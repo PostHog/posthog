@@ -172,6 +172,7 @@ function FeatureFlagCopySection(): JSX.Element {
                         options={
                             currentOrganization?.teams
                                 ?.map((team) => ({ value: team.id, label: team.name }))
+                                .sort((a, b) => a.label.localeCompare(b.label))
                                 .filter((option) => option.value !== currentTeam?.id) || []
                         }
                         className="min-w-[10rem]"

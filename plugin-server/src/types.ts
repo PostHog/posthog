@@ -157,7 +157,6 @@ export interface PluginsServerConfig extends CdpConfig {
     // Redis url pretty much only used locally / self hosted
     REDIS_URL: string
     // Redis params for the ingestion services
-    INGESTION_REDIS_PASSWORD: string
     INGESTION_REDIS_HOST: string
     INGESTION_REDIS_PORT: number
     // Redis params for the core posthog (django+celery) services

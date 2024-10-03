@@ -100,7 +100,7 @@ export function Products(): JSX.Element {
                 {isFirstProductOnboarding && <p className="text-center">You can set up additional products later.</p>}
             </div>
             <>
-                <div className="grid gap-4 grid-rows-[160px] grid-cols-[repeat(2,_minmax(min-content,_160px))] md:grid-cols-[repeat(5,_minmax(min-content,_160px))] ">
+                <div className="grid gap-4 grid-rows-[160px] grid-cols-[repeat(2,_minmax(min-content,_160px))] md:grid-cols-[repeat(3,_minmax(min-content,_160px))] ">
                     {Object.keys(availableOnboardingProducts).map((productKey) => (
                         <ProductCard
                             product={availableOnboardingProducts[productKey]}
