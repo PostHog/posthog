@@ -1,4 +1,5 @@
 import json
+from datetime import datetime, UTC
 from typing import Any, Optional
 from unittest import mock
 from unittest.mock import ANY, MagicMock, call, patch
@@ -17,6 +18,7 @@ from posthog.models.async_deletion.async_deletion import AsyncDeletion, Deletion
 from posthog.models.dashboard import Dashboard
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.product_intent import ProductIntent
 from posthog.models.team import Team
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.schedule import describe_schedule
@@ -990,6 +992,30 @@ def team_api_test_factory():
             self._patch_session_replay_config({"ai_config": {"included_event_properties": ["and another"]}})
             # and the existing second level nesting is not preserved
             self._assert_replay_config_is({"ai_config": {"opt_in": None, "included_event_properties": ["and another"]}})
+
+        @freeze_time("2024-01-01T00:00:00Z")
+        def test_can_add_product_intent(self) -> None:
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/add_product_intent/", {"product_type": "product_analytics"}
+            )
+            assert response.status_code == status.HTTP_201_CREATED
+            assert response.json() == {"id": str(response.json()["id"]), "created": True}
+            product_intent = ProductIntent.objects.get(team=self.team, product_type="product_analytics")
+            assert product_intent.created_at == datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC)
+
+        def test_can_complete_product_onboarding(self) -> None:
+            with freeze_time("2024-01-01T00:00:00Z"):
+                product_intent = ProductIntent.objects.create(team=self.team, product_type="product_analytics")
+            assert product_intent.created_at == datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC)
+            assert product_intent.onboarding_completed_at is None
+            with freeze_time("2024-01-05T00:00:00Z"):
+                response = self.client.patch(
+                    f"/api/environments/{self.team.id}/complete_product_onboarding/",
+                    {"product_type": "product_analytics"},
+                )
+            assert response.status_code == status.HTTP_200_OK
+            product_intent = ProductIntent.objects.get(team=self.team, product_type="product_analytics")
+            assert product_intent.onboarding_completed_at == datetime(2024, 1, 5, 0, 0, 0, tzinfo=UTC)
 
         def _assert_replay_config_is(self, expected: dict[str, Any] | None) -> HttpResponse:
             get_response = self.client.get("/api/environments/@current/")

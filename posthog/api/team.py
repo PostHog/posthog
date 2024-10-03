@@ -1,22 +1,22 @@
 import json
+from datetime import datetime, timedelta, UTC
 from functools import cached_property
 from typing import Any, Optional, cast
-from datetime import timedelta
 from uuid import UUID
 
 from django.shortcuts import get_object_or_404
 from loginas.utils import is_impersonated_session
-from posthog.jwt import PosthogJwtAudience, encode_jwt
-from rest_framework.permissions import BasePermission, IsAuthenticated
-from posthog.api.utils import action
 from rest_framework import exceptions, request, response, serializers, viewsets
+from rest_framework.permissions import BasePermission, IsAuthenticated
 
-from posthog.geoip import get_geoip_properties
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import TeamBasicSerializer
+from posthog.api.utils import action
 from posthog.constants import AvailableFeature
 from posthog.event_usage import report_user_action
-from posthog.models import Team, User
+from posthog.geoip import get_geoip_properties
+from posthog.jwt import PosthogJwtAudience, encode_jwt
+from posthog.models import ProductIntent, Team, User
 from posthog.models.activity_logging.activity_log import (
     Detail,
     dict_changes_between,
@@ -117,6 +117,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     effective_membership_level = serializers.SerializerMethodField()
     has_group_types = serializers.SerializerMethodField()
     live_events_token = serializers.SerializerMethodField()
+    product_intents = serializers.SerializerMethodField()
 
     class Meta:
         model = Team
@@ -171,6 +172,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "surveys_opt_in",
             "heatmaps_opt_in",
             "live_events_token",
+            "product_intents",
         )
         read_only_fields = (
             "id",
@@ -200,6 +202,9 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             timedelta(days=7),
             PosthogJwtAudience.LIVESTREAM,
         )
+
+    def get_product_intents(self, obj):
+        return ProductIntent.objects.filter(team=obj).values("product_type", "created_at", "onboarding_completed_at")
 
     @staticmethod
     def validate_session_recording_linked_flag(value) -> dict | None:
@@ -511,6 +516,48 @@ class TeamViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             page=page,
         )
         return activity_page_response(activity_page, limit, page, request)
+
+    @action(
+        methods=["PATCH"],
+        detail=True,
+    )
+    def add_product_intent(self, request: request.Request, *args, **kwargs):
+        team = self.get_object()
+        product_type = request.data.get("product_type")
+
+        if not product_type:
+            return response.Response({"error": "product_type is required"}, status=400)
+
+        product_intent, created = ProductIntent.objects.get_or_create(team=team, product_type=product_type)
+
+        status_code = 201 if created else 200
+        return response.Response(
+            {
+                "id": product_intent.id,
+                "created": created,
+                "product_type": product_intent.product_type,
+                "team_id": team.id,
+            },
+            status=status_code,
+        )
+
+    @action(methods=["PATCH"], detail=True)
+    def complete_product_onboarding(self, request: request.Request, *args, **kwargs):
+        team = self.get_object()
+        product_type = request.data.get("product_type")
+
+        if not product_type:
+            return response.Response({"error": "product_type is required"}, status=400)
+
+        product_intent = ProductIntent.objects.filter(team=team, product_type=product_type).first()
+
+        if not product_intent:
+            product_intent = ProductIntent.objects.create(team=team, product_type=product_type)
+
+        product_intent.onboarding_completed_at = datetime.now(tz=UTC)
+        product_intent.save()
+
+        return response.Response(status=200)
 
     @cached_property
     def user_permissions(self):
