@@ -1,5 +1,5 @@
 [package]
-name = "error-tracking"
+name = "cymbal"
 version = "0.1.0"
 edition = "2021"
 
@@ -14,11 +14,10 @@ axum = { workspace = true }
 metrics = { workspace = true }
 common-metrics = { path = "../common/metrics" }
 common-alloc = { path = "../common/alloc" }
-common-types = { path = "../common/types" }
 common-kafka = { path = "../common/kafka" }
 thiserror = { workspace = true }
 sqlx = { workspace = true }
-moka = { workspace = true }
+serde_json = { workspace = true }
 
 [lints]
 workspace = true
