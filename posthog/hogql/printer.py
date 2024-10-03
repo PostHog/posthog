@@ -706,16 +706,19 @@ class _Printer(Visitor):
                     return f"in({property_source.value_expr}, {self.visit(node.right)})"
             elif isinstance(node.right, ast.Tuple):
                 # If any of the values on the RHS are the empty string, we need to disambiguate it from the default
-                # value for missing keys. NULLs should also be dropped, but everything else can be passed through as-is.
+                # value for missing keys. NULLs should also be dropped, but everything else we can directly compare
+                # (strings) can be passed through as-is
                 default_value_expr: ast.Constant | None = None
                 for expr in node.right.exprs[:]:
                     if not isinstance(expr, ast.Constant):
                         return None  # only optimize constants for now, see above
-                    elif expr.value is None:
+                    if expr.value is None:
                         node.right.exprs.remove(expr)
                     elif expr.value == "":
                         default_value_expr = expr
                         node.right.exprs.remove(expr)
+                    elif not isinstance(expr.type, ast.StringType):
+                        return None
                 if len(node.right.exprs) > 0:
                     # TODO: Check to see if it'd be faster to do equality comparison here instead?
                     printed_expr = f"in({property_source.value_expr}, {self.visit(node.right)})"
