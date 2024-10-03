@@ -1,9 +1,11 @@
 name: Trigger UDFs Workflow
 
 on:
-  pull_request:
-    # paths:
-    #   - 'posthog/user_scripts/**'
+  push:
+    branches:
+      - master
+    paths:
+      - 'posthog/user_scripts/**'
 
 jobs:
   trigger_udfs_workflow:
