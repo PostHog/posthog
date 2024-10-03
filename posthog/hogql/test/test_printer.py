@@ -455,6 +455,9 @@ class TestPrinter(BaseTest):
             expected_skip_indexes_used={"properties_group_custom_keys_bf", "properties_group_custom_values_bf"},
         )
 
+        # Don't optimize comparisons to types that require non-trivial type conversions.
+        self._test_property_group_comparison("properties.key = 1", None)
+
         # TODO: We'll want to eventually support this type of expression where the right hand side is a non-``Nullable``
         # value, since this would allow expressions that only reference constant values to also use the appropriate
         # index, but for right now we only want to optimize comparisons to constant values directly for simplicity.
