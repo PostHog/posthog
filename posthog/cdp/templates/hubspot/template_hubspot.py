@@ -12,8 +12,16 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     icon_url="/static/services/hubspot.png",
     category=["CRM", "Customer Success"],
     hog="""
-let properties := inputs.properties
-properties.email := inputs.email
+let properties := {
+    'email': inputs.email
+}
+for (let key, value in inputs.properties) {
+    if (typeof(value) in ('object', 'array', 'tuple')) {
+        properties[key] := jsonStringify(value)
+    } else {
+        properties[key] := value
+    }
+}
 
 if (empty(properties.email)) {
     print('`email` input is empty. Not creating a contact.')
@@ -24,25 +32,26 @@ let headers := {
     'Authorization': f'Bearer {inputs.oauth.access_token}',
     'Content-Type': 'application/json'
 }
+let body := {
+    'inputs': [
+        {
+            'properties': properties,
+            'id': properties.email,
+            'idProperty': 'email'
+        }
+    ]
+}
 
 let res := fetch('https://api.hubapi.com/crm/v3/objects/contacts/batch/upsert', {
     'method': 'POST',
     'headers': headers,
-    'body': {
-        'inputs': [
-            {
-                'properties': properties,
-                'id': properties.email,
-                'idProperty': 'email'
-            }
-        ]
-    }
+    'body': body
 })
 
 if (res.status == 200) {
-    print('Contact updated successfully!')
+    print(f'Contact {properties.email} updated successfully!')
 } else {
-    throw Error(f'Error updating contact (status {res.status}): {res.body}')
+    throw Error(f'Error updating contact {properties.email} (status {res.status}): {res.body}')
 }
 """.strip(),
     inputs_schema=[
