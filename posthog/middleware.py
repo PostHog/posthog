@@ -116,8 +116,10 @@ class AllowIPMiddleware:
             elif settings.BLOCKED_GEOIP_REGIONS:
                 if get_geoip_properties(ip).get("$geoip_country_code", None) not in settings.BLOCKED_GEOIP_REGIONS:
                     return response
-        return HttpResponse("PostHog is not available in your region", status=403)
-        # return render_template("blocked.html", request, status_code=403)
+        return HttpResponse(
+            "PostHog is not available in your region. If you think this is in error, please contact tim@posthog.com.",
+            status=403,
+        )
 
 
 class CsrfOrKeyViewMiddleware(CsrfViewMiddleware):
