@@ -32,7 +32,7 @@ from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.warehouse.models import DataWarehouseModelPath, DataWarehouseSavedQuery
 from posthog.warehouse.util import database_sync_to_async
 from posthog.warehouse.data_load.create_table import create_table_from_saved_query
-from posthog.warehouse.s3 import get_s3_client
+from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
 
 logger = structlog.get_logger()
 
@@ -330,25 +330,10 @@ async def materialize_model(model_label: str, team: Team) -> tuple[str, DeltaTab
         table.vacuum(retention_hours=24, enforce_retention_duration=False, dry_run=False)
 
         file_uris = table.file_uris()
-        prepare_s3_files_for_querying(saved_query, file_uris)
+        prepare_s3_files_for_querying(saved_query.folder_path, saved_query.name, file_uris)
 
     key, delta_table = tables.popitem()
     return (key, delta_table)
-
-
-def prepare_s3_files_for_querying(saved_query: DataWarehouseSavedQuery, file_uris: list[str]):
-    s3 = get_s3_client()
-
-    folder_path = f"{settings.BUCKET_URL}/{saved_query.folder_path}"
-    staging_url_pattern = f"{folder_path}/{saved_query.name}"
-    querying_url_pattern = f"{folder_path}/{saved_query.name}__query"
-
-    if s3.exists(querying_url_pattern):
-        s3.delete(querying_url_pattern, recursive=True)
-
-    for file in file_uris:
-        file_name = file.replace(f"{staging_url_pattern}/", "")
-        s3.copy(file, f"{querying_url_pattern}/{file_name}")
 
 
 @dlt.source(max_table_nesting=0)

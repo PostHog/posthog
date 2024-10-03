@@ -298,7 +298,7 @@ def create_hogql_database(
         .select_related("credential", "external_data_source")
     ):
         # Skip adding data warehouse tables that are materialized from views (in this case they have the same names)
-        if table.name in views.keys():
+        if views.get(table.name, None) is not None:
             continue
 
         s3_table = table.hogql_definition(modifiers)
