@@ -1,7 +1,6 @@
 import re
 from typing import Any, Optional, Union
 
-import posthoganalytics
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.conf import settings
@@ -183,24 +182,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
         if (
             self.table is not None
             and (self.status == DataWarehouseSavedQuery.Status.COMPLETED or self.last_run_at is not None)
-            and posthoganalytics.feature_enabled(
-                "data-modeling",
-                str(self.team.pk),
-                groups={
-                    "organization": str(self.team.organization_id),
-                    "project": str(self.team.pk),
-                },
-                group_properties={
-                    "organization": {
-                        "id": str(self.team.organization_id),
-                    },
-                    "project": {
-                        "id": str(self.team.pk),
-                    },
-                },
-                only_evaluate_locally=True,
-                send_feature_flag_events=False,
-            )
+            and modifiers.useMaterializedViews
         ):
             return self.table.hogql_definition(modifiers)
         else:

@@ -290,7 +290,7 @@ def create_hogql_database(
     views: dict[str, Table] = {}
 
     for saved_query in DataWarehouseSavedQuery.objects.filter(team_id=team.pk).exclude(deleted=True):
-        views[saved_query.name] = saved_query.hogql_definition()
+        views[saved_query.name] = saved_query.hogql_definition(modifiers)
 
     for table in (
         DataWarehouseTable.objects.filter(team_id=team.pk)
@@ -595,7 +595,10 @@ def serialize_database(
         )
         if len(saved_query) != 0:
             tables[view_name] = DatabaseSchemaViewTable(
-                fields=fields_dict, id=str(saved_query[0].pk), name=view.name, query=HogQLQuery(query=view.query)
+                fields=fields_dict,
+                id=str(saved_query[0].pk),
+                name=view.name,
+                query=HogQLQuery(query=saved_query[0].query["query"]),
             )
 
     return tables
