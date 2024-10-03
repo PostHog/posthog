@@ -23,10 +23,9 @@ export function Alerts({ alertId }: AlertsProps): JSX.Element {
     const { push } = useActions(router)
     const logic = alertsLogic()
     const { loadAlerts } = useActions(logic)
+    const { alertsSortedByState, alertsLoading } = useValues(logic)
 
     const { alert } = useValues(alertLogic({ alertId }))
-
-    const { alertsSortedByState, alertsLoading } = useValues(logic)
 
     const columns: LemonTableColumns<AlertType> = [
         {
