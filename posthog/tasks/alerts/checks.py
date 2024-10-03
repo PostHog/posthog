@@ -75,7 +75,7 @@ ALERT_CHECK_ERROR_COUNTER = Counter(
 ALERT_CHECKED_COUNTER = Counter(
     "alerts_checked",
     "Number of alerts we tried to check",
-    labelnames=["interval"],
+    labelnames=["calculation_interval"],
 )
 
 
@@ -215,7 +215,7 @@ def check_alert(alert_id: str) -> None:
         logger.warning("Alert not found or not enabled", alert_id=alert_id)
         return
 
-    ALERT_CHECKED_COUNTER.labels(interval=alert.calculation_interval).inc()
+    ALERT_CHECKED_COUNTER.labels(calculation_interval=alert.calculation_interval).inc()
 
     now = datetime.now(UTC)
     if alert.next_check_at and alert.next_check_at > now:
