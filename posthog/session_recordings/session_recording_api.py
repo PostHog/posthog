@@ -1,12 +1,10 @@
 import json
-import hashlib
 import os
 import time
 from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 
-from django.db import connection
 from prometheus_client import Histogram
 from typing import Any, cast
 
@@ -326,56 +324,6 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         filter = SessionRecordingsFilter(request=request, team=self.team)
         self._maybe_report_recording_list_filters_changed(request)
         return list_recordings_response(filter, request, self.get_serializer_context())
-
-    @extend_schema(
-        exclude=True,
-        description="""
-        Gets the comments associated with a single recording from any notebooks""",
-    )
-    @action(methods=["GET"], detail=True)
-    def comments(self, request: request.Request, *args: Any, **kwargs: Any) -> JsonResponse:
-        recording: SessionRecording = self.get_object()
-
-        with connection.cursor() as cursor:
-            query = """
-                SELECT
-                    short_id,
-                    title,
-                    string_agg(text_elem->>'text', ' ') AS comment,
-                    timestamp_elem->'attrs'->>'playbackTime' AS timeInRecording
-                FROM
-                    posthog_notebook,
-                    LATERAL jsonb_array_elements(content->'content') AS timestamp_json,  -- Explode the top-level content array
-                    LATERAL jsonb_array_elements(timestamp_json->'content') AS timestamp_elem -- Explore deeper content
-                    LEFT JOIN LATERAL jsonb_array_elements(timestamp_json->'content') AS text_elem ON text_elem->>'type' = 'text'
-                WHERE
-                    timestamp_elem->>'type' = 'ph-replay-timestamp'
-                    AND team_id = %s
-                    AND jsonb_extract_path_text(timestamp_elem->'attrs', 'sessionRecordingId') = %s
-                GROUP BY team_id, title, short_id, timeInRecording;
-            """
-
-            cursor.execute(query, [self.team_id, recording.session_id])
-            results = cursor.fetchall()
-            recording_comments = []
-            for result in results:
-                short_id = result[0]
-                title = result[1]
-                comment = result[2]
-                time_in_recording = result[3]
-                # the individual comments don't have an id, so we'll generate one
-                artificial_id = hashlib.sha256(f"{short_id}-{title}-{comment}-{time_in_recording}".encode()).hexdigest()
-                recording_comments.append(
-                    {
-                        "id": artificial_id,
-                        "notebookShortId": short_id,
-                        "notebookTitle": title,
-                        "comment": comment,
-                        "timeInRecording": time_in_recording,
-                    }
-                )
-
-        return JsonResponse(data={"results": recording_comments})
 
     @extend_schema(
         exclude=True,
