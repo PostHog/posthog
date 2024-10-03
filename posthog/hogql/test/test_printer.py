@@ -624,7 +624,9 @@ class TestPrinter(BaseTest):
         )
 
         # Don't optimize comparisons to types that require additional type conversions.
+        self._test_property_group_comparison("properties.key in true", None)
         self._test_property_group_comparison("properties.key in (true, false)", None)
+        self._test_property_group_comparison("properties.key in 1", None)
         self._test_property_group_comparison("properties.key in (1, 2, 3)", None)
 
         # Only direct constant comparison is supported for now -- see above.

@@ -702,7 +702,7 @@ class _Printer(Visitor):
                 elif node.right.value == "":
                     # If the RHS is the empty string, we need to disambiguate it from the default value for missing keys.
                     return f"and({property_source.has_expr}, equals({property_source.value_expr}, {self.visit(node.right)}))"
-                else:
+                elif isinstance(node.right.type, ast.StringType):
                     return f"in({property_source.value_expr}, {self.visit(node.right)})"
             elif isinstance(node.right, ast.Tuple):
                 # If any of the values on the RHS are the empty string, we need to disambiguate it from the default
