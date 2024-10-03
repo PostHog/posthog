@@ -188,6 +188,7 @@ export enum ProductKey {
     INTEGRATIONS = 'integrations',
     PLATFORM_AND_SUPPORT = 'platform_and_support',
     TEAMS = 'teams',
+    WEB_ANALYTICS = 'web_analytics',
 }
 
 type ProductKeyUnion = `${ProductKey}`
@@ -656,6 +657,7 @@ export enum SavedInsightsTabs {
     Yours = 'yours',
     Favorites = 'favorites',
     History = 'history',
+    Alerts = 'alerts',
 }
 
 export enum ReplayTabs {
@@ -1401,6 +1403,13 @@ export interface SessionRecordingType {
      * (assumes the recording was loaded from ClickHouse)
      * **/
     ongoing?: boolean
+}
+
+export interface SessionRecordingUpdateType {
+    viewed?: boolean
+    analyzed?: boolean
+    player_metadata?: Record<string, any> | null
+    durations?: Record<string, any> | null
 }
 
 export interface SessionRecordingPropertiesType {
@@ -4381,6 +4390,7 @@ export type AvailableOnboardingProducts = Pick<
     | ProductKey.FEATURE_FLAGS
     | ProductKey.SURVEYS
     | ProductKey.DATA_WAREHOUSE
+    | ProductKey.WEB_ANALYTICS
 >
 
 export type OnboardingProduct = {
