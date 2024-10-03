@@ -269,7 +269,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             query=ErrorTrackingQuery(
                 kind="ErrorTrackingQuery",
-                searchQuery="\x1f\x8b\x08\x00\x94\x0cýf\x00\x03ì½é",
+                searchQuery="f\x00\x03ì½é",
                 dateRange=DateRange(date_from="2021-01-10", date_to="2021-01-11"),
             ),
         )
@@ -297,7 +297,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_fingerprints_with_null_characters(self):
         fingerprint_with_null_bytes = [
             "SyntaxError",
-            "Cannot use 'in' operator to search for 'wireframes' in \x1f\x8b\x08\x00\x94\x0cýf\x00\x03ì½é\x96\"¹\x920ø*Lö¹SY\x1dA\x00Î\x9e÷Ô\x9df\r\x88\x00Ø",
+            "Cannot use 'in' operator to search for 'wireframes' in \x1f\x8b\x08\x00\x94\x0cýf\x00\x03ì½é\x96\"\x00Ø",
         ]
         exception_type_with_null_bytes = "SyntaxError\x00"
         exception_message_with_null_bytes = "this is the same error message\x00"
