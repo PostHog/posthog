@@ -18,7 +18,6 @@ export function DestinationsFilters({
 }: DestinationsFiltersProps): JSX.Element | null {
     const { user, filters } = useValues(destinationsFiltersLogic)
     const { setFilters, openFeedbackDialog } = useActions(destinationsFiltersLogic)
-    const hogFunctionsEnabled = !!useFeatureFlag('HOG_FUNCTIONS')
 
     return (
         <div className="space-y-2">
@@ -61,10 +60,7 @@ export function DestinationsFilters({
                         options={
                             [
                                 { label: 'All kinds', value: null },
-                                hogFunctionsEnabled
-                                    ? { label: 'Realtime (new)', value: PipelineBackend.HogFunction }
-                                    : undefined,
-                                { label: 'Realtime', value: PipelineBackend.Plugin },
+                                { label: 'Realtime', value: PipelineBackend.HogFunction },
                                 { label: 'Batch exports', value: PipelineBackend.BatchExport },
                             ].filter(Boolean) as { label: string; value: PipelineBackend | null }[]
                         }
