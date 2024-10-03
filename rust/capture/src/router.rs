@@ -163,8 +163,8 @@ pub fn router<
         .layer(axum::middleware::from_fn(track_metrics))
         .with_state(state);
 
-    // Don't install metrics unless asked.
-    // Installing a global recorder when capture is used as a library (during tests etc.)
+    // Don't install metrics unless asked to
+    // Installing a global recorder when capture is used as a library (during tests etc)
     // does not work well.
     if metrics {
         let recorder_handle = setup_metrics_recorder();
