@@ -119,7 +119,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                 <div className="min-w-64">
                     <div className="ml-4 mt-2 self-center flex items-center justify-end gap-x-3 whitespace-nowrap">
                         {addon.subscribed && !addon.inclusion_only ? (
-                            <>
+                            !addon.contact_support && (
                                 <More
                                     overlay={
                                         <>
@@ -135,7 +135,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                                         </>
                                     }
                                 />
-                            </>
+                            )
                         ) : addon.included_with_main_product ? (
                             <LemonTag type="completion" icon={<IconCheckCircle />}>
                                 Included with plan
