@@ -14,7 +14,6 @@ import batchExports from './__mocks__/batchExports.json'
 import empty from './__mocks__/empty.json'
 import pluginConfigs from './__mocks__/pluginConfigs.json'
 import plugins from './__mocks__/plugins.json'
-import hogFunctionTemplates from './__mocks__/hogFunctionTemplates.json'
 import { appsManagementLogic } from './appsManagementLogic'
 import { pipelineNodeMetricsLogic } from './pipelineNodeMetricsLogic'
 
@@ -41,14 +40,6 @@ const batchExportsRetrieveMock: MockSignature = (req, res, ctx) => {
         return res(ctx.status(404))
     }
     return res(ctx.json({ ...batchExport }))
-}
-
-const hogFunctionTemplateRetrieveMock: MockSignature = (req, res, ctx) => {
-    const hogFunctionTemplate = hogFunctionTemplates.results.find((conf) => conf.id === req.params.id)
-    if (!batchExports) {
-        return res(ctx.status(404))
-    }
-    return res(ctx.json({ ...hogFunctionTemplate }))
 }
 
 export default {
@@ -78,8 +69,6 @@ export default {
                 '/api/projects/:team_id/pipeline_frontend_apps_configs/:id': pluginConfigRetrieveMock,
                 '/api/organizations/:organization_id/pipeline_import_apps/': empty,
                 '/api/projects/:team_id/pipeline_import_apps_configs/': empty,
-                '/api/projects/:team_id/hog_function_templates': hogFunctionTemplates,
-                '/api/projects/:team_id/hog_function_templates/:id': hogFunctionTemplateRetrieveMock,
                 '/api/projects/:team_id/integrations/': empty,
                 '/api/projects/:team_id/app_metrics/:plugin_config_id?date_from=-7d': require('./__mocks__/pluginMetrics.json'),
                 '/api/projects/:team_id/app_metrics/:plugin_config_id/error_details?error_type=Error': require('./__mocks__/pluginErrorDetails.json'),

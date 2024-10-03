@@ -80,7 +80,7 @@ export const newDestinationsLogic = kea<newDestinationsLogicType>([
                         icon: <HogFunctionIcon size="small" src={hogFunction.icon_url} />,
                         name: hogFunction.name,
                         description: hogFunction.description,
-                        backend: PipelineBackend.HogFunction,
+                        backend: PipelineBackend.HogFunction as const,
                         url: combineUrl(
                             urls.pipelineNodeNew(PipelineStage.Destination, `hog-${hogFunction.id}`),
                             {},
@@ -92,7 +92,7 @@ export const newDestinationsLogic = kea<newDestinationsLogicType>([
                         icon: <RenderBatchExportIcon type={service} />,
                         name: humanizeBatchExportName(service),
                         description: `${service} batch export`,
-                        backend: PipelineBackend.BatchExport,
+                        backend: PipelineBackend.BatchExport as const,
                         url: urls.pipelineNodeNew(PipelineStage.Destination, `${service}`),
                     })),
                 ]
