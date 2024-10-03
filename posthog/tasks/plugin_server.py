@@ -56,3 +56,5 @@ def hog_function_state_transition(hog_function_id: str, state: int) -> None:
     if state >= 2:  # 2 and 3 are disabled
         logger.info("hog_function_state_transition: sending hog_function_disabled email")
         send_hog_function_disabled.delay(hog_function_id)
+
+    logger.info("hog_function_state_transition: done")
