@@ -1,6 +1,5 @@
 from datetime import date, datetime, timedelta
 from typing import cast
-from unittest.mock import patch, Mock
 
 from zoneinfo import ZoneInfo
 from freezegun.api import freeze_time
@@ -1615,11 +1614,10 @@ class BaseTestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(results), 1)
 
 
-@patch("posthoganalytics.feature_enabled", new=Mock(return_value=False))
 class TestFunnelTrends(BaseTestFunnelTrends):
     __test__ = True
 
-    def test_assert_flag_is_working(self):
+    def test_assert_udf_flag_is_working(self):
         filters = {
             "insight": INSIGHT_FUNNELS,
             "funnel_viz_type": "trends",

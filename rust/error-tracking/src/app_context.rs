@@ -5,14 +5,13 @@ use health::{HealthHandle, HealthRegistry};
 use sqlx::{postgres::PgPoolOptions, PgPool};
 use tracing::info;
 
-use crate::{config::Config, error::Error, team_cache::TeamCache};
+use crate::{config::Config, error::Error};
 
 pub struct AppContext {
     pub health_registry: HealthRegistry,
     pub worker_liveness: HealthHandle,
     pub consumer: SingleTopicConsumer,
     pub pool: PgPool,
-    pub team_cache: TeamCache,
 }
 
 impl AppContext {
@@ -32,14 +31,11 @@ impl AppContext {
             config.consumer.kafka_consumer_topic
         );
 
-        let team_cache = TeamCache::new(config.team_cache_capacity, config.team_cache_ttl_secs);
-
         Ok(Self {
             health_registry,
             worker_liveness,
             consumer,
             pool,
-            team_cache,
         })
     }
 }

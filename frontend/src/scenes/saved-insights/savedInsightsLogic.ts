@@ -2,6 +2,7 @@ import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import api, { CountedPaginatedResponse } from 'lib/api'
+import { AlertType } from 'lib/components/Alerts/types'
 import { dayjs } from 'lib/dayjs'
 import { Sorting } from 'lib/lemon-ui/LemonTable'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -85,6 +86,8 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
         loadInsights: (debounce: boolean = true) => ({ debounce }),
         updateInsight: (insight: QueryBasedInsightModel) => ({ insight }),
         addInsight: (insight: QueryBasedInsightModel) => ({ insight }),
+        openAlertModal: (alertId: AlertType['id']) => ({ alertId }),
+        closeAlertModal: true,
     }),
     loaders(({ values }) => ({
         insights: {
@@ -171,6 +174,13 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                         // Reset page on filter change EXCEPT if it's page or view that's being updated
                         ...('page' in filters || 'layoutView' in filters ? {} : { page: 1 }),
                     }),
+            },
+        ],
+        alertModalId: [
+            null as AlertType['id'] | null,
+            {
+                openAlertModal: (_, { alertId }) => alertId,
+                closeAlertModal: () => null,
             },
         ],
     }),
@@ -337,7 +347,17 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
         }
     }),
     urlToAction(({ actions, values }) => ({
-        [urls.savedInsights()]: async (_, searchParams, hashParams) => {
+        [urls.savedInsights()]: async (
+            _,
+            { alert_id, ...searchParams }, // search params,
+            hashParams
+        ) => {
+            if (alert_id) {
+                actions.openAlertModal(alert_id)
+            } else {
+                actions.closeAlertModal()
+            }
+
             if (hashParams.fromItem && String(hashParams.fromItem).match(/^[0-9]+$/)) {
                 // `fromItem` for legacy /insights url redirect support
                 const insightNumericId = parseInt(hashParams.fromItem)
