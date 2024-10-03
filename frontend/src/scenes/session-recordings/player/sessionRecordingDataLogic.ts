@@ -484,7 +484,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     return empty
                 }
 
-                const response = await api.recordings.comments(props.sessionRecordingId)
+                const response = await api.notebooks.recordingComments(props.sessionRecordingId)
                 breakpoint()
 
                 return response.results || empty

@@ -1,8 +1,10 @@
+import hashlib
 from typing import Optional, Any
 from django.db.models import Q
 import structlog
 from django.db import transaction
 from django.db.models import QuerySet
+from django.http import JsonResponse
 from django.utils.timezone import now
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.types import OpenApiTypes
@@ -261,11 +263,11 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.Model
 
         return queryset
 
-    def _filter_list_request(self, request: Request, queryset: QuerySet) -> QuerySet:
-        filters = request.GET.dict()
+    def _filter_list_request(self, request: Request, queryset: QuerySet, filters: dict | None = None) -> QuerySet:
+        filters = filters or request.GET.dict()
 
         for key in filters:
-            value = request.GET[key]
+            value = filters.get(key, None)
             if key == "user":
                 queryset = queryset.filter(created_by=request.user)
             elif key == "created_by":
@@ -344,6 +346,40 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.Model
             return Response(None, 304)
 
         return Response(serializer.data)
+
+    @action(methods=["GET"], detail=False)
+    def recording_comments(self, request: Request, **kwargs):
+        recording_id = request.GET.get("recording_id")
+        if not recording_id:
+            return Response({"detail": "recording_id is required"}, status=400)
+
+        queryset = self.safely_get_queryset(self.queryset)
+        queryset = self._filter_list_request(request, queryset, {"contains": f"recording:{recording_id}"})
+        notebooks = queryset.all()
+        comments = []
+        for notebook in notebooks:
+            content_nodes = notebook.content.get("content", {})
+            for node in content_nodes:
+                if node.get("type", None) == "paragraph" and len(node.get("content", [])) == 2:
+                    attrs = node.get("content", [])[0].get("attrs", {})
+                    content_node_recording_id = attrs.get("sessionRecordingId", None)
+                    playback_time = attrs.get("playbackTime", None)
+                    text = node.get("content", [])[1].get("text", None)
+                    if content_node_recording_id == recording_id and playback_time is not None:
+                        comments.append(
+                            {
+                                "timeInRecording": playback_time,
+                                "comment": text,
+                                "notebookShortId": notebook.short_id,
+                                "notebookTitle": notebook.title,
+                                # the individual comments don't have an id, so we'll generate one
+                                # to save the frontend having to do it
+                                "id": hashlib.sha256(
+                                    f"{notebook.short_id}-{notebook.title}-{text}-{playback_time}".encode()
+                                ).hexdigest(),
+                            }
+                        )
+        return JsonResponse({"results": comments})
 
     @action(methods=["GET"], url_path="activity", detail=False)
     def all_activity(self, request: Request, **kwargs):

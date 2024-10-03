@@ -1818,10 +1818,6 @@ const api = {
             return await new ApiRequest().recording(recordingId).withAction('persist').create()
         },
 
-        async comments(recordingId: SessionRecordingType['id']): Promise<{ results: RecordingComment[] }> {
-            return await new ApiRequest().recording(recordingId).withAction('comments').get()
-        },
-
         async summarize(recordingId: SessionRecordingType['id']): Promise<{ content: string }> {
             return await new ApiRequest().recording(recordingId).withAction('summarize').create()
         },
@@ -1968,6 +1964,13 @@ const api = {
             }
 
             return await apiRequest.withQueryString(queryParams).get()
+        },
+        async recordingComments(recordingId: string): Promise<{ results: RecordingComment[] }> {
+            return await new ApiRequest()
+                .notebooks()
+                .withAction('recording_comments')
+                .withQueryString({ recording_id: recordingId })
+                .get()
         },
         async create(data?: Pick<NotebookType, 'content' | 'text_content' | 'title'>): Promise<NotebookType> {
             return await new ApiRequest().notebooks().create({ data })
