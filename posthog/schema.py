@@ -1793,6 +1793,46 @@ class CachedEventsQueryResponse(BaseModel):
     types: list[str]
 
 
+class CachedExperimentFunnelQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cache_key: str
+    cache_target_age: Optional[AwareDatetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
+    insight: Literal["FUNNELS"] = "FUNNELS"
+    is_cached: bool
+    last_refresh: AwareDatetime
+    next_allowed_client_refresh: AwareDatetime
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    results: dict[str, ExperimentVariantFunnelResult]
+    timezone: str
+
+
+class CachedExperimentTrendQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cache_key: str
+    cache_target_age: Optional[AwareDatetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
+    insight: Literal["TRENDS"] = "TRENDS"
+    is_cached: bool
+    last_refresh: AwareDatetime
+    next_allowed_client_refresh: AwareDatetime
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    results: dict[str, ExperimentVariantTrendResult]
+    timezone: str
+
+
 class CachedFunnelCorrelationResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4835,6 +4875,7 @@ class RecordingsQuery(BaseModel):
     ] = None
     response: Optional[RecordingsQueryResponse] = None
     session_ids: Optional[list[str]] = None
+    user_modified_filters: Optional[dict[str, Any]] = None
 
 
 class RetentionQuery(BaseModel):
