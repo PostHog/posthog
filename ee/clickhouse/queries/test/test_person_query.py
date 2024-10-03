@@ -2,12 +2,16 @@ import pytest
 
 from ee.clickhouse.materialized_columns.columns import materialize
 from posthog.client import sync_execute
+from posthog.hogql.query import execute_hogql_query
+from posthog.hogql_queries.hogql_cohort_query import HogQLCohortQuery
 from posthog.models.filters import Filter
 from posthog.models.team import Team
 from posthog.queries.person_query import PersonQuery
 from posthog.test.base import _create_person
 from posthog.models.cohort import Cohort
 from posthog.models.property import Property
+
+from posthog.queries.cohort_query import CohortQuery
 
 
 def person_query(team: Team, filter: Filter, **kwargs):
@@ -17,6 +21,13 @@ def person_query(team: Team, filter: Filter, **kwargs):
 def run_query(team: Team, filter: Filter, **kwargs):
     query, params = PersonQuery(filter, team.pk, **kwargs).get_query()
     rows = sync_execute(query, {**params, **filter.hogql_context.values, "team_id": team.pk})
+
+    ## tack on cohort testing
+    cohort_query = CohortQuery(filter, team)
+    hogql_cohort_query = HogQLCohortQuery(cohort_query)
+    clickhouse_query = hogql_cohort_query.query_str("clickhouse")
+    hogql_query = hogql_cohort_query.query_str("hogql")
+    cohort_query_result = execute_hogql_query(hogql_query, team)
 
     if len(rows) > 0:
         return {"rows": len(rows), "columns": len(rows[0])}
