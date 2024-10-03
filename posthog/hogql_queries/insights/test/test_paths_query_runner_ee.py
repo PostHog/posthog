@@ -1,7 +1,7 @@
 from datetime import timedelta
 from typing import Any
 from unittest import skip
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch, Mock
 from uuid import UUID
 
 from django.test import TestCase
@@ -40,7 +40,8 @@ from django.test import override_settings
 ONE_MINUTE = 60_000  # 1 minute in milliseconds
 
 
-class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
+class BaseTestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
+    __test__ = False
     maxDiff = None
 
     def _create_groups(self):
@@ -4719,6 +4720,18 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
                 },
             ],
         )
+
+
+insight_funnels_use_udf_funnel_flag_side_effect = lambda key, *args, **kwargs: key == "insight-funnels-use-udf"
+
+
+class ClickhousePathsUDF(BaseTestClickhousePaths):
+    __test__ = True
+
+
+@patch("posthoganalytics.feature_enabled", new=Mock(side_effect=insight_funnels_use_udf_funnel_flag_side_effect))
+class TestClickhousePathsUDF(BaseTestClickhousePaths):
+    __test__ = True
 
 
 class TestClickhousePathsEdgeValidation(TestCase):
