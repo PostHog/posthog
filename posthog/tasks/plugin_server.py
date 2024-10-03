@@ -2,10 +2,13 @@ from typing import Optional
 from celery import shared_task
 from django.conf import settings
 import posthoganalytics
+from structlog import get_logger
 
 from posthog.event_usage import report_team_action
 from posthog.tasks.email import send_hog_function_disabled, send_fatal_plugin_error
 from posthog.tasks.utils import CeleryQueue
+
+logger = get_logger(__name__)
 
 # IMPORTANT - Do not modify this without also modifying plugin-server/../celery.ts
 # Same goes for this file path and the task names
@@ -28,9 +31,12 @@ def fatal_plugin_error(
 def hog_function_state_transition(hog_function_id: str, state: int) -> None:
     from posthog.models.hog_functions.hog_function import HogFunction
 
+    logger.info("hog_function_state_transition", hog_function_id=hog_function_id, state=state)
+
     hog_function = HogFunction.objects.get(id=hog_function_id)
 
     if not hog_function:
+        logger.warning("hog_function_state_transition: hog_function not found", hog_function_id=hog_function_id)
         return
 
     report_team_action(
@@ -44,7 +50,9 @@ def hog_function_state_transition(hog_function_id: str, state: int) -> None:
     )
 
     # TRICKY: It seems like without this call the events don't get flushed, possibly due to celery worker threads exiting...
+    logger.info("hog_function_state_transition: Flushing posthoganalytics")
     posthoganalytics.flush()
 
     if state >= 2:  # 2 and 3 are disabled
+        logger.info("hog_function_state_transition: sending hog_function_disabled email")
         send_hog_function_disabled.delay(hog_function_id)
