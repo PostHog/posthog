@@ -16,7 +16,15 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
     connect({
         values: [
             errorTrackingLogic,
-            ['dateRange', 'assignee', 'filterTestAccounts', 'filterGroup', 'sparklineSelectedPeriod', 'searchQuery'],
+            [
+                'dateRange',
+                'assignee',
+                'filterTestAccounts',
+                'filterGroup',
+                'sparklineSelectedPeriod',
+                'searchQuery',
+                'hasGroupActions',
+            ],
         ],
     }),
 
@@ -57,6 +65,7 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
                 s.filterGroup,
                 s.sparklineSelectedPeriod,
                 s.searchQuery,
+                s.hasGroupActions,
             ],
             (
                 order,
@@ -65,7 +74,8 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
                 filterTestAccounts,
                 filterGroup,
                 sparklineSelectedPeriod,
-                searchQuery
+                searchQuery,
+                hasGroupActions
             ): DataTableNode =>
                 errorTrackingQuery({
                     order,
@@ -75,6 +85,9 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
                     filterGroup,
                     sparklineSelectedPeriod,
                     searchQuery,
+                    columns: hasGroupActions
+                        ? ['error', 'occurrences', 'sessions', 'users', 'assignee']
+                        : ['error', 'occurrences', 'sessions', 'users'],
                 }),
         ],
     }),

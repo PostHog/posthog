@@ -61,11 +61,12 @@ class WebExperimentsAPISerializer(serializers.ModelSerializer):
             transforms = variant.get("transforms")
             if transforms is None:
                 raise ValidationError(f"Experiment variant '{name}' does not have any element transforms")
-            for idx, transform in enumerate(transforms):
-                if transform.get("selector") is None:
-                    raise ValidationError(
-                        f"Experiment transform [${idx}] variant '{name}' does not have a valid selector"
-                    )
+            if name != "control":
+                for idx, transform in enumerate(transforms):
+                    if transform.get("selector") is None:
+                        raise ValidationError(
+                            f"Experiment transform [${idx}] variant '{name}' does not have a valid selector"
+                        )
 
         return attrs
 

@@ -16,15 +16,16 @@ import {
     CdpFunctionCallbackConsumer,
     CdpProcessedEventsConsumer,
 } from '../cdp/cdp-consumers'
-import { defaultConfig, sessionRecordingConsumerConfig } from '../config/config'
+import { defaultConfig } from '../config/config'
 import { Hub, PluginServerCapabilities, PluginServerService, PluginsServerConfig } from '../types'
 import { closeHub, createHub, createKafkaClient, createKafkaProducerWrapper } from '../utils/db/hub'
 import { PostgresRouter } from '../utils/db/postgres'
+import { createRedisClient } from '../utils/db/redis'
 import { cancelAllScheduledJobs } from '../utils/node-schedule'
 import { posthog } from '../utils/posthog'
 import { PubSub } from '../utils/pubsub'
 import { status } from '../utils/status'
-import { createRedisClient, delay } from '../utils/utils'
+import { delay } from '../utils/utils'
 import { ActionManager } from '../worker/ingestion/action-manager'
 import { ActionMatcher } from '../worker/ingestion/action-matcher'
 import { AppMetrics } from '../worker/ingestion/app-metrics'
@@ -408,9 +409,8 @@ export async function startPluginsServer(
 
         if (capabilities.sessionRecordingBlobIngestion) {
             const hub = serverInstance.hub
-            const recordingConsumerConfig = sessionRecordingConsumerConfig(serverConfig)
             const postgres = hub?.postgres ?? new PostgresRouter(serverConfig)
-            const s3 = hub?.objectStorage ?? getObjectStorage(recordingConsumerConfig)
+            const s3 = hub?.objectStorage ?? getObjectStorage(serverConfig)
 
             if (!s3) {
                 throw new Error("Can't start session recording blob ingestion without object storage")
@@ -429,9 +429,8 @@ export async function startPluginsServer(
 
         if (capabilities.sessionRecordingBlobOverflowIngestion) {
             const hub = serverInstance.hub
-            const recordingConsumerConfig = sessionRecordingConsumerConfig(serverConfig)
             const postgres = hub?.postgres ?? new PostgresRouter(serverConfig)
-            const s3 = hub?.objectStorage ?? getObjectStorage(recordingConsumerConfig)
+            const s3 = hub?.objectStorage ?? getObjectStorage(serverConfig)
 
             if (!s3) {
                 throw new Error("Can't start session recording blob ingestion without object storage")

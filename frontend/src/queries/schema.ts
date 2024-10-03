@@ -1595,10 +1595,14 @@ export interface ExperimentTrendQueryResponse {
     results: Record<string, ExperimentVariantTrendResult>
 }
 
+export type CachedExperimentTrendQueryResponse = CachedQueryResponse<ExperimentTrendQueryResponse>
+
 export interface ExperimentFunnelQueryResponse {
     insight: InsightType.FUNNELS
     results: Record<string, ExperimentVariantFunnelResult>
 }
+
+export type CachedExperimentFunnelQueryResponse = CachedQueryResponse<ExperimentFunnelQueryResponse>
 
 export interface ExperimentFunnelQuery extends DataNode<ExperimentFunnelQueryResponse> {
     kind: NodeKind.ExperimentFunnelQuery
