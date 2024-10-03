@@ -15,14 +15,8 @@
        (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
                if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
                if(equals(e.event, 'step one'), 1, 0) AS step_0,
-               if(ifNull(equals(step_0, 1), 0), timestamp, NULL) AS latest_0,
                if(equals(e.event, 'step two'), 1, 0) AS step_1,
-               if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1,
-               if(equals(e.event, 'step three'), 1, 0) AS step_2,
-               if(ifNull(equals(step_2, 1), 0), timestamp, NULL) AS latest_2,
-               0 AS exclusion_0,
-               0 AS exclusion_1,
-               0 AS exclusion_2
+               if(equals(e.event, 'step three'), 1, 0) AS step_2
         FROM events AS e
         LEFT OUTER JOIN
           (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -66,14 +60,8 @@
        (SELECT toTimeZone(e.timestamp, 'US/Pacific') AS timestamp,
                if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
                if(equals(e.event, 'step one'), 1, 0) AS step_0,
-               if(ifNull(equals(step_0, 1), 0), timestamp, NULL) AS latest_0,
                if(equals(e.event, 'step two'), 1, 0) AS step_1,
-               if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1,
-               if(equals(e.event, 'step three'), 1, 0) AS step_2,
-               if(ifNull(equals(step_2, 1), 0), timestamp, NULL) AS latest_2,
-               0 AS exclusion_0,
-               0 AS exclusion_1,
-               0 AS exclusion_2
+               if(equals(e.event, 'step three'), 1, 0) AS step_2
         FROM events AS e
         LEFT OUTER JOIN
           (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -117,14 +105,8 @@
        (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
                if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
                if(equals(e.event, 'step one'), 1, 0) AS step_0,
-               if(ifNull(equals(step_0, 1), 0), timestamp, NULL) AS latest_0,
                if(equals(e.event, 'step two'), 1, 0) AS step_1,
-               if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1,
-               if(equals(e.event, 'step three'), 1, 0) AS step_2,
-               if(ifNull(equals(step_2, 1), 0), timestamp, NULL) AS latest_2,
-               0 AS exclusion_0,
-               0 AS exclusion_1,
-               0 AS exclusion_2
+               if(equals(e.event, 'step three'), 1, 0) AS step_2
         FROM events AS e
         LEFT OUTER JOIN
           (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,

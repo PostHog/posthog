@@ -1,8 +1,20 @@
 import { TZLabel } from '@posthog/apps-common'
-import { LemonButton, LemonCheckbox, LemonDivider, LemonSegmentedButton } from '@posthog/lemon-ui'
+import { IconGear } from '@posthog/icons'
+import {
+    LemonButton,
+    LemonCheckbox,
+    LemonDivider,
+    LemonFileInput,
+    LemonModal,
+    LemonSegmentedButton,
+} from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
+import { Form } from 'kea-forms'
 import { FeedbackNotice } from 'lib/components/FeedbackNotice'
+import { PageHeader } from 'lib/components/PageHeader'
+import { IconUploadFile } from 'lib/lemon-ui/icons'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -51,6 +63,8 @@ export function ErrorTrackingScene(): JSX.Element {
 
     return (
         <BindLogic logic={errorTrackingDataNodeLogic} props={{ query, key: insightVizDataNodeKey(insightProps) }}>
+            <Header />
+            <ConfigurationModal />
             <FeedbackNotice text="Error tracking is in closed alpha. Thanks for taking part! We'd love to hear what you think." />
             <ErrorTrackingFilters.FilterGroup />
             <LemonDivider className="mt-2" />
@@ -163,5 +177,65 @@ const AssigneeColumn: QueryContextColumnComponent = (props) => {
                 onChange={(assigneeId) => assignGroup(props.recordIndex, assigneeId)}
             />
         </div>
+    )
+}
+
+const Header = (): JSX.Element => {
+    const { setIsConfigurationModalOpen } = useActions(errorTrackingSceneLogic)
+
+    return (
+        <PageHeader
+            buttons={
+                <LemonButton type="secondary" icon={<IconGear />} onClick={() => setIsConfigurationModalOpen(true)}>
+                    Configure
+                </LemonButton>
+            }
+        />
+    )
+}
+
+const ConfigurationModal = (): JSX.Element => {
+    const { isConfigurationModalOpen, isUploadSourceMapSubmitting } = useValues(errorTrackingSceneLogic)
+    const { setIsConfigurationModalOpen } = useActions(errorTrackingSceneLogic)
+
+    return (
+        <LemonModal
+            title=""
+            onClose={() => setIsConfigurationModalOpen(false)}
+            isOpen={isConfigurationModalOpen}
+            simple
+        >
+            <Form logic={errorTrackingSceneLogic} formKey="uploadSourceMap" className="gap-1" enableFormOnSubmit>
+                <LemonModal.Header>
+                    <h3>Upload source map</h3>
+                </LemonModal.Header>
+                <LemonModal.Content className="space-y-2">
+                    <LemonField name="files">
+                        <LemonFileInput
+                            accept="text/plain"
+                            multiple={false}
+                            callToAction={
+                                <div className="flex flex-col items-center justify-center space-y-2 border border-dashed rounded p-4">
+                                    <span className="flex items-center gap-2 font-semibold">
+                                        <IconUploadFile className="text-2xl" /> Add source map
+                                    </span>
+                                    <div>
+                                        Drag and drop your local source map here or click to open the file browser.
+                                    </div>
+                                </div>
+                            }
+                        />
+                    </LemonField>
+                </LemonModal.Content>
+                <LemonModal.Footer>
+                    <LemonButton type="secondary" onClick={() => setIsConfigurationModalOpen(false)}>
+                        Cancel
+                    </LemonButton>
+                    <LemonButton type="primary" status="alt" htmlType="submit" loading={isUploadSourceMapSubmitting}>
+                        Upload
+                    </LemonButton>
+                </LemonModal.Footer>
+            </Form>
+        </LemonModal>
     )
 }
