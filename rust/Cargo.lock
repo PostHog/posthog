@@ -958,6 +958,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "cymbal"
+version = "0.1.0"
+dependencies = [
+ "axum 0.7.5",
+ "common-alloc",
+ "common-kafka",
+ "common-metrics",
+ "envconfig",
+ "health",
+ "metrics",
+ "rdkafka",
+ "serde_json",
+ "sqlx",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "darling"
 version = "0.20.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1157,26 +1177,6 @@ checksum = "a258e46cdc063eb8519c00b9fc845fc47bcfca4130e2f08e88665ceda8474245"
 dependencies = [
  "libc",
  "windows-sys 0.52.0",
-]
-
-[[package]]
-name = "error-tracking"
-version = "0.1.0"
-dependencies = [
- "axum 0.7.5",
- "common-alloc",
- "common-kafka",
- "common-metrics",
- "envconfig",
- "health",
- "metrics",
- "rdkafka",
- "serde_json",
- "sqlx",
- "thiserror",
- "tokio",
- "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]
