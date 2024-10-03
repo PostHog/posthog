@@ -1,10 +1,6 @@
-import { LemonBanner, LemonCheckbox, LemonInput, LemonSelect, Link } from '@posthog/lemon-ui'
+import { LemonCheckbox, LemonInput, LemonSelect, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-
-import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { SidePanelTab } from '~/types'
 
 import { PipelineBackend } from '../types'
 import { destinationsFiltersLogic } from './destinationsFiltersLogic'
@@ -22,25 +18,10 @@ export function DestinationsFilters({
 }: DestinationsFiltersProps): JSX.Element | null {
     const { user, filters } = useValues(destinationsFiltersLogic)
     const { setFilters, openFeedbackDialog } = useActions(destinationsFiltersLogic)
-    const { openSidePanel } = useActions(sidePanelStateLogic)
     const hogFunctionsEnabled = !!useFeatureFlag('HOG_FUNCTIONS')
 
     return (
         <div className="space-y-2">
-            <FlaggedFeature flag="hog-functions" match={false}>
-                <LemonBanner
-                    type="info"
-                    action={{
-                        onClick: () => openSidePanel(SidePanelTab.FeaturePreviews),
-                        children: 'Enable feature preview',
-                    }}
-                >
-                    We're excited to announce <b>Destinations 3000</b> - the new version of our realtime destinations
-                    that include a range of pre-built templates, native filtering, templating and even customizing the
-                    code.
-                </LemonBanner>
-            </FlaggedFeature>
-
             <div className="flex items-center gap-2">
                 {!hideSearch && (
                     <LemonInput

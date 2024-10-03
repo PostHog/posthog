@@ -14,13 +14,12 @@ import {
     HogFunctionTemplateStatus,
     HogFunctionTemplateType,
     PipelineStage,
-    PluginType,
 } from '~/types'
 
 import { humanizeBatchExportName } from '../batch-exports/utils'
 import { HogFunctionIcon } from '../hogfunctions/HogFunctionIcon'
 import { PipelineBackend } from '../types'
-import { loadPluginsFromUrl, RenderApp, RenderBatchExportIcon } from '../utils'
+import { RenderBatchExportIcon } from '../utils'
 import { destinationsFiltersLogic } from './destinationsFiltersLogic'
 import type { newDestinationsLogicType } from './newDestinationsLogicType'
 
@@ -29,7 +28,7 @@ export type NewDestinationItemType = {
     url: string
     name: string
     description: string
-    backend: PipelineBackend
+    backend: PipelineBackend.HogFunction | PipelineBackend.BatchExport
     status?: HogFunctionTemplateStatus
 }
 
@@ -45,14 +44,6 @@ export const newDestinationsLogic = kea<newDestinationsLogicType>([
         openFeedbackDialog: true,
     }),
     loaders({
-        plugins: [
-            {} as Record<number, PluginType>,
-            {
-                loadPlugins: async () => {
-                    return loadPluginsFromUrl('api/organizations/@current/pipeline_destinations')
-                },
-            },
-        ],
         hogFunctionTemplates: [
             {} as Record<string, HogFunctionTemplateType>,
             {
@@ -68,10 +59,7 @@ export const newDestinationsLogic = kea<newDestinationsLogicType>([
     }),
 
     selectors(() => ({
-        loading: [
-            (s) => [s.pluginsLoading, s.hogFunctionTemplatesLoading],
-            (pluginsLoading, hogFunctionTemplatesLoading) => pluginsLoading || hogFunctionTemplatesLoading,
-        ],
+        loading: [(s) => [s.hogFunctionTemplatesLoading], (hogFunctionTemplatesLoading) => hogFunctionTemplatesLoading],
         batchExportServiceNames: [
             (s) => [s.user, s.featureFlags],
             (user, featureFlags): BatchExportService['type'][] => {
@@ -85,25 +73,10 @@ export const newDestinationsLogic = kea<newDestinationsLogicType>([
             },
         ],
         destinations: [
-            (s) => [
-                s.plugins,
-                s.hogFunctionTemplates,
-                s.batchExportServiceNames,
-                s.featureFlags,
-                router.selectors.hashParams,
-            ],
-            (
-                plugins,
-                hogFunctionTemplates,
-                batchExportServiceNames,
-                featureFlags,
-                hashParams
-            ): NewDestinationItemType[] => {
-                const hogFunctionsEnabled = !!featureFlags[FEATURE_FLAGS.HOG_FUNCTIONS]
-                const hogTemplates = hogFunctionsEnabled ? Object.values(hogFunctionTemplates) : []
-
+            (s) => [s.hogFunctionTemplates, s.batchExportServiceNames, router.selectors.hashParams],
+            (hogFunctionTemplates, batchExportServiceNames, hashParams): NewDestinationItemType[] => {
                 return [
-                    ...hogTemplates.map((hogFunction) => ({
+                    ...Object.values(hogFunctionTemplates).map((hogFunction) => ({
                         icon: <HogFunctionIcon size="small" src={hogFunction.icon_url} />,
                         name: hogFunction.name,
                         description: hogFunction.description,
@@ -115,16 +88,6 @@ export const newDestinationsLogic = kea<newDestinationsLogicType>([
                         ).url,
                         status: hogFunction.status,
                     })),
-                    ...Object.values(plugins)
-                        .filter((x) => !hogFunctionsEnabled || !x.hog_function_migration_available)
-                        .map((plugin) => ({
-                            icon: <RenderApp plugin={plugin} />,
-                            name: plugin.name,
-                            description: plugin.description || '',
-                            backend: PipelineBackend.Plugin,
-                            url: urls.pipelineNodeNew(PipelineStage.Destination, `${plugin.id}`),
-                            status: hogFunctionsEnabled ? ('deprecated' as const) : undefined,
-                        })),
                     ...batchExportServiceNames.map((service) => ({
                         icon: <RenderBatchExportIcon type={service} />,
                         name: humanizeBatchExportName(service),
@@ -169,7 +132,6 @@ export const newDestinationsLogic = kea<newDestinationsLogicType>([
     })),
 
     afterMount(({ actions }) => {
-        actions.loadPlugins()
         actions.loadHogFunctionTemplates()
     }),
 ])
