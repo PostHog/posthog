@@ -1,5 +1,4 @@
 import { LemonButton } from '@posthog/lemon-ui'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useState } from 'react'
 
 import { HogFunctionFiltersType, HogFunctionSubTemplateIdType } from '~/types'
@@ -18,12 +17,7 @@ export function LinkedHogFunctions({
     subTemplateId,
     newDisabledReason,
 }: LinkedHogFunctionsProps): JSX.Element | null {
-    const hogFunctionsEnabled = useFeatureFlag('HOG_FUNCTIONS')
     const [showNewDestination, setShowNewDestination] = useState(false)
-
-    if (!hogFunctionsEnabled) {
-        return null
-    }
 
     return showNewDestination ? (
         <HogFunctionTemplateList

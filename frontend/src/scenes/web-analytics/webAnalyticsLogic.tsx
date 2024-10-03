@@ -679,7 +679,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                       ])
                                     : null,
                                 !conversionGoal
-                                    ? createGraphsTrendsTab(GraphsTab.NUM_SESSION, 'Unique visitors', 'Visitors', [
+                                    ? createGraphsTrendsTab(GraphsTab.NUM_SESSION, 'Unique sessions', 'Sessions', [
                                           sessionsSeries,
                                       ])
                                     : null,
@@ -699,15 +699,15 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                           [totalConversionSeries]
                                       )
                                     : null,
-                                conversionGoal && totalConversionSeries && uniqueConversionsSeries
+                                conversionGoal && uniqueUserSeries && uniqueConversionsSeries
                                     ? createGraphsTrendsTab(
                                           GraphsTab.CONVERSION_RATE,
                                           'Conversion rate',
                                           'Conversion rate',
-                                          [totalConversionSeries, uniqueConversionsSeries],
+                                          [uniqueConversionsSeries, uniqueUserSeries],
                                           {
                                               formula: 'A / B',
-                                              aggregationAxisFormat: 'percentage',
+                                              aggregationAxisFormat: 'percentage_scaled',
                                           }
                                       )
                                     : null,
@@ -1345,7 +1345,11 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 urlParams.set('filters', JSON.stringify(webAnalyticsFilters))
             }
             if (conversionGoal) {
-                urlParams.set('conversionGoal', JSON.stringify(conversionGoal))
+                if ('actionId' in conversionGoal) {
+                    urlParams.set('conversionGoal.actionId', conversionGoal.actionId.toString())
+                } else {
+                    urlParams.set('conversionGoal.customEventName', conversionGoal.customEventName)
+                }
             }
             if (dateFrom !== initialDateFrom || dateTo !== initialDateTo || interval !== initialInterval) {
                 urlParams.set('date_from', dateFrom ?? '')
@@ -1395,7 +1399,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             _,
             {
                 filters,
-                conversionGoal,
+                'conversionGoal.actionId': conversionGoalActionId,
+                'conversionGoal.customEventName': conversionGoalCustomEventName,
                 date_from,
                 date_to,
                 interval,
@@ -1413,8 +1418,10 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             if (parsedFilters) {
                 actions.setWebAnalyticsFilters(parsedFilters)
             }
-            if (conversionGoal) {
-                actions.setConversionGoal(conversionGoal)
+            if (conversionGoalActionId) {
+                actions.setConversionGoal({ actionId: parseInt(conversionGoalActionId, 10) })
+            } else if (conversionGoalCustomEventName) {
+                actions.setConversionGoal({ customEventName: conversionGoalCustomEventName })
             }
             if (date_from || date_to || interval) {
                 actions.setDatesAndInterval(date_from, date_to, interval)

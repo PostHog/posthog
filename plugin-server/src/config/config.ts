@@ -67,7 +67,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         KAFKA_PRODUCER_BATCH_SIZE: 8 * 1024 * 1024, // rdkafka default is 1MiB
         KAFKA_PRODUCER_QUEUE_BUFFERING_MAX_MESSAGES: 100_000, // rdkafka default is 100_000
         REDIS_URL: 'redis://127.0.0.1',
-        INGESTION_REDIS_PASSWORD: '',
         INGESTION_REDIS_HOST: '',
         INGESTION_REDIS_PORT: 6379,
         POSTHOG_REDIS_PASSWORD: '',

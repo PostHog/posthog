@@ -11,48 +11,57 @@ const REDIS_ERROR_COUNTER_LIMIT = 10
 
 export type REDIS_SERVER_KIND = 'posthog' | 'ingestion' | 'session-recording'
 
-export async function createRedis(serverConfig: PluginsServerConfig, kind: REDIS_SERVER_KIND): Promise<Redis.Redis> {
-    let params: { host: string; port: number; password?: string } | undefined
+export function getRedisConnectionOptions(
+    serverConfig: PluginsServerConfig,
+    kind: REDIS_SERVER_KIND
+): {
+    url: string
+    options?: RedisOptions
+} {
+    const fallback = { url: serverConfig.REDIS_URL }
     switch (kind) {
         case 'posthog':
-            // The shared redis instance used by django, celery etc.
-            params = serverConfig.POSTHOG_REDIS_HOST
+            return serverConfig.POSTHOG_REDIS_HOST
                 ? {
-                      host: serverConfig.POSTHOG_REDIS_HOST,
-                      port: serverConfig.POSTHOG_REDIS_PORT,
-                      password: serverConfig.POSTHOG_REDIS_PASSWORD,
+                      url: serverConfig.POSTHOG_REDIS_HOST,
+                      options: {
+                          port: serverConfig.POSTHOG_REDIS_PORT,
+                          password: serverConfig.POSTHOG_REDIS_PASSWORD,
+                      },
                   }
-                : undefined
+                : fallback
         case 'ingestion':
-            // The dedicated ingestion redis instance.
-
-            // TRICKY: We added the INGESTION_REDIS_HOST later to free up POSTHOG_REDIS_HOST to be clear that it is
-            // the shared django redis, hence we fallback to it if not set.
-            params = serverConfig.INGESTION_REDIS_HOST
+            return serverConfig.INGESTION_REDIS_HOST
                 ? {
-                      host: serverConfig.INGESTION_REDIS_HOST,
-                      port: serverConfig.INGESTION_REDIS_PORT,
-                      password: serverConfig.INGESTION_REDIS_PASSWORD,
+                      url: serverConfig.INGESTION_REDIS_HOST,
+                      options: {
+                          port: serverConfig.INGESTION_REDIS_PORT,
+                      },
                   }
                 : serverConfig.POSTHOG_REDIS_HOST
                 ? {
-                      host: serverConfig.POSTHOG_REDIS_HOST,
-                      port: serverConfig.POSTHOG_REDIS_PORT,
-                      password: serverConfig.POSTHOG_REDIS_PASSWORD,
+                      url: serverConfig.POSTHOG_REDIS_HOST,
+                      options: {
+                          port: serverConfig.POSTHOG_REDIS_PORT,
+                          password: serverConfig.POSTHOG_REDIS_PASSWORD,
+                      },
                   }
-                : undefined
+                : fallback
         case 'session-recording':
-            // The dedicated session recording redis instance
-            params = serverConfig.POSTHOG_SESSION_RECORDING_REDIS_HOST
+            return serverConfig.POSTHOG_SESSION_RECORDING_REDIS_HOST
                 ? {
-                      host: serverConfig.POSTHOG_SESSION_RECORDING_REDIS_HOST,
-                      port: serverConfig.POSTHOG_SESSION_RECORDING_REDIS_PORT ?? 6379,
+                      url: serverConfig.POSTHOG_SESSION_RECORDING_REDIS_HOST ?? 'localhost',
+                      options: {
+                          port: serverConfig.POSTHOG_SESSION_RECORDING_REDIS_PORT ?? 6379,
+                      },
                   }
-                : undefined
+                : fallback
     }
+}
 
-    // Fallback to REDIS_URL if not set (primarily for docker compose)
-    return createRedisClient(params ? params.host : serverConfig.REDIS_URL, params)
+export async function createRedis(serverConfig: PluginsServerConfig, kind: REDIS_SERVER_KIND): Promise<Redis.Redis> {
+    const { url, options } = getRedisConnectionOptions(serverConfig, kind)
+    return createRedisClient(url, options)
 }
 
 export async function createRedisClient(url: string, options?: RedisOptions): Promise<Redis.Redis> {
