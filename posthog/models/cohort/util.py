@@ -12,6 +12,7 @@ from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.client import sync_execute
 from posthog.constants import PropertyOperatorType
+from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.hogql import HogQLContext
 from posthog.hogql.modifiers import create_default_modifiers_for_team
@@ -74,11 +75,35 @@ def format_person_query(cohort: Cohort, index: int, hogql_context: HogQLContext)
 def print_cohort_hogql_query(cohort: Cohort, hogql_context: HogQLContext) -> str:
     from posthog.hogql_queries.query_runner import get_query_runner
 
-    persons_query = cast(dict, cohort.query)
-    persons_query["select"] = ["id as actor_id"]
+    if not cohort.query:
+        raise ValueError("Cohort has no query")
+
     query = get_query_runner(
-        persons_query, team=cast(Team, cohort.team), limit_context=LimitContext.COHORT_CALCULATION
+        cast(dict, cohort.query), team=cast(Team, cohort.team), limit_context=LimitContext.COHORT_CALCULATION
     ).to_query()
+
+    select_queries: list[ast.SelectQuery] = [query] if isinstance(query, ast.SelectQuery) else query.select_queries
+    for select_query in select_queries:
+        columns: dict[str, ast.Expr] = {}
+        for expr in select_query.select:
+            if isinstance(expr, ast.Alias):
+                columns[expr.alias] = expr.expr
+            elif isinstance(expr, ast.Field):
+                columns[str(expr.chain[-1])] = expr
+        column: ast.Expr | None = columns.get("person_id") or columns.get("actor_id") or columns.get("id")
+        if isinstance(column, ast.Alias):
+            select_query.select = [ast.Alias(expr=column.expr, alias="actor_id")]
+        elif isinstance(column, ast.Field):
+            select_query.select = [ast.Alias(expr=column, alias="actor_id")]
+        else:
+            # Support the most common use cases
+            table = select_query.select_from.table if select_query.select_from else None
+            if isinstance(table, ast.Field) and table.chain[-1] == "events":
+                select_query.select = [ast.Alias(expr=ast.Field(chain=["person", "id"]), alias="actor_id")]
+            elif isinstance(table, ast.Field) and table.chain[-1] == "persons":
+                select_query.select = [ast.Alias(expr=ast.Field(chain=["id"]), alias="actor_id")]
+            else:
+                raise ValueError("Could not find a person_id, actor_id, or id column in the query")
 
     hogql_context.enable_select_queries = True
     hogql_context.limit_top_select = False

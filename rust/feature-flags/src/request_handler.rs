@@ -10,6 +10,7 @@ use crate::{
 use axum::{extract::State, http::HeaderMap};
 use base64::{engine::general_purpose, Engine as _};
 use bytes::Bytes;
+use derive_builder::Builder;
 use flate2::read::GzDecoder;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -60,6 +61,24 @@ pub struct RequestContext {
     pub body: Bytes,
 }
 
+#[derive(Builder, Clone)]
+#[builder(setter(into))]
+pub struct FeatureFlagEvaluationContext {
+    team_id: i32,
+    distinct_id: String,
+    feature_flags: FeatureFlagList,
+    postgres_reader: Arc<dyn Client + Send + Sync>,
+    postgres_writer: Arc<dyn Client + Send + Sync>,
+    #[builder(default)]
+    person_property_overrides: Option<HashMap<String, Value>>,
+    #[builder(default)]
+    group_property_overrides: Option<HashMap<String, HashMap<String, Value>>>,
+    #[builder(default)]
+    groups: Option<HashMap<String, Value>>,
+    #[builder(default)]
+    hash_key_override: Option<String>,
+}
+
 pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, FlagError> {
     let RequestContext {
         state,
@@ -71,10 +90,10 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
 
     let request = decode_request(&headers, body)?;
     let token = request
-        .extract_and_verify_token(state.redis.clone(), state.postgres.clone())
+        .extract_and_verify_token(state.redis.clone(), state.postgres_reader.clone())
         .await?;
     let team = request
-        .get_team_from_cache_or_pg(&token, state.redis.clone(), state.postgres.clone())
+        .get_team_from_cache_or_pg(&token, state.redis.clone(), state.postgres_reader.clone())
         .await?;
     let distinct_id = request.extract_distinct_id()?;
     let groups = request.groups.clone();
@@ -86,21 +105,29 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
         &state.geoip,
     );
     let group_property_overrides = request.group_properties.clone();
+    let hash_key_override = request.anon_distinct_id.clone();
 
     let feature_flags_from_cache_or_pg = request
-        .get_flags_from_cache_or_pg(team_id, state.redis.clone(), state.postgres.clone())
+        .get_flags_from_cache_or_pg(team_id, state.redis.clone(), state.postgres_reader.clone())
         .await?;
 
-    let flags_response = evaluate_feature_flags(
-        team_id,
-        distinct_id,
-        feature_flags_from_cache_or_pg,
-        state.postgres.clone(),
-        person_property_overrides,
-        group_property_overrides,
-        groups,
-    )
-    .await;
+    let postgres_reader_dyn: Arc<dyn Client + Send + Sync> = state.postgres_reader.clone();
+    let postgres_writer_dyn: Arc<dyn Client + Send + Sync> = state.postgres_writer.clone();
+
+    let evaluation_context = FeatureFlagEvaluationContextBuilder::default()
+        .team_id(team_id)
+        .distinct_id(distinct_id)
+        .feature_flags(feature_flags_from_cache_or_pg)
+        .postgres_reader(postgres_reader_dyn)
+        .postgres_writer(postgres_writer_dyn)
+        .person_property_overrides(person_property_overrides)
+        .group_property_overrides(group_property_overrides)
+        .groups(groups)
+        .hash_key_override(hash_key_override)
+        .build()
+        .expect("Failed to build FeatureFlagEvaluationContext");
+
+    let flags_response = evaluate_feature_flags(evaluation_context).await;
 
     Ok(flags_response)
 }
@@ -189,29 +216,24 @@ fn decode_request(headers: &HeaderMap, body: Bytes) -> Result<FlagRequest, FlagE
 ///  and that flag will be omitted from the result (we will still attempt to evaluate other flags)
 // TODO: it could be a cool idea to store the errors as a tuple instead of top-level, so that users can see
 // which flags failed to evaluate
-pub async fn evaluate_feature_flags(
-    team_id: i32,
-    distinct_id: String,
-    feature_flags_from_cache_or_pg: FeatureFlagList,
-    database_client: Arc<dyn Client + Send + Sync>,
-    person_property_overrides: Option<HashMap<String, Value>>,
-    group_property_overrides: Option<HashMap<String, HashMap<String, Value>>>,
-    groups: Option<HashMap<String, Value>>,
-) -> FlagsResponse {
-    let group_type_mapping_cache = GroupTypeMappingCache::new(team_id, database_client.clone());
+pub async fn evaluate_feature_flags(context: FeatureFlagEvaluationContext) -> FlagsResponse {
+    let group_type_mapping_cache =
+        GroupTypeMappingCache::new(context.team_id, context.postgres_reader.clone());
     let mut feature_flag_matcher = FeatureFlagMatcher::new(
-        distinct_id.clone(),
-        team_id,
-        database_client,
+        context.distinct_id,
+        context.team_id,
+        context.postgres_reader,
+        context.postgres_writer,
         Some(group_type_mapping_cache),
-        None,
-        groups,
+        None, // TODO maybe remove this from the matcher struct, since it's used internally but not passed around
+        context.groups,
     );
     feature_flag_matcher
-        .evaluate_feature_flags(
-            feature_flags_from_cache_or_pg,
-            person_property_overrides,
-            group_property_overrides,
+        .evaluate_all_feature_flags(
+            context.feature_flags,
+            context.person_property_overrides,
+            context.group_property_overrides,
+            context.hash_key_override,
         )
         .await
 }
@@ -234,7 +256,7 @@ mod tests {
         api::FlagValue,
         config::Config,
         flag_definitions::{FeatureFlag, FlagFilters, FlagGroupType, OperatorType, PropertyFilter},
-        test_utils::{insert_new_team_in_pg, setup_pg_client},
+        test_utils::{insert_new_team_in_pg, setup_pg_reader_client, setup_pg_writer_client},
     };
 
     use super::*;
@@ -335,7 +357,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_evaluate_feature_flags() {
-        let pg_client = setup_pg_client(None).await;
+        let postgres_reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None).await;
+        let postgres_writer: Arc<dyn Client + Send + Sync> = setup_pg_writer_client(None).await;
         let flag = FeatureFlag {
             name: Some("Test Flag".to_string()),
             id: 1,
@@ -368,16 +391,17 @@ mod tests {
         let mut person_properties = HashMap::new();
         person_properties.insert("country".to_string(), json!("US"));
 
-        let result = evaluate_feature_flags(
-            1,
-            "user123".to_string(),
-            feature_flag_list,
-            pg_client,
-            Some(person_properties),
-            None,
-            None,
-        )
-        .await;
+        let evaluation_context = FeatureFlagEvaluationContextBuilder::default()
+            .team_id(1)
+            .distinct_id("user123".to_string())
+            .feature_flags(feature_flag_list)
+            .postgres_reader(postgres_reader)
+            .postgres_writer(postgres_writer)
+            .person_property_overrides(Some(person_properties))
+            .build()
+            .expect("Failed to build FeatureFlagEvaluationContext");
+
+        let result = evaluate_feature_flags(evaluation_context).await;
 
         assert!(!result.error_while_computing_flags);
         assert!(result.feature_flags.contains_key("test_flag"));
@@ -479,7 +503,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_evaluate_feature_flags_multiple_flags() {
-        let pg_client = setup_pg_client(None).await;
+        let postgres_reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None).await;
+        let postgres_writer: Arc<dyn Client + Send + Sync> = setup_pg_writer_client(None).await;
         let flags = vec![
             FeatureFlag {
                 name: Some("Flag 1".to_string()),
@@ -525,16 +550,16 @@ mod tests {
 
         let feature_flag_list = FeatureFlagList { flags };
 
-        let result = evaluate_feature_flags(
-            1,
-            "user123".to_string(),
-            feature_flag_list,
-            pg_client,
-            None,
-            None,
-            None,
-        )
-        .await;
+        let evaluation_context = FeatureFlagEvaluationContextBuilder::default()
+            .team_id(1)
+            .distinct_id("user123".to_string())
+            .feature_flags(feature_flag_list)
+            .postgres_reader(postgres_reader)
+            .postgres_writer(postgres_writer)
+            .build()
+            .expect("Failed to build FeatureFlagEvaluationContext");
+
+        let result = evaluate_feature_flags(evaluation_context).await;
 
         assert!(!result.error_while_computing_flags);
         assert_eq!(result.feature_flags["flag_1"], FlagValue::Boolean(true));
@@ -581,8 +606,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_evaluate_feature_flags_with_overrides() {
-        let pg_client = setup_pg_client(None).await;
-        let team = insert_new_team_in_pg(pg_client.clone()).await.unwrap();
+        let postgres_reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None).await;
+        let postgres_writer: Arc<dyn Client + Send + Sync> = setup_pg_writer_client(None).await;
+        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
+            .await
+            .unwrap();
 
         let flag = FeatureFlag {
             name: Some("Test Flag".to_string()),
@@ -621,16 +649,18 @@ mod tests {
             ]),
         )]);
 
-        let result = evaluate_feature_flags(
-            team.id,
-            "user123".to_string(),
-            feature_flag_list,
-            pg_client,
-            None,
-            Some(group_property_overrides),
-            Some(groups),
-        )
-        .await;
+        let evaluation_context = FeatureFlagEvaluationContextBuilder::default()
+            .team_id(team.id)
+            .distinct_id("user123".to_string())
+            .feature_flags(feature_flag_list)
+            .postgres_reader(postgres_reader)
+            .postgres_writer(postgres_writer)
+            .group_property_overrides(Some(group_property_overrides))
+            .groups(Some(groups))
+            .build()
+            .expect("Failed to build FeatureFlagEvaluationContext");
+
+        let result = evaluate_feature_flags(evaluation_context).await;
 
         assert!(
             !result.error_while_computing_flags,
@@ -656,7 +686,8 @@ mod tests {
     #[tokio::test]
     async fn test_long_distinct_id() {
         let long_id = "a".repeat(1000);
-        let pg_client = setup_pg_client(None).await;
+        let postgres_reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None).await;
+        let postgres_writer: Arc<dyn Client + Send + Sync> = setup_pg_writer_client(None).await;
         let flag = FeatureFlag {
             name: Some("Test Flag".to_string()),
             id: 1,
@@ -680,9 +711,16 @@ mod tests {
 
         let feature_flag_list = FeatureFlagList { flags: vec![flag] };
 
-        let result =
-            evaluate_feature_flags(1, long_id, feature_flag_list, pg_client, None, None, None)
-                .await;
+        let evaluation_context = FeatureFlagEvaluationContextBuilder::default()
+            .team_id(1)
+            .distinct_id(long_id)
+            .feature_flags(feature_flag_list)
+            .postgres_reader(postgres_reader)
+            .postgres_writer(postgres_writer)
+            .build()
+            .expect("Failed to build FeatureFlagEvaluationContext");
+
+        let result = evaluate_feature_flags(evaluation_context).await;
 
         assert!(!result.error_while_computing_flags);
         assert_eq!(result.feature_flags["test_flag"], FlagValue::Boolean(true));

@@ -9,7 +9,7 @@ import {
     BREAKDOWN_OTHER_STRING_LABEL,
 } from 'scenes/insights/utils'
 
-import { LifecycleQuery, MathType, TrendsFilter } from '~/queries/schema'
+import { EventsNode, InsightQueryNode, LifecycleQuery, MathType, TrendsFilter, TrendsQuery } from '~/queries/schema'
 import {
     ChartDisplayType,
     CountPerActorMathType,
@@ -48,6 +48,7 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                 'display',
                 'compareFilter',
                 'interval',
+                'enabledIntervals',
                 'breakdownFilter',
                 'showValuesOnSeries',
                 'showLabelOnSeries',
@@ -91,6 +92,18 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
     }),
 
     selectors(({ values }) => ({
+        /** series within the trend insight on which user can set alerts */
+        alertSeries: [
+            (s) => [s.querySource],
+            (queryNode: InsightQueryNode | null): EventsNode[] => {
+                if (queryNode === null) {
+                    return []
+                }
+
+                return (queryNode as TrendsQuery).series as EventsNode[]
+            },
+        ],
+
         results: [
             (s) => [s.insightData],
             (insightData: TrendAPIResponse | null): TrendResult[] => {

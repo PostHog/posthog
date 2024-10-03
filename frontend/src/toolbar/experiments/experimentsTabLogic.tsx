@@ -35,6 +35,7 @@ function newExperiment(): ExperimentForm {
                 rollout_percentage: 50,
             },
             test: {
+                is_new: true,
                 transforms: [
                     {
                         text: '',
@@ -60,7 +61,7 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
         removeVariant: (variant: string) => ({
             variant,
         }),
-        visualizeVariant: (variant: string) => ({
+        applyVariant: (variant: string) => ({
             variant,
         }),
         addNewElement: (variant: string) => ({ variant }),
@@ -186,6 +187,30 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
     })),
 
     selectors({
+        removeVariantAvailable: [
+            (s) => [s.experimentForm, s.selectedExperimentId],
+            (experimentForm: ExperimentForm, selectedExperimentId: number | 'new' | null): boolean | undefined => {
+                /*Only show the remove button if all of these conditions are met:
+                1. Its a new Experiment
+                2. The experiment is still in draft form
+                3. there's more than one test variant, and the variant is not control*/
+                return (
+                    selectedExperimentId === 'new' &&
+                    experimentForm.start_date == null &&
+                    experimentForm.variants &&
+                    Object.keys(experimentForm.variants).length > 2
+                )
+            },
+        ],
+        addVariantAvailable: [
+            (s) => [s.experimentForm, s.selectedExperimentId],
+            (experimentForm: ExperimentForm, selectedExperimentId: number | 'new' | null): boolean | undefined => {
+                /*Only show the add button if all of these conditions are met:
+                1. Its a new Experiment
+                2. The experiment is still in draft form*/
+                return selectedExperimentId === 'new' && experimentForm.start_date == null
+            },
+        ],
         selectedExperiment: [
             (s) => [s.selectedExperimentId, s.allExperiments],
             (selectedExperimentId, allExperiments: WebExperiment[]): Experiment | ExperimentDraftType | null => {
@@ -242,6 +267,7 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
                         if (element.textContent) {
                             transform.text = element.textContent
                         }
+                        transform.html = element.innerHTML
                         actions.setExperimentFormValue('variants', values.experimentForm.variants)
                     }
                 }
@@ -254,7 +280,7 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
                 actions.rebalanceRolloutPercentage()
             }
         },
-        visualizeVariant: ({ variant }) => {
+        applyVariant: ({ variant }) => {
             if (values.experimentForm && values.experimentForm.variants) {
                 const selectedVariant = values.experimentForm.variants[variant]
                 if (selectedVariant) {
@@ -272,8 +298,8 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
                                         htmlElement.innerHTML = transform.html
                                     }
 
-                                    if (transform.className) {
-                                        htmlElement.className = transform.className
+                                    if (transform.css) {
+                                        htmlElement.setAttribute('style', transform.css)
                                     }
                                 }
                             })
@@ -300,6 +326,7 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
                 }
 
                 values.experimentForm.variants[nextVariantName] = {
+                    is_new: true,
                     transforms: [
                         {
                             text: '',

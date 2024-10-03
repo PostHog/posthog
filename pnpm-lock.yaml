@@ -236,8 +236,8 @@ dependencies:
     specifier: ^3.1.0
     version: 3.1.0(kea@3.1.5)
   kea-router:
-    specifier: ^3.1.4
-    version: 3.1.4(kea@3.1.5)
+    specifier: ^3.2.0
+    version: 3.2.0(kea@3.1.5)
   kea-subscriptions:
     specifier: ^3.0.1
     version: 3.0.1(kea@3.1.5)
@@ -15328,8 +15328,8 @@ packages:
       kea: 3.1.5(react@18.2.0)
     dev: false
 
-  /kea-router@3.1.4(kea@3.1.5):
-    resolution: {integrity: sha512-KjATA2vwh90GDcO3iiUrQwhRSzRbvyplvtyDzEWevfSHccbrtxdDm/ZCApAvMACPZZH0Klk4aHk1ZAZ1DJtcbg==}
+  /kea-router@3.2.0(kea@3.1.5):
+    resolution: {integrity: sha512-TZVHrQQNhD7tSL05xEXoNCeYu/vwwvxBc316pgwi5z8cH61MtCcUBUEZnWr2Nd7jSBDgxA/GRHpqai0YXq0T8w==}
     peerDependencies:
       kea: '>= 3'
     dependencies:
@@ -18358,7 +18358,7 @@ packages:
       react: '>=15'
     dependencies:
       react: 18.2.0
-      unlayer-types: 1.103.0
+      unlayer-types: 1.111.0
     dev: false
 
   /react-error-boundary@3.1.4(react@18.2.0):
@@ -20905,8 +20905,8 @@ packages:
     resolution: {integrity: sha512-hAZsKq7Yy11Zu1DE0OzWjw7nnLZmJZYTDZZyEFHZdUhV8FkH5MCfoU1XMaxXovpyW5nq5scPqq0ZDP9Zyl04oQ==}
     engines: {node: '>= 10.0.0'}
 
-  /unlayer-types@1.103.0:
-    resolution: {integrity: sha512-aVZS7g5F6dWEoxc0dhSDqYYncu+LIMB/SerJi6u5FKVSfTWnzA2MTpjFCbGkOOi8rUiIOabeuEOfyO/WDnarJg==}
+  /unlayer-types@1.111.0:
+    resolution: {integrity: sha512-CjdOROIUrZXrtkLUrInMvTucEWRdWWEmPleCOhwsDTwUXg9LocjzI6drgdYoia/lyyoYPfHOXYw5SxdJk7hlvw==}
     dev: false
 
   /unpipe@1.0.0:
