@@ -22,23 +22,18 @@ type Timestamp struct {
 }
 
 func (t *Timestamp) UnmarshalJSON(data []byte) error {
-	// Store the raw JSON string
 	t.Raw = string(data)
 
-	// Try to unmarshal into a string
 	var s string
 	if err := json.Unmarshal(data, &s); err == nil {
 		t.Value = s
 		return nil
 	}
 
-	// If unmarshalling to string fails, log the raw value
 	log.Printf("Unable to unmarshal timestamp to string. Raw value: %s", t.Raw)
-
-	// Set Value to empty string
+	// Set Default to empty string
 	t.Value = ""
 
-	// Return nil to continue unmarshalling the rest of the struct
 	return nil
 }
 
