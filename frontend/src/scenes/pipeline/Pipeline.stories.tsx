@@ -43,6 +43,14 @@ const batchExportsRetrieveMock: MockSignature = (req, res, ctx) => {
     return res(ctx.json({ ...batchExport }))
 }
 
+const hogFunctionTemplateRetrieveMock: MockSignature = (req, res, ctx) => {
+    const hogFunctionTemplate = hogFunctionTemplates.results.find((conf) => conf.id === req.params.id)
+    if (!batchExports) {
+        return res(ctx.status(404))
+    }
+    return res(ctx.json({ ...hogFunctionTemplate }))
+}
+
 export default {
     title: 'Scenes-App/Pipeline',
     decorators: [
@@ -71,6 +79,8 @@ export default {
                 '/api/organizations/:organization_id/pipeline_import_apps/': empty,
                 '/api/projects/:team_id/pipeline_import_apps_configs/': empty,
                 '/api/projects/:team_id/hog_function_templates': hogFunctionTemplates,
+                '/api/projects/:team_id/hog_function_templates/:id': hogFunctionTemplateRetrieveMock,
+                '/api/projects/:team_id/integrations/': empty,
                 '/api/projects/:team_id/app_metrics/:plugin_config_id?date_from=-7d': require('./__mocks__/pluginMetrics.json'),
                 '/api/projects/:team_id/app_metrics/:plugin_config_id/error_details?error_type=Error': require('./__mocks__/pluginErrorDetails.json'),
             },
@@ -216,6 +226,13 @@ export function PipelineNodeNewBigQuery(): JSX.Element {
 export function PipelineNodeNewBigQueryWithoutPipelines(): JSX.Element {
     useEffect(() => {
         router.actions.push(urls.pipelineNodeNew(PipelineStage.Destination, 'BigQuery'))
+    }, [])
+    return <App />
+}
+
+export function PipelineNodeNewHogFunction(): JSX.Element {
+    useEffect(() => {
+        router.actions.push(urls.pipelineNodeNew(PipelineStage.Destination, 'hog-template-slack'))
     }, [])
     return <App />
 }
