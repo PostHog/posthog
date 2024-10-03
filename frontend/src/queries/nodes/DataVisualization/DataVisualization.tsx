@@ -1,7 +1,7 @@
 import './Components/Chart.scss'
 
 import { IconGear } from '@posthog/icons'
-import { LemonButton, LemonDivider, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
@@ -213,22 +213,24 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                                         tooltip="Visualization settings"
                                     />
 
-                                    {exportContext && visualizationType === ChartDisplayType.ActionsTable && (
-                                        <Tooltip title="Export this table" placement="left">
-                                            <ExportButton
-                                                type="secondary"
-                                                items={[
-                                                    {
-                                                        export_format: ExporterFormat.CSV,
-                                                        export_context: exportContext,
-                                                    },
-                                                    {
-                                                        export_format: ExporterFormat.XLSX,
-                                                        export_context: exportContext,
-                                                    },
-                                                ]}
-                                            />
-                                        </Tooltip>
+                                    {exportContext && (
+                                        <ExportButton
+                                            disabledReason={
+                                                visualizationType != ChartDisplayType.ActionsTable &&
+                                                'Only table results are exportable'
+                                            }
+                                            type="secondary"
+                                            items={[
+                                                {
+                                                    export_format: ExporterFormat.CSV,
+                                                    export_context: exportContext,
+                                                },
+                                                {
+                                                    export_format: ExporterFormat.XLSX,
+                                                    export_context: exportContext,
+                                                },
+                                            ]}
+                                        />
                                     )}
                                 </div>
                             </div>
