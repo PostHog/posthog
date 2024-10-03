@@ -112,7 +112,7 @@ describe('GroupTypeManager()', () => {
             expect(groupTypeManager.insertGroupType).toHaveBeenCalledTimes(1)
             expect(hub.db.postgres.query).toHaveBeenCalledTimes(3) // FETCH + INSERT + Team lookup
 
-            const team = await hub.db.fetchTeam(2)
+            const team = await hub.teamManager.fetchTeam(2)
             expect(captureTeamEvent).toHaveBeenCalledWith(team, 'group type ingested', {
                 groupType: 'second',
                 groupTypeIndex: 1,

@@ -19,7 +19,6 @@ import { KafkaProducerWrapper } from '../../../utils/db/kafka-producer-wrapper'
 import { PostgresRouter } from '../../../utils/db/postgres'
 import { status } from '../../../utils/status'
 import { createRedisPool } from '../../../utils/utils'
-import { fetchTeamTokensWithRecordings } from '../../../worker/ingestion/team-manager'
 import { ObjectStorage } from '../../services/object_storage'
 import { runInstrumentedFunction } from '../../utils'
 import { addSentryBreadcrumbsEventListeners } from '../kafka-metrics'
@@ -34,6 +33,7 @@ import { IncomingRecordingMessage } from './types'
 import {
     allSettledWithConcurrency,
     bufferFileDir,
+    fetchTeamTokensWithRecordings,
     getPartitionsForTopic,
     now,
     parseKafkaBatch,
