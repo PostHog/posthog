@@ -803,7 +803,7 @@ export class HedgehogActor {
                     >
                         {this.mainAnimation ? (
                             <div
-                                className="image-rendering-pixelated"
+                                className="rendering-pixelated"
                                 // eslint-disable-next-line react/forbid-dom-props
                                 style={{
                                     width: SPRITE_SIZE,
@@ -824,7 +824,7 @@ export class HedgehogActor {
 
                         {this.accessories().map((accessory, index) => (
                             <div
-                                className={`absolute top-0 left-0 w-[${SPRITE_SIZE}px] h-[${SPRITE_SIZE}px] image-rendering-pixelated`}
+                                className={`absolute top-0 left-0 w-[${SPRITE_SIZE}px] h-[${SPRITE_SIZE}px] rendering-pixelated`}
                                 key={index}
                                 // eslint-disable-next-line react/forbid-dom-props
                                 style={{
@@ -838,9 +838,11 @@ export class HedgehogActor {
                         ))}
                         {this.overlayAnimation ? (
                             <div
-                                className={`absolute top-0 left-0 w-[${SPRITE_SIZE}px] h-[${SPRITE_SIZE}px] image-rendering-pixelated`}
+                                className="absolute top-0 left-0 rendering-pixelated"
                                 // eslint-disable-next-line react/forbid-dom-props
                                 style={{
+                                    width: SPRITE_SIZE,
+                                    height: SPRITE_SIZE,
                                     backgroundImage: `url(${spriteOverlayUrl(this.overlayAnimation.spriteInfo.img)})`,
                                     backgroundPosition: `-${
                                         (this.overlayAnimation.frame % X_FRAMES) * SPRITE_SIZE

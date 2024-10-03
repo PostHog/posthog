@@ -21,7 +21,14 @@ interface DatabaseTableProps {
     schemaOnChange?: (columnKey: string, columnType: DatabaseSerializedFieldType) => void
 }
 
-const nonEditableSchemaTypes = ['lazy_table', 'virtual_table', 'field_traverser', 'expression', 'view'] as const
+const nonEditableSchemaTypes = [
+    'lazy_table',
+    'virtual_table',
+    'field_traverser',
+    'expression',
+    'view',
+    'materialized_view',
+] as const
 type NonEditableSchemaTypes = Extract<DatabaseSerializedFieldType, (typeof nonEditableSchemaTypes)[number]>
 const editSchemaOptions: Record<Exclude<DatabaseSerializedFieldType, NonEditableSchemaTypes>, string> = {
     integer: 'Integer',

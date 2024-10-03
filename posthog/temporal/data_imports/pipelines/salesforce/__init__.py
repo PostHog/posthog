@@ -16,13 +16,25 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
         "User": {
             "name": "User",
             "table_name": "user",
-            **({"primary_key": "id"} if is_incremental else {}),
-            "write_disposition": "replace",
+            **({"primary_key": "Id"} if is_incremental else {}),
+            "write_disposition": {
+                "disposition": "merge",
+                "strategy": "upsert",
+            }
+            if is_incremental
+            else "replace",
             "endpoint": {
                 "data_selector": "records",
                 "path": "/services/data/v61.0/query",
                 "params": {
-                    "q": "SELECT FIELDS(ALL) FROM User ORDER BY Id LIMIT 200",
+                    "q": {
+                        "type": "incremental",
+                        "cursor_path": "SystemModstamp",
+                        "initial_value": "2000-01-01T00:00:00.000+0000",
+                        "convert": lambda date_str: f"SELECT FIELDS(ALL) FROM User WHERE SystemModstamp >= {date_str} ORDER BY Id ASC LIMIT 200",
+                    }
+                    if is_incremental
+                    else "SELECT FIELDS(ALL) FROM User ORDER BY Id ASC LIMIT 200",
                 },
             },
             "table_format": "delta",
@@ -30,13 +42,25 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
         "UserRole": {
             "name": "UserRole",
             "table_name": "user_role",
-            **({"primary_key": "id"} if is_incremental else {}),
-            "write_disposition": "replace",
+            **({"primary_key": "Id"} if is_incremental else {}),
+            "write_disposition": {
+                "disposition": "merge",
+                "strategy": "upsert",
+            }
+            if is_incremental
+            else "replace",
             "endpoint": {
                 "data_selector": "records",
                 "path": "/services/data/v61.0/query",
                 "params": {
-                    "q": "SELECT FIELDS(ALL) FROM UserRole ORDER BY Id LIMIT 200",
+                    "q": {
+                        "type": "incremental",
+                        "cursor_path": "SystemModstamp",
+                        "initial_value": "2000-01-01T00:00:00.000+0000",
+                        "convert": lambda date_str: f"SELECT FIELDS(ALL) FROM UserRole WHERE SystemModstamp >= {date_str} ORDER BY Id ASC LIMIT 200",
+                    }
+                    if is_incremental
+                    else "SELECT FIELDS(ALL) FROM UserRole ORDER BY Id ASC LIMIT 200",
                 },
             },
             "table_format": "delta",
@@ -44,13 +68,25 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
         "Lead": {
             "name": "Lead",
             "table_name": "lead",
-            **({"primary_key": "id"} if is_incremental else {}),
-            "write_disposition": "replace",
+            **({"primary_key": "Id"} if is_incremental else {}),
+            "write_disposition": {
+                "disposition": "merge",
+                "strategy": "upsert",
+            }
+            if is_incremental
+            else "replace",
             "endpoint": {
                 "data_selector": "records",
                 "path": "/services/data/v61.0/query",
                 "params": {
-                    "q": "SELECT FIELDS(ALL) FROM Lead ORDER BY Id LIMIT 200",
+                    "q": {
+                        "type": "incremental",
+                        "cursor_path": "SystemModstamp",
+                        "initial_value": "2000-01-01T00:00:00.000+0000",
+                        "convert": lambda date_str: f"SELECT FIELDS(ALL) FROM Lead WHERE SystemModstamp >= {date_str} ORDER BY Id ASC LIMIT 200",
+                    }
+                    if is_incremental
+                    else "SELECT FIELDS(ALL) FROM Lead ORDER BY Id ASC LIMIT 200",
                 },
             },
             "table_format": "delta",
@@ -58,13 +94,25 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
         "Contact": {
             "name": "Contact",
             "table_name": "contact",
-            **({"primary_key": "id"} if is_incremental else {}),
-            "write_disposition": "replace",
+            **({"primary_key": "Id"} if is_incremental else {}),
+            "write_disposition": {
+                "disposition": "merge",
+                "strategy": "upsert",
+            }
+            if is_incremental
+            else "replace",
             "endpoint": {
                 "data_selector": "records",
                 "path": "/services/data/v61.0/query",
                 "params": {
-                    "q": "SELECT FIELDS(ALL) FROM Contact ORDER BY Id LIMIT 200",
+                    "q": {
+                        "type": "incremental",
+                        "cursor_path": "SystemModstamp",
+                        "initial_value": "2000-01-01T00:00:00.000+0000",
+                        "convert": lambda date_str: f"SELECT FIELDS(ALL) FROM Contact WHERE SystemModstamp >= {date_str} ORDER BY Id ASC LIMIT 200",
+                    }
+                    if is_incremental
+                    else "SELECT FIELDS(ALL) FROM Contact ORDER BY Id ASC LIMIT 200",
                 },
             },
             "table_format": "delta",
@@ -72,13 +120,25 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
         "Campaign": {
             "name": "Campaign",
             "table_name": "campaign",
-            **({"primary_key": "id"} if is_incremental else {}),
-            "write_disposition": "replace",
+            **({"primary_key": "Id"} if is_incremental else {}),
+            "write_disposition": {
+                "disposition": "merge",
+                "strategy": "upsert",
+            }
+            if is_incremental
+            else "replace",
             "endpoint": {
                 "data_selector": "records",
                 "path": "/services/data/v61.0/query",
                 "params": {
-                    "q": "SELECT FIELDS(ALL) FROM Campaign ORDER BY Id LIMIT 200",
+                    "q": {
+                        "type": "incremental",
+                        "cursor_path": "SystemModstamp",
+                        "initial_value": "2000-01-01T00:00:00.000+0000",
+                        "convert": lambda date_str: f"SELECT FIELDS(ALL) FROM Campaign WHERE SystemModstamp >= {date_str} ORDER BY Id ASC LIMIT 200",
+                    }
+                    if is_incremental
+                    else "SELECT FIELDS(ALL) FROM Campaign ORDER BY Id ASC LIMIT 200",
                 },
             },
             "table_format": "delta",
@@ -86,13 +146,25 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
         "Product2": {
             "name": "Product2",
             "table_name": "product2",
-            **({"primary_key": "id"} if is_incremental else {}),
-            "write_disposition": "replace",
+            **({"primary_key": "Id"} if is_incremental else {}),
+            "write_disposition": {
+                "disposition": "merge",
+                "strategy": "upsert",
+            }
+            if is_incremental
+            else "replace",
             "endpoint": {
                 "data_selector": "records",
                 "path": "/services/data/v61.0/query",
                 "params": {
-                    "q": "SELECT FIELDS(ALL) FROM Product2 ORDER BY Id LIMIT 200",
+                    "q": {
+                        "type": "incremental",
+                        "cursor_path": "SystemModstamp",
+                        "initial_value": "2000-01-01T00:00:00.000+0000",
+                        "convert": lambda date_str: f"SELECT FIELDS(ALL) FROM Product2 WHERE SystemModstamp >= {date_str} ORDER BY Id ASC LIMIT 200",
+                    }
+                    if is_incremental
+                    else "SELECT FIELDS(ALL) FROM Product2 ORDER BY Id ASC LIMIT 200",
                 },
             },
             "table_format": "delta",
@@ -100,13 +172,25 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
         "Pricebook2": {
             "name": "Pricebook2",
             "table_name": "pricebook2",
-            **({"primary_key": "id"} if is_incremental else {}),
-            "write_disposition": "replace",
+            **({"primary_key": "Id"} if is_incremental else {}),
+            "write_disposition": {
+                "disposition": "merge",
+                "strategy": "upsert",
+            }
+            if is_incremental
+            else "replace",
             "endpoint": {
                 "data_selector": "records",
                 "path": "/services/data/v61.0/query",
                 "params": {
-                    "q": "SELECT FIELDS(ALL) FROM Pricebook2 ORDER BY Id LIMIT 200",
+                    "q": {
+                        "type": "incremental",
+                        "cursor_path": "SystemModstamp",
+                        "initial_value": "2000-01-01T00:00:00.000+0000",
+                        "convert": lambda date_str: f"SELECT FIELDS(ALL) FROM Pricebook2 WHERE SystemModstamp >= {date_str} ORDER BY Id ASC LIMIT 200",
+                    }
+                    if is_incremental
+                    else "SELECT FIELDS(ALL) FROM Pricebook2 ORDER BY Id ASC LIMIT 200",
                 },
             },
             "table_format": "delta",
@@ -114,13 +198,25 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
         "PricebookEntry": {
             "name": "PricebookEntry",
             "table_name": "pricebook_entry",
-            **({"primary_key": "id"} if is_incremental else {}),
-            "write_disposition": "replace",
+            **({"primary_key": "Id"} if is_incremental else {}),
+            "write_disposition": {
+                "disposition": "merge",
+                "strategy": "upsert",
+            }
+            if is_incremental
+            else "replace",
             "endpoint": {
                 "data_selector": "records",
                 "path": "/services/data/v61.0/query",
                 "params": {
-                    "q": "SELECT FIELDS(ALL) FROM PricebookEntry ORDER BY Id LIMIT 200",
+                    "q": {
+                        "type": "incremental",
+                        "cursor_path": "SystemModstamp",
+                        "initial_value": "2000-01-01T00:00:00.000+0000",
+                        "convert": lambda date_str: f"SELECT FIELDS(ALL) FROM PricebookEntry WHERE SystemModstamp >= {date_str} ORDER BY Id ASC LIMIT 200",
+                    }
+                    if is_incremental
+                    else "SELECT FIELDS(ALL) FROM PricebookEntry ORDER BY Id ASC LIMIT 200",
                 },
             },
             "table_format": "delta",
@@ -128,13 +224,25 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
         "Order": {
             "name": "Order",
             "table_name": "order",
-            **({"primary_key": "id"} if is_incremental else {}),
-            "write_disposition": "replace",
+            **({"primary_key": "Id"} if is_incremental else {}),
+            "write_disposition": {
+                "disposition": "merge",
+                "strategy": "upsert",
+            }
+            if is_incremental
+            else "replace",
             "endpoint": {
                 "data_selector": "records",
                 "path": "/services/data/v61.0/query",
                 "params": {
-                    "q": "SELECT FIELDS(ALL) FROM Order ORDER BY Id LIMIT 200",
+                    "q": {
+                        "type": "incremental",
+                        "cursor_path": "SystemModstamp",
+                        "initial_value": "2000-01-01T00:00:00.000+0000",
+                        "convert": lambda date_str: f"SELECT FIELDS(ALL) FROM Order WHERE SystemModstamp >= {date_str} ORDER BY Id ASC LIMIT 200",
+                    }
+                    if is_incremental
+                    else "SELECT FIELDS(ALL) FROM Order ORDER BY Id ASC LIMIT 200",
                 },
             },
             "table_format": "delta",

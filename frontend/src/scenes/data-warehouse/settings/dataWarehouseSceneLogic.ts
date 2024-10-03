@@ -8,7 +8,13 @@ import posthog from 'posthog-js'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { urls } from 'scenes/urls'
 
-import { DatabaseSchemaTable, DatabaseSerializedFieldType, HogQLQuery, NodeKind } from '~/queries/schema'
+import {
+    DatabaseSchemaMaterializedViewTable,
+    DatabaseSchemaTable,
+    DatabaseSerializedFieldType,
+    HogQLQuery,
+    NodeKind,
+} from '~/queries/schema'
 
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import type { dataWarehouseSceneLogicType } from './dataWarehouseSceneLogicType'
@@ -25,6 +31,8 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
         values: [
             databaseTableListLogic,
             ['database', 'posthogTables', 'dataWarehouseTables', 'databaseLoading', 'views', 'viewsMapById'],
+            dataWarehouseViewsLogic,
+            ['dataWarehouseSavedQueryMapById', 'dataWarehouseSavedQueriesLoading'],
         ],
         actions: [
             dataWarehouseViewsLogic,
@@ -171,6 +179,30 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
             (s) => [s.dataWarehouseTables, s.views],
             (dataWarehouseTables, views): DatabaseSchemaTable[] => {
                 return [...dataWarehouseTables, ...views]
+            },
+        ],
+        nonMaterializedViews: [
+            (s) => [s.views, s.dataWarehouseSavedQueryMapById],
+            (views, dataWarehouseSavedQueryMapById): DatabaseSchemaTable[] => {
+                return views
+                    .filter((view) => !dataWarehouseSavedQueryMapById[view.id]?.status)
+                    .map((view) => ({
+                        ...view,
+                        type: 'view',
+                    }))
+            },
+        ],
+        materializedViews: [
+            (s) => [s.views, s.dataWarehouseSavedQueryMapById],
+            (views, dataWarehouseSavedQueryMapById): DatabaseSchemaMaterializedViewTable[] => {
+                return views
+                    .filter((view) => dataWarehouseSavedQueryMapById[view.id]?.status)
+                    .map((view) => ({
+                        ...view,
+                        type: 'materialized_view',
+                        last_run_at: dataWarehouseSavedQueryMapById[view.id]?.last_run_at,
+                        status: dataWarehouseSavedQueryMapById[view.id]?.status,
+                    }))
             },
         ],
     }),

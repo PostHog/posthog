@@ -67,6 +67,7 @@ export interface DataVisualizationLogicProps {
     insightLogicProps: InsightLogicProps<DataVisualizationNode>
     context?: QueryContext<DataVisualizationNode>
     cachedResults?: AnyResponseType
+    insightLoading?: boolean
 }
 
 export interface SelectedYAxis {
@@ -225,6 +226,16 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             ['response', 'responseLoading', 'responseError', 'queryCancelled'],
             themeLogic,
             ['isDarkModeOn'],
+        ],
+        actions: [
+            dataNodeLogic({
+                cachedResults: props.cachedResults,
+                key: props.key,
+                query: props.query.source,
+                dataNodeCollectionId: insightVizDataCollectionId(props.insightLogicProps, props.key),
+                loadPriority: props.insightLogicProps.loadPriority,
+            }),
+            ['loadData'],
         ],
     })),
     props({ query: {} } as DataVisualizationLogicProps),

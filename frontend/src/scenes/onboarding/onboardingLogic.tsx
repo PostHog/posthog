@@ -47,6 +47,13 @@ export const availableOnboardingProducts: AvailableOnboardingProducts = {
         url: urls.insights(),
         scene: Scene.SavedInsights,
     },
+    [ProductKey.WEB_ANALYTICS]: {
+        name: 'Web Analytics',
+        icon: 'IconPieChart',
+        iconColor: 'var(--warning)',
+        url: urls.webAnalytics(),
+        scene: Scene.WebAnalytics,
+    },
     [ProductKey.DATA_WAREHOUSE]: {
         name: 'Data Warehouse',
         icon: 'IconDatabase',
@@ -73,7 +80,7 @@ export const availableOnboardingProducts: AvailableOnboardingProducts = {
     [ProductKey.SURVEYS]: {
         name: 'Surveys',
         icon: 'IconMessage',
-        iconColor: 'salmon',
+        iconColor: 'blue',
         url: urls.surveys(),
         scene: Scene.Surveys,
     },
