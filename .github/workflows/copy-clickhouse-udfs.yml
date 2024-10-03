@@ -13,7 +13,7 @@ jobs:
         uses: benc-uk/workflow-dispatch@v1
         with:
           workflow: .github/workflows/clickhouse-udfs.yml
-          repo: posthog/cloud-infra
+          repo: posthog/posthog-cloud-infra
           token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
           ref: refs/heads/main
 
