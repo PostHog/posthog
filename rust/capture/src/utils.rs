@@ -39,6 +39,8 @@ pub fn uuid_v7() -> Uuid {
     encode_unix_timestamp_millis(now_millis, &bytes)
 }
 
+// TODO - at some point, you really ought to just sit down and
+// write a state machine
 pub fn replace_invalid_hex_escape_strings(
     json_str: String,
 ) -> Result<String, std::string::FromUtf8Error> {
@@ -51,13 +53,23 @@ pub fn replace_invalid_hex_escape_strings(
     const HIGH_SURROGATE_RANGE: RangeInclusive<u16> = 0xD800..=0xDBFF;
     const LOW_SURROGATE_RANGE: RangeInclusive<u16> = 0xDC00..=0xDFFF;
 
+    let mut escaped = false;
     while i < len {
-        if bytes[i] == b'\\' && i + 1 < len && bytes[i + 1] == b'u' {
+        // First, figure out if this byte is the start of an escape sequence,
+        // and if it is, set the flag and move forward
+        if bytes[i] == b'\\' {
+            escaped = !escaped; // Handle e.g. "\\u1234" as not an escape sequence
+            i += 1;
+            continue;
+        }
+
+        // If we're entering a hex escape
+        if escaped && bytes[i] == b'u' {
             // Check if there are enough bytes for a Unicode escape sequence
-            if i + 6 <= len {
+            if i + 4 < len {
                 // Extract the four escape sequence bytes
-                let mut codepoint_bytes: [u8; 4] =
-                    [bytes[i + 2], bytes[i + 3], bytes[i + 4], bytes[i + 5]];
+                let mut codepoint_bytes: [u8; 4] = [0; 4];
+                codepoint_bytes.copy_from_slice(&bytes[i + 1..i + 5]);
 
                 // Convert the bytes to a string, then parse it into a u16 to check if it's a valid escape sequence
                 if let Ok(Ok(codepoint)) =
@@ -65,13 +77,14 @@ pub fn replace_invalid_hex_escape_strings(
                 {
                     if (HIGH_SURROGATE_RANGE).contains(&codepoint) {
                         // High surrogate without a following low surrogate
-                        if !is_next_low_surrogate(&bytes, i + 6) {
+                        if !is_next_low_surrogate(&bytes, i + 5) {
                             // Replace with 'FFFD' (Unicode replacement character)
                             codepoint_bytes.copy_from_slice(REPLACEMENT);
                         } else {
                             // This is a high surrogate, and the next is a low one, so we should skip over both
                             // without modification
-                            i += 12;
+                            i += 11; // u + 4 hex digits + \ + u + 4 hex digits = 11 bytes
+                            escaped = false; // And exit the escape state
                             continue;
                         }
                     } else if (LOW_SURROGATE_RANGE).contains(&codepoint) {
@@ -84,20 +97,22 @@ pub fn replace_invalid_hex_escape_strings(
                     // if we couldn't parse those 4 bytes as a hex escape code, or couldn't go from that hex escape code to a u16, replace with 'FFFD'
                     codepoint_bytes.copy_from_slice(REPLACEMENT);
                 }
-                bytes[i + 2] = codepoint_bytes[0];
-                bytes[i + 3] = codepoint_bytes[1];
-                bytes[i + 4] = codepoint_bytes[2];
-                bytes[i + 5] = codepoint_bytes[3];
-                i += 6; // Move past the Unicode escape sequence
+                bytes[i + 1] = codepoint_bytes[0];
+                bytes[i + 2] = codepoint_bytes[1];
+                bytes[i + 3] = codepoint_bytes[2];
+                bytes[i + 4] = codepoint_bytes[3];
+                i += 5; // Move past the Unicode escape sequence
+                escaped = false; // And exit the escape state
                 continue;
             } else {
                 // Not enough bytes for a Unicode escape sequence, truncate the buffer
                 // to the 'u', and then append 'FFFD'
-                bytes.truncate(i + 2);
+                bytes.truncate(i + 1);
                 bytes.extend_from_slice(REPLACEMENT);
-                break; // We're done, we just replaced the last 4 bytes
+                break;
             }
         }
+
         i += 1;
     }
 
@@ -107,6 +122,8 @@ pub fn replace_invalid_hex_escape_strings(
 
 fn is_next_low_surrogate(bytes: &[u8], start: usize) -> bool {
     let len = bytes.len();
+    // This doesn't need to look backwards - it's only used when we're already
+    // parsing a high surrogate, and we're looking at the next 6 bytes
     if start + 6 <= len && bytes[start] == b'\\' && bytes[start + 1] == b'u' {
         let code_point_bytes = &bytes[start + 2..start + 6];
         if let Ok(code_point_str) = std::str::from_utf8(code_point_bytes) {
@@ -186,5 +203,25 @@ mod test {
         let string = include_str!("../tests/session_recording_utf_surrogate_console.json");
         let replaced = super::replace_invalid_hex_escape_strings(string.to_string()).unwrap();
         let _result: serde_json::Value = serde_json::from_str(&replaced).unwrap();
+    }
+
+    #[test]
+    pub fn test_escaped_escape_sequences() {
+        let json_str = r#"{"key":"\\u1234"}"#.to_string();
+        let expected = r#"{"key":"\\u1234"}"#.to_string();
+        assert_eq!(
+            super::replace_invalid_hex_escape_strings(json_str).unwrap(),
+            expected
+        );
+    }
+
+    #[test]
+    pub fn test_escaped_escaped_escaped_sequences() {
+        let json_str = r#"{"key":"\\\u1234"}"#.to_string();
+        let expected = r#"{"key":"\\\u1234"}"#.to_string();
+        assert_eq!(
+            super::replace_invalid_hex_escape_strings(json_str).unwrap(),
+            expected
+        );
     }
 }
