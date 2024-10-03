@@ -10,9 +10,8 @@ import { RecordingComment } from 'scenes/session-recordings/player/inspector/pla
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
 
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
+import { Variable } from '~/queries/nodes/DataVisualization/types'
 import {
-    AlertType,
-    AlertTypeWrite,
     DashboardFilter,
     DatabaseSerializedFieldType,
     ErrorTrackingGroup,
@@ -100,6 +99,7 @@ import {
     SessionRecordingSnapshotParams,
     SessionRecordingSnapshotResponse,
     SessionRecordingType,
+    SessionRecordingUpdateType,
     SharingConfigurationType,
     SlackChannelType,
     SubscriptionType,
@@ -109,6 +109,7 @@ import {
     UserType,
 } from '~/types'
 
+import { AlertType, AlertTypeWrite } from './components/Alerts/types'
 import {
     ACTIVITY_PAGE_SIZE,
     DashboardPrivilegeLevel,
@@ -688,6 +689,10 @@ class ApiRequest {
         return this.errorTrackingGroup(fingerprint).addPathComponent('merge')
     }
 
+    public errorTrackingUploadSourceMaps(): ApiRequest {
+        return this.errorTracking().addPathComponent('upload_source_maps')
+    }
+
     // # Warehouse
     public dataWarehouseTables(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('warehouse_tables')
@@ -739,12 +744,20 @@ class ApiRequest {
     }
 
     // # Alerts
-    public alerts(id: InsightModel['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.insight(id, teamId).addPathComponent('alerts')
+    public alerts(alertId?: AlertType['id'], insightId?: InsightModel['id'], teamId?: TeamType['id']): ApiRequest {
+        if (alertId) {
+            return this.projectsDetail(teamId).addPathComponent('alerts').addPathComponent(alertId).withQueryString({
+                insight_id: insightId,
+            })
+        }
+
+        return this.projectsDetail(teamId).addPathComponent('alerts').withQueryString({
+            insight_id: insightId,
+        })
     }
 
-    public alert(id: AlertType['id'], insightId: InsightModel['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.alerts(insightId, teamId).addPathComponent(id)
+    public alert(alertId: AlertType['id']): ApiRequest {
+        return this.alerts(alertId)
     }
 
     // Resource Access Permissions
@@ -823,6 +836,11 @@ class ApiRequest {
 
     public externalDataSourceSchema(schemaId: ExternalDataSourceSchema['id'], teamId?: TeamType['id']): ApiRequest {
         return this.externalDataSchemas(teamId).addPathComponent(schemaId)
+    }
+
+    // Insight Variables
+    public insightVariables(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('insight_variables')
     }
 
     // ActivityLog
@@ -1003,6 +1021,9 @@ const api = {
                 .actionsDetail(actionId)
                 .withQueryString(temporaryToken ? `temporary_token=${temporaryToken}` : '')
                 .update({ data: actionData })
+        },
+        async migrate(id: ActionType['id']): Promise<HogFunctionType> {
+            return await new ApiRequest().actionsDetail(id).withAction('migrate').create()
         },
         async list(params?: string): Promise<PaginatedResponse<ActionType>> {
             return await new ApiRequest().actions().withQueryString(params).get()
@@ -1767,6 +1788,10 @@ const api = {
                 .errorTrackingMerge(primaryFingerprint)
                 .create({ data: { merging_fingerprints: mergingFingerprints } })
         },
+
+        async uploadSourceMaps(data: FormData): Promise<{ content: string }> {
+            return await new ApiRequest().errorTrackingUploadSourceMaps().create({ data })
+        },
     },
 
     recordings: {
@@ -1781,6 +1806,12 @@ const api = {
             params: Record<string, any> = {}
         ): Promise<SessionRecordingType> {
             return await new ApiRequest().recording(recordingId).withQueryString(toParams(params)).get()
+        },
+        async update(
+            recordingId: SessionRecordingType['id'],
+            data: Partial<SessionRecordingUpdateType>
+        ): Promise<SessionRecordingType> {
+            return await new ApiRequest().recording(recordingId).update({ data })
         },
 
         async persist(recordingId: SessionRecordingType['id']): Promise<{ success: boolean }> {
@@ -2089,6 +2120,9 @@ const api = {
         ): Promise<DataWarehouseSavedQuery> {
             return await new ApiRequest().dataWarehouseSavedQuery(viewId).update({ data })
         },
+        async run(viewId: DataWarehouseSavedQuery['id']): Promise<void> {
+            return await new ApiRequest().dataWarehouseSavedQuery(viewId).withAction('run').create()
+        },
         async ancestors(viewId: DataWarehouseSavedQuery['id'], level?: number): Promise<Record<string, string[]>> {
             return await new ApiRequest()
                 .dataWarehouseSavedQuery(viewId)
@@ -2207,6 +2241,15 @@ const api = {
         },
     },
 
+    insightVariables: {
+        async list(options?: ApiMethodOptions | undefined): Promise<PaginatedResponse<Variable>> {
+            return await new ApiRequest().insightVariables().get(options)
+        },
+        async create(data: Partial<any>): Promise<Variable> {
+            return await new ApiRequest().insightVariables().create({ data })
+        },
+    },
+
     subscriptions: {
         async get(subscriptionId: SubscriptionType['id']): Promise<SubscriptionType> {
             return await new ApiRequest().subscription(subscriptionId).get()
@@ -2303,20 +2346,20 @@ const api = {
     },
 
     alerts: {
-        async get(insightId: number, alertId: AlertType['id']): Promise<AlertType> {
-            return await new ApiRequest().alert(alertId, insightId).get()
+        async get(alertId: AlertType['id']): Promise<AlertType> {
+            return await new ApiRequest().alert(alertId).get()
         },
-        async create(insightId: number, data: Partial<AlertTypeWrite>): Promise<AlertType> {
-            return await new ApiRequest().alerts(insightId).create({ data })
+        async create(data: Partial<AlertTypeWrite>): Promise<AlertType> {
+            return await new ApiRequest().alerts().create({ data })
         },
-        async update(insightId: number, alertId: AlertType['id'], data: Partial<AlertTypeWrite>): Promise<AlertType> {
-            return await new ApiRequest().alert(alertId, insightId).update({ data })
+        async update(alertId: AlertType['id'], data: Partial<AlertTypeWrite>): Promise<AlertType> {
+            return await new ApiRequest().alert(alertId).update({ data })
         },
-        async list(insightId: number): Promise<PaginatedResponse<AlertType>> {
-            return await new ApiRequest().alerts(insightId).get()
+        async list(insightId?: InsightModel['id']): Promise<PaginatedResponse<AlertType>> {
+            return await new ApiRequest().alerts(undefined, insightId).get()
         },
-        async delete(insightId: number, alertId: AlertType['id']): Promise<void> {
-            return await new ApiRequest().alert(alertId, insightId).delete()
+        async delete(alertId: AlertType['id']): Promise<void> {
+            return await new ApiRequest().alert(alertId).delete()
         },
     },
 
@@ -2476,7 +2519,11 @@ async function handleFetch(url: string, method: string, fetcher: () => Promise<R
     if (!response.ok) {
         const duration = new Date().getTime() - startTime
         const pathname = new URL(url, location.origin).pathname
-        posthog.capture('client_request_failure', { pathname, method, duration, status: response.status })
+        // when used inside the posthog toolbar, `posthog.capture` isn't loaded
+        // check if the function is available before calling it.
+        if (posthog.capture) {
+            posthog.capture('client_request_failure', { pathname, method, duration, status: response.status })
+        }
 
         const data = await getJSONOrNull(response)
         throw new ApiError('Non-OK response', response.status, data)

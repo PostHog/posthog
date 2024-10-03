@@ -1,62 +1,68 @@
+import json
 import hashlib
 import os
 import time
+from collections.abc import Generator
 from contextlib import contextmanager
-from datetime import datetime, timedelta, UTC
+from datetime import UTC, datetime, timedelta
 
 from django.db import connection
 from prometheus_client import Histogram
-import json
 from typing import Any, cast
-from collections.abc import Generator
-
-from django.conf import settings
 
 import posthoganalytics
 import requests
+from django.conf import settings
 from django.contrib.auth.models import AnonymousUser
 from django.core.cache import cache
-from django.http import JsonResponse, HttpResponse
+from django.http import HttpResponse, JsonResponse
 from drf_spectacular.utils import extend_schema
-from loginas.utils import is_impersonated_session
+from prometheus_client import Counter
 from rest_framework import exceptions, request, serializers, viewsets
-from posthog.api.utils import action
+from rest_framework.mixins import UpdateModelMixin
 from rest_framework.renderers import JSONRenderer
 from rest_framework.response import Response
 from rest_framework.utils.encoders import JSONEncoder
 
+from ee.session_recordings.ai.error_clustering import error_clustering
+from ee.session_recordings.ai.similar_recordings import similar_recordings
+from ee.session_recordings.session_summary.summarize_session import summarize_recording
 from posthog.api.person import MinimalPersonSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.utils import safe_clickhouse_string
-from posthog.auth import SharingAccessTokenAuthentication
+from posthog.api.utils import action, safe_clickhouse_string
+from posthog.auth import PersonalAPIKeyAuthentication, SharingAccessTokenAuthentication
 from posthog.cloud_utils import is_cloud
 from posthog.constants import SESSION_RECORDINGS_FILTER_IDS
-from posthog.models import User, Team
+from posthog.event_usage import report_user_action
+from posthog.models import Team, User
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.person.person import PersonDistinctId
-from posthog.schema import QueryTiming, HogQLQueryModifiers
+from posthog.rate_limit import (
+    ClickHouseBurstRateThrottle,
+    ClickHouseSustainedRateThrottle,
+    PersonalApiKeyRateThrottle,
+)
+from posthog.schema import HogQLQueryModifiers, QueryTiming
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.models.session_recording_event import (
     SessionRecordingViewed,
 )
-
 from posthog.session_recordings.queries.session_recording_list_from_filters import (
-    SessionRecordingListFromFilters,
     ReplayFiltersEventsSubQuery,
+    SessionRecordingListFromFilters,
 )
 from posthog.session_recordings.queries.session_recording_properties import (
     SessionRecordingProperties,
 )
-from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle, PersonalApiKeyRateThrottle
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
-from posthog.session_recordings.realtime_snapshots import get_realtime_snapshots, publish_subscription
-from ee.session_recordings.session_summary.summarize_session import summarize_recording
-from ee.session_recordings.ai.similar_recordings import similar_recordings
-from ee.session_recordings.ai.error_clustering import error_clustering
-from posthog.session_recordings.snapshots.convert_legacy_snapshots import convert_original_version_lts_recording
+from posthog.session_recordings.realtime_snapshots import (
+    get_realtime_snapshots,
+    publish_subscription,
+)
+from posthog.session_recordings.snapshots.convert_legacy_snapshots import (
+    convert_original_version_lts_recording,
+)
 from posthog.storage import object_storage
-from prometheus_client import Counter
-from posthog.auth import PersonalAPIKeyAuthentication
 
 SNAPSHOTS_BY_PERSONAL_API_KEY_COUNTER = Counter(
     "snapshots_personal_api_key_counter",
@@ -136,6 +142,17 @@ class SessionRecordingSerializer(serializers.ModelSerializer):
     recording_duration = serializers.IntegerField(source="duration", read_only=True)
     person = MinimalPersonSerializer(required=False)
 
+    ongoing = serializers.SerializerMethodField()
+    viewed = serializers.SerializerMethodField()
+
+    def get_ongoing(self, obj: SessionRecording) -> bool:
+        # ongoing is a custom field that we add if loading from ClickHouse
+        return getattr(obj, "ongoing", False)
+
+    def get_viewed(self, obj: SessionRecording) -> bool:
+        # viewed is a custom field that we load from PG Sql and merge into the model
+        return getattr(obj, "viewed", False)
+
     class Meta:
         model = SessionRecording
         fields = [
@@ -157,6 +174,7 @@ class SessionRecordingSerializer(serializers.ModelSerializer):
             "person",
             "storage",
             "snapshot_source",
+            "ongoing",
         ]
 
         read_only_fields = [
@@ -177,6 +195,7 @@ class SessionRecordingSerializer(serializers.ModelSerializer):
             "start_url",
             "storage",
             "snapshot_source",
+            "ongoing",
         ]
 
 
@@ -210,6 +229,18 @@ class SessionRecordingSnapshotsSourceSerializer(serializers.Serializer):
 class SessionRecordingSourcesSerializer(serializers.Serializer):
     sources = serializers.ListField(child=SessionRecordingSnapshotsSourceSerializer(), required=False)
     snapshots = serializers.ListField(required=False)
+
+
+class SessionRecordingUpdateSerializer(serializers.Serializer):
+    viewed = serializers.BooleanField(required=False)
+    analyzed = serializers.BooleanField(required=False)
+    player_metadata = serializers.JSONField(required=False)
+    durations = serializers.JSONField(required=False)
+
+    def validate(self, data):
+        if not data.get("viewed") and not data.get("analyzed"):
+            raise serializers.ValidationError("At least one of 'viewed' or 'analyzed' must be provided.")
+        return data
 
 
 def list_recordings_response(
@@ -267,7 +298,7 @@ class SnapshotsSustainedRateThrottle(PersonalApiKeyRateThrottle):
 
 
 # NOTE: Could we put the sharing stuff in the shared mixin :thinking:
-class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, UpdateModelMixin):
     scope_object = "session_recording"
     scope_object_read_actions = ["list", "retrieve", "snapshots"]
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
@@ -293,6 +324,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         filter = SessionRecordingsFilter(request=request, team=self.team)
+        self._maybe_report_recording_list_filters_changed(request)
         return list_recordings_response(filter, request, self.get_serializer_context())
 
     @extend_schema(
@@ -394,13 +426,66 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         recording.load_person()
 
-        if not request.user.is_anonymous:
-            save_viewed = request.GET.get("save_view") is not None and not is_impersonated_session(request)
-            recording.check_viewed_for_user(request.user, save_viewed=save_viewed)
-
         serializer = self.get_serializer(recording)
 
         return Response(serializer.data)
+
+    def update(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+        recording = self.get_object()
+        loaded = recording.load_metadata()
+
+        if recording is None or recording.deleted or not loaded:
+            raise exceptions.NotFound("Recording not found")
+
+        serializer = SessionRecordingUpdateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        current_url = request.headers.get("Referer")
+        session_id = request.headers.get("X-Posthog-Session-Id")
+        durations = serializer.validated_data.get("durations", {})
+        player_metadata = serializer.validated_data.get("player_metadata", {})
+
+        event_properties = {
+            "$current_url": current_url,
+            "$session_id": session_id,
+            "snapshots_load_time": durations.get("snapshots"),
+            "metadata_load_time": durations.get("metadata"),
+            "events_load_time": durations.get("events"),
+            "first_paint_load_time": durations.get("firstPaint"),
+            "duration": player_metadata.get("duration"),
+            "recording_id": player_metadata.get("sessionRecordingId"),
+            "start_time": player_metadata.get("start"),
+            "end_time": player_metadata.get("end"),
+            "page_change_events_length": player_metadata.get("pageChangeEventsLength"),
+            "recording_width": player_metadata.get("recordingWidth"),
+            "load_time": durations.get(
+                "firstPaint", 0
+            ),  # TODO: DEPRECATED field. Keep around so dashboards don't break
+            # older recordings did not store this and so "null" is equivalent to web
+            # but for reporting we want to distinguish between not loaded and no value to load
+            "snapshot_source": player_metadata.get("snapshotSource", "unknown"),
+        }
+        user: User | None | AnonymousUser = request.user
+
+        if isinstance(user, User) and not user.is_anonymous:
+            if "viewed" in serializer.validated_data:
+                recording.check_viewed_for_user(user, save_viewed=True)
+                report_user_action(
+                    user=user,
+                    event="recording viewed",
+                    properties=event_properties,
+                    team=self.team,
+                )
+
+            if "analyzed" in serializer.validated_data:
+                report_user_action(
+                    user=user,
+                    event="recording analyzed",
+                    properties=event_properties,
+                    team=self.team,
+                )
+
+        return Response({"success": True})
 
     def destroy(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         recording = self.get_object()
@@ -485,6 +570,31 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return self._stream_blob_to_client(recording, request, event_properties)
         else:
             raise exceptions.ValidationError("Invalid source must be one of [realtime, blob]")
+
+    def _maybe_report_recording_list_filters_changed(self, request: request.Request):
+        """
+        If the applied filters were modified by the user, capture only the partial filters
+        applied (not the full filters object, since that's harder to search through in event props).
+        Take each key from the filter and change it to `partial_filter_chosen_{key}`
+        """
+        user_modified_filters = request.GET.get("user_modified_filters")
+        if user_modified_filters:
+            user_modified_filters_obj = json.loads(user_modified_filters)
+            partial_filters = {
+                f"partial_filter_chosen_{key}": value for key, value in user_modified_filters_obj.items()
+            }
+            current_url = request.headers.get("Referer")
+            session_id = request.headers.get("X-POSTHOG-SESSION-ID")
+
+            posthoganalytics.capture(
+                str(cast(User, request.user).distinct_id),
+                "recording list filters changed",
+                {
+                    "$current_url": current_url,
+                    "$session_id": session_id,
+                    **partial_filters,
+                },
+            )
 
     def _gather_session_recording_sources(self, recording: SessionRecording) -> Response:
         might_have_realtime = True

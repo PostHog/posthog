@@ -38,8 +38,10 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
             "created_by",
             "created_at",
             "columns",
+            "status",
+            "last_run_at",
         ]
-        read_only_fields = ["id", "created_by", "created_at", "columns"]
+        read_only_fields = ["id", "created_by", "created_at", "columns", "status", "last_run_at"]
 
     def get_columns(self, view: DataWarehouseSavedQuery) -> list[SerializedField]:
         team_id = self.context["team_id"]
@@ -171,6 +173,9 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
             select=[Selector(label=saved_query.id.hex, ancestors=ancestors, descendants=descendants)],
         )
         workflow_id = f"data-modeling-run-{saved_query.id.hex}"
+        saved_query.status = DataWarehouseSavedQuery.Status.RUNNING
+        saved_query.save()
+
         async_to_sync(temporal.start_workflow)(  # type: ignore
             "data-modeling-run",  # type: ignore
             inputs,  # type: ignore

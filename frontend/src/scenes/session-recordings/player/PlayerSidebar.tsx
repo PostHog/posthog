@@ -11,13 +11,11 @@ import { useRef } from 'react'
 
 import { SessionRecordingSidebarTab } from '~/types'
 
-import { PlayerInspectorControls, TabToIcon } from './inspector/PlayerInspectorControls'
-import { PlayerInspectorList } from './inspector/PlayerInspectorList'
+import { TabToIcon } from './inspector/PlayerInspectorControls'
 import { PlayerPersonMeta } from './PlayerPersonMeta'
 import { playerSettingsLogic } from './playerSettingsLogic'
-import { PlayerSidebarDebuggerTab } from './sidebar/PlayerSidebarDebuggerTab'
 import { playerSidebarLogic } from './sidebar/playerSidebarLogic'
-import { PlayerSidebarPersonTab } from './sidebar/PlayerSidebarPersonTab'
+import { PlayerSidebarTab } from './sidebar/PlayerSidebarTab'
 
 export function PlayerSidebar({
     isVerticallyStacked,
@@ -47,7 +45,7 @@ export function PlayerSidebar({
 
     const { desiredSize } = useValues(resizerLogic(resizerLogicProps))
 
-    const sidebarTabs = [SessionRecordingSidebarTab.INSPECTOR, SessionRecordingSidebarTab.PERSON]
+    const sidebarTabs = [SessionRecordingSidebarTab.OVERVIEW, SessionRecordingSidebarTab.INSPECTOR]
 
     if (window.IMPERSONATED_SESSION || featureFlags[FEATURE_FLAGS.SESSION_REPLAY_DOCTOR]) {
         sidebarTabs.push(SessionRecordingSidebarTab.DEBUGGER)
@@ -65,7 +63,7 @@ export function PlayerSidebar({
                 !sidebarOpen
                     ? {}
                     : isVerticallyStacked
-                    ? { height: desiredSize ?? undefined, minHeight: 110 }
+                    ? { height: desiredSize ?? undefined, minHeight: 210 }
                     : { width: desiredSize ?? undefined }
             }
         >
@@ -106,16 +104,7 @@ export function PlayerSidebar({
                             />
                         </div>
                     </div>
-                    {activeTab === SessionRecordingSidebarTab.PERSON ? (
-                        <PlayerSidebarPersonTab />
-                    ) : activeTab === SessionRecordingSidebarTab.INSPECTOR ? (
-                        <>
-                            <PlayerInspectorControls />
-                            <PlayerInspectorList />
-                        </>
-                    ) : (
-                        <PlayerSidebarDebuggerTab />
-                    )}
+                    <PlayerSidebarTab />
                 </>
             ) : (
                 <div className="flex flex-col items-center gap-1 px-1 pt-2">

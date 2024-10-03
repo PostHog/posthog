@@ -1,13 +1,14 @@
 import { IconX } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
-import { forwardRef } from 'react'
+import React, { forwardRef } from 'react'
+import { twMerge } from 'tailwind-merge'
 
 export interface LemonSnackProps {
     type?: 'regular' | 'pill'
     children?: React.ReactNode
-    onClick?: () => void
-    onClose?: () => void
+    onClick?: React.MouseEventHandler
+    onClose?: React.MouseEventHandler
     title?: string
     wrap?: boolean
     className?: string
@@ -21,8 +22,8 @@ export const LemonSnack: React.FunctionComponent<LemonSnackProps & React.RefAttr
         return (
             <span
                 ref={ref}
-                className={clsx(
-                    'inline-flex text-primary-alt max-w-full overflow-hidden break-all items-center py-1',
+                className={twMerge(
+                    'inline-flex text-primary-alt max-w-full overflow-hidden break-all items-center py-1 leading-5',
                     !wrap && 'whitespace-nowrap',
                     isRegular
                         ? 'bg-primary-highlight px-1.5 rounded'
@@ -45,9 +46,9 @@ export const LemonSnack: React.FunctionComponent<LemonSnackProps & React.RefAttr
                             size="small"
                             noPadding
                             icon={<IconX />}
-                            onClick={(event) => {
-                                event.stopPropagation()
-                                onClose()
+                            onClick={(e) => {
+                                e.stopPropagation()
+                                onClose(e)
                             }}
                         />
                     </span>

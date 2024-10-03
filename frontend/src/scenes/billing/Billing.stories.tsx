@@ -4,6 +4,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { mswDecorator, setFeatureFlags, useStorybookMocks } from '~/mocks/browser'
 import { billingJson } from '~/mocks/fixtures/_billing'
 import billingJsonWith100PercentDiscount from '~/mocks/fixtures/_billing_with_100_percent_discount.json'
+import billingJsonWithCredits from '~/mocks/fixtures/_billing_with_credits.json'
 import billingJsonWithDiscount from '~/mocks/fixtures/_billing_with_discount.json'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
 import organizationCurrent from '~/mocks/fixtures/api/organizations/@current/@current.json'
@@ -58,6 +59,18 @@ export const BillingWithDiscount = (): JSX.Element => {
     return <Billing />
 }
 
+export const BillingWithCredits = (): JSX.Element => {
+    useStorybookMocks({
+        get: {
+            '/api/billing/': {
+                ...billingJsonWithCredits,
+            },
+        },
+    })
+
+    return <Billing />
+}
+
 export const BillingWithCreditCTA = (): JSX.Element => {
     setFeatureFlags([FEATURE_FLAGS.PURCHASE_CREDITS])
     useStorybookMocks({
@@ -68,7 +81,7 @@ export const BillingWithCreditCTA = (): JSX.Element => {
             '/api/billing/credits/overview': {
                 status: 'none',
                 eligible: true,
-                estimated_monthly_credit_amount_usd: '1200',
+                estimated_monthly_credit_amount_usd: 1200,
                 email: 'test@posthog.com',
                 cc_last_four: '1234',
                 cc_brand: 'Visa',
@@ -100,7 +113,7 @@ export const BillingPurchaseCreditsModal = (): JSX.Element => {
             '/api/billing/credits/overview': {
                 status: 'none',
                 eligible: true,
-                estimated_monthly_credit_amount_usd: '1200',
+                estimated_monthly_credit_amount_usd: 1200,
                 email: 'test@posthog.com',
                 cc_last_four: '1234',
                 cc_brand: 'Visa',

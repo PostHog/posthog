@@ -110,9 +110,17 @@ impl FeatureFlag {
             .clone()
             .map_or(vec![], |m| m.variants)
     }
+
+    pub fn get_payload(&self, match_val: &str) -> Option<serde_json::Value> {
+        self.filters.payloads.as_ref().and_then(|payloads| {
+            payloads
+                .as_object()
+                .and_then(|obj| obj.get(match_val).cloned())
+        })
+    }
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct FeatureFlagList {
     pub flags: Vec<FeatureFlag>,
 }
@@ -218,22 +226,23 @@ mod tests {
     use super::*;
     use crate::test_utils::{
         insert_flag_for_team_in_pg, insert_flags_for_team_in_redis, insert_new_team_in_pg,
-        insert_new_team_in_redis, setup_invalid_pg_client, setup_pg_client, setup_redis_client,
+        insert_new_team_in_redis, setup_invalid_pg_client, setup_pg_reader_client,
+        setup_redis_client,
     };
 
     #[tokio::test]
     async fn test_fetch_flags_from_redis() {
-        let client = setup_redis_client(None);
+        let redis_client = setup_redis_client(None);
 
-        let team = insert_new_team_in_redis(client.clone())
+        let team = insert_new_team_in_redis(redis_client.clone())
             .await
             .expect("Failed to insert team");
 
-        insert_flags_for_team_in_redis(client.clone(), team.id, None)
+        insert_flags_for_team_in_redis(redis_client.clone(), team.id, None)
             .await
             .expect("Failed to insert flags");
 
-        let flags_from_redis = FeatureFlagList::from_redis(client.clone(), team.id)
+        let flags_from_redis = FeatureFlagList::from_redis(redis_client.clone(), team.id)
             .await
             .expect("Failed to fetch flags from redis");
         assert_eq!(flags_from_redis.flags.len(), 1);
@@ -256,9 +265,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_fetch_invalid_team_from_redis() {
-        let client = setup_redis_client(None);
+        let redis_client = setup_redis_client(None);
 
-        match FeatureFlagList::from_redis(client.clone(), 1234).await {
+        match FeatureFlagList::from_redis(redis_client.clone(), 1234).await {
             Err(FlagError::TokenValidationError) => (),
             _ => panic!("Expected TokenValidationError"),
         };
@@ -276,17 +285,17 @@ mod tests {
 
     #[tokio::test]
     async fn test_fetch_flags_from_pg() {
-        let client = setup_pg_client(None).await;
+        let postgres_reader = setup_pg_reader_client(None).await;
 
-        let team = insert_new_team_in_pg(client.clone())
+        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
             .await
             .expect("Failed to insert team in pg");
 
-        insert_flag_for_team_in_pg(client.clone(), team.id, None)
+        insert_flag_for_team_in_pg(postgres_reader.clone(), team.id, None)
             .await
             .expect("Failed to insert flags");
 
-        let flags_from_pg = FeatureFlagList::from_pg(client.clone(), team.id)
+        let flags_from_pg = FeatureFlagList::from_pg(postgres_reader.clone(), team.id)
             .await
             .expect("Failed to fetch flags from pg");
 
@@ -415,9 +424,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_fetch_empty_team_from_pg() {
-        let client = setup_pg_client(None).await;
+        let postgres_reader = setup_pg_reader_client(None).await;
 
-        let FeatureFlagList { flags } = FeatureFlagList::from_pg(client.clone(), 1234)
+        let FeatureFlagList { flags } = FeatureFlagList::from_pg(postgres_reader.clone(), 1234)
             .await
             .expect("Failed to fetch flags from pg");
         {
@@ -427,9 +436,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_fetch_nonexistent_team_from_pg() {
-        let client = setup_pg_client(None).await;
+        let postgres_reader = setup_pg_reader_client(None).await;
 
-        match FeatureFlagList::from_pg(client.clone(), -1).await {
+        match FeatureFlagList::from_pg(postgres_reader.clone(), -1).await {
             Ok(flags) => assert_eq!(flags.flags.len(), 0),
             Err(err) => panic!("Expected empty result, got error: {:?}", err),
         }
@@ -438,9 +447,9 @@ mod tests {
     #[tokio::test]
     async fn test_fetch_flags_db_connection_failure() {
         // Simulate a database connection failure by using an invalid client setup
-        let client = setup_invalid_pg_client().await;
+        let invalid_client = setup_invalid_pg_client().await;
 
-        match FeatureFlagList::from_pg(client, 1).await {
+        match FeatureFlagList::from_pg(invalid_client, 1).await {
             Err(FlagError::DatabaseUnavailable) => (),
             other => panic!("Expected DatabaseUnavailable error, got: {:?}", other),
         }
@@ -448,9 +457,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_fetch_multiple_flags_from_pg() {
-        let client = setup_pg_client(None).await;
+        let postgres_reader = setup_pg_reader_client(None).await;
 
-        let team = insert_new_team_in_pg(client.clone())
+        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
             .await
             .expect("Failed to insert team in pg");
 
@@ -480,15 +489,15 @@ mod tests {
         };
 
         // Insert multiple flags for the team
-        insert_flag_for_team_in_pg(client.clone(), team.id, Some(flag1))
+        insert_flag_for_team_in_pg(postgres_reader.clone(), team.id, Some(flag1))
             .await
             .expect("Failed to insert flags");
 
-        insert_flag_for_team_in_pg(client.clone(), team.id, Some(flag2))
+        insert_flag_for_team_in_pg(postgres_reader.clone(), team.id, Some(flag2))
             .await
             .expect("Failed to insert flags");
 
-        let flags_from_pg = FeatureFlagList::from_pg(client.clone(), team.id)
+        let flags_from_pg = FeatureFlagList::from_pg(postgres_reader.clone(), team.id)
             .await
             .expect("Failed to fetch flags from pg");
 
@@ -536,9 +545,9 @@ mod tests {
     #[tokio::test]
     async fn test_multivariate_flag_parsing() {
         let redis_client = setup_redis_client(None);
-        let pg_client = setup_pg_client(None).await;
+        let postgres_reader = setup_pg_reader_client(None).await;
 
-        let team = insert_new_team_in_pg(pg_client.clone())
+        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
             .await
             .expect("Failed to insert team in pg");
 
@@ -589,7 +598,7 @@ mod tests {
 
         // Insert into Postgres
         insert_flag_for_team_in_pg(
-            pg_client.clone(),
+            postgres_reader.clone(),
             team.id,
             Some(FeatureFlagRow {
                 id: 1,
@@ -616,7 +625,7 @@ mod tests {
         assert_eq!(redis_flag.get_variants().len(), 3);
 
         // Fetch and verify from Postgres
-        let pg_flags = FeatureFlagList::from_pg(pg_client, team.id)
+        let pg_flags = FeatureFlagList::from_pg(postgres_reader, team.id)
             .await
             .expect("Failed to fetch flags from Postgres");
 
@@ -629,9 +638,9 @@ mod tests {
     #[tokio::test]
     async fn test_multivariate_flag_with_payloads() {
         let redis_client = setup_redis_client(None);
-        let pg_client = setup_pg_client(None).await;
+        let postgres_reader = setup_pg_reader_client(None).await;
 
-        let team = insert_new_team_in_pg(pg_client.clone())
+        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
             .await
             .expect("Failed to insert team in pg");
 
@@ -687,7 +696,7 @@ mod tests {
 
         // Insert into Postgres
         insert_flag_for_team_in_pg(
-            pg_client.clone(),
+            postgres_reader.clone(),
             team.id,
             Some(FeatureFlagRow {
                 id: 1,
@@ -713,7 +722,7 @@ mod tests {
         assert_eq!(redis_flag.key, "multivariate_flag_with_payloads");
 
         // Fetch and verify from Postgres
-        let pg_flags = FeatureFlagList::from_pg(pg_client, team.id)
+        let pg_flags = FeatureFlagList::from_pg(postgres_reader, team.id)
             .await
             .expect("Failed to fetch flags from Postgres");
 
@@ -771,9 +780,9 @@ mod tests {
     #[tokio::test]
     async fn test_flag_with_super_groups() {
         let redis_client = setup_redis_client(None);
-        let pg_client = setup_pg_client(None).await;
+        let postgres_reader = setup_pg_reader_client(None).await;
 
-        let team = insert_new_team_in_pg(pg_client.clone())
+        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
             .await
             .expect("Failed to insert team in pg");
 
@@ -818,7 +827,7 @@ mod tests {
 
         // Insert into Postgres
         insert_flag_for_team_in_pg(
-            pg_client.clone(),
+            postgres_reader.clone(),
             team.id,
             Some(FeatureFlagRow {
                 id: 1,
@@ -846,7 +855,7 @@ mod tests {
         assert_eq!(redis_flag.filters.super_groups.as_ref().unwrap().len(), 1);
 
         // Fetch and verify from Postgres
-        let pg_flags = FeatureFlagList::from_pg(pg_client, team.id)
+        let pg_flags = FeatureFlagList::from_pg(postgres_reader, team.id)
             .await
             .expect("Failed to fetch flags from Postgres");
 
@@ -860,9 +869,9 @@ mod tests {
     #[tokio::test]
     async fn test_flags_with_different_property_types() {
         let redis_client = setup_redis_client(None);
-        let pg_client = setup_pg_client(None).await;
+        let postgres_reader = setup_pg_reader_client(None).await;
 
-        let team = insert_new_team_in_pg(pg_client.clone())
+        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
             .await
             .expect("Failed to insert team in pg");
 
@@ -913,7 +922,7 @@ mod tests {
 
         // Insert into Postgres
         insert_flag_for_team_in_pg(
-            pg_client.clone(),
+            postgres_reader.clone(),
             team.id,
             Some(FeatureFlagRow {
                 id: 1,
@@ -944,7 +953,7 @@ mod tests {
         assert_eq!(redis_properties[2].prop_type, "event");
 
         // Fetch and verify from Postgres
-        let pg_flags = FeatureFlagList::from_pg(pg_client, team.id)
+        let pg_flags = FeatureFlagList::from_pg(postgres_reader, team.id)
             .await
             .expect("Failed to fetch flags from Postgres");
 
@@ -961,9 +970,9 @@ mod tests {
     #[tokio::test]
     async fn test_deleted_and_inactive_flags() {
         let redis_client = setup_redis_client(None);
-        let pg_client = setup_pg_client(None).await;
+        let postgres_reader = setup_pg_reader_client(None).await;
 
-        let team = insert_new_team_in_pg(pg_client.clone())
+        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
             .await
             .expect("Failed to insert team in pg");
 
@@ -998,7 +1007,7 @@ mod tests {
 
         // Insert into Postgres
         insert_flag_for_team_in_pg(
-            pg_client.clone(),
+            postgres_reader.clone(),
             team.id,
             Some(FeatureFlagRow {
                 id: 0,
@@ -1015,7 +1024,7 @@ mod tests {
         .expect("Failed to insert deleted flag in Postgres");
 
         insert_flag_for_team_in_pg(
-            pg_client.clone(),
+            postgres_reader.clone(),
             team.id,
             Some(FeatureFlagRow {
                 id: 0,
@@ -1047,7 +1056,7 @@ mod tests {
             .any(|f| f.key == "inactive_flag" && !f.active));
 
         // Fetch and verify from Postgres
-        let pg_flags = FeatureFlagList::from_pg(pg_client, team.id)
+        let pg_flags = FeatureFlagList::from_pg(postgres_reader, team.id)
             .await
             .expect("Failed to fetch flags from Postgres");
 
@@ -1065,7 +1074,7 @@ mod tests {
     #[tokio::test]
     async fn test_error_handling() {
         let redis_client = setup_redis_client(Some("redis://localhost:6379/".to_string()));
-        let pg_client = setup_pg_client(None).await;
+        let postgres_reader = setup_pg_reader_client(None).await;
 
         // Test Redis connection error
         let bad_redis_client = setup_redis_client(Some("redis://localhost:1111/".to_string()));
@@ -1073,7 +1082,7 @@ mod tests {
         assert!(matches!(result, Err(FlagError::RedisUnavailable)));
 
         // Test malformed JSON in Redis
-        let team = insert_new_team_in_pg(pg_client.clone())
+        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
             .await
             .expect("Failed to insert team in pg");
 
@@ -1090,7 +1099,7 @@ mod tests {
 
         // Test database query error (using a non-existent table)
         let result = sqlx::query("SELECT * FROM non_existent_table")
-            .fetch_all(&mut *pg_client.get_connection().await.unwrap())
+            .fetch_all(&mut *postgres_reader.get_connection().await.unwrap())
             .await;
         assert!(result.is_err());
     }
@@ -1098,9 +1107,9 @@ mod tests {
     #[tokio::test]
     async fn test_concurrent_access() {
         let redis_client = setup_redis_client(None);
-        let pg_client = setup_pg_client(None).await;
+        let postgres_reader = setup_pg_reader_client(None).await;
 
-        let team = insert_new_team_in_pg(pg_client.clone())
+        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
             .await
             .expect("Failed to insert team in pg");
 
@@ -1123,7 +1132,7 @@ mod tests {
         .expect("Failed to insert flag in Redis");
 
         insert_flag_for_team_in_pg(
-            pg_client.clone(),
+            postgres_reader.clone(),
             team.id,
             Some(FeatureFlagRow {
                 id: 0,
@@ -1142,14 +1151,16 @@ mod tests {
         let mut handles = vec![];
         for _ in 0..10 {
             let redis_client = redis_client.clone();
-            let pg_client = pg_client.clone();
+            let postgres_reader = postgres_reader.clone();
             let team_id = team.id;
 
             let handle = task::spawn(async move {
                 let redis_flags = FeatureFlagList::from_redis(redis_client, team_id)
                     .await
                     .unwrap();
-                let pg_flags = FeatureFlagList::from_pg(pg_client, team_id).await.unwrap();
+                let pg_flags = FeatureFlagList::from_pg(postgres_reader, team_id)
+                    .await
+                    .unwrap();
                 (redis_flags, pg_flags)
             });
 
@@ -1169,9 +1180,9 @@ mod tests {
     #[ignore]
     async fn test_performance() {
         let redis_client = setup_redis_client(None);
-        let pg_client = setup_pg_client(None).await;
+        let postgres_reader = setup_pg_reader_client(None).await;
 
-        let team = insert_new_team_in_pg(pg_client.clone())
+        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
             .await
             .expect("Failed to insert team in pg");
 
@@ -1201,7 +1212,7 @@ mod tests {
 
         for flag in flags {
             insert_flag_for_team_in_pg(
-                pg_client.clone(),
+                postgres_reader.clone(),
                 team.id,
                 Some(FeatureFlagRow {
                     id: 0,
@@ -1225,7 +1236,7 @@ mod tests {
         let redis_duration = start.elapsed();
 
         let start = Instant::now();
-        let pg_flags = FeatureFlagList::from_pg(pg_client, team.id)
+        let pg_flags = FeatureFlagList::from_pg(postgres_reader, team.id)
             .await
             .expect("Failed to fetch flags from Postgres");
         let pg_duration = start.elapsed();
@@ -1243,9 +1254,9 @@ mod tests {
     #[tokio::test]
     async fn test_edge_cases() {
         let redis_client = setup_redis_client(None);
-        let pg_client = setup_pg_client(None).await;
+        let postgres_reader = setup_pg_reader_client(None).await;
 
-        let team = insert_new_team_in_pg(pg_client.clone())
+        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
             .await
             .expect("Failed to insert team in pg");
 
@@ -1290,7 +1301,7 @@ mod tests {
 
         for flag in edge_case_flags.as_array().unwrap() {
             insert_flag_for_team_in_pg(
-                pg_client.clone(),
+                postgres_reader.clone(),
                 team.id,
                 Some(FeatureFlagRow {
                     id: 0,
@@ -1311,7 +1322,7 @@ mod tests {
         let redis_flags = FeatureFlagList::from_redis(redis_client, team.id)
             .await
             .expect("Failed to fetch flags from Redis");
-        let pg_flags = FeatureFlagList::from_pg(pg_client, team.id)
+        let pg_flags = FeatureFlagList::from_pg(postgres_reader, team.id)
             .await
             .expect("Failed to fetch flags from Postgres");
 
@@ -1336,9 +1347,9 @@ mod tests {
     #[tokio::test]
     async fn test_consistent_behavior_from_both_clients() {
         let redis_client = setup_redis_client(None);
-        let pg_client = setup_pg_client(None).await;
+        let postgres_reader = setup_pg_reader_client(None).await;
 
-        let team = insert_new_team_in_pg(pg_client.clone())
+        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
             .await
             .expect("Failed to insert team in pg");
 
@@ -1370,7 +1381,7 @@ mod tests {
 
         for flag in flags.as_array().unwrap() {
             insert_flag_for_team_in_pg(
-                pg_client.clone(),
+                postgres_reader.clone(),
                 team.id,
                 Some(FeatureFlagRow {
                     id: 0,
@@ -1391,7 +1402,7 @@ mod tests {
         let mut redis_flags = FeatureFlagList::from_redis(redis_client, team.id)
             .await
             .expect("Failed to fetch flags from Redis");
-        let mut pg_flags = FeatureFlagList::from_pg(pg_client, team.id)
+        let mut pg_flags = FeatureFlagList::from_pg(postgres_reader, team.id)
             .await
             .expect("Failed to fetch flags from Postgres");
 
@@ -1435,9 +1446,9 @@ mod tests {
     #[tokio::test]
     async fn test_rollout_percentage_edge_cases() {
         let redis_client = setup_redis_client(None);
-        let pg_client = setup_pg_client(None).await;
+        let postgres_reader = setup_pg_reader_client(None).await;
 
-        let team = insert_new_team_in_pg(pg_client.clone())
+        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
             .await
             .expect("Failed to insert team in pg");
 
@@ -1478,7 +1489,7 @@ mod tests {
 
         for flag in flags.as_array().unwrap() {
             insert_flag_for_team_in_pg(
-                pg_client.clone(),
+                postgres_reader.clone(),
                 team.id,
                 Some(FeatureFlagRow {
                     id: 0,
@@ -1499,7 +1510,7 @@ mod tests {
         let redis_flags = FeatureFlagList::from_redis(redis_client, team.id)
             .await
             .expect("Failed to fetch flags from Redis");
-        let pg_flags = FeatureFlagList::from_pg(pg_client, team.id)
+        let pg_flags = FeatureFlagList::from_pg(postgres_reader, team.id)
             .await
             .expect("Failed to fetch flags from Postgres");
 

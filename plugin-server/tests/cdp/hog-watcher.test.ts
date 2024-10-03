@@ -3,7 +3,7 @@ jest.mock('../../src/utils/now', () => {
         now: jest.fn(() => Date.now()),
     }
 })
-import { BASE_REDIS_KEY, HogWatcher, HogWatcherState } from '../../src/cdp/hog-watcher'
+import { BASE_REDIS_KEY, CELERY_TASK_ID, HogWatcher, HogWatcherState } from '../../src/cdp/hog-watcher'
 import { CdpRedis, createCdpRedisPool } from '../../src/cdp/redis'
 import { HogFunctionInvocationResult } from '../../src/cdp/types'
 import { Hub } from '../../src/types'
@@ -43,20 +43,20 @@ describe('HogWatcher', () => {
         let now: number
         let hub: Hub
         let watcher: HogWatcher
-        let mockStateChangeCallback: jest.Mock
+        let mockCeleryApplyAsync: jest.Mock
         let redis: CdpRedis
 
         beforeEach(async () => {
             hub = await createHub()
+            hub.celery.applyAsync = mockCeleryApplyAsync = jest.fn()
 
             now = 1720000000000
             mockNow.mockReturnValue(now)
-            mockStateChangeCallback = jest.fn()
 
             redis = createCdpRedisPool(hub)
             await deleteKeysWithPrefix(redis, BASE_REDIS_KEY)
 
-            watcher = new HogWatcher(hub, redis, mockStateChangeCallback)
+            watcher = new HogWatcher(hub, redis)
         })
 
         const advanceTime = (ms: number) => {
@@ -183,8 +183,11 @@ describe('HogWatcher', () => {
 
             await watcher.observeResults(badResults)
 
-            expect(mockStateChangeCallback).toHaveBeenCalledTimes(1)
-            expect(mockStateChangeCallback).toHaveBeenCalledWith('id1', HogWatcherState.disabledForPeriod)
+            expect(mockCeleryApplyAsync).toHaveBeenCalledTimes(1)
+            expect(mockCeleryApplyAsync).toHaveBeenCalledWith(CELERY_TASK_ID, [
+                'id1',
+                HogWatcherState.disabledForPeriod,
+            ])
 
             expect(await watcher.getState('id1')).toMatchInlineSnapshot(`
                 Object {
@@ -216,7 +219,7 @@ describe('HogWatcher', () => {
                       "tokens": 10000,
                     }
                 `)
-                expect(mockStateChangeCallback).toHaveBeenCalledWith('id1', HogWatcherState.healthy)
+                expect(mockCeleryApplyAsync).toHaveBeenCalledWith(CELERY_TASK_ID, ['id1', HogWatcherState.healthy])
             })
             it('should force degraded', async () => {
                 await watcher.forceStateChange('id1', HogWatcherState.degraded)
@@ -227,7 +230,7 @@ describe('HogWatcher', () => {
                       "tokens": 8000,
                     }
                 `)
-                expect(mockStateChangeCallback).toHaveBeenCalledWith('id1', HogWatcherState.degraded)
+                expect(mockCeleryApplyAsync).toHaveBeenCalledWith(CELERY_TASK_ID, ['id1', HogWatcherState.degraded])
             })
             it('should force disabledForPeriod', async () => {
                 await watcher.forceStateChange('id1', HogWatcherState.disabledForPeriod)
@@ -238,7 +241,10 @@ describe('HogWatcher', () => {
                       "tokens": 0,
                     }
                 `)
-                expect(mockStateChangeCallback).toHaveBeenCalledWith('id1', HogWatcherState.disabledForPeriod)
+                expect(mockCeleryApplyAsync).toHaveBeenCalledWith(CELERY_TASK_ID, [
+                    'id1',
+                    HogWatcherState.disabledForPeriod,
+                ])
             })
             it('should force disabledIndefinitely', async () => {
                 await watcher.forceStateChange('id1', HogWatcherState.disabledIndefinitely)
@@ -249,7 +255,10 @@ describe('HogWatcher', () => {
                       "tokens": 0,
                     }
                 `)
-                expect(mockStateChangeCallback).toHaveBeenCalledWith('id1', HogWatcherState.disabledIndefinitely)
+                expect(mockCeleryApplyAsync).toHaveBeenCalledWith(CELERY_TASK_ID, [
+                    'id1',
+                    HogWatcherState.disabledIndefinitely,
+                ])
             })
         })
 
@@ -269,17 +278,26 @@ describe('HogWatcher', () => {
                     expect((await watcher.getState('id1')).state).toEqual(HogWatcherState.degraded)
                 }
 
-                expect(mockStateChangeCallback).toHaveBeenCalledTimes(2)
-                expect(mockStateChangeCallback.mock.calls[0]).toEqual(['id1', HogWatcherState.disabledForPeriod])
-                expect(mockStateChangeCallback.mock.calls[1]).toEqual(['id1', HogWatcherState.disabledForPeriod])
+                expect(mockCeleryApplyAsync).toHaveBeenCalledTimes(2)
+                expect(mockCeleryApplyAsync.mock.calls[0]).toEqual([
+                    CELERY_TASK_ID,
+                    ['id1', HogWatcherState.disabledForPeriod],
+                ])
+                expect(mockCeleryApplyAsync.mock.calls[1]).toEqual([
+                    CELERY_TASK_ID,
+                    ['id1', HogWatcherState.disabledForPeriod],
+                ])
 
                 await watcher.observeResults([createResult({ id: 'id1', error: 'error!' })])
                 expect((await watcher.getState('id1')).state).toEqual(HogWatcherState.disabledIndefinitely)
                 await reallyAdvanceTime(1000)
                 expect((await watcher.getState('id1')).state).toEqual(HogWatcherState.disabledIndefinitely)
 
-                expect(mockStateChangeCallback).toHaveBeenCalledTimes(3)
-                expect(mockStateChangeCallback.mock.calls[2]).toEqual(['id1', HogWatcherState.disabledIndefinitely])
+                expect(mockCeleryApplyAsync).toHaveBeenCalledTimes(3)
+                expect(mockCeleryApplyAsync.mock.calls[2]).toEqual([
+                    CELERY_TASK_ID,
+                    ['id1', HogWatcherState.disabledIndefinitely],
+                ])
             })
         })
     })

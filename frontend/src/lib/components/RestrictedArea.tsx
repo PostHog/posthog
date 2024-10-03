@@ -15,7 +15,7 @@ export enum RestrictionScope {
     /** Current organization-wide membership level will be used. */
     Organization = 'organization',
     /** Effective level for the current project will be used. */
-    Project = 'project',
+    Project = 'project', // TODO: Rename, as this is actually the environment scope
 }
 
 export interface UseRestrictedAreaProps {

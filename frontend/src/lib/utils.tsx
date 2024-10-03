@@ -435,8 +435,8 @@ export function humanFriendlyNumber(d: number, precision: number = DEFAULT_DECIM
     return d.toLocaleString('en-US', { maximumFractionDigits: precision })
 }
 
-/** Format currency from string with commas and 2 decimal places. */
-export function humanFriendlyCurrency(d: string | undefined | number): string {
+/** Format currency from string with commas and a number of decimal places (defaults to 2). */
+export function humanFriendlyCurrency(d: string | undefined | number, precision: number = 2): string {
     if (!d) {
         d = '0.00'
     }
@@ -448,7 +448,7 @@ export function humanFriendlyCurrency(d: string | undefined | number): string {
         number = d
     }
 
-    return `$${number.toLocaleString('en-US', { maximumFractionDigits: 2, minimumFractionDigits: 2 })}`
+    return `$${number.toLocaleString('en-US', { maximumFractionDigits: precision, minimumFractionDigits: precision })}`
 }
 
 export function humanFriendlyLargeNumber(d: number): string {
@@ -497,13 +497,36 @@ export const humanFriendlyMilliseconds = (timestamp: number | undefined): string
 
     return `${(timestamp / 1000).toFixed(2)}s`
 }
-export function humanFriendlyDuration(d: string | number | null | undefined, maxUnits?: number): string {
+export function humanFriendlyDuration(
+    d: string | number | null | undefined,
+    {
+        maxUnits,
+        secondsPrecision,
+        secondsFixed,
+    }: { maxUnits?: number; secondsPrecision?: number; secondsFixed?: number } = {}
+): string {
     // Convert `d` (seconds) to a human-readable duration string.
     // Example: `1d 10hrs 9mins 8s`
-    if (d === '' || d === null || d === undefined) {
+    if (d === '' || d === null || d === undefined || maxUnits === 0) {
         return ''
     }
     d = Number(d)
+    if (d < 0) {
+        return `-${humanFriendlyDuration(-d)}`
+    }
+    if (d === 0) {
+        return `0s`
+    }
+    if (d < 1) {
+        return `${Math.round(d * 1000)}ms`
+    }
+    if (d < 60) {
+        if (secondsPrecision != null) {
+            return `${parseFloat(d.toPrecision(secondsPrecision))}s` // round to s.f. then throw away trailing zeroes
+        }
+        return `${parseFloat(d.toFixed(secondsFixed ?? 0))}s` // round to fixed point then throw away trailing zeroes
+    }
+
     const days = Math.floor(d / 86400)
     const h = Math.floor((d % 86400) / 3600)
     const m = Math.floor((d % 3600) / 60)
@@ -520,7 +543,7 @@ export function humanFriendlyDuration(d: string | number | null | undefined, max
     } else {
         units = [hDisplay, mDisplay, sDisplay].filter(Boolean)
     }
-    return units.slice(0, maxUnits).join(' ')
+    return units.slice(0, maxUnits ?? undefined).join(' ')
 }
 
 export function humanFriendlyDiff(from: dayjs.Dayjs | string, to: dayjs.Dayjs | string): string {
@@ -529,7 +552,7 @@ export function humanFriendlyDiff(from: dayjs.Dayjs | string, to: dayjs.Dayjs | 
 }
 
 export function humanFriendlyDetailedTime(
-    date: dayjs.Dayjs | string | null,
+    date: dayjs.Dayjs | string | null | undefined,
     formatDate = 'MMMM DD, YYYY',
     formatTime = 'h:mm:ss A'
 ): string {

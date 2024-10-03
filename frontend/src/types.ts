@@ -188,6 +188,7 @@ export enum ProductKey {
     INTEGRATIONS = 'integrations',
     PLATFORM_AND_SUPPORT = 'platform_and_support',
     TEAMS = 'teams',
+    WEB_ANALYTICS = 'web_analytics',
 }
 
 type ProductKeyUnion = `${ProductKey}`
@@ -349,6 +350,7 @@ export interface OrganizationType extends OrganizationBasicType {
     updated_at: string
     plugins_access_level: PluginsAccessLevel
     teams: TeamBasicType[]
+    projects: ProjectBasicType[]
     available_product_features: BillingFeatureType[]
     is_member_join_email_enabled: boolean
     customer_id: string | null
@@ -441,10 +443,17 @@ export interface PropertyUsageType {
     volume: number
 }
 
+export interface ProjectBasicType {
+    id: number
+    organization_id: string
+    name: string
+}
+
 export interface TeamBasicType {
     id: number
     uuid: string
     organization: string // Organization ID
+    project_id: number
     api_token: string
     name: string
     completed_snippet_onboarding: boolean
@@ -470,12 +479,10 @@ export interface SessionRecordingAIConfig {
     important_user_properties: string[]
 }
 
-export interface ProjectType {
-    id: number
-    name: string
-    organization_id: string
+export interface ProjectType extends ProjectBasicType {
     created_at: string
 }
+
 export interface TeamType extends TeamBasicType {
     created_at: string
     updated_at: string
@@ -590,7 +597,7 @@ export interface ElementType {
     text?: string
 }
 
-export type ToolbarUserIntent = 'add-action' | 'edit-action' | 'heatmaps'
+export type ToolbarUserIntent = 'add-action' | 'edit-action' | 'heatmaps' | 'add-experiment' | 'edit-experiment'
 export type ToolbarSource = 'url' | 'localstorage'
 export type ToolbarVersion = 'toolbar'
 
@@ -650,6 +657,7 @@ export enum SavedInsightsTabs {
     Yours = 'yours',
     Favorites = 'favorites',
     History = 'history',
+    Alerts = 'alerts',
 }
 
 export enum ReplayTabs {
@@ -950,7 +958,7 @@ export enum SessionRecordingUsageType {
 }
 
 export enum SessionRecordingSidebarTab {
-    PERSON = 'person',
+    OVERVIEW = 'overview',
     INSPECTOR = 'inspector',
     DEBUGGER = 'debugger',
 }
@@ -1391,6 +1399,17 @@ export interface SessionRecordingType {
     storage?: 'object_storage_lts' | 'object_storage'
     summary?: string
     snapshot_source: 'web' | 'mobile' | 'unknown'
+    /** whether we have received data for this recording in the last 5 minutes
+     * (assumes the recording was loaded from ClickHouse)
+     * **/
+    ongoing?: boolean
+}
+
+export interface SessionRecordingUpdateType {
+    viewed?: boolean
+    analyzed?: boolean
+    player_metadata?: Record<string, any> | null
+    durations?: Record<string, any> | null
 }
 
 export interface SessionRecordingPropertiesType {
@@ -2726,6 +2745,7 @@ export interface SurveyAppearance {
     thankYouMessageCloseButtonText?: string
     autoDisappear?: boolean
     position?: string
+    zIndex?: string
     shuffleQuestions?: boolean
     surveyPopupDelaySeconds?: number
     // widget only
@@ -3388,6 +3408,8 @@ interface LinkBreadcrumb extends BreadcrumbBase {
     symbol?: never
     /** Path to link to. */
     path?: string
+    /** Extra tag shown next to name. */
+    tag?: string | null
     onRename?: never
 }
 interface RenamableBreadcrumb extends BreadcrumbBase {
@@ -3895,6 +3917,8 @@ export interface DataWarehouseSavedQuery {
     name: string
     query: HogQLQuery
     columns: DatabaseSchemaField[]
+    last_run_at?: string
+    status?: string
 }
 
 export interface DataWarehouseViewLink {
@@ -4366,6 +4390,7 @@ export type AvailableOnboardingProducts = Pick<
     | ProductKey.FEATURE_FLAGS
     | ProductKey.SURVEYS
     | ProductKey.DATA_WAREHOUSE
+    | ProductKey.WEB_ANALYTICS
 >
 
 export type OnboardingProduct = {

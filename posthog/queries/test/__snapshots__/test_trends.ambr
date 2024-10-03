@@ -46,7 +46,7 @@
         UNION ALL SELECT count(*) AS total,
                          toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
         FROM events e
-        INNER JOIN
+        LEFT OUTER JOIN
           (SELECT distinct_id,
                   argMax(person_id, version) as person_id
            FROM person_distinct_id2
@@ -74,7 +74,7 @@
            AND (has(['x'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$bool_prop'), '^"|"$', ''))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
         WHERE team_id = 2
           AND ((event = 'sign up'
-                AND (pdi.person_id IN
+                AND (if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) IN
                        (SELECT DISTINCT person_id
                         FROM cohortpeople
                         WHERE team_id = 2
@@ -1036,7 +1036,7 @@
         UNION ALL SELECT count(*) AS total,
                          toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
         FROM events e
-        INNER JOIN
+        LEFT OUTER JOIN
           (SELECT distinct_id,
                   argMax(person_id, version) as person_id
            FROM person_distinct_id2
@@ -1732,7 +1732,7 @@
         UNION ALL SELECT count(*) AS total,
                          toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
         FROM events e
-        INNER JOIN
+        LEFT OUTER JOIN
           (SELECT distinct_id,
                   argMax(person_id, version) as person_id
            FROM person_distinct_id2
@@ -1784,7 +1784,7 @@
         UNION ALL SELECT count(*) AS total,
                          toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
         FROM events e
-        INNER JOIN
+        LEFT OUTER JOIN
           (SELECT distinct_id,
                   argMax(person_id, version) as person_id
            FROM person_distinct_id2
@@ -1863,7 +1863,7 @@
         UNION ALL SELECT count(*) AS total,
                          toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
         FROM events e
-        INNER JOIN
+        LEFT OUTER JOIN
           (SELECT distinct_id,
                   argMax(person_id, version) as person_id
            FROM person_distinct_id2
@@ -1942,7 +1942,7 @@
         UNION ALL SELECT count(*) AS total,
                          toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
         FROM events e
-        INNER JOIN
+        LEFT OUTER JOIN
           (SELECT distinct_id,
                   argMax(person_id, version) as person_id
            FROM person_distinct_id2
@@ -2253,7 +2253,7 @@
         UNION ALL SELECT count(DISTINCT pdi.person_id) AS total,
                          toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
         FROM events e
-        INNER JOIN
+        LEFT OUTER JOIN
           (SELECT distinct_id,
                   argMax(person_id, version) as person_id
            FROM person_distinct_id2
@@ -2302,7 +2302,7 @@
              (SELECT toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') AS timestamp,
                      pdi.person_id AS actor_id
               FROM events e
-              INNER JOIN
+              LEFT OUTER JOIN
                 (SELECT distinct_id,
                         argMax(person_id, version) as person_id
                  FROM person_distinct_id2
@@ -2469,7 +2469,7 @@
         UNION ALL SELECT count(DISTINCT pdi.person_id) AS total,
                          toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'America/Phoenix')) AS date
         FROM events e
-        INNER JOIN
+        LEFT OUTER JOIN
           (SELECT distinct_id,
                   argMax(person_id, version) as person_id
            FROM person_distinct_id2
@@ -2518,7 +2518,7 @@
              (SELECT toTimeZone(toDateTime(timestamp, 'UTC'), 'America/Phoenix') AS timestamp,
                      pdi.person_id AS actor_id
               FROM events e
-              INNER JOIN
+              LEFT OUTER JOIN
                 (SELECT distinct_id,
                         argMax(person_id, version) as person_id
                  FROM person_distinct_id2
@@ -2685,7 +2685,7 @@
         UNION ALL SELECT count(DISTINCT pdi.person_id) AS total,
                          toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'Asia/Tokyo')) AS date
         FROM events e
-        INNER JOIN
+        LEFT OUTER JOIN
           (SELECT distinct_id,
                   argMax(person_id, version) as person_id
            FROM person_distinct_id2
@@ -2734,7 +2734,7 @@
              (SELECT toTimeZone(toDateTime(timestamp, 'UTC'), 'Asia/Tokyo') AS timestamp,
                      pdi.person_id AS actor_id
               FROM events e
-              INNER JOIN
+              LEFT OUTER JOIN
                 (SELECT distinct_id,
                         argMax(person_id, version) as person_id
                  FROM person_distinct_id2
@@ -2875,7 +2875,7 @@
         UNION ALL SELECT count(DISTINCT pdi.person_id) AS total,
                          toStartOfHour(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
         FROM events e
-        INNER JOIN
+        LEFT OUTER JOIN
           (SELECT distinct_id,
                   argMax(person_id, version) as person_id
            FROM person_distinct_id2
@@ -2905,11 +2905,11 @@
          count() AS actor_value
   FROM
     (SELECT e.timestamp as timestamp,
-            pdi.person_id as person_id,
+            if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
             e.distinct_id as distinct_id,
             e.team_id as team_id
      FROM events e
-     INNER JOIN
+     LEFT OUTER JOIN
        (SELECT distinct_id,
                argMax(person_id, version) as person_id
         FROM person_distinct_id2
@@ -2977,7 +2977,7 @@
         UNION ALL SELECT count(DISTINCT pdi.person_id) AS total,
                          toStartOfHour(toTimeZone(toDateTime(timestamp, 'UTC'), 'America/Phoenix')) AS date
         FROM events e
-        INNER JOIN
+        LEFT OUTER JOIN
           (SELECT distinct_id,
                   argMax(person_id, version) as person_id
            FROM person_distinct_id2
@@ -3007,11 +3007,11 @@
          count() AS actor_value
   FROM
     (SELECT e.timestamp as timestamp,
-            pdi.person_id as person_id,
+            if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
             e.distinct_id as distinct_id,
             e.team_id as team_id
      FROM events e
-     INNER JOIN
+     LEFT OUTER JOIN
        (SELECT distinct_id,
                argMax(person_id, version) as person_id
         FROM person_distinct_id2
@@ -3079,7 +3079,7 @@
         UNION ALL SELECT count(DISTINCT pdi.person_id) AS total,
                          toStartOfHour(toTimeZone(toDateTime(timestamp, 'UTC'), 'Asia/Tokyo')) AS date
         FROM events e
-        INNER JOIN
+        LEFT OUTER JOIN
           (SELECT distinct_id,
                   argMax(person_id, version) as person_id
            FROM person_distinct_id2
@@ -3109,11 +3109,11 @@
          count() AS actor_value
   FROM
     (SELECT e.timestamp as timestamp,
-            pdi.person_id as person_id,
+            if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
             e.distinct_id as distinct_id,
             e.team_id as team_id
      FROM events e
-     INNER JOIN
+     LEFT OUTER JOIN
        (SELECT distinct_id,
                argMax(person_id, version) as person_id
         FROM person_distinct_id2
@@ -3337,7 +3337,7 @@
         UNION ALL SELECT count(DISTINCT e.person_id) AS total,
                          toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
         FROM events e
-        INNER JOIN
+        LEFT OUTER JOIN
           (SELECT distinct_id,
                   argMax(person_id, version) as person_id
            FROM person_distinct_id2
@@ -3372,7 +3372,7 @@
             e.distinct_id as distinct_id,
             e.team_id as team_id
      FROM events e
-     INNER JOIN
+     LEFT OUTER JOIN
        (SELECT distinct_id,
                argMax(person_id, version) as person_id
         FROM person_distinct_id2
@@ -3409,7 +3409,7 @@
             e.distinct_id as distinct_id,
             e.team_id as team_id
      FROM events e
-     INNER JOIN
+     LEFT OUTER JOIN
        (SELECT distinct_id,
                argMax(person_id, version) as person_id
         FROM person_distinct_id2
@@ -3446,7 +3446,7 @@
             e.distinct_id as distinct_id,
             e.team_id as team_id
      FROM events e
-     INNER JOIN
+     LEFT OUTER JOIN
        (SELECT distinct_id,
                argMax(person_id, version) as person_id
         FROM person_distinct_id2
@@ -3735,7 +3735,7 @@
         UNION ALL SELECT count(DISTINCT e.distinct_id) AS total,
                          toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
         FROM events e
-        INNER JOIN
+        LEFT OUTER JOIN
           (SELECT distinct_id,
                   argMax(person_id, version) as person_id
            FROM person_distinct_id2
@@ -4510,7 +4510,7 @@
   FROM
     (SELECT count() AS intermediate_count
      FROM events e
-     INNER JOIN
+     LEFT OUTER JOIN
        (SELECT distinct_id,
                argMax(person_id, version) as person_id
         FROM person_distinct_id2
@@ -4640,7 +4640,7 @@
           (SELECT count() AS intermediate_count,
                   toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
            FROM events e
-           INNER JOIN
+           LEFT OUTER JOIN
              (SELECT distinct_id,
                      argMax(person_id, version) as person_id
               FROM person_distinct_id2
@@ -5197,7 +5197,7 @@
   
   SELECT count(DISTINCT pdi.person_id) AS total
   FROM events e
-  INNER JOIN
+  LEFT OUTER JOIN
     (SELECT distinct_id,
             argMax(person_id, version) as person_id
      FROM person_distinct_id2
@@ -5222,7 +5222,7 @@
   
   SELECT count(DISTINCT pdi.person_id) AS total
   FROM events e
-  INNER JOIN
+  LEFT OUTER JOIN
     (SELECT distinct_id,
             argMax(person_id, version) as person_id
      FROM person_distinct_id2
@@ -5247,7 +5247,7 @@
   
   SELECT count(DISTINCT pdi.person_id) AS total
   FROM events e SAMPLE 1.0
-  INNER JOIN
+  LEFT OUTER JOIN
     (SELECT distinct_id,
             argMax(person_id, version) as person_id
      FROM person_distinct_id2
@@ -5293,7 +5293,7 @@
              (SELECT toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') AS timestamp,
                      pdi.person_id AS actor_id
               FROM events e
-              INNER JOIN
+              LEFT OUTER JOIN
                 (SELECT distinct_id,
                         argMax(person_id, version) as person_id
                  FROM person_distinct_id2
@@ -5349,7 +5349,7 @@
              (SELECT toTimeZone(toDateTime(timestamp, 'UTC'), 'America/Phoenix') AS timestamp,
                      pdi.person_id AS actor_id
               FROM events e
-              INNER JOIN
+              LEFT OUTER JOIN
                 (SELECT distinct_id,
                         argMax(person_id, version) as person_id
                  FROM person_distinct_id2
@@ -5405,7 +5405,7 @@
              (SELECT toTimeZone(toDateTime(timestamp, 'UTC'), 'Asia/Tokyo') AS timestamp,
                      pdi.person_id AS actor_id
               FROM events e
-              INNER JOIN
+              LEFT OUTER JOIN
                 (SELECT distinct_id,
                         argMax(person_id, version) as person_id
                  FROM person_distinct_id2
@@ -5461,7 +5461,7 @@
              (SELECT toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') AS timestamp,
                      pdi.person_id AS actor_id
               FROM events e
-              INNER JOIN
+              LEFT OUTER JOIN
                 (SELECT distinct_id,
                         argMax(person_id, version) as person_id
                  FROM person_distinct_id2
@@ -5529,7 +5529,7 @@
              (SELECT toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') AS timestamp,
                      pdi.person_id AS actor_id
               FROM events e
-              INNER JOIN
+              LEFT OUTER JOIN
                 (SELECT distinct_id,
                         argMax(person_id, version) as person_id
                  FROM person_distinct_id2
@@ -5597,7 +5597,7 @@
              (SELECT toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') AS timestamp,
                      pdi.person_id AS actor_id
               FROM events e
-              INNER JOIN
+              LEFT OUTER JOIN
                 (SELECT distinct_id,
                         argMax(person_id, version) as person_id
                  FROM person_distinct_id2
@@ -5653,7 +5653,7 @@
              (SELECT toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') AS timestamp,
                      pdi.person_id AS actor_id
               FROM events e
-              INNER JOIN
+              LEFT OUTER JOIN
                 (SELECT distinct_id,
                         argMax(person_id, version) as person_id
                  FROM person_distinct_id2
@@ -5709,7 +5709,7 @@
              (SELECT toTimeZone(toDateTime(timestamp, 'UTC'), 'America/Phoenix') AS timestamp,
                      pdi.person_id AS actor_id
               FROM events e
-              INNER JOIN
+              LEFT OUTER JOIN
                 (SELECT distinct_id,
                         argMax(person_id, version) as person_id
                  FROM person_distinct_id2
@@ -5765,7 +5765,7 @@
              (SELECT toTimeZone(toDateTime(timestamp, 'UTC'), 'Asia/Tokyo') AS timestamp,
                      pdi.person_id AS actor_id
               FROM events e
-              INNER JOIN
+              LEFT OUTER JOIN
                 (SELECT distinct_id,
                         argMax(person_id, version) as person_id
                  FROM person_distinct_id2
@@ -5821,7 +5821,7 @@
              (SELECT toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') AS timestamp,
                      pdi.person_id AS actor_id
               FROM events e
-              INNER JOIN
+              LEFT OUTER JOIN
                 (SELECT distinct_id,
                         argMax(person_id, version) as person_id
                  FROM person_distinct_id2
@@ -5877,7 +5877,7 @@
              (SELECT toTimeZone(toDateTime(timestamp, 'UTC'), 'America/Phoenix') AS timestamp,
                      pdi.person_id AS actor_id
               FROM events e
-              INNER JOIN
+              LEFT OUTER JOIN
                 (SELECT distinct_id,
                         argMax(person_id, version) as person_id
                  FROM person_distinct_id2
@@ -5933,7 +5933,7 @@
              (SELECT toTimeZone(toDateTime(timestamp, 'UTC'), 'Asia/Tokyo') AS timestamp,
                      pdi.person_id AS actor_id
               FROM events e
-              INNER JOIN
+              LEFT OUTER JOIN
                 (SELECT distinct_id,
                         argMax(person_id, version) as person_id
                  FROM person_distinct_id2

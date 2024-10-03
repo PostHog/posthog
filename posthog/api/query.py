@@ -61,7 +61,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         if self.action in ("draft_sql", "chat"):
             return [AIBurstRateThrottle(), AISustainedRateThrottle()]
         if query := self.request.data.get("query"):
-            if query.get("kind") == "HogQLQuery":
+            if isinstance(query, dict) and query.get("kind") == "HogQLQuery":
                 return [HogQLQueryThrottle()]
         return [ClickHouseBurstRateThrottle(), ClickHouseSustainedRateThrottle()]
 

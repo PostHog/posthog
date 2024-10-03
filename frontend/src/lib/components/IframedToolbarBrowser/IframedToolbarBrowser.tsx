@@ -54,14 +54,10 @@ export function IframedToolbarBrowser({
             <LoadingOverlay />
             <iframe
                 ref={iframeRef}
-                className="w-full h-full"
+                className="w-full h-full bg-white"
                 src={appEditorUrl(browserUrl + '/' + initialPath, {
                     userIntent: userIntent,
                 })}
-                // eslint-disable-next-line react/forbid-dom-props
-                style={{
-                    background: '#FFF',
-                }}
                 onLoad={onIframeLoad}
                 // these two sandbox values are necessary so that the site and toolbar can run
                 // this is a very loose sandbox,
