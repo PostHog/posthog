@@ -38,6 +38,7 @@ export const api = apiReal as any as APIMockReturnType
 
 export const MOCK_DEFAULT_TEAM: TeamType = {
     id: MOCK_TEAM_ID,
+    project_id: MOCK_TEAM_ID,
     uuid: MOCK_TEAM_UUID,
     organization: MOCK_ORGANIZATION_ID,
     api_token: 'default-team-api-token',
@@ -109,6 +110,7 @@ export const MOCK_DEFAULT_ORGANIZATION: OrganizationType = {
     plugins_access_level: PluginsAccessLevel.Root,
     enforce_2fa: false,
     teams: [MOCK_DEFAULT_TEAM],
+    projects: [MOCK_DEFAULT_PROJECT],
     is_member_join_email_enabled: true,
     metadata: {},
     available_product_features: [],

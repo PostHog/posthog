@@ -1,7 +1,13 @@
 import { Tooltip } from '@posthog/lemon-ui'
 
 export function OverviewGrid({ children }: { children: React.ReactNode }): JSX.Element {
-    return <div className="grid grid-cols-3 place-items-center gap-4 p-2">{children}</div>
+    return (
+        <div className="@container/og">
+            <div className="grid grid-cols-1 place-items-center gap-4 p-2 @xs/og:grid-cols-2 @md/og:grid-cols-3 ">
+                {children}
+            </div>
+        </div>
+    )
 }
 
 export function OverviewGridItem({
