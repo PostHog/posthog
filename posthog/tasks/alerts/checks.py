@@ -75,7 +75,6 @@ ALERT_CHECK_ERROR_COUNTER = Counter(
 ALERT_COMPUTED_COUNTER = Counter(
     "alerts_computed",
     "Number of alerts we calculated",
-    labelnames=["calculation_interval"],
 )
 
 
@@ -253,7 +252,7 @@ def check_alert_atomically(alert: AlertConfiguration) -> None:
     2. Compare the aggregated value with the threshold
     3. Send notifications if breaches are found
     """
-    ALERT_COMPUTED_COUNTER.labels(calculation_interval=alert.calculation_interval).inc()
+    ALERT_COMPUTED_COUNTER.inc()
 
     insight = alert.insight
     aggregated_value: Optional[float] = None
