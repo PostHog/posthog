@@ -1565,6 +1565,7 @@ export type BillingFeatureType = {
         dark: string
     } | null
     icon_key?: string | null
+    entitlement_only?: boolean
     type?: 'primary' | 'secondary' | null
 }
 

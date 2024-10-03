@@ -3,6 +3,7 @@ import { LemonButton, LemonSelectOptions, LemonTag, Link, Tooltip } from '@posth
 import { useActions, useValues } from 'kea'
 import { UNSUBSCRIBE_SURVEY_ID } from 'lib/constants'
 import { More } from 'lib/lemon-ui/LemonButton/More'
+import { humanFriendlyCurrency } from 'lib/utils'
 import { ReactNode, useMemo, useRef } from 'react'
 import { getProductIcon } from 'scenes/products/Products'
 
@@ -20,7 +21,7 @@ const formatFlatRate = (flatRate: number, unit: string | null): string | ReactNo
     }
     return (
         <span className="space-x-0.5">
-            <span>${Number(flatRate)}</span>
+            <span>{humanFriendlyCurrency(flatRate)}</span>
             <span>/</span>
             <span>{unit}</span>
         </span>
@@ -139,6 +140,10 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                             <LemonTag type="completion" icon={<IconCheckCircle />}>
                                 Included with plan
                             </LemonTag>
+                        ) : addon.contact_support ? (
+                            <LemonButton type="secondary" to="https://posthog.com/talk-to-a-human">
+                                Contact support
+                            </LemonButton>
                         ) : (
                             <>
                                 {currentAndUpgradePlans?.upgradePlan?.flat_rate ? (
@@ -182,7 +187,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                             </>
                         )}
                     </div>
-                    {!addon.inclusion_only && isProrated && (
+                    {!addon.inclusion_only && isProrated && !addon.contact_support && (
                         <p className="mt-2 text-xs text-muted text-right">
                             Pay ~${prorationAmount} today (prorated) and
                             <br />
@@ -197,20 +202,22 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                     <div>
                         <p className="ml-0 mb-2 max-w-200">Features included:</p>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4">
-                            {addonFeatures.map((feature, index) => (
-                                <div
-                                    className="flex gap-x-2 items-center mb-2"
-                                    key={'addon-features-' + addon.type + index}
-                                >
-                                    <IconCheckCircle className="text-success" />
-                                    <Tooltip key={feature.key} title={feature.description}>
-                                        <b>
-                                            {feature.name}
-                                            {feature.note ? ': ' + feature.note : ''}
-                                        </b>
-                                    </Tooltip>
-                                </div>
-                            ))}
+                            {addonFeatures
+                                .filter((feature) => !feature.entitlement_only)
+                                .map((feature, index) => (
+                                    <div
+                                        className="flex gap-x-2 items-center mb-2"
+                                        key={'addon-features-' + addon.type + index}
+                                    >
+                                        <IconCheckCircle className="text-success" />
+                                        <Tooltip key={feature.key} title={feature.description}>
+                                            <b>
+                                                {feature.name}
+                                                {feature.note ? ': ' + feature.note : ''}
+                                            </b>
+                                        </Tooltip>
+                                    </div>
+                                ))}
                         </div>
                     </div>
                 )}
