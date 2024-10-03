@@ -111,12 +111,25 @@ export function Surveys(): JSX.Element {
                     { key: SurveysTabs.Archived, label: 'Archived' },
                     showLinkedHogFunctions ? { key: SurveysTabs.Notifications, label: 'Notifications' } : null,
                     { key: SurveysTabs.History, label: 'History' },
+                    { key: SurveysTabs.Settings, label: 'Settings' },
                 ]}
             />
-
-            {tab === SurveysTabs.History ? (
-                <ActivityLog scope={ActivityScope.SURVEY} />
-            ) : tab === SurveysTabs.Notifications ? (
+            {tab === SurveysTabs.Settings && (
+                <LemonBanner
+                    type="warning"
+                    action={{
+                        type: 'secondary',
+                        icon: <IconGear />,
+                        onClick: () => openSurveysSettingsDialog(),
+                        children: 'Configure',
+                    }}
+                    className="mb-2"
+                >
+                    Survey popovers are currently disabled for this project but there are active surveys running.
+                    Re-enable them in the settings.
+                </LemonBanner>
+            )}
+            {tab === SurveysTabs.Notifications && (
                 <>
                     <p>Get notified whenever a survey result is submitted</p>
                     <LinkedHogFunctions
@@ -140,7 +153,11 @@ export function Surveys(): JSX.Element {
                         }}
                     />
                 </>
-            ) : (
+            )}
+
+            {tab === SurveysTabs.History && <ActivityLog scope={ActivityScope.SURVEY} />}
+
+            {(tab === SurveysTabs.Active || tab === SurveysTabs.Archived) && (
                 <>
                     <div className="space-y-2">
                         <VersionCheckerBanner />

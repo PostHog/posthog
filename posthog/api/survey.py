@@ -281,6 +281,9 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                 )
         return data
 
+    # def update_settings(self, validated_data):
+    #     None
+
     def create(self, validated_data):
         if "remove_targeting_flag" in validated_data:
             validated_data.pop("remove_targeting_flag")
@@ -691,7 +694,19 @@ def surveys(request: Request):
         many=True,
     ).data
 
-    return cors_response(request, JsonResponse({"surveys": surveys}))
+    return cors_response(
+        request,
+        JsonResponse(
+            {
+                "surveys": surveys,
+                "settings": {
+                    "appearance": {
+                        "maxWidth": "300px",
+                    }
+                },
+            }
+        ),
+    )
 
 
 @contextmanager

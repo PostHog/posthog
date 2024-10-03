@@ -19,6 +19,7 @@ export enum SurveysTabs {
     Archived = 'archived',
     Notifications = 'notifications',
     History = 'history',
+    Settings = 'settings',
 }
 
 export function getSurveyStatus(survey: Survey): ProgressStatus {

@@ -39,6 +39,7 @@ from .web_experiment import WebExperiment
 from .exported_asset import ExportedAsset
 from .feature_flag import FeatureFlag
 from .feedback.survey import Survey
+from .feedback.survey_settings import SurveySettings
 from .filters import Filter, RetentionFilter
 from .group import Group
 from .group_type_mapping import GroupTypeMapping
@@ -142,6 +143,7 @@ __all__ = [
     "SharingConfiguration",
     "Subscription",
     "Survey",
+    "SurveySettings",
     "Tag",
     "TaggedItem",
     "Team",
