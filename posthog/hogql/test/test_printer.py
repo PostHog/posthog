@@ -623,6 +623,10 @@ class TestPrinter(BaseTest):
             expected_skip_indexes_used={"properties_group_custom_keys_bf"},
         )
 
+        # Don't optimize comparisons to types that require additional type conversions.
+        self._test_property_group_comparison("properties.key in (true, false)", None)
+        self._test_property_group_comparison("properties.key in (1, 2, 3)", None)
+
         # Only direct constant comparison is supported for now -- see above.
         self._test_property_group_comparison("properties.key in lower('value')", None)
         self._test_property_group_comparison("properties.key in (lower('a'), lower('b'))", None)
