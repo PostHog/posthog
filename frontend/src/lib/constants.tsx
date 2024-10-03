@@ -192,11 +192,11 @@ export const FEATURE_FLAGS = {
     SETTINGS_PERSONS_JOIN_MODE: 'settings-persons-join-mode', // owner: @robbie-c
     SETTINGS_PERSONS_ON_EVENTS_HIDDEN: 'settings-persons-on-events-hidden', // owner: @Twixes
     HOG: 'hog', // owner: @mariusandra
-    HOG_FUNCTIONS: 'hog-functions', // owner: #team-cdp
     HOG_FUNCTIONS_LINKED: 'hog-functions-linked', // owner: #team-cdp
     PERSONLESS_EVENTS_NOT_SUPPORTED: 'personless-events-not-supported', // owner: @raquelmsmith
     ALERTS: 'alerts', // owner: @anirudhpillai #team-product-analytics
-    ERROR_TRACKING: 'error-tracking', // owner: #team-replay
+    ERROR_TRACKING: 'error-tracking', // owner: #team-error-tracking
+    ERROR_TRACKING_GROUP_ACTIONS: 'error-tracking-group-actions', // owner: #team-error-tracking
     SETTINGS_BOUNCE_RATE_PAGE_VIEW_MODE: 'settings-bounce-rate-page-view-mode', // owner: @robbie-c
     ONBOARDING_DASHBOARD_TEMPLATES: 'onboarding-dashboard-templates', // owner: @raquelmsmith
     MULTIPLE_BREAKDOWNS: 'multiple-breakdowns', // owner: @skoob13 #team-product-analytics
@@ -213,6 +213,7 @@ export const FEATURE_FLAGS = {
     DATA_MODELING: 'data-modeling', // owner: @EDsCODE #team-data-warehouse
     WEB_ANALYTICS_CONVERSION_GOALS: 'web-analytics-conversion-goals', // owner: @robbie-c
     WEB_ANALYTICS_LAST_CLICK: 'web-analytics-last-click', // owner: @robbie-c
+    WEB_ANALYTICS_LCP_SCORE: 'web-analytics-lcp-score', // owner: @robbie-c
     HEDGEHOG_SKIN_SPIDERHOG: 'hedgehog-skin-spiderhog', // owner: @benjackwhite
     INSIGHT_VARIABLES: 'insight_variables', // owner: @Gilbert09 #team-data-warehouse
     WEB_EXPERIMENTS: 'web-experiments', // owner: @team-feature-success

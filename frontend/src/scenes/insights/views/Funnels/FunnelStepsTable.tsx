@@ -252,7 +252,9 @@ export function FunnelStepsTable(): JSX.Element | null {
                               ),
                               render: (_: void, breakdown: FlattenedFunnelStepByBreakdown) =>
                                   breakdown.steps?.[step.order]?.median_conversion_time != undefined
-                                      ? humanFriendlyDuration(breakdown.steps[step.order].median_conversion_time, 3)
+                                      ? humanFriendlyDuration(breakdown.steps[step.order].median_conversion_time, {
+                                            maxUnits: 3,
+                                        })
                                       : '–',
                               align: 'right',
                               width: 0,
@@ -268,7 +270,9 @@ export function FunnelStepsTable(): JSX.Element | null {
                               ),
                               render: (_: void, breakdown: FlattenedFunnelStepByBreakdown) =>
                                   breakdown.steps?.[step.order]?.average_conversion_time != undefined
-                                      ? humanFriendlyDuration(breakdown.steps[step.order].average_conversion_time, 3)
+                                      ? humanFriendlyDuration(breakdown.steps[step.order].average_conversion_time, {
+                                            maxUnits: 3,
+                                        })
                                       : '–',
                               align: 'right',
                               width: 0,

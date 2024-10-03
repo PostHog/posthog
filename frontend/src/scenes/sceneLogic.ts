@@ -28,8 +28,9 @@ export const productUrlMapping: Partial<Record<ProductKey, string[]>> = {
     [ProductKey.SESSION_REPLAY]: [urls.replay()],
     [ProductKey.FEATURE_FLAGS]: [urls.featureFlags(), urls.earlyAccessFeatures(), urls.experiments()],
     [ProductKey.SURVEYS]: [urls.surveys()],
-    [ProductKey.PRODUCT_ANALYTICS]: [urls.insights(), urls.webAnalytics()],
+    [ProductKey.PRODUCT_ANALYTICS]: [urls.insights()],
     [ProductKey.DATA_WAREHOUSE]: [urls.dataWarehouse()],
+    [ProductKey.WEB_ANALYTICS]: [urls.webAnalytics()],
 }
 
 export const sceneLogic = kea<sceneLogicType>([

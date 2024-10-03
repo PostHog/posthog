@@ -4,6 +4,7 @@ from posthog.hogql.database.database import Database, create_hogql_database
 from posthog.hogql.database.models import StringDatabaseField
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.persons import PERSONS_FIELDS
+from posthog.models.insight_variable import InsightVariable
 from posthog.models.property_definition import PropertyDefinition
 from posthog.schema import HogQLAutocomplete, HogQLAutocompleteResponse, HogLanguage, HogQLQuery, Kind
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
@@ -387,3 +388,27 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
 
         suggestions = list(filter(lambda x: x.kind == Kind.VARIABLE, results.suggestions))
         assert sorted([suggestion.label for suggestion in suggestions]) == ["event", "otherVar", "var1"]
+
+    def test_autocomplete_variables(self):
+        InsightVariable.objects.create(team=self.team, name="Variable 1", code_name="variable_1")
+        query = "select {}"
+        results = self._select(query=query, start=8, end=8)
+
+        assert len(results.suggestions) == 1
+        assert results.suggestions[0].label == "variables.variable_1"
+
+    def test_autocomplete_variables_partial(self):
+        InsightVariable.objects.create(team=self.team, name="Variable 1", code_name="variable_1")
+        query = "select {vari}"
+        results = self._select(query=query, start=8, end=12)
+
+        assert len(results.suggestions) == 1
+        assert results.suggestions[0].label == "variables.variable_1"
+
+    def test_autocomplete_variables_prefix(self):
+        InsightVariable.objects.create(team=self.team, name="Variable 1", code_name="variable_1")
+        query = "select {variables.}"
+        results = self._select(query=query, start=8, end=18)
+
+        assert len(results.suggestions) == 1
+        assert results.suggestions[0].label == "variable_1"

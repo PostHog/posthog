@@ -237,6 +237,7 @@ const teamActionsMapping: Record<
     is_demo: () => null,
     live_events_columns: () => null,
     organization: () => null,
+    project_id: () => null,
     path_cleaning_filters: () => null,
     person_display_name_properties: () => null,
     person_on_events_querying_enabled: () => null,

@@ -882,3 +882,6 @@ class HedgeboxMatrix(Matrix):
             )
         except IntegrityError:
             pass  # This can happen if demo data generation is re-run for the same project
+
+        # autocapture
+        team.autocapture_web_vitals_opt_in = True

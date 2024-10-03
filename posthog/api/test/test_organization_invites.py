@@ -68,7 +68,10 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         email = "x@x.com"
 
         with self.settings(EMAIL_ENABLED=True, SITE_URL="http://test.posthog.com"):
-            response = self.client.post("/api/organizations/@current/invites/", {"target_email": email})
+            response = self.client.post(
+                "/api/organizations/@current/invites/",
+                {"target_email": email},
+            )
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertTrue(OrganizationInvite.objects.exists())
@@ -118,8 +121,8 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         # Assert capture call for inviting party
         mock_capture.assert_any_call(
             self.user.distinct_id,
-            "team invite executed",
-            properties=capture_props,
+            "team member invited",
+            properties={**capture_props, "$current_url": None, "$session_id": None},
             groups={
                 "instance": ANY,
                 "organization": str(self.team.organization_id),
@@ -331,7 +334,12 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         payload = self.helper_generate_bulk_invite_payload(7)
 
         with self.settings(EMAIL_ENABLED=True, SITE_URL="http://test.posthog.com"):
-            response = self.client.post("/api/organizations/@current/invites/bulk/", payload, format="json")
+            response = self.client.post(
+                "/api/organizations/@current/invites/bulk/",
+                payload,
+                format="json",
+                headers={"X-Posthog-Session-Id": "123", "Referer": "http://test.posthog.com/my-url"},
+            )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         response_data = response.json()
 
@@ -360,6 +368,8 @@ class TestOrganizationInvitesAPI(APIBaseTest):
                 "current_invite_count": 7,
                 "current_member_count": 1,
                 "email_available": True,
+                "$session_id": "123",
+                "$current_url": "http://test.posthog.com/my-url",
             },
             groups={
                 "instance": ANY,
