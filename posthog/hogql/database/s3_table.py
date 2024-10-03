@@ -135,7 +135,6 @@ class S3Table(FunctionCallTable):
     access_key: Optional[str] = None
     access_secret: Optional[str] = None
     structure: Optional[str] = None
-    query: Optional[str] = None
 
     def to_printed_hogql(self):
         return escape_hogql_identifier(self.name)
