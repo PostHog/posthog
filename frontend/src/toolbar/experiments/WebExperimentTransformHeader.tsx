@@ -2,6 +2,7 @@ import { IconTrash } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
+import { SelectorCount } from '~/toolbar/actions/SelectorCount'
 import { experimentsTabLogic } from '~/toolbar/experiments/experimentsTabLogic'
 import { WebExperimentTransform } from '~/toolbar/types'
 
@@ -24,6 +25,9 @@ export function WebExperimentTransformHeader({
             <div className="flex-1">
                 <h2>{transform.selector || 'Select element'}</h2>
             </div>
+
+            {transform.selector && <SelectorCount selector={transform.selector} />}
+
             {/*Only show the remove button if there's more than one transform*/}
             {experimentForm?.variants && experimentForm.variants[variant].transforms.length > 1 && (
                 <LemonButton
