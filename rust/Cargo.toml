@@ -18,7 +18,7 @@ members = [
   "cyclotron-node",
   "cyclotron-janitor",
   "cyclotron-fetch",
-  "error-tracking",
+  "cymbal",
 ]
 
 [workspace.lints.rust]
