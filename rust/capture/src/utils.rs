@@ -58,7 +58,9 @@ pub fn replace_invalid_hex_escape_strings(
         // First, figure out if this byte is the start of an escape sequence,
         // and if it is, set the flag and move forward
         if bytes[i] == b'\\' {
+            println!("found possible escape sequence at {}", i);
             escaped = !escaped; // Handle e.g. "\\u1234" as not an escape sequence
+            println!("escaped: {}", escaped);
             i += 1;
             continue;
         }
@@ -218,7 +220,8 @@ mod test {
     #[test]
     pub fn test_escaped_escaped_escaped_sequences() {
         let json_str = r#"{"key":"\\\uDC00"}"#.to_string();
-        let expected = r#"{"key":"\\\uDC00"}"#.to_string();
+        // Ordering is enter escape, find escaped \, enter escape, find invalid hex escape, replace with FFFD
+        let expected = r#"{"key":"\\\uFFFD"}"#.to_string();
         assert_eq!(
             super::replace_invalid_hex_escape_strings(json_str).unwrap(),
             expected
