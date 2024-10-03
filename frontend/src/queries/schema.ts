@@ -322,6 +322,7 @@ export interface RecordingsQuery extends DataNode<RecordingsQueryResponse> {
         | 'mouse_activity_count'
     limit?: integer
     offset?: integer
+    user_modified_filters?: Record<string, any>
 }
 
 export interface HogQLNotice {
@@ -1593,10 +1594,14 @@ export interface ExperimentTrendQueryResponse {
     results: Record<string, ExperimentVariantTrendResult>
 }
 
+export type CachedExperimentTrendQueryResponse = CachedQueryResponse<ExperimentTrendQueryResponse>
+
 export interface ExperimentFunnelQueryResponse {
     insight: InsightType.FUNNELS
     results: Record<string, ExperimentVariantFunnelResult>
 }
+
+export type CachedExperimentFunnelQueryResponse = CachedQueryResponse<ExperimentFunnelQueryResponse>
 
 export interface ExperimentFunnelQuery extends DataNode<ExperimentFunnelQueryResponse> {
     kind: NodeKind.ExperimentFunnelQuery

@@ -3,7 +3,7 @@
 # The goal should be to split up queues based on the type of work being done, so that we can scale effectively
 # and change the consumer configs without the need for code changes
 #
-# Worker consumers config here https://github.com/PostHog/charts/blob/main/config/posthog/prod-us.yaml.gotmpl
+# Worker consumers config here https://github.com/PostHog/charts/blob/main/config/posthog/prod-us.yaml.gotmpl#L538
 # e.g.
 #   consumers:
 #     - name: priority

@@ -207,7 +207,7 @@ def send_batch_export_run_failure(
     )
     team: Team = batch_export_run.batch_export.team
 
-    memberships_to_email = get_members_to_notify(team, "batch_export_run_failure")
+    memberships_to_email = get_members_to_notify(team, "plugin_disabled")
     if not memberships_to_email:
         return
 

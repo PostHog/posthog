@@ -83,7 +83,7 @@ export function Alerts({ alertId }: AlertsProps): JSX.Element {
                         to={urls.insightView(insight.short_id)}
                         title={
                             <Tooltip title={insight.name}>
-                                <div>{insight.name}</div>
+                                <div>{insight.name || insight.derived_name}</div>
                             </Tooltip>
                         }
                     />
