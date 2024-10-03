@@ -122,7 +122,17 @@ function unzip(compressedStr: string): any {
     return JSON.parse(strFromU8(gunzipSync(strToU8(compressedStr, true))))
 }
 
-function decompressEvent(ev: eventWithTime | compressedEventWithTime): eventWithTime {
+/**
+ *
+ * takes an event that might be from web, might be from mobile,
+ * and might be partially compressed,
+ * and decompresses it when possible
+ *
+ * you can't return a union of `KnownType | unknown`
+ * so even though this returns `eventWithTime | unknown`
+ * it has to be typed as only unknown
+ */
+function decompressEvent(ev: unknown): unknown {
     try {
         if (isCompressedEvent(ev)) {
             if (ev.cv === '2024-10') {
@@ -163,17 +173,31 @@ function decompressEvent(ev: eventWithTime | compressedEventWithTime): eventWith
                     compressionVersion: ev.cv,
                 })
                 // probably unplayable but we don't know how to decompress it
-                return ev as eventWithTime
+                return ev
             }
         }
-        return ev as eventWithTime
+        return ev
     } catch (e) {
         posthog.captureException((e as Error) || new Error('Cound not decompress event'), {
             feature: 'session-recording-compressed-event-decompression',
             compressedEvent: ev,
         })
-        return ev as eventWithTime
+        return ev
     }
+}
+
+/**
+ * We can receive data in one of multiple formats, so we treat it as unknown
+ * And if we can't process it force it into eventWithTime
+ *
+ * If it can't be case as eventWithTime by this point then it's probably not a valid event anyway
+ */
+function coerceToEventWithTime(d: unknown, withMobileTransformer: boolean): eventWithTime {
+    // we decompress first so that we could support partial compression on mobile in future
+    const currentEvent = decompressEvent(d)
+    return withMobileTransformer
+        ? postHogEEModule?.mobileReplay?.transformEventToWeb(currentEvent) || (currentEvent as eventWithTime)
+        : (currentEvent as eventWithTime)
 }
 
 export const parseEncodedSnapshots = async (
@@ -204,18 +228,15 @@ export const parseEncodedSnapshots = async (
             }
 
             return snapshotData.map((d: unknown) => {
-                const snap = decompressEvent(
-                    withMobileTransformer
-                        ? postHogEEModule?.mobileReplay?.transformEventToWeb(d) || (d as eventWithTime)
-                        : (d as eventWithTime)
-                )
+                const snap = coerceToEventWithTime(d, withMobileTransformer)
+
                 return {
                     // this handles parsing data that was loaded from blob storage "window_id"
                     // and data that was exported from the front-end "windowId"
                     // we have more than one format of data that we store/pass around
                     // but only one that we play back
                     windowId: snapshotLine['window_id'] || snapshotLine['windowId'],
-                    ...(snap || (d as eventWithTime)),
+                    ...snap,
                 }
             })
         } catch (e) {
@@ -233,10 +254,9 @@ export const parseEncodedSnapshots = async (
             unparseableLinesCount: unparseableLines.length,
             exampleLines: unparseableLines.slice(0, 3),
         }
-        posthog.capture('session recording had unparseable lines', extra)
-        captureException(new Error('session recording had unparseable lines'), {
-            tags: { feature: 'session-recording-snapshot-processing' },
-            extra,
+        posthog.capture('session recording had unparseable lines', {
+            ...extra,
+            feature: 'session-recording-snapshot-processing',
         })
     }
 
@@ -397,13 +417,14 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         loadSnapshotsForSource: (source: Pick<SessionRecordingSnapshotSource, 'source' | 'blob_key'>) => ({ source }),
         loadEvents: true,
         loadFullEventData: (event: RecordingEventType) => ({ event }),
-        reportViewed: true,
+        markViewed: (delay?: number) => ({ delay }),
         reportUsageIfFullyLoaded: true,
         persistRecording: true,
         maybePersistRecording: true,
         pollRealtimeSnapshots: true,
         stopRealtimePolling: true,
         setTrackedWindow: (windowId: string | null) => ({ windowId }),
+        setWasMarkedViewed: (wasMarkedViewed: boolean) => ({ wasMarkedViewed }),
     }),
     reducers(() => ({
         trackedWindow: [
@@ -446,6 +467,12 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 },
             },
         ],
+        wasMarkedViewed: [
+            false as boolean,
+            {
+                setWasMarkedViewed: (_, { wasMarkedViewed }) => wasMarkedViewed,
+            },
+        ],
     })),
     loaders(({ values, props, cache }) => ({
         sessionPlayerMetaData: {
@@ -456,9 +483,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
 
                 cache.metaStartTime = performance.now()
 
-                const response = await api.recordings.get(props.sessionRecordingId, {
-                    save_view: true,
-                })
+                const response = await api.recordings.get(props.sessionRecordingId)
                 breakpoint()
 
                 return response
@@ -730,7 +755,9 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 })
             } else if (!cache.firstPaintDuration) {
                 cache.firstPaintDuration = Math.round(performance.now() - cache.snapshotsStartTime)
-                actions.reportViewed()
+            }
+            if (!values.wasMarkedViewed) {
+                actions.markViewed()
             }
 
             actions.loadNextSnapshotSource()
@@ -795,25 +822,27 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 resetTimingsCache(cache)
             }
         },
-        reportViewed: async (_, breakpoint) => {
+        markViewed: async ({ delay }, breakpoint) => {
             const durations = generateRecordingReportDurations(cache)
-            breakpoint()
             // Triggered on first paint
-            eventUsageLogic.actions.reportRecording(
-                values.sessionPlayerData,
+            breakpoint()
+            if (values.wasMarkedViewed) {
+                return
+            }
+            actions.setWasMarkedViewed(true) // this prevents us from calling the function multiple times
+
+            await breakpoint(IS_TEST_MODE ? 1 : delay ?? 3000)
+            await api.recordings.update(props.sessionRecordingId, {
+                viewed: true,
+                player_metadata: values.sessionPlayerMetaData,
                 durations,
-                SessionRecordingUsageType.VIEWED,
-                values.sessionPlayerMetaData,
-                0
-            )
+            })
             await breakpoint(IS_TEST_MODE ? 1 : 10000)
-            eventUsageLogic.actions.reportRecording(
-                values.sessionPlayerData,
+            await api.recordings.update(props.sessionRecordingId, {
+                analyzed: true,
+                player_metadata: values.sessionPlayerMetaData,
                 durations,
-                SessionRecordingUsageType.ANALYZED,
-                values.sessionPlayerMetaData,
-                10
-            )
+            })
         },
 
         maybePersistRecording: () => {

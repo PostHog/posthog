@@ -40,7 +40,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         ${
             includeReplay
                 ? `
-        // check https://posthog.com/docs/session-replay/mobile#installation
+        // check https://posthog.com/docs/session-replay/ios#installation
         // for more config and to learn about how we capture sessions on mobile
         // and what to expect
         config.sessionReplay = true

@@ -31,10 +31,10 @@ def _create_action(**kwargs):
     return action
 
 
-funnel_flag_side_effect = lambda key, *args, **kwargs: key == "insight-funnels-use-udf"
+use_udf_funnel_flag_side_effect = lambda key, *args, **kwargs: key == "insight-funnels-use-udf"
 
 
-@patch("posthoganalytics.feature_enabled", new=Mock(side_effect=funnel_flag_side_effect))
+@patch("posthoganalytics.feature_enabled", new=Mock(side_effect=use_udf_funnel_flag_side_effect))
 class TestFunnelBreakdownUDF(
     ClickhouseTestMixin,
     funnel_breakdown_test_factory(  # type: ignore
@@ -48,7 +48,7 @@ class TestFunnelBreakdownUDF(
     pass
 
 
-@patch("posthoganalytics.feature_enabled", new=Mock(side_effect=funnel_flag_side_effect))
+@patch("posthoganalytics.feature_enabled", new=Mock(side_effect=use_udf_funnel_flag_side_effect))
 class TestFunnelGroupBreakdownUDF(
     ClickhouseTestMixin,
     funnel_breakdown_group_test_factory(  # type: ignore
@@ -59,7 +59,7 @@ class TestFunnelGroupBreakdownUDF(
     pass
 
 
-@patch("posthoganalytics.feature_enabled", new=Mock(side_effect=funnel_flag_side_effect))
+@patch("posthoganalytics.feature_enabled", new=Mock(side_effect=use_udf_funnel_flag_side_effect))
 class TestFOSSFunnelUDF(funnel_test_factory(Funnel, _create_event, _create_person)):  # type: ignore
     def test_assert_flag_is_on(self):
         filters = {
@@ -102,7 +102,7 @@ class TestFOSSFunnelUDF(funnel_test_factory(Funnel, _create_event, _create_perso
     maxDiff = None
 
 
-@patch("posthoganalytics.feature_enabled", new=Mock(side_effect=funnel_flag_side_effect))
+@patch("posthoganalytics.feature_enabled", new=Mock(side_effect=use_udf_funnel_flag_side_effect))
 class TestFunnelConversionTimeUDF(
     ClickhouseTestMixin,
     funnel_conversion_time_test_factory(FunnelOrderType.ORDERED, ClickhouseFunnelActors),  # type: ignore

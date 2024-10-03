@@ -620,6 +620,7 @@ function UsageTab({ featureFlag }: { id: string; featureFlag: FeatureFlagType })
     let dashboard: DashboardType<QueryBasedInsightModel> | null = null
     if (dashboardId) {
         // FIXME: Refactor out into <ConnectedDashboard />, as React hooks under conditional branches are no good
+        // eslint-disable-next-line react-hooks/rules-of-hooks
         const dashboardLogicValues = useValues(
             dashboardLogic({ id: dashboardId, placement: DashboardPlacement.FeatureFlag })
         )

@@ -2,6 +2,7 @@ import { LemonButton, LemonCollapse, LemonInputSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { IconChevronLeft, IconChevronRight } from 'lib/lemon-ui/icons'
+import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import { useEffect, useState } from 'react'
 import { EventType, eventWithTime, IncrementalSource } from 'rrweb'
 
@@ -53,9 +54,10 @@ export function PlayerSidebarDebuggerTab(): JSX.Element {
     }
 
     const nextIndex = debugSnapshots.findIndex((s) => s.timestamp > (currentTimestamp || 0))
+    const currentIndex = nextIndex - 1
 
     const previous = nextIndex === 0 ? null : debugSnapshots[nextIndex - 2]
-    const current = nextIndex === 0 ? null : debugSnapshots[nextIndex - 1]
+    const current = nextIndex === 0 ? null : debugSnapshots[currentIndex]
     const next = nextIndex === -1 ? null : debugSnapshots[nextIndex]
 
     const typeValues = debugSettings.types.map((t) => t.toString())
@@ -97,7 +99,19 @@ export function PlayerSidebarDebuggerTab(): JSX.Element {
                 />
             </div>
 
-            <div className="p-2 flex gap-1">
+            <div className="p-2 flex gap-2 items-center">
+                <LemonSlider
+                    className="flex-1"
+                    min={0}
+                    max={debugSnapshots.length - 1}
+                    value={currentIndex}
+                    onChange={(v) => {
+                        seekToTimestamp(debugSnapshots[v].timestamp)
+                    }}
+                />
+                {Math.max(0, currentIndex)} / {debugSnapshots.length - 1}
+            </div>
+            <div className="p-2 flex gap-1 justify-between">
                 <LemonButton
                     onClick={() => onClick(previous)}
                     icon={<IconChevronLeft />}

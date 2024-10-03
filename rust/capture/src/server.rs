@@ -15,6 +15,7 @@ use crate::limiters::redis::{
 };
 use crate::redis::RedisClient;
 use crate::router;
+use crate::router::BATCH_BODY_SIZE;
 use crate::sinks::kafka::KafkaSink;
 use crate::sinks::print::PrintSink;
 
@@ -53,7 +54,15 @@ where
     )
     .expect("failed to create billing limiter");
 
-    let event_max_bytes = config.kafka.kafka_producer_message_max_bytes as usize;
+    // In Recordings capture mode, we unpack a batch of events, and then pack them back up into
+    // a big blob and send to kafka all at once - so we should abort unpacking a batch if the data
+    // size crosses the kafka limit. In the Events mode, we can unpack the batch and send each
+    // event individually, so we should instead allow for some small multiple of our max compressed
+    // body size to be unpacked. If a single event is still too big, we'll drop it at kafka send time.
+    let event_max_bytes = match config.capture_mode {
+        CaptureMode::Events => BATCH_BODY_SIZE * 5, // To allow for some compression ratio, but still have a limit of 100MB.
+        CaptureMode::Recordings => config.kafka.kafka_producer_message_max_bytes as usize,
+    };
 
     let app = if config.print_sink {
         // Print sink is only used for local debug, don't allow a container with it to run on prod

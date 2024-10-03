@@ -89,10 +89,10 @@ function processCohortCriteria(criteria: AnyCohortCriteriaType): AnyCohortCriter
 
 export const cohortsModel = kea<cohortsModelType>([
     path(['models', 'cohortsModel']),
-    connect({
+    connect(() => ({
         values: [teamLogic, ['currentTeam']],
         actions: [exportsLogic, ['startExport']],
-    }),
+    })),
     actions(() => ({
         setPollTimeout: (pollTimeout: number | null) => ({ pollTimeout }),
         updateCohort: (cohort: CohortType) => ({ cohort }),

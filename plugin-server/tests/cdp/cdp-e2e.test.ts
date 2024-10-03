@@ -122,7 +122,7 @@ describe('CDP E2E', () => {
             expect(invocations).toHaveLength(1)
 
             await waitForExpect(() => {
-                expect(kafkaObserver.messages).toHaveLength(6)
+                expect(kafkaObserver.messages).toHaveLength(7)
             }, 5000)
 
             expect(mockFetch).toHaveBeenCalledTimes(1)
@@ -145,6 +145,17 @@ describe('CDP E2E', () => {
             const metricsMessages = kafkaObserver.messages.filter((m) => m.topic === KAFKA_APP_METRICS_2)
 
             expect(metricsMessages).toMatchObject([
+                {
+                    topic: 'clickhouse_app_metrics2_test',
+                    value: {
+                        app_source: 'hog_function',
+                        app_source_id: fnFetchNoFilters.id.toString(),
+                        count: 1,
+                        metric_kind: 'other',
+                        metric_name: 'fetch',
+                        team_id: 2,
+                    },
+                },
                 {
                     topic: 'clickhouse_app_metrics2_test',
                     value: {
