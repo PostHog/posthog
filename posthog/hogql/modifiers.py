@@ -1,12 +1,15 @@
 from typing import TYPE_CHECKING, Optional
+
 import posthoganalytics
 
+from posthog.cloud_utils import is_cloud
 from posthog.schema import (
     HogQLQueryModifiers,
     InCohortVia,
     MaterializationMode,
     PersonsArgMaxVersion,
     BounceRatePageViewMode,
+    PropertyGroupsMode,
     SessionTableVersion,
 )
 
@@ -75,6 +78,20 @@ def set_default_modifier_values(modifiers: HogQLQueryModifiers, team: "Team"):
 
     if modifiers.sessionTableVersion is None:
         modifiers.sessionTableVersion = SessionTableVersion.AUTO
+
+    if (
+        modifiers.propertyGroupsMode is None
+        and is_cloud()
+        and posthoganalytics.feature_enabled(
+            "hogql-optimized-property-groups-mode-enabled",
+            str(team.uuid),
+            groups={"project": str(team.id)},
+            group_properties={"project": {"id": str(team.id), "created_at": team.created_at, "uuid": team.uuid}},
+            only_evaluate_locally=True,
+            send_feature_flag_events=False,
+        )
+    ):
+        modifiers.propertyGroupsMode = PropertyGroupsMode.OPTIMIZED
 
 
 def set_default_in_cohort_via(modifiers: HogQLQueryModifiers) -> HogQLQueryModifiers:
