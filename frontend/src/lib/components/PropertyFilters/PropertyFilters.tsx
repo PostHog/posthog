@@ -73,6 +73,8 @@ export function PropertyFilters({
     const { remove, setFilters, setFilter } = useActions(propertyFilterLogic(logicProps))
     const [allowOpenOnInsert, setAllowOpenOnInsert] = useState<boolean>(false)
 
+    console.log('exactMatchFeatureFlagCohortOperators', exactMatchFeatureFlagCohortOperators)
+
     // Update the logic's internal filters when the props change
     useEffect(() => {
         setFilters(propertyFilters ?? [])

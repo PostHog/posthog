@@ -103,6 +103,8 @@ export function TaxonomicPropertyFilter({
     const cohortOrOtherValue =
         filter?.type === 'cohort' ? (!Array.isArray(filter?.value) && filter?.value) || undefined : filter?.key
 
+    console.log('filter', filter)
+
     const taxonomicFilter = (
         <TaxonomicFilter
             groupType={filter ? propertyFilterTypeToTaxonomicFilterType(filter) : undefined}
