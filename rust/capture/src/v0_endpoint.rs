@@ -26,11 +26,9 @@ use crate::{
 };
 
 /// Flexible endpoint that targets wide compatibility with the wide range of requests
-/// currently processed by posthog-events (analytics events capture). Replay is out
-/// of scope and should be processed on a separate endpoint.
+/// processed by posthog-events.
 ///
-/// Because it must accommodate several shapes, it is inefficient in places. A v1
-/// endpoint should be created, that only accepts the BatchedRequest payload shape.
+/// TODO Because it must accommodate several shapes, it is inefficient in places. A v1 endpoint should be created, that only accepts the BatchedRequest payload shape.
 async fn handle_common(
     state: &State<router::State>,
     InsecureClientIp(ip): &InsecureClientIp,

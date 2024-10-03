@@ -14,6 +14,7 @@ use uuid::Uuid;
 use crate::api::CaptureError;
 use crate::prometheus::report_dropped_events;
 use crate::token::validate_token;
+use crate::utils::replace_invalid_hex_escape_strings;
 
 #[derive(Deserialize, Default)]
 pub enum Compression {
@@ -175,6 +176,13 @@ impl RawRequest {
             }
             s
         };
+
+        let payload = replace_invalid_hex_escape_strings(payload).map_err(|e| {
+            tracing::error!("failed to replace invalid hex escape strings: {}", e);
+            CaptureError::RequestDecodingError(String::from(
+                "invalid body encoding - failed escaping invalid hex sequences",
+            ))
+        })?;
 
         tracing::debug!(json = payload, "decoded event data");
         Ok(serde_json::from_str::<RawRequest>(&payload)?)
@@ -541,5 +549,16 @@ mod tests {
         let json = serde_json::json!({"uuid": invalid_uuid});
         let result = test_deserialize(json);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_bad_utf() {
+        let the_bytes = include_bytes!("../tests/session_recording_utf_surrogate_console.json");
+        let the_payload = RawRequest::from_bytes(Bytes::from_static(the_bytes), 25 * 1024 * 1024);
+
+        if let Err(e) = &the_payload {
+            println!("{:?}", e);
+        }
+        assert!(the_payload.is_ok());
     }
 }
