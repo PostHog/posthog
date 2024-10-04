@@ -37,6 +37,18 @@ class FunnelUDF(FunnelBase):
             self.context.funnelWindowInterval * DATERANGE_MAP[self.context.funnelWindowIntervalUnit].total_seconds()
         )
 
+    # This is used to reduce the number of events we look at in strict funnels
+    # We remove a non-matching event if there was already one before it (that don't have the same timestamp)
+    def _array_filter(self):
+        if self.context.funnelsFilter.funnelOrderType == "strict":
+            return f"""
+                    arrayFilter(
+                        (x, i) -> not (isNotNull(events_array[i-1]) and empty(x.4) and empty(events_array[i-1].4) and x.1 > events_array[i-1].1),
+                        events_array,
+                        arrayEnumerate(events_array))
+                """
+        return "events_array"
+
     # This is the function that calls the UDF
     # This is used by both the query itself and the actors query
     def _inner_aggregation_query(self):
@@ -90,18 +102,6 @@ class FunnelUDF(FunnelBase):
                 """
             return ""
 
-        def array_filter():
-            if self.context.funnelsFilter.funnelOrderType == "strict":
-                return f"""
-                        arrayFilter(
-                            -- remove it if steps is empty AND previous steps is empty AND timestamp > previous steps
-                            -- this is used to reduce the number of events sent to the UDF from strict funnels
-                            (x, i) -> not (isNotNull(events_array[i-1]) and empty(x.4) and empty(events_array[i-1].4) and x.1 > events_array[i-1].1),
-                            events_array,
-                            arrayEnumerate(events_array))
-                    """
-            return "events_array"
-
         inner_select = parse_select(
             f"""
             SELECT
@@ -112,7 +112,7 @@ class FunnelUDF(FunnelBase):
                     '{breakdown_attribution_string}',
                     '{self.context.funnelsFilter.funnelOrderType}',
                     {prop_vals},
-                    {array_filter()}
+                    {self._array_filter()}
                 )) as af_tuple,
                 af_tuple.1 as step_reached,
                 af_tuple.1 + 1 as steps, -- Backward compatibility
