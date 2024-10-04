@@ -19,11 +19,7 @@ from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQu
 from posthog.hogql_queries.insights.funnels.funnel_time_to_convert import FunnelTimeToConvert
 from posthog.hogql_queries.insights.funnels.funnel_trends import FunnelTrends
 from posthog.hogql_queries.insights.funnels.funnel_trends_udf import FunnelTrendsUDF
-from posthog.hogql_queries.insights.funnels.utils import get_funnel_actor_class, get_funnel_order_class
-from posthog.hogql_queries.legacy_compatibility.feature_flag import (
-    insight_funnels_use_udf,
-    insight_funnels_use_udf_trends,
-)
+from posthog.hogql_queries.insights.funnels.utils import get_funnel_actor_class, get_funnel_order_class, use_udf
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Team
@@ -115,14 +111,7 @@ class FunnelsQueryRunner(QueryRunner):
 
     @cached_property
     def _use_udf(self):
-        if self.context.funnelsFilter.useUdf:
-            return True
-        funnelVizType = self.context.funnelsFilter.funnelVizType
-        if funnelVizType == FunnelVizType.TRENDS and insight_funnels_use_udf_trends(self.team):
-            return True
-        if funnelVizType == FunnelVizType.STEPS and insight_funnels_use_udf(self.team):
-            return True
-        return False
+        return use_udf(self.context.funnelsFilter, self.team)
 
     @cached_property
     def funnel_order_class(self):
@@ -145,7 +134,7 @@ class FunnelsQueryRunner(QueryRunner):
 
     @cached_property
     def funnel_actor_class(self):
-        return get_funnel_actor_class(self.context.funnelsFilter)(context=self.context)
+        return get_funnel_actor_class(self.context.funnelsFilter, self._use_udf)(context=self.context)
 
     @cached_property
     def query_date_range(self):

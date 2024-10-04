@@ -35,12 +35,10 @@ export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicPr
         matchingEventsMatchType,
         sessionRecordingsResponseLoading,
         otherRecordings,
-        sessionSummaryLoading,
         activeSessionRecordingId,
         hasNext,
     } = useValues(logic)
-    const { maybeLoadSessionRecordings, summarizeSession, setSelectedRecordingId, setFilters, setShowOtherRecordings } =
-        useActions(logic)
+    const { maybeLoadSessionRecordings, setSelectedRecordingId, setFilters, setShowOtherRecordings } = useActions(logic)
 
     const { featureFlags } = useValues(featureFlagLogic)
     const isTestingSaved = featureFlags[FEATURE_FLAGS.SAVED_NOT_PINNED] === 'test'
@@ -50,10 +48,6 @@ export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicPr
     const notebookNode = useNotebookNode()
 
     const sections: PlaylistSection<SessionRecordingType>[] = []
-
-    const onSummarizeClick = (recording: SessionRecordingType): void => {
-        summarizeSession(recording.id)
-    }
 
     if (pinnedRecordings.length) {
         sections.push({
@@ -71,15 +65,7 @@ export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicPr
         key: 'other',
         title: 'Other recordings',
         items: otherRecordings,
-        render: ({ item, isActive }) => (
-            <SessionRecordingPreview
-                recording={item}
-                isActive={isActive}
-                pinned={false}
-                summariseFn={onSummarizeClick}
-                sessionSummaryLoading={sessionSummaryLoading}
-            />
-        ),
+        render: ({ item, isActive }) => <SessionRecordingPreview recording={item} isActive={isActive} pinned={false} />,
         footer: (
             <div className="p-4">
                 <div className="h-10 flex items-center justify-center gap-2 text-muted-alt">

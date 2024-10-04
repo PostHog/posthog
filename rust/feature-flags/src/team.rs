@@ -97,7 +97,7 @@ mod tests {
     use crate::{
         team,
         test_utils::{
-            insert_new_team_in_pg, insert_new_team_in_redis, random_string, setup_pg_client,
+            insert_new_team_in_pg, insert_new_team_in_redis, random_string, setup_pg_reader_client,
             setup_redis_client,
         },
     };
@@ -181,9 +181,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_fetch_team_from_pg() {
-        let client = setup_pg_client(None).await;
+        let client = setup_pg_reader_client(None).await;
 
-        let team = insert_new_team_in_pg(client.clone())
+        let team = insert_new_team_in_pg(client.clone(), None)
             .await
             .expect("Failed to insert team in pg");
 
@@ -203,14 +203,12 @@ mod tests {
         // TODO: Figure out a way such that `run_database_migrations` is called only once, and already called
         // before running these tests.
 
-        let client = setup_pg_client(None).await;
+        let client = setup_pg_reader_client(None).await;
         let target_token = "xxxx".to_string();
 
         match Team::from_pg(client.clone(), target_token.clone()).await {
-            Err(FlagError::TokenValidationError) => (),
-            _ => panic!("Expected TokenValidationError"),
+            Err(FlagError::RowNotFound) => (),
+            _ => panic!("Expected RowNotFound"),
         };
     }
-
-    // TODO: Handle cases where db connection fails.
 }

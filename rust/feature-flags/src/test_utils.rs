@@ -130,10 +130,19 @@ pub fn create_flag_from_json(json_value: Option<String>) -> Vec<FeatureFlag> {
     flags
 }
 
-pub async fn setup_pg_client(config: Option<&Config>) -> Arc<PgPool> {
+pub async fn setup_pg_reader_client(config: Option<&Config>) -> Arc<PgPool> {
     let config = config.unwrap_or(&DEFAULT_TEST_CONFIG);
     Arc::new(
         get_pool(&config.read_database_url, config.max_pg_connections)
+            .await
+            .expect("Failed to create Postgres client"),
+    )
+}
+
+pub async fn setup_pg_writer_client(config: Option<&Config>) -> Arc<PgPool> {
+    let config = config.unwrap_or(&DEFAULT_TEST_CONFIG);
+    Arc::new(
+        get_pool(&config.write_database_url, config.max_pg_connections)
             .await
             .expect("Failed to create Postgres client"),
     )
@@ -163,7 +172,10 @@ pub async fn setup_invalid_pg_client() -> Arc<dyn Client + Send + Sync> {
     Arc::new(MockPgClient)
 }
 
-pub async fn insert_new_team_in_pg(client: Arc<PgPool>) -> Result<Team, Error> {
+pub async fn insert_new_team_in_pg(
+    client: Arc<dyn Client + Send + Sync>,
+    team_id: Option<i32>,
+) -> Result<Team, Error> {
     const ORG_ID: &str = "019026a4be8000005bf3171d00629163";
 
     client.run_query(
@@ -189,7 +201,10 @@ pub async fn insert_new_team_in_pg(client: Arc<PgPool>) -> Result<Team, Error> {
         )
         .await?;
 
-    let id = rand::thread_rng().gen_range(0..10_000_000);
+    let id = match team_id {
+        Some(value) => value,
+        None => rand::thread_rng().gen_range(0..10_000_000),
+    };
     let token = random_string("phc_", 12);
     let team = Team {
         id,

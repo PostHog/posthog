@@ -9,7 +9,12 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { CodeEditor } from 'lib/monaco/CodeEditor'
-import { activemodelStateKey, codeEditorLogic, editorModelsStateKey } from 'lib/monaco/codeEditorLogic'
+import {
+    activemodelStateKey,
+    codeEditorLogic,
+    CodeEditorLogicProps,
+    editorModelsStateKey,
+} from 'lib/monaco/codeEditorLogic'
 import type { editor as importedEditor, IDisposable, Uri } from 'monaco-editor'
 import { useEffect, useRef, useState } from 'react'
 import { dataWarehouseSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSceneLogic'
@@ -61,8 +66,10 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
     const { setQueryInput, saveQuery, setPrompt, draftFromPrompt, saveAsView, onUpdateView } = useActions(logic)
 
     const codeEditorKey = `hogQLQueryEditor/${key}`
-    const codeEditorLogicProps = {
+
+    const codeEditorLogicProps: CodeEditorLogicProps = {
         key: codeEditorKey,
+        sourceQuery: props.query,
         query: queryInput,
         language: 'hogQL',
         metadataFilters: props.query.filters,
@@ -168,6 +175,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                     <div ref={editorRef} className="resize-y overflow-hidden" style={{ height: EDITOR_HEIGHT }}>
                         <CodeEditor
                             queryKey={codeEditorKey}
+                            sourceQuery={props.query}
                             className="border rounded-b overflow-hidden h-full"
                             language="hogQL"
                             value={queryInput}

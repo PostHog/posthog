@@ -390,7 +390,7 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     373: ErrorCodeMeta("SESSION_IS_LOCKED"),
     374: ErrorCodeMeta("INVALID_SESSION_TIMEOUT"),
     375: ErrorCodeMeta("CANNOT_DLOPEN"),
-    376: ErrorCodeMeta("CANNOT_PARSE_UUID"),
+    376: ErrorCodeMeta("CANNOT_PARSE_UUID", user_safe=True),
     377: ErrorCodeMeta("ILLEGAL_SYNTAX_FOR_DATA_TYPE"),
     378: ErrorCodeMeta("DATA_TYPE_CANNOT_HAVE_ARGUMENTS"),
     380: ErrorCodeMeta("CANNOT_KILL"),
