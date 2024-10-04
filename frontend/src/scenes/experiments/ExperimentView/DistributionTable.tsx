@@ -8,6 +8,7 @@ import { MultivariateFlagVariant } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
 import { VariantTag } from './components'
+import { VariantPreviewImage } from './VariantPreviewImage'
 
 export function DistributionTable(): JSX.Element {
     const { experimentId, experiment, experimentResults } = useValues(experimentLogic)
@@ -30,6 +31,18 @@ export function DistributionTable(): JSX.Element {
             title: 'Rollout',
             render: function Key(_, item): JSX.Element {
                 return <div>{`${item.rollout_percentage}%`}</div>
+            },
+        },
+        {
+            className: 'w-1/3',
+            key: 'variant_preview_image',
+            title: 'Preview',
+            render: function Key(_, item): JSX.Element {
+                return (
+                    <div className="my-2">
+                        <VariantPreviewImage variantKey={item.key} />
+                    </div>
+                )
             },
         },
     ]

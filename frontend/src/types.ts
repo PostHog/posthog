@@ -3217,6 +3217,7 @@ export interface Experiment {
         feature_flag_variants: MultivariateFlagVariant[]
         custom_exposure_filter?: FilterType
         aggregation_group_type_index?: integer
+        variant_preview_media_ids?: Record<string, string>
     }
     start_date?: string | null
     end_date?: string | null
