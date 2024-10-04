@@ -39,19 +39,19 @@ impl RawStack {
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct PropertyView {
     #[serde(rename = "$exception_type")]
-    exception_type: String,
+    pub exception_type: String,
     #[serde(rename = "$exception_message")]
-    exception_message: String,
+    pub exception_message: String,
     #[serde(rename = "$exception_stack_trace_raw")]
-    exception_stack_trace_raw: String,
+    pub exception_stack_trace_raw: String,
     #[serde(rename = "$exception_level")]
-    exception_level: String,
+    pub exception_level: String,
     #[serde(rename = "$exception_source")]
-    exception_source: String,
+    pub exception_source: String,
     #[serde(rename = "$exception_lineno")]
-    exception_line: u32,
+    pub exception_line: u32,
     #[serde(rename = "$exception_colno")]
-    exception_col: u32,
+    pub exception_col: u32,
     #[serde(flatten)]
     other: HashMap<String, Value>,
 }
@@ -59,9 +59,8 @@ pub struct PropertyView {
 #[cfg(test)]
 mod test {
     use common_types::ClickHouseEvent;
-    use serde_json::Value;
 
-    use crate::symbols::types::{PropertyView, RawFrame, RawStack};
+    use crate::symbols::types::{PropertyView, RawFrame};
 
     #[test]
     fn it_symbolifies() {
