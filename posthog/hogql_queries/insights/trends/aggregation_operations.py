@@ -393,7 +393,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
             },
         )
 
-    def get_actors_query_orchestrator(self, events_where_clause: ast.Expr, sample_value: ast.RatioExpr):
+    def get_actors_querye_orchestrator(self, events_where_clause: ast.Expr, sample_value: ast.RatioExpr):
         events_query = cast(ast.SelectQuery, self._actors_events_query(events_where_clause, sample_value))
         inner_select = cast(ast.SelectQuery, self._actors_inner_select_query())
         parent_select = cast(ast.SelectQuery, self._actors_parent_select_query())
@@ -417,13 +417,13 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
 
         return QueryOrchestrator()
 
-    def _first_time_parent_query(self, inner_query: ast.SelectQuery):
+    def _first_time_parent_query(self):
         aggregation_type = self.select_aggregation()
         query = ast.SelectQuery(
             select=[
                 ast.Alias(expr=aggregation_type, alias="total"),
             ],
-            select_from=ast.JoinExpr(table=inner_query),
+            select_from=ast.JoinExpr(table=create_placeholder("events_query")),
         )
         query.group_by = []
 
@@ -455,7 +455,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
         )
 
         events_query = ast.SelectQuery(select=[])
-        parent_select = self._first_time_parent_query(events_query)
+        parent_select = self._first_time_parent_query()
 
         class QueryOrchestrator:
             events_query_builder: FirstTimeForUserEventsQueryAlternator
@@ -473,7 +473,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
                 self.parent_query_builder = QueryAlternator(parent_select)
 
             def build(self):
-                self.events_query_builder.build()
-                return self.parent_query_builder.build()
+                events_query = self.events_query_builder.build()
+                return replace_placeholders(self.parent_query_builder.build(), {"events_query": events_query})
 
         return QueryOrchestrator()
