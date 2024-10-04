@@ -104,21 +104,25 @@ export function Alerts({ alertId }: AlertsProps): JSX.Element {
     // TODO: add info here to sign up for alerts early access
     return (
         <>
-            <ProductIntroduction
-                productName="Alerts"
-                productKey={ProductKey.ALERTS}
-                thingName="alert"
-                description="Alerts enable you to monitor your insight and notify you when certain conditions are met. Please note that alerts are in alpha and may not be fully reliable."
-                // TODO: update docs link when ready
-                // docsURL="https://posthog.com/docs/data/annotations"
-                isEmpty={alertsSortedByState.length === 0 && !alertsLoading}
-                customHog={DetectiveHog}
-                actionElementOverride={
-                    <span className="italic">
-                        To get started, visit a trends insight, expand options in the header and click 'Manage Alerts'
-                    </span>
-                }
-            />
+            {alertsSortedByState.length === 0 && !alertsLoading && (
+                <ProductIntroduction
+                    productName="Alerts"
+                    productKey={ProductKey.ALERTS}
+                    thingName="alert"
+                    description="Alerts enable you to monitor your insight and notify you when certain conditions are met. Please note that alerts are in alpha and may not be fully reliable."
+                    // TODO: update docs link when ready
+                    // docsURL="https://posthog.com/docs/data/annotations"
+                    isEmpty={alertsSortedByState.length === 0 && !alertsLoading}
+                    customHog={DetectiveHog}
+                    actionElementOverride={
+                        <span className="italic">
+                            To get started, visit a trends insight, expand options in the header and click 'Manage
+                            Alerts'
+                        </span>
+                    }
+                />
+            )}
+
             {alert && (
                 <EditAlertModal
                     onClose={() => push(urls.alerts())}
