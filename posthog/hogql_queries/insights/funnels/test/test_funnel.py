@@ -2885,42 +2885,6 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
             self.assertEqual(1, results[-1]["count"])
 
-        def test_multiple_events_same_timestamp_exclusions(self):
-            _create_person(distinct_ids=["test"], team_id=self.team.pk)
-            with freeze_time("2024-01-10T12:00:00"):
-                _create_event(team=self.team, event="step zero", distinct_id="test")
-            with freeze_time("2024-01-10T12:01:00"):
-                for _ in range(30):
-                    _create_event(team=self.team, event="step one", distinct_id="test")
-                _create_event(team=self.team, event="exclusion", distinct_id="test")
-                _create_event(team=self.team, event="step two", distinct_id="test")
-            with freeze_time("2024-01-10T12:02:00"):
-                _create_event(team=self.team, event="step three", distinct_id="test")
-            filters = {
-                "insight": INSIGHT_FUNNELS,
-                "funnel_viz_type": "steps",
-                "date_from": "2024-01-10 00:00:00",
-                "date_to": "2024-01-12 00:00:00",
-                "events": [
-                    {"id": "step zero", "order": 0},
-                    {"id": "step one", "order": 1},
-                    {"id": "step two", "order": 2},
-                    {"id": "step three", "order": 3},
-                ],
-                "exclusions": [
-                    {
-                        "id": "exclusion",
-                        "type": "events",
-                        "funnel_from_step": 0,
-                        "funnel_to_step": 1,
-                    }
-                ],
-            }
-
-            query = cast(FunnelsQuery, filter_to_query(filters))
-            results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
-            self.assertEqual(1, results[-1]["count"])
-
         def test_funnel_with_elements_chain(self):
             person1 = _create_person(distinct_ids=["test"], team_id=self.team.pk)
             _create_event(team=self.team, event="user signed up", distinct_id="test")

@@ -132,18 +132,24 @@ impl AggregateFunnelRow {
                 }
             } else {
                 // Handle permutations for different events with the same timestamp
-                // The behavior here is a little undefined, we don't handle it properly
-                // for strict funnels or exclusions.
+                // The behavior here is a little undefined. We choose to run exclusions before
+                // events. Strict funnels are disabled for this segment.
+
                 let sorted_events = events_with_same_timestamp
                     .iter()
                     .flat_map(|&event| {
                         event.steps
                             .iter()
                             .filter(|&&step| step > 0)
-                            .map(move |&step| Event { steps: vec![step], ..event.clone() })
+                            .map(|&step| Event { steps: vec![step], ..event.clone() })
                     }).sorted_by_key(|event| event.steps[0]);
 
-                for event in sorted_events {
+                let exclusions = events_with_same_timestamp
+                    .into_iter()
+                    .filter(|&event| !event.steps.is_empty() && event.steps[0] < 0);
+
+                // Run exclusions, if they exist, then run matching events.
+                for event in exclusions.chain(sorted_events.as_slice()) {
                     if !self.process_event(
                         args,
                         &mut vars,
