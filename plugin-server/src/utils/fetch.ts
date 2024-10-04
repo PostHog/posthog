@@ -47,10 +47,13 @@ export async function trackedFetch(url: RequestInfo, init?: RequestInit): Promis
             }
             return await fetch(url, {
                 ...init,
-                agent: ({ protocol }: URL) =>
-                    protocol === 'http:'
-                        ? new http.Agent({ lookup: staticLookup })
-                        : new https.Agent({ lookup: staticLookup }),
+                agent:
+                    isProdEnv() && !process.env.NODE_ENV?.includes('functional-tests')
+                        ? ({ protocol }: URL) =>
+                              protocol === 'http:'
+                                  ? new http.Agent({ lookup: staticLookup })
+                                  : new https.Agent({ lookup: staticLookup })
+                        : undefined,
             })
         }
     )
