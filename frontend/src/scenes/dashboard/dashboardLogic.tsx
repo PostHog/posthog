@@ -23,6 +23,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { clearDOMTextSelection, isAbortedRequest, shouldCancelQuery, toParams, uuid } from 'lib/utils'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import uniqBy from 'lodash.uniqby'
 import { Layout, Layouts } from 'react-grid-layout'
 import { calculateLayouts } from 'scenes/dashboard/tileLayouts'
 import { Scene } from 'scenes/sceneTypes'
@@ -31,9 +32,11 @@ import { userLogic } from 'scenes/userLogic'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
+import { variableDataLogic } from '~/queries/nodes/DataVisualization/Components/Variables/variableDataLogic'
+import { Variable } from '~/queries/nodes/DataVisualization/types'
 import { getQueryBasedDashboard, getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { pollForResults } from '~/queries/query'
-import { DashboardFilter, RefreshType } from '~/queries/schema'
+import { DashboardFilter, DataVisualizationNode, HogQLVariable, NodeKind, RefreshType } from '~/queries/schema'
 import {
     AnyPropertyFilter,
     Breadcrumb,
@@ -139,7 +142,8 @@ async function getSingleInsight(
     queryId: string,
     refresh: RefreshType,
     methodOptions?: ApiMethodOptions,
-    filtersOverride?: DashboardFilter
+    filtersOverride?: DashboardFilter,
+    variablesOverride?: Record<string, HogQLVariable>
 ): Promise<QueryBasedInsightModel | null> {
     const apiUrl = `api/projects/${currentTeamId}/insights/${insight.id}/?${toParams({
         refresh,
@@ -147,6 +151,7 @@ async function getSingleInsight(
         client_query_id: queryId,
         session_id: currentSessionId(),
         ...(filtersOverride ? { filters_override: filtersOverride } : {}),
+        ...(variablesOverride ? { variables_override: variablesOverride } : {}),
     })}`
     const insightResponse: Response = await api.getResponse(apiUrl, methodOptions)
     const legacyInsight: InsightModel | null = await getJSONOrNull(insightResponse)
@@ -156,7 +161,7 @@ async function getSingleInsight(
 export const dashboardLogic = kea<dashboardLogicType>([
     path(['scenes', 'dashboard', 'dashboardLogic']),
     connect(() => ({
-        values: [teamLogic, ['currentTeamId'], featureFlagLogic, ['featureFlags']],
+        values: [teamLogic, ['currentTeamId'], featureFlagLogic, ['featureFlags'], variableDataLogic, ['variables']],
         logic: [dashboardsModel, insightsModel, eventUsageLogic],
     })),
 
@@ -169,7 +174,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         return props.id
     }),
 
-    actions({
+    actions(({ values }) => ({
         loadDashboard: (payload: {
             refresh?: RefreshType
             action:
@@ -234,7 +239,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
         abortQuery: (payload: { dashboardQueryId: string; queryId: string; queryStartTime: number }) => payload,
         abortAnyRunningQuery: true,
         updateFiltersAndLayouts: true,
-    }),
+        overrideVariableValue: (variableId: string, value: any) => ({
+            variableId,
+            value,
+            allVariables: values.variables,
+        }),
+    })),
 
     loaders(({ actions, props, values }) => ({
         dashboard: [
@@ -248,7 +258,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     try {
                         const apiUrl = values.apiUrl(
                             refresh || 'async',
-                            action === 'preview' ? values.temporaryFilters : undefined
+                            action === 'preview' ? values.temporaryFilters : undefined,
+                            action === 'preview' ? values.variableOverrides : undefined
                         )
                         const dashboardResponse: Response = await api.getResponse(apiUrl)
                         const dashboard: DashboardType<InsightModel> | null = await getJSONOrNull(dashboardResponse)
@@ -393,6 +404,29 @@ export const dashboardLogic = kea<dashboardLogicType>([
         ],
     })),
     reducers(({ props }) => ({
+        variableOverrides: [
+            {} as Record<string, HogQLVariable>,
+            {
+                overrideVariableValue: (state, { variableId, value, allVariables }) => {
+                    const foundExistingVar = allVariables.find((n) => n.id === variableId)
+                    if (!foundExistingVar) {
+                        return state
+                    }
+
+                    return {
+                        ...state,
+                        [variableId]: { code_name: foundExistingVar.code_name, variableId: foundExistingVar.id, value },
+                    }
+                },
+                setDashboardMode: (state, { mode, source }) => {
+                    if (mode === null && source === DashboardEventSource.DashboardHeaderDiscardChanges) {
+                        return {}
+                    }
+
+                    return state
+                },
+            },
+        ],
         _dashboardLoading: [
             false,
             {
@@ -689,6 +723,44 @@ export const dashboardLogic = kea<dashboardLogicType>([
         ],
     })),
     selectors(() => ({
+        dashboardVariables: [
+            (s) => [s.dashboard, s.variables, s.variableOverrides],
+            (
+                dashboard: DashboardType,
+                allVariables: Variable[],
+                variableOverrides: Record<string, HogQLVariable>
+            ): Variable[] => {
+                const dataVizNodes = dashboard.tiles
+                    .map((n) => n.insight?.query)
+                    .filter((n) => n?.kind === NodeKind.DataVisualizationNode)
+                    .filter((n): n is DataVisualizationNode => Boolean(n))
+                const hogQLVariables = dataVizNodes
+                    .map((n) => n.source.variables)
+                    .filter((n): n is Record<string, HogQLVariable> => Boolean(n))
+                    .flatMap((n) => Object.values(n))
+
+                const uniqueVars = uniqBy(hogQLVariables, (n) => n.variableId)
+                return uniqueVars
+                    .map((v) => {
+                        const foundVar = allVariables.find((n) => n.id === v.variableId)
+
+                        if (!foundVar) {
+                            return null
+                        }
+
+                        const overridenValue = variableOverrides[v.variableId]?.value
+
+                        // Overwrite the variable `value` from the insight
+                        const resultVar: Variable = {
+                            ...foundVar,
+                            value: overridenValue ?? v.value ?? foundVar.value,
+                        }
+
+                        return resultVar
+                    })
+                    .filter((n): n is Variable => Boolean(n))
+            },
+        ],
         asDashboardTemplate: [
             (s) => [s.dashboard],
             (dashboard: DashboardType): DashboardTemplateEditorType | undefined => {
@@ -731,10 +803,15 @@ export const dashboardLogic = kea<dashboardLogicType>([
         apiUrl: [
             () => [(_, props) => props.id],
             (id) => {
-                return (refresh?: RefreshType, filtersOverride?: DashboardFilter) =>
+                return (
+                    refresh?: RefreshType,
+                    filtersOverride?: DashboardFilter,
+                    variablesOverride?: Record<string, HogQLVariable>
+                ) =>
                     `api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}/?${toParams({
                         refresh,
                         filters_override: filtersOverride,
+                        variables_override: variablesOverride,
                     })}`
             },
         ],
@@ -1046,7 +1123,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     insight,
                     dashboardId,
                     uuid(),
-                    'force_async'
+                    'force_async',
+                    undefined,
+                    undefined,
+                    values.variableOverrides
                 )
                 dashboardsModel.actions.updateDashboardInsight(refreshedInsight!)
                 // Start polling for results
@@ -1138,7 +1218,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             queryId,
                             'force_cache',
                             methodOptions,
-                            action === 'preview' ? values.temporaryFilters : undefined
+                            action === 'preview' ? values.temporaryFilters : undefined,
+                            values.variableOverrides
                         )
 
                         if (action === 'preview' && polledInsight!.dashboard_tiles) {
@@ -1303,6 +1384,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
             actions.loadDashboard({ action: 'preview' })
         },
         setDates: () => {
+            actions.loadDashboard({ action: 'preview' })
+        },
+        overrideVariableValue: () => {
+            actions.setDashboardMode(DashboardMode.Edit, null)
             actions.loadDashboard({ action: 'preview' })
         },
     })),

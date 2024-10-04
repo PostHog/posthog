@@ -57,7 +57,7 @@ from posthog.helpers.multi_property_breakdown import (
 from posthog.hogql.constants import BREAKDOWN_VALUES_LIMIT
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.timings import HogQLTimings
-from posthog.hogql_queries.apply_dashboard_filters import WRAPPER_NODE_KINDS
+from posthog.hogql_queries.apply_dashboard_filters import WRAPPER_NODE_KINDS, apply_dashboard_variables_to_dict
 from posthog.hogql_queries.legacy_compatibility.feature_flag import (
     hogql_insights_replace_filters,
 )
@@ -108,6 +108,7 @@ from posthog.utils import (
     relative_date_parse,
     str_to_bool,
     filters_override_requested_by_client,
+    variables_override_requested_by_client,
 )
 from posthog.api.monitoring import monitor, Feature
 from posthog.hogql_queries.apply_dashboard_filters import (
@@ -561,12 +562,17 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
         dashboard: Optional[Dashboard] = self.context.get("dashboard")
         request: Optional[Request] = self.context.get("request")
         dashboard_filters_override = filters_override_requested_by_client(request) if request else None
+        dashboard_variables_override = variables_override_requested_by_client(request) if request else None
 
         if hogql_insights_replace_filters(instance.team) and (
             instance.query is not None or instance.query_from_filters is not None
         ):
             query = instance.query or instance.query_from_filters
-            if dashboard is not None or dashboard_filters_override is not None:
+            if (
+                dashboard is not None
+                or dashboard_filters_override is not None
+                or dashboard_variables_override is not None
+            ):
                 query = apply_dashboard_filters_to_dict(
                     query,
                     (
@@ -578,6 +584,12 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
                     ),
                     instance.team,
                 )
+
+                query = apply_dashboard_variables_to_dict(
+                    query,
+                    dashboard_variables_override or {},
+                    instance.team,
+                )
             representation["filters"] = {}
             representation["query"] = query
         else:
@@ -585,7 +597,9 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
                 dashboard=dashboard, dashboard_filters_override=dashboard_filters_override
             )
             representation["query"] = instance.get_effective_query(
-                dashboard=dashboard, dashboard_filters_override=dashboard_filters_override
+                dashboard=dashboard,
+                dashboard_filters_override=dashboard_filters_override,
+                dashboard_variables_override=dashboard_variables_override,
             )
 
             if "insight" not in representation["filters"] and not representation["query"]:
@@ -606,6 +620,7 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
                 refresh_requested = refresh_requested_by_client(self.context["request"])
                 execution_mode = execution_mode_from_refresh(refresh_requested)
                 filters_override = filters_override_requested_by_client(self.context["request"])
+                variables_override = variables_override_requested_by_client(self.context["request"])
 
                 if self.context.get("is_shared", False):
                     execution_mode = shared_insights_execution_mode(execution_mode)
@@ -616,6 +631,7 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
                     execution_mode=execution_mode,
                     user=self.context["request"].user,
                     filters_override=filters_override,
+                    variables_override=variables_override,
                 )
             except ExposedHogQLError as e:
                 raise ValidationError(str(e))

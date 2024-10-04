@@ -1,13 +1,12 @@
 import { actions, afterMount, connect, kea, key, path, props, reducers, selectors } from 'kea'
-import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
-import api from 'lib/api'
 import { getVariablesFromQuery } from 'scenes/insights/utils/queryUtils'
 
 import { DataVisualizationNode, HogQLVariable } from '~/queries/schema'
 
 import { dataVisualizationLogic } from '../../dataVisualizationLogic'
 import { Variable } from '../../types'
+import { variableDataLogic } from './variableDataLogic'
 import type { variablesLogicType } from './variablesLogicType'
 
 export interface VariablesLogicProps {
@@ -21,8 +20,8 @@ export const variablesLogic = kea<variablesLogicType>([
     props({ key: '' } as VariablesLogicProps),
     key((props) => props.key),
     connect({
-        actions: [dataVisualizationLogic, ['setQuery', 'loadData']],
-        values: [dataVisualizationLogic, ['query']],
+        actions: [dataVisualizationLogic, ['setQuery', 'loadData'], variableDataLogic, ['getVariables']],
+        values: [dataVisualizationLogic, ['query', 'insightLogicProps'], variableDataLogic, ['variables']],
     }),
     actions({
         addVariable: (variable: HogQLVariable) => ({ variable }),
@@ -57,18 +56,6 @@ export const variablesLogic = kea<variablesLogicType>([
             },
         ],
     }),
-    loaders({
-        variables: [
-            [] as Variable[],
-            {
-                getVariables: async () => {
-                    const insights = await api.insightVariables.list()
-
-                    return insights.results
-                },
-            },
-        ],
-    }),
     selectors({
         variablesForInsight: [
             (s) => [s.variables, s.internalSelectedVariables],
@@ -87,6 +74,12 @@ export const variablesLogic = kea<variablesLogicType>([
                         return undefined
                     })
                     .filter((n): n is Variable => Boolean(n))
+            },
+        ],
+        showVariablesBar: [
+            (state) => [state.insightLogicProps],
+            (insightLogicProps) => {
+                return !insightLogicProps.dashboardId
             },
         ],
     }),

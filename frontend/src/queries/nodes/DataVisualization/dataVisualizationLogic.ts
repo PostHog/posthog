@@ -559,6 +559,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 return insightMode == ItemMode.Edit
             },
         ],
+        insightLogicProps: [(_state, props) => [props.insightLogicProps], (insightLogicProps) => insightLogicProps],
         showResultControls: [
             (state, props) => [state.insightMode, props.insightLogicProps],
             (insightMode, insightLogicProps) => {
