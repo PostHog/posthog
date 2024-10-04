@@ -90,16 +90,29 @@ class FunnelUDF(FunnelBase):
                 """
             return ""
 
+        def array_filter():
+            if self.context.funnelsFilter.funnelOrderType == "strict":
+                return f"""
+                        arrayFilter(
+                            -- remove it if steps is empty AND previous steps is empty AND timestamp > previous steps
+                            -- this is used to reduce the number of events sent to the UDF from strict funnels
+                            (x, i) -> not (isNotNull(events_array[i-1]) and empty(x.4) and empty(events_array[i-1].4) and x.1 > events_array[i-1].1),
+                            events_array,
+                            arrayEnumerate(events_array))
+                    """
+            return "events_array"
+
         inner_select = parse_select(
             f"""
             SELECT
+                arraySort(t -> t.1, groupArray(tuple(toFloat(timestamp), uuid, {prop_selector}, arrayFilter((x) -> x != 0, [{steps}{exclusions}])))) as events_array,
                 arrayJoin({fn}(
                     {self.context.max_steps},
                     {self.conversion_window_limit()},
                     '{breakdown_attribution_string}',
                     '{self.context.funnelsFilter.funnelOrderType}',
                     {prop_vals},
-                    arraySort(t -> t.1, groupArray(tuple(toFloat(timestamp), uuid, {prop_selector}, arrayFilter((x) -> x != 0, [{steps}{exclusions}]))))
+                    {array_filter()}
                 )) as af_tuple,
                 af_tuple.1 as step_reached,
                 af_tuple.1 + 1 as steps, -- Backward compatibility
