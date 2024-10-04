@@ -362,5 +362,6 @@ def test_batch_export_backfill_created_in_timezone(client: HttpClient):
         )
 
         data = response.json()
+
         assert response.status_code == status.HTTP_200_OK, data
-        assert data["backfill_id"] == f"{batch_export_id}-Backfill-2021-01-01 05:00:00+00:00-2021-10-01 04:00:00+00:00"
+        assert data["backfill_id"] == f"{batch_export_id}-Backfill-2021-01-01T05:00:00+00:00-2021-10-01T04:00:00+00:00"
