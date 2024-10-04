@@ -63,7 +63,7 @@ func convertToResponseGeoEvent(event PostHogEvent) *ResponseGeoEvent {
 func convertToResponsePostHogEvent(event PostHogEvent, teamId int) *ResponsePostHogEvent {
 	return &ResponsePostHogEvent{
 		Uuid:       event.Uuid,
-		Timestamp:  event.Timestamp.Value,
+		Timestamp:  event.Timestamp,
 		DistinctId: event.DistinctId,
 		PersonId:   uuidFromDistinctId(teamId, event.DistinctId),
 		Event:      event.Event,

@@ -14,34 +14,14 @@ type PostHogEventWrapper struct {
 	DistinctId string `json:"distinct_id"`
 	Ip         string `json:"ip"`
 	Data       string `json:"data"`
-}
-
-type Timestamp struct {
-	Value string
-	Raw   string
-}
-
-func (t *Timestamp) UnmarshalJSON(data []byte) error {
-	t.Raw = string(data)
-
-	var s string
-	if err := json.Unmarshal(data, &s); err == nil {
-		t.Value = s
-		return nil
-	}
-
-	log.Printf("Unable to unmarshal timestamp to string. Raw value: %s", t.Raw)
-	// Set Default to empty string
-	t.Value = ""
-
-	return nil
+	Token      string `json:"token"`
 }
 
 type PostHogEvent struct {
 	Token      string                 `json:"api_key,omitempty"`
 	Event      string                 `json:"event"`
 	Properties map[string]interface{} `json:"properties"`
-	Timestamp  Timestamp              `json:"timestamp,omitempty"`
+	Timestamp  string                 `json:"timestamp,omitempty"`
 
 	Uuid       string
 	DistinctId string
@@ -101,35 +81,42 @@ func (c *PostHogKafkaConsumer) Consume() {
 	for {
 		msg, err := c.consumer.ReadMessage(-1)
 		if err != nil {
-			sentry.CaptureException(err)
 			log.Printf("Error consuming message: %v", err)
-			continue
+			sentry.CaptureException(err)
 		}
 
 		var wrapperMessage PostHogEventWrapper
 		err = json.Unmarshal(msg.Value, &wrapperMessage)
 		if err != nil {
-			sentry.CaptureException(err)
 			log.Printf("Error decoding JSON: %v", err)
-			continue
+			log.Printf("Data: %s", string(msg.Value))
 		}
 
-		var phEvent PostHogEvent
-		err = json.Unmarshal([]byte(wrapperMessage.Data), &phEvent)
+		phEvent := PostHogEvent{
+			Timestamp:  time.Now().UTC().Format("2006-01-02T15:04:05.000Z"),
+			Token:      "",
+			Event:      "",
+			Properties: make(map[string]interface{}),
+		}
+
+		data := []byte(wrapperMessage.Data)
+
+		err = json.Unmarshal(data, &phEvent)
 		if err != nil {
 			log.Printf("Error decoding JSON: %v", err)
-			sentry.CaptureException(err)
-			continue
+			log.Printf("Data: %s", string(data))
 		}
 
 		phEvent.Uuid = wrapperMessage.Uuid
 		phEvent.DistinctId = wrapperMessage.DistinctId
-		if phEvent.Timestamp.Value == "" {
-			phEvent.Timestamp.Value = time.Now().UTC().Format("2006-01-02T15:04:05.000Z")
-		}
-		if phEvent.Token == "" {
+
+		if wrapperMessage.Token != "" {
+			phEvent.Token = wrapperMessage.Token
+		} else if phEvent.Token == "" {
 			if tokenValue, ok := phEvent.Properties["token"].(string); ok {
 				phEvent.Token = tokenValue
+			} else {
+				log.Printf("No valid token found in event %s", string(msg.Value))
 			}
 		}
 

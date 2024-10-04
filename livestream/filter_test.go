@@ -67,7 +67,7 @@ func TestConvertToResponsePostHogEvent(t *testing.T) {
 	timestamp := "2023-01-01T00:00:00Z"
 	event := PostHogEvent{
 		Uuid:       "123",
-		Timestamp:  Timestamp{Value: timestamp},
+		Timestamp:  timestamp,
 		DistinctId: "user1",
 		Event:      "pageview",
 		Properties: map[string]interface{}{"url": "https://example.com"},
@@ -112,7 +112,7 @@ func TestFilterRun(t *testing.T) {
 	timestamp := "2023-01-01T00:00:00Z"
 	event := PostHogEvent{
 		Uuid:       "123",
-		Timestamp:  Timestamp{Value: timestamp},
+		Timestamp:  timestamp,
 		DistinctId: "user1",
 		Token:      "token1",
 		Event:      "pageview",
