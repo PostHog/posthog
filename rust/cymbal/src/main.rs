@@ -110,5 +110,7 @@ async fn main() -> Result<(), Error> {
                     continue;
                 }
             };
+
+        metrics::counter!("cymbal_stack_track_processed").increment(1);
     }
 }
