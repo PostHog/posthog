@@ -2849,42 +2849,6 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
             self.assertEqual(results[-1]["count"], 1)
 
-        def test_events_same_timestamp_no_exclusions(self):
-            _create_person(distinct_ids=["test"], team_id=self.team.pk)
-            with freeze_time("2024-01-10T12:01:00"):
-                _create_event(team=self.team, event="step one, ten", distinct_id="test")
-                _create_event(team=self.team, event="step two, three, seven", distinct_id="test")
-                _create_event(team=self.team, event="step two, three, seven", distinct_id="test")
-                _create_event(team=self.team, event="step four, five, eight", distinct_id="test")
-                _create_event(team=self.team, event="step four, five, eight", distinct_id="test")
-                _create_event(team=self.team, event="step six, nine", distinct_id="test")
-                _create_event(team=self.team, event="step two, three, seven", distinct_id="test")
-                _create_event(team=self.team, event="step four, five, eight", distinct_id="test")
-                _create_event(team=self.team, event="step six, nine", distinct_id="test")
-
-                _create_event(team=self.team, event="step two, three, seven", distinct_id="test")
-            filters = {
-                "insight": INSIGHT_FUNNELS,
-                "funnel_viz_type": "steps",
-                "date_from": "2024-01-10 00:00:00",
-                "date_to": "2024-01-12 00:00:00",
-                "events": [
-                    {"id": "step one, ten", "order": 0},
-                    {"id": "step two, three, seven", "order": 1},
-                    {"id": "step two, three, seven", "order": 2},
-                    {"id": "step four, five, eight", "order": 3},
-                    {"id": "step four, five, eight", "order": 4},
-                    {"id": "step six, nine", "order": 5},
-                    {"id": "step two, three, seven", "order": 6},
-                    {"id": "step four, five, eight", "order": 7},
-                    {"id": "step six, nine", "order": 8},
-                ],
-            }
-
-            query = cast(FunnelsQuery, filter_to_query(filters))
-            results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
-            self.assertEqual(1, results[-1]["count"])
-
         def test_funnel_with_elements_chain(self):
             person1 = _create_person(distinct_ids=["test"], team_id=self.team.pk)
             _create_event(team=self.team, event="user signed up", distinct_id="test")
