@@ -31,7 +31,7 @@ pub struct ProcessedStack {
 }
 
 impl RawStack {
-    pub async fn process(self, sym: &Symbolifier) -> ProcessedStack {
+    pub async fn process(self, _sym: &Symbolifier) -> ProcessedStack {
         unimplemented!()
     }
 }
