@@ -25,7 +25,7 @@ struct Event {
     timestamp: f64,
     uuid: Uuid,
     breakdown: PropVal,
-    steps: Vec<i32>,
+    steps: Vec<i8>,
 }
 
 #[derive(Deserialize)]
@@ -40,7 +40,7 @@ struct Args {
 }
 
 #[derive(Serialize)]
-struct Result(i32, PropVal, Vec<f64>, Vec<Vec<Uuid>>);
+struct Result(i8, PropVal, Vec<f64>, Vec<Vec<Uuid>>);
 
 struct Vars {
     max_step: (usize, EnteredTimestamp),
@@ -112,6 +112,7 @@ impl AggregateFunnelRow {
                     &events_with_same_timestamp[0],
                     &mut entered_timestamp,
                     prop_val,
+                    false
                 ) {
                     return;
                 }
@@ -124,14 +125,15 @@ impl AggregateFunnelRow {
                         event,
                         &mut entered_timestamp,
                         prop_val,
+                        false
                     ) {
                         return;
                     }
                 }
             } else {
-                // Handle permutations for events with the same timestamp
-                // Don't worry about strict funnels or exclusions here yet, just think about happy path
-                // # TODO improve handling of events with same timestamp (if this ever becomes an issue)
+                // Handle permutations for different events with the same timestamp
+                // The behavior here is a little undefined, we don't handle it for strict funnels or exclusions
+                // Could add more optimizations here but shouldn't be very common
                 let sorted_events = events_with_same_timestamp
                     .iter()
                     .flat_map(|&event| {
@@ -141,8 +143,6 @@ impl AggregateFunnelRow {
                             .map(move |&step| Event { steps: vec![step], ..event.clone() })
                     }).sorted_by_key(|event| event.steps[0]);
 
-                // TODO: Stop the same
-                // 1. Stop event reuse
                 for event in sorted_events {
                     if !self.process_event(
                         args,
@@ -150,36 +150,11 @@ impl AggregateFunnelRow {
                         &event,
                         &mut entered_timestamp,
                         &prop_val,
+                        true
                     ) {
-                        // If any of the permutations hits an exclusion, we exclude this user.
-                        // This isn't an important implementation detail and we could do something smarter here.
                         return;
                     }
                 }
-
-                // let mut entered_timestamps: Vec<_> = vec![];
-
-                /*
-                for perm in events_with_same_timestamp.iter().permutations(events_with_same_timestamp.len()) {
-                    entered_timestamps.push(entered_timestamp.clone());
-                    for event in perm {
-                        if !self.process_event(
-                            args,
-                            &mut vars,
-                            &event,
-                            &mut entered_timestamps.last_mut().unwrap(),
-                            &prop_val,
-                        ) {
-                            // If any of the permutations hits an exclusion, we exclude this user.
-                            // This isn't an important implementation detail and we could do something smarter here.
-                            return;
-                        }
-                    }
-                }
-                for i in 0..entered_timestamp.len() {
-                    entered_timestamp[i] = entered_timestamps.iter().max_by_key(|x| x[i].timestamp as i32).unwrap()[i].clone();
-                }
-                 */
             }
 
             // If we hit the goal, we can terminate early
@@ -199,7 +174,7 @@ impl AggregateFunnelRow {
             vars.event_uuids[i].insert(0, final_value.uuids[i].clone());
         }
         self.results.push(Result(
-            final_index as i32 - 1,
+            final_index as i8 - 1,
             prop_val.clone(),
             final_value.timings.windows(2).map(|w| w[1] - w[0]).collect(),
             vars.event_uuids,
@@ -214,6 +189,7 @@ impl AggregateFunnelRow {
         event: &Event,
         entered_timestamp: &mut Vec<EnteredTimestamp>,
         prop_val: &PropVal,
+        validate_event_reuse: bool
     ) -> bool {
         for step in event.steps.iter().rev() {
             let mut exclusion = false;
@@ -234,7 +210,7 @@ impl AggregateFunnelRow {
                     return false;
                 }
                 let is_unmatched_step_attribution = self.breakdown_step.map(|breakdown_step| step == breakdown_step - 1).unwrap_or(false) && *prop_val != event.breakdown;
-                let already_used_event = entered_timestamp[step-1].uuids.contains(&event.uuid);
+                let already_used_event = validate_event_reuse && entered_timestamp[step-1].uuids.contains(&event.uuid);
                 if !is_unmatched_step_attribution && !already_used_event {
                     entered_timestamp[step] = EnteredTimestamp {
                         timestamp: entered_timestamp[step - 1].timestamp,
@@ -261,7 +237,7 @@ impl AggregateFunnelRow {
 
         if args.funnel_order_type == "strict" {
             for i in 1..entered_timestamp.len() {
-                if !event.steps.contains(&(i as i32)) {
+                if !event.steps.contains(&(i as i8)) {
                     entered_timestamp[i] = EnteredTimestamp {
                         timestamp: 0.0,
                         timings: vec![],
