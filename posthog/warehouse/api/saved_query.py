@@ -1,8 +1,8 @@
 from typing import Any
+from django.conf import settings
 
 import structlog
 from asgiref.sync import async_to_sync
-from django.conf import settings
 from django.db import transaction
 from rest_framework import exceptions, filters, request, response, serializers, status, viewsets
 from rest_framework.decorators import action
@@ -21,6 +21,7 @@ from posthog.temporal.data_modeling.run_workflow import RunWorkflowInputs, Selec
 from posthog.warehouse.models import DataWarehouseJoin, DataWarehouseModelPath, DataWarehouseSavedQuery
 import uuid
 
+
 logger = structlog.get_logger(__name__)
 
 
@@ -38,8 +39,10 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
             "created_by",
             "created_at",
             "columns",
+            "status",
+            "last_run_at",
         ]
-        read_only_fields = ["id", "created_by", "created_at", "columns"]
+        read_only_fields = ["id", "created_by", "created_at", "columns", "status", "last_run_at"]
 
     def get_columns(self, view: DataWarehouseSavedQuery) -> list[SerializedField]:
         team_id = self.context["team_id"]
@@ -153,6 +156,10 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
         instance: DataWarehouseSavedQuery = self.get_object()
         DataWarehouseJoin.objects.filter(source_table_name=instance.name).delete()
         DataWarehouseJoin.objects.filter(joining_table_name=instance.name).delete()
+
+        if instance.table is not None:
+            instance.table.soft_delete()
+
         self.perform_destroy(instance)
 
         return response.Response(status=status.HTTP_204_NO_CONTENT)
@@ -166,11 +173,15 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
         saved_query = self.get_object()
 
         temporal = sync_connect()
+
         inputs = RunWorkflowInputs(
             team_id=saved_query.team_id,
             select=[Selector(label=saved_query.id.hex, ancestors=ancestors, descendants=descendants)],
         )
         workflow_id = f"data-modeling-run-{saved_query.id.hex}"
+        saved_query.status = DataWarehouseSavedQuery.Status.RUNNING
+        saved_query.save()
+
         async_to_sync(temporal.start_workflow)(  # type: ignore
             "data-modeling-run",  # type: ignore
             inputs,  # type: ignore

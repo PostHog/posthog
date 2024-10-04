@@ -132,7 +132,7 @@ describe('CDP Processed Events Consumer', () => {
                     } as any,
                     event: {
                         uuid: 'b3a1fe86-b10c-43cc-acaf-d208977608d0',
-                        name: '$pageview',
+                        event: '$pageview',
                         properties: {
                             $current_url: 'https://posthog.com',
                             $lib_version: '1.0.0',
@@ -161,7 +161,6 @@ describe('CDP Processed Events Consumer', () => {
                     matchInvocation(fnPrinterPageviewFilters, globals),
                 ])
 
-                expect(mockProducer.produce).toHaveBeenCalledTimes(11)
                 expect(decodeAllKafkaMessages()).toMatchObject([
                     {
                         topic: 'log_entries_test',
@@ -173,7 +172,7 @@ describe('CDP Processed Events Consumer', () => {
                     {
                         topic: 'log_entries_test',
                         value: {
-                            message: "Suspending function due to async function call 'fetch'. Payload: 1902 bytes",
+                            message: "Suspending function due to async function call 'fetch'. Payload: 1956 bytes",
                             log_source_id: fnFetchNoFilters.id,
                         },
                     },
@@ -239,6 +238,15 @@ describe('CDP Processed Events Consumer', () => {
                         },
                     },
                     {
+                        topic: 'clickhouse_app_metrics2_test',
+                        value: {
+                            app_source: 'hog_function',
+                            count: 1,
+                            metric_kind: 'other',
+                            metric_name: 'fetch',
+                        },
+                    },
+                    {
                         topic: 'cdp_function_callbacks_test',
                         value: {
                             state: expect.any(String),
@@ -256,7 +264,6 @@ describe('CDP Processed Events Consumer', () => {
 
                 expect(invocations).toHaveLength(1)
                 expect(invocations).toMatchObject([matchInvocation(fnFetchNoFilters, globals)])
-                expect(mockProducer.produce).toHaveBeenCalledTimes(4)
 
                 expect(decodeAllKafkaMessages()).toMatchObject([
                     {
@@ -277,6 +284,9 @@ describe('CDP Processed Events Consumer', () => {
                     },
                     {
                         topic: 'log_entries_test',
+                    },
+                    {
+                        topic: 'clickhouse_app_metrics2_test',
                     },
                     {
                         topic: 'cdp_function_callbacks_test',

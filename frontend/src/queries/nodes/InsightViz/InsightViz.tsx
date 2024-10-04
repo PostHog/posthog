@@ -36,6 +36,7 @@ type InsightVizProps = {
     context?: QueryContext
     readOnly?: boolean
     embedded?: boolean
+    inSharedMode?: boolean
     filtersOverride?: DashboardFilter | null
 }
 
@@ -48,6 +49,7 @@ export function InsightViz({
     context,
     readOnly,
     embedded,
+    inSharedMode,
     filtersOverride,
 }: InsightVizProps): JSX.Element {
     const [key] = useState(() => `InsightViz.${uniqueKey || uniqueNode++}`)
@@ -101,6 +103,7 @@ export function InsightViz({
             disableLastComputationRefresh={disableLastComputationRefresh}
             showingResults={showingResults}
             embedded={isEmbedded}
+            inSharedMode={inSharedMode}
         />
     )
 

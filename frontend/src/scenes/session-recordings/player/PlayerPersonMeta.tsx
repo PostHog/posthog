@@ -20,7 +20,7 @@ export function PlayerPersonMeta(): JSX.Element {
 
     const onClick = (): void => {
         setSidebarOpen(true)
-        setTab(SessionRecordingSidebarTab.PERSON)
+        setTab(SessionRecordingSidebarTab.OVERVIEW)
     }
 
     return (

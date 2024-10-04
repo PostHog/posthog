@@ -54,14 +54,12 @@ export function PluginImage({
         />
     ) : (
         <div
-            className="plugin-image shrink-0"
+            className="plugin-image shrink-0 bg-contain bg-no-repeat"
             // eslint-disable-next-line react/forbid-dom-props
             style={{
                 width: pixelSize,
                 height: pixelSize,
                 backgroundImage: `url(${state.image})`,
-                backgroundSize: 'contain',
-                backgroundRepeat: 'no-repeat',
             }}
             // eslint-disable-next-line react/no-unknown-property
             onError={() => setState({ ...state, image: imgPluginDefault })}

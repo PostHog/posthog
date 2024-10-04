@@ -7,6 +7,7 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     name="HTTP Webhook",
     description="Sends a webhook templated by the incoming event data",
     icon_url="/static/posthog-icon.svg",
+    category=["Custom"],
     hog="""
 let res := fetch(inputs.url, {
   'headers': inputs.headers,

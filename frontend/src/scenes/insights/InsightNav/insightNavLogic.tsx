@@ -5,7 +5,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { identifierToHuman } from 'lib/utils'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
-import { filterTestAccountsDefaultsLogic } from 'scenes/settings/project/filterTestAccountDefaultsLogic'
+import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
 
 import { nodeKindToInsightType } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { getDefaultQuery } from '~/queries/nodes/InsightViz/utils'

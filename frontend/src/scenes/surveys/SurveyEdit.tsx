@@ -143,11 +143,7 @@ export default function SurveyEdit(): JSX.Element {
                                                     description="Use the PostHog API to show/hide your survey programmatically"
                                                     value={SurveyType.API}
                                                 >
-                                                    <div
-                                                        className="absolute left-4"
-                                                        // eslint-disable-next-line react/forbid-dom-props
-                                                        style={{ width: 350 }}
-                                                    >
+                                                    <div className="absolute left-4 w-[350px]">
                                                         <SurveyAPIEditor survey={survey} />
                                                     </div>
                                                 </PresentationTypeCard>

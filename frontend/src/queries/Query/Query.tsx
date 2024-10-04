@@ -46,12 +46,14 @@ export interface QueryProps<Q extends Node> {
     readOnly?: boolean
     /** Reduce UI elements to only show data */
     embedded?: boolean
+    /** Disables modals and other things */
+    inSharedMode?: boolean
     /** Dashboard filters to override the ones in the query */
     filtersOverride?: DashboardFilter | null
 }
 
 export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null {
-    const { query: propsQuery, setQuery: propsSetQuery, readOnly, embedded, filtersOverride } = props
+    const { query: propsQuery, setQuery: propsSetQuery, readOnly, embedded, filtersOverride, inSharedMode } = props
 
     const [localQuery, localSetQuery] = useState(propsQuery)
     useEffect(() => {
@@ -113,6 +115,7 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
                 readOnly={readOnly}
                 uniqueKey={uniqueKey}
                 embedded={embedded}
+                inSharedMode={inSharedMode}
                 filtersOverride={filtersOverride}
             />
         )

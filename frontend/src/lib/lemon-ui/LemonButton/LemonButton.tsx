@@ -77,6 +77,7 @@ export type SideAction = Pick<
     | 'to'
     | 'disableClientSideRouting'
     | 'disabled'
+    | 'disabledReason'
     | 'icon'
     | 'type'
     | 'tooltip'
@@ -208,9 +209,7 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                 <ButtonComponent
                     ref={ref as any}
                     className={clsx(
-                        'LemonButton',
-                        `LemonButton--${type}`,
-                        `LemonButton--status-${status}`,
+                        `LemonButton LemonButton--${type} LemonButton--status-${status}`,
                         loading && `LemonButton--loading`,
                         noPadding && `LemonButton--no-padding`,
                         size && `LemonButton--${size}`,
@@ -253,7 +252,7 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                 workingButton = (
                     <div
                         className={clsx(
-                            'LemonButtonWithSideAction',
+                            `LemonButtonWithSideAction LemonButtonWithSideAction--${type}`,
                             fullWidth && 'LemonButtonWithSideAction--full-width'
                         )}
                     >

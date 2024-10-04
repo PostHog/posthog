@@ -16,6 +16,7 @@ from google.auth.transport.requests import Request as GoogleRequest
 
 from django.conf import settings
 from posthog.cache_utils import cache_for
+from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.instance_setting import get_instance_settings
 from posthog.models.user import User
 import structlog
@@ -53,8 +54,10 @@ class Integration(models.Model):
     integration_id = models.TextField(null=True, blank=True)
     # Any config that COULD be passed to the frontend
     config = models.JSONField(default=dict)
-    # Any sensitive config that SHOULD NOT be passed to the frontend
-    sensitive_config = models.JSONField(default=dict)
+    sensitive_config = EncryptedJSONField(
+        default=dict,
+        ignore_decrypt_errors=True,  # allows us to load previously unencrypted data
+    )
 
     errors = models.TextField()
 

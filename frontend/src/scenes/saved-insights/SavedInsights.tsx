@@ -24,10 +24,12 @@ import {
 import { LemonSelectOptions } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
+import { Alerts } from 'lib/components/Alerts/views/Alerts'
 import { InsightCard } from 'lib/components/Cards/InsightCard'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
 import { TZLabel } from 'lib/components/TZLabel'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { IconAction, IconGridView, IconListView, IconTableChart } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -39,6 +41,7 @@ import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { PaginationControl, usePagination } from 'lib/lemon-ui/PaginationControl'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isNonEmptyObject } from 'lib/utils'
 import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
 import { SavedInsightsEmptyState } from 'scenes/insights/EmptyStates'
@@ -433,8 +436,7 @@ function SavedInsightsGrid(): JSX.Element {
                     )
                 })}
                 {insightsLoading && (
-                    // eslint-disable-next-line react/forbid-dom-props
-                    <div style={{ minHeight: '30rem' }}>
+                    <div className="min-h-[30rem]">
                         <SpinnerOverlay sceneLevel />
                     </div>
                 )}
@@ -445,9 +447,13 @@ function SavedInsightsGrid(): JSX.Element {
 }
 
 export function SavedInsights(): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const showAlerts = featureFlags[FEATURE_FLAGS.ALERTS]
+
     const { loadInsights, updateFavoritedInsight, renameInsight, duplicateInsight, setSavedInsightsFilters } =
         useActions(savedInsightsLogic)
-    const { insights, count, insightsLoading, filters, sorting, pagination } = useValues(savedInsightsLogic)
+    const { insights, count, insightsLoading, filters, sorting, pagination, alertModalId } =
+        useValues(savedInsightsLogic)
     const { hasTagging } = useValues(organizationLogic)
     const { currentTeamId } = useValues(teamLogic)
     const summarizeInsight = useSummarizeInsight()
@@ -595,11 +601,14 @@ export function SavedInsights(): JSX.Element {
                     { key: SavedInsightsTabs.Yours, label: 'Your insights' },
                     { key: SavedInsightsTabs.Favorites, label: 'Favorites' },
                     { key: SavedInsightsTabs.History, label: 'History' },
+                    ...(showAlerts ? [{ key: SavedInsightsTabs.Alerts, label: 'Alerts' }] : []),
                 ]}
             />
 
             {tab === SavedInsightsTabs.History ? (
                 <ActivityLog scope={ActivityScope.INSIGHT} />
+            ) : tab === SavedInsightsTabs.Alerts ? (
+                <Alerts alertId={alertModalId} />
             ) : (
                 <>
                     <SavedInsightsFilters />

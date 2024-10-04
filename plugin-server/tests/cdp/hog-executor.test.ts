@@ -3,8 +3,22 @@ import { DateTime } from 'luxon'
 import { HogExecutor } from '../../src/cdp/hog-executor'
 import { HogFunctionManager } from '../../src/cdp/hog-function-manager'
 import { HogFunctionInvocation, HogFunctionType } from '../../src/cdp/types'
+import { Hub } from '../../src/types'
+import { createHub } from '../../src/utils/db/hub'
+import { status } from '../../src/utils/status'
+import { truth } from '../helpers/truth'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from './examples'
 import { createHogExecutionGlobals, createHogFunction, createInvocation } from './fixtures'
+
+jest.mock('../../src/utils/status', () => ({
+    status: {
+        error: jest.fn(),
+        info: jest.fn(),
+        warn: jest.fn(),
+        debug: jest.fn(),
+        updatePrompt: jest.fn(),
+    },
+}))
 
 const setupFetchResponse = (invocation: HogFunctionInvocation, options?: { status?: number; body?: string }): void => {
     invocation.queue = 'hog'
@@ -25,6 +39,7 @@ const setupFetchResponse = (invocation: HogFunctionInvocation, options?: { statu
 describe('Hog Executor', () => {
     jest.setTimeout(1000)
     let executor: HogExecutor
+    let hub: Hub
 
     const mockFunctionManager = {
         reloadAllHogFunctions: jest.fn(),
@@ -32,10 +47,11 @@ describe('Hog Executor', () => {
         getTeamHogFunction: jest.fn(),
     }
 
-    beforeEach(() => {
+    beforeEach(async () => {
         jest.useFakeTimers()
         jest.setSystemTime(new Date('2024-06-07T12:00:00.000Z').getTime())
-        executor = new HogExecutor(mockFunctionManager as any as HogFunctionManager)
+        hub = await createHub()
+        executor = new HogExecutor(hub, mockFunctionManager as any as HogFunctionManager)
     })
 
     describe('general event processing', () => {
@@ -60,6 +76,7 @@ describe('Hog Executor', () => {
                 invocation: {
                     id: expect.any(String),
                     teamId: 1,
+                    priority: 0,
                     globals: invocation.globals,
                     hogFunction: invocation.hogFunction,
                     queue: 'fetch',
@@ -89,7 +106,7 @@ describe('Hog Executor', () => {
                 {
                     timestamp: expect.any(DateTime),
                     level: 'debug',
-                    message: "Suspending function due to async function call 'fetch'. Payload: 1818 bytes",
+                    message: "Suspending function due to async function call 'fetch'. Payload: 1872 bytes",
                 },
             ])
         })
@@ -110,7 +127,7 @@ describe('Hog Executor', () => {
                   "{\\"foo\\":\\"***REDACTED***\\",\\"null\\":null,\\"bool\\":false}",
                   "substring: ***REDACTED***",
                   "{\\"input_1\\":\\"test\\",\\"secret_input_2\\":{\\"foo\\":\\"***REDACTED***\\",\\"null\\":null,\\"bool\\":false},\\"secret_input_3\\":\\"***REDACTED***\\"}",
-                  "Function completed in 0ms. Sync: 0ms. Mem: 169 bytes. Ops: 28.",
+                  "Function completed in 0ms. Sync: 0ms. Mem: 169 bytes. Ops: 28. Event: 'http://localhost:8000/events/1'",
                 ]
             `)
         })
@@ -132,7 +149,8 @@ describe('Hog Executor', () => {
             expect(body).toEqual({
                 event: {
                     uuid: 'uuid',
-                    name: 'test',
+                    event: 'test',
+                    elements_chain: '',
                     distinct_id: 'distinct_id',
                     url: 'http://localhost:8000/events/1',
                     properties: { $lib_version: '1.2.3' },
@@ -141,7 +159,7 @@ describe('Hog Executor', () => {
                 groups: {},
                 nested: { foo: 'http://localhost:8000/events/1' },
                 person: {
-                    uuid: 'uuid',
+                    id: 'uuid',
                     name: 'test',
                     url: 'http://localhost:8000/persons/1',
                     properties: { email: 'test@posthog.com' },
@@ -169,10 +187,10 @@ describe('Hog Executor', () => {
             expect(logs.map((log) => log.message)).toMatchInlineSnapshot(`
                 Array [
                   "Executing function",
-                  "Suspending function due to async function call 'fetch'. Payload: 1818 bytes",
+                  "Suspending function due to async function call 'fetch'. Payload: 1872 bytes",
                   "Resuming function",
                   "Fetch response:, {\\"status\\":200,\\"body\\":\\"success\\"}",
-                  "Function completed in 100ms. Sync: 0ms. Mem: 750 bytes. Ops: 22.",
+                  "Function completed in 100ms. Sync: 0ms. Mem: 779 bytes. Ops: 22. Event: 'http://localhost:8000/events/1'",
                 ]
             `)
         })
@@ -188,10 +206,10 @@ describe('Hog Executor', () => {
             expect(logs.map((log) => log.message)).toMatchInlineSnapshot(`
                 Array [
                   "Executing function",
-                  "Suspending function due to async function call 'fetch'. Payload: 1818 bytes",
+                  "Suspending function due to async function call 'fetch'. Payload: 1872 bytes",
                   "Resuming function",
                   "Fetch response:, {\\"status\\":200,\\"body\\":{\\"foo\\":\\"bar\\"}}",
-                  "Function completed in 100ms. Sync: 0ms. Mem: 750 bytes. Ops: 22.",
+                  "Function completed in 100ms. Sync: 0ms. Mem: 779 bytes. Ops: 22. Event: 'http://localhost:8000/events/1'",
                 ]
             `)
         })
@@ -215,7 +233,7 @@ describe('Hog Executor', () => {
                 createHogExecutionGlobals({
                     groups: {},
                     event: {
-                        name: '$pageview',
+                        event: '$pageview',
                         properties: {
                             $current_url: 'https://posthog.com',
                         },
@@ -224,6 +242,40 @@ describe('Hog Executor', () => {
             )
             expect(resultsShouldMatch.matchingFunctions).toHaveLength(1)
             expect(resultsShouldMatch.nonMatchingFunctions).toHaveLength(0)
+        })
+
+        it('logs telemetry', async () => {
+            hub = await createHub({ CDP_HOG_FILTERS_TELEMETRY_TEAMS: '*' })
+            executor = new HogExecutor(hub, mockFunctionManager as any as HogFunctionManager)
+
+            const fn = createHogFunction({
+                ...HOG_EXAMPLES.simple_fetch,
+                ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                ...HOG_FILTERS_EXAMPLES.broken_filters,
+            })
+            mockFunctionManager.getTeamHogFunctions.mockReturnValue([fn])
+            const resultsShouldMatch = executor.findMatchingFunctions(
+                createHogExecutionGlobals({
+                    groups: {},
+                    event: {
+                        event: '$pageview',
+                        properties: {
+                            $current_url: 'https://posthog.com',
+                        },
+                    } as any,
+                })
+            )
+            expect(resultsShouldMatch.erroredFunctions).toHaveLength(1)
+            expect(status.error).toHaveBeenCalledWith(
+                '🦔',
+                expect.stringContaining('Error filtering function'),
+                truth(
+                    (obj) =>
+                        'telemetry' in obj.result.state &&
+                        Array.isArray(obj.result.state.telemetry) &&
+                        obj.result.state.telemetry[0][3] === 'START'
+                )
+            )
         })
 
         it('can use elements_chain_texts', () => {
@@ -241,12 +293,12 @@ describe('Hog Executor', () => {
                 groups: {},
                 event: {
                     uuid: 'uuid',
-                    name: '$autocapture',
+                    event: '$autocapture',
+                    elements_chain: elementsChain('Not our text'),
                     distinct_id: 'distinct_id',
                     url: 'http://localhost:8000/events/1',
                     properties: {
                         $lib_version: '1.2.3',
-                        $elements_chain: elementsChain('Not our text'),
                     },
                     timestamp: new Date().toISOString(),
                 },
@@ -260,12 +312,12 @@ describe('Hog Executor', () => {
                 groups: {},
                 event: {
                     uuid: 'uuid',
-                    name: '$autocapture',
+                    event: '$autocapture',
+                    elements_chain: elementsChain('Reload'),
                     distinct_id: 'distinct_id',
                     url: 'http://localhost:8000/events/1',
                     properties: {
                         $lib_version: '1.2.3',
-                        $elements_chain: elementsChain('Reload'),
                     },
                     timestamp: new Date().toISOString(),
                 },
@@ -291,12 +343,12 @@ describe('Hog Executor', () => {
                 groups: {},
                 event: {
                     uuid: 'uuid',
-                    name: '$autocapture',
+                    event: '$autocapture',
+                    elements_chain: elementsChain('/project/1/not-a-link'),
                     distinct_id: 'distinct_id',
                     url: 'http://localhost:8000/events/1',
                     properties: {
                         $lib_version: '1.2.3',
-                        $elements_chain: elementsChain('/project/1/not-a-link'),
                     },
                     timestamp: new Date().toISOString(),
                 },
@@ -310,12 +362,12 @@ describe('Hog Executor', () => {
                 groups: {},
                 event: {
                     uuid: 'uuid',
-                    name: '$autocapture',
+                    event: '$autocapture',
+                    elements_chain: elementsChain('/project/1/activity/explore'),
                     distinct_id: 'distinct_id',
                     url: 'http://localhost:8000/events/1',
                     properties: {
                         $lib_version: '1.2.3',
-                        $elements_chain: elementsChain('/project/1/activity/explore'),
                     },
                     timestamp: new Date().toISOString(),
                 },
@@ -341,12 +393,12 @@ describe('Hog Executor', () => {
                 groups: {},
                 event: {
                     uuid: 'uuid',
-                    name: '$autocapture',
+                    event: '$autocapture',
+                    elements_chain: elementsChain('notfound'),
                     distinct_id: 'distinct_id',
                     url: 'http://localhost:8000/events/1',
                     properties: {
                         $lib_version: '1.2.3',
-                        $elements_chain: elementsChain('notfound'),
                     },
                     timestamp: new Date().toISOString(),
                 },
@@ -360,12 +412,12 @@ describe('Hog Executor', () => {
                 groups: {},
                 event: {
                     uuid: 'uuid',
-                    name: '$autocapture',
+                    event: '$autocapture',
+                    elements_chain: elementsChain('homelink'),
                     distinct_id: 'distinct_id',
                     url: 'http://localhost:8000/events/1',
                     properties: {
                         $lib_version: '1.2.3',
-                        $elements_chain: elementsChain('homelink'),
                     },
                     timestamp: new Date().toISOString(),
                 },

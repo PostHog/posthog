@@ -1,5 +1,10 @@
+import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 import clsx from 'clsx'
+import { useActions, useValues } from 'kea'
+import { humanFriendlyDetailedTime } from 'lib/utils'
 import { useEffect, useRef, useState } from 'react'
+import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
+import { StatusTagSetting } from 'scenes/data-warehouse/settings/DataWarehouseManagedSourcesTable'
 
 import GenericNode from './Node'
 import { FixedField, JoinedField, TableFields } from './TableFields'
@@ -96,7 +101,9 @@ const calculateNodePositions = (nodesWithDepth: NodeWithDepth[]): NodePosition[]
 
 const calculateTablePosition = (nodePositions: NodePosition[]): Position => {
     // Find the node with the maximum x position
-    const farthestNode = nodePositions.reduce((max, node) => (node.position.x > max.position.x ? node : max))
+    const farthestNode = nodePositions.reduce((max, node) => (node.position.x > max.position.x ? node : max), {
+        position: { x: 0, y: 0 },
+    })
 
     // Calculate the table position to be slightly to the right of the farthest node
     const tablePosition: Position = {
@@ -207,6 +214,10 @@ const NodeCanvasWithTable = ({
     joinedFields,
     tableName,
 }: ScrollableDraggableCanvasProps): JSX.Element => {
+    // would like to keep nodecanvas logicless
+    const { dataWarehouseSavedQueryMapById } = useValues(dataWarehouseViewsLogic)
+    const { runDataWarehouseSavedQuery } = useActions(dataWarehouseViewsLogic)
+
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
     const [isDragging, setIsDragging] = useState(false)
     const [offset, setOffset] = useState({ x: 0, y: 0 })
@@ -350,13 +361,13 @@ const NodeCanvasWithTable = ({
                     )
                 })}
             </svg>
-            {nodePositions.map(({ name, position, nodeId }, idx) => {
+            {nodePositions.map(({ name, savedQueryId, position, nodeId }, idx) => {
                 return (
                     <div
                         key={nodeId}
+                        className="absolute"
                         // eslint-disable-next-line react/forbid-dom-props
                         style={{
-                            position: 'absolute',
                             left: `${position.x + offset.x}px`,
                             top: `${position.y + offset.y}px`,
                         }}
@@ -367,16 +378,52 @@ const NodeCanvasWithTable = ({
                                 nodeRefs.current[idx]?.setAttribute('id', nodeId)
                             }}
                         >
-                            {name}
+                            <div className="flex flex-col max-w-full">
+                                <div className="flex flex-wrap justify-between gap-2">
+                                    <div className="font-bold break-words">{name}</div>
+                                    {savedQueryId && (
+                                        <LemonButton
+                                            type="primary"
+                                            size="xsmall"
+                                            onClick={() => runDataWarehouseSavedQuery(savedQueryId)}
+                                        >
+                                            Run
+                                        </LemonButton>
+                                    )}
+                                </div>
+                                {savedQueryId && dataWarehouseSavedQueryMapById[savedQueryId]?.status && (
+                                    <div className="text-xs mt-2 max-w-full">
+                                        <LemonTag
+                                            type={
+                                                (dataWarehouseSavedQueryMapById[savedQueryId]?.status &&
+                                                    StatusTagSetting[
+                                                        dataWarehouseSavedQueryMapById[savedQueryId].status as string
+                                                    ]) ||
+                                                'default'
+                                            }
+                                            className="break-words"
+                                        >
+                                            {dataWarehouseSavedQueryMapById[savedQueryId]?.status}
+                                        </LemonTag>
+                                    </div>
+                                )}
+                                {savedQueryId && dataWarehouseSavedQueryMapById[savedQueryId]?.last_run_at && (
+                                    <span className="text-xs mt-2 max-w-full break-words">
+                                        {`Last calculated ${humanFriendlyDetailedTime(
+                                            dataWarehouseSavedQueryMapById[savedQueryId]?.last_run_at
+                                        )}`}
+                                    </span>
+                                )}
+                            </div>
                         </GenericNode>
                     </div>
                 )
             })}
 
             <div
+                className="absolute"
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{
-                    position: 'absolute',
                     left: `${tablePosition.x + offset.x}px`,
                     top: `${tablePosition.y + offset.y}px`,
                 }}

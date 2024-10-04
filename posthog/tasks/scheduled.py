@@ -8,11 +8,16 @@ from django.conf import settings
 
 from posthog.caching.warming import schedule_warming_for_teams_task
 from posthog.celery import app
-from posthog.tasks.alerts.checks import check_all_alerts_task, checks_cleanup_task
+from posthog.tasks.alerts.checks import (
+    check_alerts_task,
+    checks_cleanup_task,
+    alerts_backlog_task,
+)
 from posthog.tasks.integrations import refresh_integrations
 from posthog.tasks.tasks import (
     calculate_cohort,
     calculate_decide_usage,
+    calculate_external_data_rows_synced,
     calculate_replay_embeddings,
     check_async_migration_health,
     check_flags_to_rollback,
@@ -38,6 +43,7 @@ from posthog.tasks.tasks import (
     process_scheduled_changes,
     redis_celery_queue_depth,
     redis_heartbeat,
+    replay_count_metrics,
     schedule_all_subscriptions,
     send_org_usage_reports,
     start_poll_query_performance,
@@ -45,10 +51,8 @@ from posthog.tasks.tasks import (
     sync_all_organization_available_product_features,
     update_event_partitions,
     update_quota_limiting,
-    verify_persons_data_in_sync,
     update_survey_iteration,
-    replay_count_metrics,
-    calculate_external_data_rows_synced,
+    verify_persons_data_in_sync,
 )
 from posthog.utils import get_crontab
 
@@ -200,11 +204,20 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="Graphile Worker queue size",
     )
 
-    add_periodic_task_with_expiry(
-        sender,
-        120,
+    sender.add_periodic_task(
+        get_crontab(settings.CALCULATE_COHORTS_DAY_SCHEDULE),
         calculate_cohort.s(),
-        name="recalculate cohorts",
+        name="recalculate cohorts day",
+        expires=120 * 1.5,
+        args=(settings.CALCULATE_X_PARALLEL_COHORTS_DURING_DAY,),
+    )
+
+    sender.add_periodic_task(
+        get_crontab(settings.CALCULATE_COHORTS_NIGHT_SCHEDULE),
+        calculate_cohort.s(),
+        name="recalculate cohorts night",
+        expires=60 * 1.5,
+        args=(settings.CALCULATE_X_PARALLEL_COHORTS_DURING_NIGHT,),
     )
 
     add_periodic_task_with_expiry(
@@ -243,9 +256,15 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     )
 
     sender.add_periodic_task(
-        crontab(hour="*", minute="45"),
-        check_all_alerts_task.s(),
-        name="check alerts for matches and send notifications",
+        crontab(hour="*", minute="*/2"),
+        check_alerts_task.s(),
+        name="check_alerts_task",
+    )
+
+    sender.add_periodic_task(
+        crontab(hour="*", minute="*/12"),
+        alerts_backlog_task.s(),
+        name="alerts_backlog_task",
     )
 
     sender.add_periodic_task(

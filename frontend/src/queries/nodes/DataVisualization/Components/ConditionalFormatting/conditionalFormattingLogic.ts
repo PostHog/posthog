@@ -19,8 +19,7 @@ export const conditionalFormattingLogic = kea<conditionalFormattingLogicType>([
     path(['queries', 'nodes', 'DataVisualization', 'Components', 'conditionalFormattingLogic']),
     props({ rule: { id: '' }, key: '' } as ConditionalFormattingLogicProps),
     connect({
-        values: [dataVisualizationLogic, ['query']],
-        actions: [dataVisualizationLogic, ['setQuery', 'updateConditionalFormattingRule']],
+        actions: [dataVisualizationLogic, ['updateConditionalFormattingRule']],
     }),
     actions({
         selectColumn: (columnName: string) => ({ columnName }),

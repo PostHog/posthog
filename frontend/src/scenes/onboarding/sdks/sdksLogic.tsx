@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 import { urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { LemonSelectOptions } from 'lib/lemon-ui/LemonSelect/LemonSelect'
+import { liveEventsTableLogic } from 'scenes/activity/live/liveEventsTableLogic'
 
 import { HogQLQuery, NodeKind } from '~/queries/schema'
 import { hogql } from '~/queries/utils'
@@ -41,7 +42,7 @@ export const multiInstallProducts = [ProductKey.PRODUCT_ANALYTICS, ProductKey.FE
 export const sdksLogic = kea<sdksLogicType>([
     path(['scenes', 'onboarding', 'sdks', 'sdksLogic']),
     connect({
-        values: [onboardingLogic, ['productKey']],
+        values: [onboardingLogic, ['productKey'], liveEventsTableLogic, ['eventHosts']],
     }),
     actions({
         setSourceFilter: (sourceFilter: string | null) => ({ sourceFilter }),
@@ -116,6 +117,20 @@ export const sdksLogic = kea<sdksLogicType>([
                 // more than two source options since one will almost always be "recommended"
                 // more than 5 sdks since with fewer you don't really need to filter
                 return Object.keys(availableSDKInstructionsMap).length > 5 && sourceOptions.length > 2
+            },
+        ],
+        combinedSnippetAndLiveEventsHosts: [
+            (selectors) => [selectors.snippetHosts, selectors.eventHosts],
+            (snippetHosts: string[], eventHosts: string[]): string[] => {
+                const combinedSnippetAndLiveEventsHosts = snippetHosts
+                for (const host of eventHosts) {
+                    const hostProtocol = new URL(host).protocol
+                    const currentProtocol = window.location.protocol
+                    if (hostProtocol === currentProtocol && !combinedSnippetAndLiveEventsHosts.includes(host)) {
+                        combinedSnippetAndLiveEventsHosts.push(host)
+                    }
+                }
+                return combinedSnippetAndLiveEventsHosts
             },
         ],
     }),

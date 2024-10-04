@@ -1,5 +1,5 @@
 import { toMatchImageSnapshot } from 'jest-image-snapshot'
-import { getStoryContext, TestRunnerConfig, TestContext, waitForPageReady } from '@storybook/test-runner'
+import { getStoryContext, TestRunnerConfig, TestContext } from '@storybook/test-runner'
 import type { Locator, Page, LocatorScreenshotOptions } from '@playwright/test'
 import type { Mocks } from '~/mocks/utils'
 import { StoryContext } from '@storybook/csf'
@@ -154,24 +154,22 @@ async function expectStoryToMatchSnapshot(
         await Promise.all(waitForSelector.map((selector) => page.waitForSelector(selector)))
     }
 
-    // snapshot light theme
+    // Snapshot light theme
     await page.evaluate(() => {
         document.body.setAttribute('theme', 'light')
     })
 
-    // Wait for all images to load
     await waitForPageReady(page)
     await page.waitForFunction(() => Array.from(document.images).every((i: HTMLImageElement) => !!i.naturalWidth))
     await page.waitForTimeout(2000)
 
     await check(page, context, browser, 'light', storyContext.parameters?.testOptions?.snapshotTargetSelector)
 
-    // snapshot dark theme
+    // Snapshot dark theme
     await page.evaluate(() => {
         document.body.setAttribute('theme', 'dark')
     })
 
-    // Wait for all images to load
     await waitForPageReady(page)
     await page.waitForFunction(() => Array.from(document.images).every((i: HTMLImageElement) => !!i.naturalWidth))
     await page.waitForTimeout(100)
@@ -258,4 +256,17 @@ async function expectLocatorToMatchStorySnapshot(
         failureThreshold: 0.01,
         failureThresholdType: 'percent',
     })
+}
+
+/**
+ * Just like the `waitForPageReady` helper offered by Playwright - except we only wait for `networkidle` in CI,
+ * as it doesn't work with local Storybook (the live reload feature keeps up a long-running request, so we aren't idle).
+ */
+async function waitForPageReady(page: Page): Promise<void> {
+    await page.waitForLoadState("domcontentloaded");
+    await page.waitForLoadState("load");
+    if (process.env.CI) {
+        await page.waitForLoadState("networkidle");
+    }
+    await page.evaluate(() => document.fonts.ready);
 }

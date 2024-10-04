@@ -6,9 +6,10 @@ from posthog.hogql.escape_sql import escape_hogql_string
 template: HogFunctionTemplate = HogFunctionTemplate(
     status="beta",
     id="template-avo",
-    name="Send events to Avo",
+    name="Avo",
     description="Send events to Avo",
     icon_url="/static/services/avo.png",
+    category=["Analytics"],
     hog="""
 if (empty(inputs.apiKey) or empty(inputs.environment)) {
     print('API Key and environment has to be set. Skipping...')

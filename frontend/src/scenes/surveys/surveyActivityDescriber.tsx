@@ -183,6 +183,7 @@ const surveyActionsMapping: Record<
             widgetSelector: 'widget selector',
             widgetLabel: 'widget label',
             widgetColor: 'widget color',
+            zIndex: 'survey form zIndex',
         }
 
         Object.entries(fieldNameMapping).forEach(([field, readableFieldName]) => {

@@ -1133,6 +1133,16 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             description: <span>The last external URL clicked in this session</span>,
             examples: ['https://example.com/interesting-article?parameter=true'],
         },
+        $vitals_lcp: {
+            label: 'Web vitals LCP',
+            description: (
+                <span>
+                    The time it took for the Largest Contentful Paint on the page. This captures the perceived load time
+                    of the page, and measure how long it took for the main content of the page to be visible to users.
+                </span>
+            ),
+            examples: ['2.2'],
+        },
     },
     groups: {
         $group_key: {
@@ -1158,6 +1168,18 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         visited_page: {
             label: 'Visited page',
             description: 'URL a user visited during their session',
+        },
+        click_count: {
+            label: 'Clicks',
+            description: 'Number of clicks during the session',
+        },
+        keypress_count: {
+            label: 'Key presses',
+            description: 'Number of key presses during the session',
+        },
+        console_error_count: {
+            label: 'Errors',
+            description: 'Number of console errors during the session',
         },
     },
     log_entries: {

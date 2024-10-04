@@ -7,12 +7,21 @@ from posthog.cdp.templates.hog_function_template import HogFunctionTemplate, Hog
 template: HogFunctionTemplate = HogFunctionTemplate(
     status="beta",
     id="template-hubspot",
-    name="Create Hubspot contact",
+    name="Hubspot",
     description="Creates a new contact in Hubspot whenever an event is triggered.",
     icon_url="/static/services/hubspot.png",
+    category=["CRM", "Customer Success"],
     hog="""
-let properties := inputs.properties
-properties.email := inputs.email
+let properties := {
+    'email': inputs.email
+}
+for (let key, value in inputs.properties) {
+    if (typeof(value) in ('object', 'array', 'tuple')) {
+        properties[key] := jsonStringify(value)
+    } else {
+        properties[key] := value
+    }
+}
 
 if (empty(properties.email)) {
     print('`email` input is empty. Not creating a contact.')
@@ -23,36 +32,26 @@ let headers := {
     'Authorization': f'Bearer {inputs.oauth.access_token}',
     'Content-Type': 'application/json'
 }
+let body := {
+    'inputs': [
+        {
+            'properties': properties,
+            'id': properties.email,
+            'idProperty': 'email'
+        }
+    ]
+}
 
-let res := fetch('https://api.hubapi.com/crm/v3/objects/contacts', {
-  'method': 'POST',
-  'headers': headers,
-  'body': {
-    'properties': properties
-  }
+let res := fetch('https://api.hubapi.com/crm/v3/objects/contacts/batch/upsert', {
+    'method': 'POST',
+    'headers': headers,
+    'body': body
 })
 
-if (res.status == 409) {
-    let existingId := replaceOne(res.body.message, 'Contact already exists. Existing ID: ', '')
-    let updateRes := fetch(f'https://api.hubapi.com/crm/v3/objects/contacts/{existingId}', {
-        'method': 'PATCH',
-        'headers': headers,
-        'body': {
-            'properties': properties
-        }
-    })
-
-    if (updateRes.status != 200 or updateRes.body.status == 'error') {
-        print('Error updating contact:', updateRes.body)
-        return
-    }
-    print('Contact updated successfully!')
-    return
-} else if (res.status >= 300 or res.body.status == 'error') {
-    print('Error creating contact:', res.body)
-    return
+if (res.status == 200) {
+    print(f'Contact {properties.email} updated successfully!')
 } else {
-    print('Contact created successfully!')
+    throw Error(f'Error updating contact {properties.email} (status {res.status}): {res.body}')
 }
 """.strip(),
     inputs_schema=[

@@ -44,8 +44,7 @@ export function HogQueryEditor(props: HogQueryEditorProps): JSX.Element {
         <div className="space-y-2">
             <div data-attr="hogql-query-editor" className={clsx('flex flex-col rounded space-y-2 w-full p-2 border')}>
                 <div className="relative flex-1 overflow-hidden">
-                    {/* eslint-disable-next-line react/forbid-dom-props */}
-                    <div className="resize-y overflow-hidden" style={{ height: 222 }}>
+                    <div className="resize-y overflow-hidden h-[222px]">
                         <CodeEditor
                             queryKey={props.queryKey ?? `new/${realKey}`}
                             className="border rounded overflow-hidden h-full"

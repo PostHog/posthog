@@ -23,11 +23,13 @@ from posthog.models import Team
 from posthog.temporal.data_modeling.run_workflow import (
     BuildDagActivityInputs,
     ModelNode,
+    CreateTableActivityInputs,
     RunDagActivityInputs,
     RunWorkflow,
     RunWorkflowInputs,
     Selector,
     build_dag_activity,
+    create_table_activity,
     finish_run_activity,
     get_dlt_destination,
     materialize_model,
@@ -36,6 +38,7 @@ from posthog.temporal.data_modeling.run_workflow import (
 )
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from posthog.warehouse.models.table import DataWarehouseTable
 from posthog.warehouse.models.modeling import DataWarehouseModelPath
 from posthog.warehouse.util import database_sync_to_async
 
@@ -92,6 +95,42 @@ async def test_run_dag_activity_activity_materialize_mocked(activity_environment
     ), f"Found team ids that do not match test team ({ateam.pk}): {tuple(call.args[1].pk for call in calls)}"
     assert len(calls) == len(models_materialized)
     assert results.completed == set(dag.keys())
+
+
+async def test_create_table_activity(activity_environment, ateam):
+    query = """\
+    select
+      event as event,
+      if(distinct_id != '0', distinct_id, null) as distinct_id,
+      timestamp as timestamp
+    from events
+    where event = '$pageview'
+    """
+    saved_query = await DataWarehouseSavedQuery.objects.acreate(
+        team=ateam,
+        name="my_model",
+        query={"query": query, "kind": "HogQLQuery"},
+    )
+
+    create_table_activity_inputs = CreateTableActivityInputs(team_id=ateam.pk, models=[saved_query.id.hex])
+    with (
+        override_settings(
+            AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+        ),
+        unittest.mock.patch(
+            "posthog.warehouse.models.table.DataWarehouseTable.get_columns",
+            return_value={
+                "id": {"clickhouse": "String", "hogql": "StringDatabaseField", "valid": True},
+                "a_column": {"clickhouse": "String", "hogql": "StringDatabaseField", "valid": True},
+            },
+        ),
+    ):
+        async with asyncio.timeout(10):
+            await activity_environment.run(create_table_activity, create_table_activity_inputs)
+
+    table = await DataWarehouseTable.objects.aget(name=saved_query.name)
+    assert table.name == saved_query.name
 
 
 @pytest.mark.parametrize(
@@ -296,6 +335,7 @@ async def test_materialize_model(ateam, bucket_name, minio_client, pageview_even
         key=lambda d: (d["distinct_id"], d["timestamp"]),
     )
 
+    assert any(f"{saved_query.name}__query" in obj["Key"] for obj in s3_objects["Contents"])
     assert table.num_rows == len(expected_events)
     assert table.num_columns == 3
     assert table.column_names == ["event", "distinct_id", "timestamp"]
@@ -588,6 +628,7 @@ async def test_run_workflow_with_minio_bucket(
                 build_dag_activity,
                 run_dag_activity,
                 finish_run_activity,
+                create_table_activity,
             ],
             workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
         ):

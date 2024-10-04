@@ -16,7 +16,6 @@ from posthog.clickhouse.client import sync_execute
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from ee.session_recordings.ai.utils import (
     SessionSummaryPromptData,
-    reduce_elements_chain,
     simplify_window_id,
     format_dates,
     collapse_sequence_of_events,
@@ -263,11 +262,7 @@ class SessionEventsEmbeddingsPreparation(EmbeddingPreparation):
         processed_sessions = collapse_sequence_of_events(
             only_pageview_urls(
                 format_dates(
-                    reduce_elements_chain(
-                        simplify_window_id(
-                            SessionSummaryPromptData(columns=session_events[0], results=session_events[1])
-                        )
-                    ),
+                    simplify_window_id(SessionSummaryPromptData(columns=session_events[0], results=session_events[1])),
                     start=datetime.datetime(1970, 1, 1, tzinfo=pytz.UTC),  # epoch timestamp
                 )
             )

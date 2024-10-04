@@ -36,7 +36,6 @@ import {
     SessionRecordingType,
     StickinessFilterType,
     TrendsFilterType,
-    UserBasicType,
 } from '~/types'
 
 export { ChartDisplayCategory }
@@ -229,6 +228,7 @@ export interface HogQLQueryModifiers {
     bounceRatePageViewMode?: 'count_pageviews' | 'uniq_urls' | 'uniq_page_screen_autocaptures'
     sessionTableVersion?: 'auto' | 'v1' | 'v2'
     propertyGroupsMode?: 'enabled' | 'disabled' | 'optimized'
+    useMaterializedViews?: boolean
 }
 
 export interface DataWarehouseEventsModifier {
@@ -265,10 +265,18 @@ export interface HogQLFilters {
     filterTestAccounts?: boolean
 }
 
+export interface HogQLVariable {
+    variableId: string
+    code_name: string
+    value?: any
+}
+
 export interface HogQLQuery extends DataNode<HogQLQueryResponse> {
     kind: NodeKind.HogQLQuery
     query: string
     filters?: HogQLFilters
+    /** Variables to be subsituted into the query */
+    variables?: Record<string, HogQLVariable>
     /** Constant values that can be referenced with the {placeholder} syntax in the query */
     values?: Record<string, any>
     /** @deprecated use modifiers.debug instead */
@@ -315,6 +323,7 @@ export interface RecordingsQuery extends DataNode<RecordingsQueryResponse> {
         | 'mouse_activity_count'
     limit?: integer
     offset?: integer
+    user_modified_filters?: Record<string, any>
 }
 
 export interface HogQLNotice {
@@ -419,6 +428,8 @@ export interface HogQLMetadata extends DataNode<HogQLMetadataResponse> {
     globals?: Record<string, any>
     /** Extra filters applied to query via {filters} */
     filters?: HogQLFilters
+    /** Variables to be subsituted into the query */
+    variables?: Record<string, HogQLVariable>
     /** Enable more verbose output, usually run from the /debug page */
     debug?: boolean
 }
@@ -1162,15 +1173,21 @@ export type RefreshType =
 export interface QueryRequest {
     /** Client provided query ID. Can be used to retrieve the status or cancel the query. */
     client_query_id?: string
+    // Sync the `refresh` description here with the two instances in posthog/api/insight.py
     /**
-     * (Experimental)
-     * Whether to run the query asynchronously. Defaults to False.
-     * If True, the `id` of the query can be used to check the status and to cancel it.
-     * @example true
-     * @deprecated Use `refresh` instead.
+     * Whether results should be calculated sync or async, and how much to rely on the cache:
+     * - `'blocking'` - calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in the cache
+     * - `'async'` - kick off background calculation (returning immediately with a query status), UNLESS there are very fresh results in the cache
+     * - `'lazy_async'` - kick off background calculation, UNLESS there are somewhat fresh results in the cache
+     * - `'force_blocking'` - calculate synchronously, even if fresh results are already cached
+     * - `'force_async'` - kick off background calculation, even if fresh results are already cached
+     * - `'force_cache'` - return cached data or a cache miss; always completes immediately as it never calculates
+     * Background calculation can be tracked using the `query_status` response field.
+     * @default 'blocking'
      */
-    async?: boolean
     refresh?: RefreshType
+    /** @deprecated Use `refresh` instead. */
+    async?: boolean
     /**
      * Submit a JSON string representing a query for PostHog data analysis,
      * for example a HogQL query.
@@ -1379,6 +1396,7 @@ interface WebAnalyticsQueryBase<R extends Record<string, any>> extends DataNode<
 export interface WebOverviewQuery extends WebAnalyticsQueryBase<WebOverviewQueryResponse> {
     kind: NodeKind.WebOverviewQuery
     compare?: boolean
+    includeLCPScore?: boolean
 }
 
 export interface WebOverviewItem {
@@ -1523,6 +1541,7 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
     assignee?: integer | null
     filterGroup?: PropertyGroupFilter
     filterTestAccounts?: boolean
+    searchQuery?: string
     limit?: integer
 }
 
@@ -1566,6 +1585,7 @@ export interface ExperimentVariantTrendResult {
 }
 
 export interface ExperimentVariantFunnelResult {
+    key: string
     success_count: number
     failure_count: number
 }
@@ -1575,10 +1595,14 @@ export interface ExperimentTrendQueryResponse {
     results: Record<string, ExperimentVariantTrendResult>
 }
 
+export type CachedExperimentTrendQueryResponse = CachedQueryResponse<ExperimentTrendQueryResponse>
+
 export interface ExperimentFunnelQueryResponse {
     insight: InsightType.FUNNELS
     results: Record<string, ExperimentVariantFunnelResult>
 }
+
+export type CachedExperimentFunnelQueryResponse = CachedQueryResponse<ExperimentFunnelQueryResponse>
 
 export interface ExperimentFunnelQuery extends DataNode<ExperimentFunnelQueryResponse> {
     kind: NodeKind.ExperimentFunnelQuery
@@ -1588,8 +1612,10 @@ export interface ExperimentFunnelQuery extends DataNode<ExperimentFunnelQueryRes
 
 export interface ExperimentTrendQuery extends DataNode<ExperimentTrendQueryResponse> {
     kind: NodeKind.ExperimentTrendQuery
-    count_source: TrendsQuery
-    exposure_source: TrendsQuery
+    count_query: TrendsQuery
+    // Defaults to $feature_flag_called if not specified
+    // https://github.com/PostHog/posthog/blob/master/posthog/hogql_queries/experiments/experiment_trend_query_runner.py
+    exposure_query?: TrendsQuery
     experiment_id: integer
 }
 
@@ -1789,7 +1815,7 @@ export interface DatabaseSchemaField {
 }
 
 export interface DatabaseSchemaTableCommon {
-    type: 'posthog' | 'data_warehouse' | 'view' | 'batch_export'
+    type: 'posthog' | 'data_warehouse' | 'view' | 'batch_export' | 'materialized_view'
     id: string
     name: string
     fields: Record<string, DatabaseSchemaField>
@@ -1798,6 +1824,13 @@ export interface DatabaseSchemaTableCommon {
 export interface DatabaseSchemaViewTable extends DatabaseSchemaTableCommon {
     type: 'view'
     query: HogQLQuery
+}
+
+export interface DatabaseSchemaMaterializedViewTable extends DatabaseSchemaTableCommon {
+    type: 'materialized_view'
+    query: HogQLQuery
+    last_run_at?: string
+    status?: string
 }
 
 export interface DatabaseSchemaPostHogTable extends DatabaseSchemaTableCommon {
@@ -1821,6 +1854,7 @@ export type DatabaseSchemaTable =
     | DatabaseSchemaDataWarehouseTable
     | DatabaseSchemaViewTable
     | DatabaseSchemaBatchExportTable
+    | DatabaseSchemaMaterializedViewTable
 
 export interface DatabaseSchemaQueryResponse {
     tables: Record<string, DatabaseSchemaTable>
@@ -1844,6 +1878,7 @@ export type DatabaseSerializedFieldType =
     | 'field_traverser'
     | 'expression'
     | 'view'
+    | 'materialized_view'
 
 export type HogQLExpression = string
 
@@ -1923,34 +1958,22 @@ export interface AlertCondition {
     // TODO: Think about things like relative thresholds, rate of change, etc.
 }
 
-export interface AlertCheck {
-    id: string
-    created_at: string
-    calculated_value: number
-    state: string
-    targets_notified: boolean
+export enum AlertState {
+    FIRING = 'Firing',
+    NOT_FIRING = 'Not firing',
+    ERRORED = 'Errored',
 }
 
-export interface AlertTypeBase {
-    name: string
-    condition: AlertCondition
-    enabled: boolean
-    insight: number
+export enum AlertCalculationInterval {
+    HOURLY = 'hourly',
+    DAILY = 'daily',
+    WEEKLY = 'weekly',
+    MONTHLY = 'monthly',
 }
 
-export interface AlertTypeWrite extends AlertTypeBase {
-    subscribed_users: integer[]
-}
-
-export interface AlertType extends AlertTypeBase {
-    id: string
-    subscribed_users: UserBasicType[]
-    threshold: { configuration: InsightThreshold }
-    created_by: UserBasicType
-    created_at: string
-    state: string
-    last_notified_at: string
-    checks: AlertCheck[]
+export interface TrendsAlertConfig {
+    type: 'TrendsAlertConfig'
+    series_index: integer
 }
 
 export interface HogCompileResponse {

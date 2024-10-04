@@ -23,7 +23,11 @@ export const insight = {
         cy.get('[data-attr=taxonomic-filter-searchfield]').click()
         cy.get('[data-attr=prop-filter-event_properties-1]').click({ force: true })
         cy.get('[data-attr=prop-val]').click()
-        cy.get('[data-attr=prop-val-0]').click({ force: true })
+        cy.get('body').then(($body) => {
+            if ($body.find('[data-attr=prop-val-0]').length === 0) {
+                cy.get('[data-attr=taxonomic-value-select]').click()
+            }
+        })
     },
     editName: (insightName: string): void => {
         if (insightName) {

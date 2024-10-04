@@ -14,7 +14,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
         "Organizations": {
             "name": "Organizations",
             "table_name": "organizations",
-            "primary_key": "id",
+            **({"primary_key": "id"} if is_incremental else {}),
             "write_disposition": {
                 "disposition": "merge",
                 "strategy": "upsert",
@@ -42,7 +42,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
         "Accounts": {
             "name": "Accounts",
             "table_name": "accounts",
-            "primary_key": "id",
+            **({"primary_key": "id"} if is_incremental else {}),
             "write_disposition": {
                 "disposition": "merge",
                 "strategy": "upsert",
@@ -70,7 +70,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
         "Users": {
             "name": "Users",
             "table_name": "users",
-            "primary_key": "id",
+            **({"primary_key": "id"} if is_incremental else {}),
             "write_disposition": {
                 "disposition": "merge",
                 "strategy": "upsert",
@@ -98,7 +98,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
         "Conversations": {
             "name": "Conversations",
             "table_name": "conversations",
-            "primary_key": "id",
+            **({"primary_key": "id"} if is_incremental else {}),
             "write_disposition": {
                 "disposition": "merge",
                 "strategy": "upsert",
@@ -126,7 +126,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
         "Notes": {
             "name": "Notes",
             "table_name": "notes",
-            "primary_key": "id",
+            **({"primary_key": "id"} if is_incremental else {}),
             "write_disposition": {
                 "disposition": "merge",
                 "strategy": "upsert",
@@ -154,7 +154,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
         "Projects": {
             "name": "Projects",
             "table_name": "projects",
-            "primary_key": "id",
+            **({"primary_key": "id"} if is_incremental else {}),
             "write_disposition": {
                 "disposition": "merge",
                 "strategy": "upsert",
@@ -182,7 +182,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
         "Tasks": {
             "name": "Tasks",
             "table_name": "tasks",
-            "primary_key": "id",
+            **({"primary_key": "id"} if is_incremental else {}),
             "write_disposition": {
                 "disposition": "merge",
                 "strategy": "upsert",
@@ -210,7 +210,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
         "NPS_Responses": {
             "name": "NPS_Responses",
             "table_name": "nps_responses",
-            "primary_key": "id",
+            **({"primary_key": "id"} if is_incremental else {}),
             "write_disposition": {
                 "disposition": "merge",
                 "strategy": "upsert",
@@ -238,7 +238,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
         "Custom_Objects": {
             "name": "Custom_Objects",
             "table_name": "custom_objects",
-            "primary_key": "id",
+            **({"primary_key": "id"} if is_incremental else {}),
             "write_disposition": {
                 "disposition": "merge",
                 "strategy": "upsert",
@@ -336,7 +336,7 @@ def vitally_source(
             "paginator": VitallyPaginator(),
         },
         "resource_defaults": {
-            "primary_key": "id",
+            **({"primary_key": "id"} if is_incremental else {}),
             "write_disposition": {
                 "disposition": "merge",
                 "strategy": "upsert",
