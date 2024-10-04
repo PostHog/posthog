@@ -16,7 +16,7 @@ fun getPayload() {
   let date := formatDateTime(now(), '%Y%m%d')
 
   let payload := jsonStringify({
-    'StreamName': inputs.aws_kinesis_stream_arn,
+    'StreamARN': inputs.aws_kinesis_stream_arn,
     'PartitionKey': inputs.aws_kinesis_partition_key ?? generateUUIDv4(),
     'Data': base64Encode(jsonStringify(inputs.payload)),
   })
