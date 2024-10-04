@@ -3,10 +3,14 @@ import { IconCheck } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import { DetectiveHog } from 'lib/components/hedgehogs'
+import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { urls } from 'scenes/urls'
+
+import { ProductKey } from '~/types'
 
 import { AlertState } from '../../../../queries/schema'
 import { alertLogic } from '../alertLogic'
@@ -100,6 +104,21 @@ export function Alerts({ alertId }: AlertsProps): JSX.Element {
     // TODO: add info here to sign up for alerts early access
     return (
         <>
+            <ProductIntroduction
+                productName="Alerts"
+                productKey={ProductKey.ALERTS}
+                thingName="alert"
+                description="Alerts enable you to monitor your insight and notify you when certain conditions are met. Please note that alerts are in alpha and may not be fully reliable."
+                // TODO: update docs link when ready
+                // docsURL="https://posthog.com/docs/data/annotations"
+                isEmpty={alertsSortedByState.length === 0 && !alertsLoading}
+                customHog={DetectiveHog}
+                actionElementOverride={
+                    <span className="italic">
+                        To get started, visit a trends insight, expand options in the header and click 'Manage Alerts'
+                    </span>
+                }
+            />
             {alert && (
                 <EditAlertModal
                     onClose={() => push(urls.alerts())}
