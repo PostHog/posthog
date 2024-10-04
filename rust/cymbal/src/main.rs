@@ -3,7 +3,7 @@ use std::{future::ready, sync::Arc};
 use axum::{routing::get, Router};
 use common_kafka::kafka_consumer::RecvErr;
 use common_metrics::{serve, setup_metrics_routes};
-use cymbal::{app_context::AppContext, config::Config, error::Error};
+use cymbal::{app_context::AppContext, config::Config, error::Error, symbols::types::RawFrame};
 use envconfig::Envconfig;
 use serde_json::Value;
 use tokio::task::JoinHandle;
@@ -57,7 +57,7 @@ async fn main() -> Result<(), Error> {
         context.worker_liveness.report_healthy().await;
         // Just grab the event as a serde_json::Value and immediately drop it,
         // we can work out a real type for it later (once we're deployed etc)
-        let (_, offset): (Value, _) = match context.consumer.json_recv().await {
+        let (_, offset): (Vec<RawFrame>, _) = match context.consumer.json_recv().await {
             Ok(r) => r,
             Err(RecvErr::Kafka(e)) => {
                 return Err(e.into()); // Just die if we recieve a Kafka error
