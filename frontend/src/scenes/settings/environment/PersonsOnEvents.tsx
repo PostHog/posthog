@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonRadio, LemonRadioOption } from 'lib/lemon-ui/LemonRadio'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import posthog from 'posthog-js'
 import { useState } from 'react'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -57,13 +58,15 @@ export function PersonsOnEvents(): JSX.Element {
 
     const handleChange = (mode: PoEMode): void => {
         updateCurrentTeam({ modifiers: { ...currentTeam?.modifiers, personsOnEventsMode: mode } })
+        posthog.capture('user changed personsOnEventsMode setting', { personsOnEventsMode: mode })
         reportPoEModeUpdated(mode)
     }
 
     return (
         <>
             <p>
-                Choose the behavior of person property filters.{' '}
+                Choose the behavior of person property filters. For the best performance,{' '}
+                <strong>we strongly recommend the first option.</strong>{' '}
                 <Link
                     to="https://posthog.com/docs/how-posthog-works/queries#filtering-on-person-properties"
                     target="blank"
