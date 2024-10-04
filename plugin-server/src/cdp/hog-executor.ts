@@ -6,6 +6,7 @@ import RE2 from 're2'
 
 import { buildIntegerMatcher } from '../config/config'
 import { Hub, ValueMatcher } from '../types'
+import { raiseIfUserProvidedUrlUnsafe } from '../utils/fetch'
 import { status } from '../utils/status'
 import { HogFunctionManager } from './hog-function-manager'
 import {
@@ -13,6 +14,7 @@ import {
     HogFunctionInvocationGlobals,
     HogFunctionInvocationGlobalsWithInputs,
     HogFunctionInvocationResult,
+    HogFunctionQueueParametersFetchRequest,
     HogFunctionQueueParametersFetchResponse,
     HogFunctionType,
 } from './types'
@@ -187,7 +189,18 @@ export class HogExecutor {
         }
     }
 
-    execute(invocation: HogFunctionInvocation): HogFunctionInvocationResult {
+    /** Makes sure we don't do fetch calls to internal services */
+    async execute(invocation: HogFunctionInvocation): Promise<HogFunctionInvocationResult> {
+        const response = this.executeUnguarded(invocation)
+        if (!response.finished && response.invocation.queue === 'fetch') {
+            await raiseIfUserProvidedUrlUnsafe(
+                (response.invocation.queueParameters as HogFunctionQueueParametersFetchRequest)?.url
+            )
+        }
+        return response
+    }
+
+    executeUnguarded(invocation: HogFunctionInvocation): HogFunctionInvocationResult {
         const loggingContext = {
             invocationId: invocation.id,
             hogFunctionId: invocation.hogFunction.id,
