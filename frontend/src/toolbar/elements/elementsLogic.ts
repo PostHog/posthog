@@ -1,9 +1,11 @@
 import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
+import { EXPERIMENT_TARGET_SELECTOR } from 'lib/actionUtils'
 import { debounce } from 'lib/utils'
 import { collectAllElementsDeep } from 'query-selector-shadow-dom'
 
 import { actionsLogic } from '~/toolbar/actions/actionsLogic'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
+import { experimentsTabLogic } from '~/toolbar/experiments/experimentsTabLogic'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
@@ -101,17 +103,29 @@ export const elementsLogic = kea<elementsLogicType>([
     selectors({
         activeMetaIsSelected: [
             (s) => [s.selectedElementMeta, s.activeMeta],
-            (selectedElementMeta, activeMeta) =>
-                !!selectedElementMeta && !!activeMeta && selectedElementMeta.element === activeMeta.element,
+            (selectedElementMeta, activeMeta) => {
+                return !!selectedElementMeta && !!activeMeta && selectedElementMeta.element === activeMeta.element
+            },
         ],
         inspectEnabled: [
             (s) => [
                 s.inspectEnabledRaw,
                 actionsTabLogic.selectors.inspectingElement,
                 actionsTabLogic.selectors.buttonActionsVisible,
+                experimentsTabLogic.selectors.inspectingElement,
             ],
-            (inspectEnabledRaw, inspectingElement, buttonActionsVisible) =>
-                inspectEnabledRaw || (buttonActionsVisible && inspectingElement !== null),
+            (
+                inspectEnabledRaw,
+                actionsInspectingElement,
+                actionsButtonActionsVisible,
+                experimentsInspectingElement
+            ) => {
+                return (
+                    inspectEnabledRaw ||
+                    (actionsButtonActionsVisible && actionsInspectingElement !== null) ||
+                    experimentsInspectingElement !== null
+                )
+            },
         ],
 
         heatmapEnabled: [() => [heatmapLogic.selectors.heatmapEnabled], (heatmapEnabled) => heatmapEnabled],
@@ -128,7 +142,16 @@ export const elementsLogic = kea<elementsLogicType>([
 
         allInspectElements: [
             (s) => [s.inspectEnabled, s.href],
-            (inspectEnabled) => (inspectEnabled ? getAllClickTargets() : []),
+            (inspectEnabled) => {
+                if (!inspectEnabled) {
+                    return []
+                }
+                const inspectForExperiment =
+                    experimentsTabLogic.values.buttonExperimentsVisible &&
+                    experimentsTabLogic.values.inspectingElement !== null
+
+                return getAllClickTargets(undefined, inspectForExperiment ? EXPERIMENT_TARGET_SELECTOR : undefined)
+            },
         ],
 
         inspectElements: [
@@ -141,7 +164,9 @@ export const elementsLogic = kea<elementsLogicType>([
 
         displayActionElements: [
             () => [actionsTabLogic.selectors.buttonActionsVisible],
-            (buttonActionsVisible) => buttonActionsVisible,
+            (buttonActionsVisible) => {
+                return buttonActionsVisible
+            },
         ],
 
         _actionElements: [
@@ -371,6 +396,10 @@ export const elementsLogic = kea<elementsLogicType>([
             const inspectForAction =
                 actionsTabLogic.values.buttonActionsVisible && actionsTabLogic.values.inspectingElement !== null
 
+            const inspectForExperiment =
+                experimentsTabLogic.values.buttonExperimentsVisible &&
+                experimentsTabLogic.values.inspectingElement !== null
+
             if (inspectForAction) {
                 actions.setHoverElement(null)
                 if (element) {
@@ -378,6 +407,17 @@ export const elementsLogic = kea<elementsLogicType>([
                 }
             } else {
                 actions.setSelectedElement(element)
+            }
+
+            if (inspectForExperiment) {
+                actions.setHoverElement(null)
+                if (element) {
+                    experimentsTabLogic.actions.inspectElementSelected(
+                        element,
+                        experimentsTabLogic.values.selectedVariant,
+                        experimentsTabLogic.values.inspectingElement
+                    )
+                }
             }
 
             // Get list of data-* attributes in the element

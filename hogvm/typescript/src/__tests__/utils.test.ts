@@ -1,4 +1,4 @@
-import { calculateCost } from '../utils'
+import { calculateCost, convertJSToHog, convertHogToJS } from '../utils'
 
 const PTR_COST = 8
 
@@ -28,5 +28,27 @@ describe('hogvm utils', () => {
         const obj: Record<string, any> = {}
         obj['key'] = obj
         expect(calculateCost(obj)).toBe(PTR_COST * 3 + 3)
+    })
+
+    test('convertJSToHog preserves circular references', () => {
+        const obj: any = { a: null, b: true }
+        obj.a = obj
+        const hog = convertJSToHog(obj)
+        expect(hog.get('a') === hog).toBe(true)
+    })
+
+    test('convertHogToJs preserves circular references', () => {
+        const obj: any = { a: null, b: true }
+        obj.a = obj
+        const js = convertHogToJS(obj)
+        expect(js.a === js).toBe(true)
+
+        const map: any = new Map([
+            ['a', null],
+            ['b', true],
+        ])
+        map.set('a', map)
+        const js2 = convertHogToJS(map)
+        expect(js2.a === js2).toBe(true)
     })
 })

@@ -35,6 +35,7 @@ from .event_buffer import EventBuffer
 from .event_definition import EventDefinition
 from .event_property import EventProperty
 from .experiment import Experiment
+from .web_experiment import WebExperiment
 from .exported_asset import ExportedAsset
 from .feature_flag import FeatureFlag
 from .feedback.survey import Survey
@@ -44,13 +45,14 @@ from .group_type_mapping import GroupTypeMapping
 from .hog_functions import HogFunction
 from .insight import Insight, InsightViewed
 from .insight_caching_state import InsightCachingState
+from .insight_variable import InsightVariable
 from .instance_setting import InstanceSetting
 from .integration import Integration
 from .messaging import MessagingRecord
 from .notebook import Notebook
 from .organization import Organization, OrganizationMembership
 from .organization_domain import OrganizationDomain
-from .organization_invite import OrganizationInvite
+from .organization_invite import OrganizationInvite, InviteExpiredException
 from .person import Person, PersonDistinctId, PersonOverride, PersonOverrideMapping
 from .personal_api_key import PersonalAPIKey
 from .plugin import (
@@ -110,6 +112,7 @@ __all__ = [
     "HogFunction",
     "Insight",
     "InsightCachingState",
+    "InsightVariable",
     "InsightViewed",
     "InstanceSetting",
     "Integration",
@@ -125,6 +128,7 @@ __all__ = [
     "PersonDistinctId",
     "PersonalAPIKey",
     "PersonOverride",
+    "PersonOverrideMapping",
     "Plugin",
     "PluginAttachment",
     "PluginConfig",
@@ -151,6 +155,8 @@ __all__ = [
     "UserManager",
     "DataWarehouseTable",
     "ScheduledChange",
+    "WebExperiment",
+    "Comment",
     # Deprecated models here for backwards compatibility
     "Prompt",
     "PromptSequence",

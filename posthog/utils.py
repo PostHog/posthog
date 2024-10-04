@@ -284,6 +284,7 @@ def render_template(
     context: Optional[dict] = None,
     *,
     team_for_public_context: Optional["Team"] = None,
+    status_code: Optional[int] = None,
 ) -> HttpResponse:
     """Render Django template.
 
@@ -433,6 +434,8 @@ def render_template(
 
     html = template.render(context, request=request)
     response = HttpResponse(html)
+    if status_code:
+        response.status_code = status_code
     if not request.user.is_anonymous:
         patch_cache_control(response, no_store=True)
     return response

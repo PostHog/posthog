@@ -1,3 +1,5 @@
+import Hls from 'hls.js'
+import { EventType, eventWithTime, IncrementalSource } from 'rrweb'
 import { playerConfig, ReplayPlugin } from 'rrweb/typings/types'
 
 export const PLACEHOLDER_SVG_DATA_IMAGE_URL =
@@ -62,6 +64,99 @@ export const CorsPlugin: ReplayPlugin & {
         if (node.nodeName === 'SCRIPT') {
             const scriptElement = node as HTMLScriptElement
             scriptElement.src = CorsPlugin._replaceJSUrl(scriptElement.src)
+        }
+    },
+}
+
+export type Node = {
+    id: number
+    type: number
+    tagName: string
+    childNodes: Node[]
+    textContent?: string
+}
+
+export const WindowTitlePlugin = (cb: (windowId: string, title: string) => void): ReplayPlugin => {
+    const titleElementIds = new Set<number>()
+
+    const extractTitleTextEl = (node: Node): Node | undefined => {
+        // Document node
+        if (node.type === 0) {
+            const el = node.childNodes.find((n) => n.type === 2) // element node
+
+            if (el) {
+                const headEl = el.childNodes.filter((n) => n.type === 2).find((n) => n.tagName === 'head')
+
+                if (headEl) {
+                    const titleEl = headEl.childNodes.filter((n) => n.type === 2).find((n) => n.tagName === 'title')
+
+                    if (titleEl) {
+                        const textEl = titleEl.childNodes.find((n) => n.type === 3) // text node
+                        return textEl
+                    }
+                }
+            }
+        }
+    }
+
+    return {
+        // eslint-disable-next-line @typescript-eslint/no-misused-promises
+        handler: async (e: eventWithTime, isSync) => {
+            if ('windowId' in e && e.windowId && isSync) {
+                const windowId = e.windowId as string
+                if (e.type === EventType.FullSnapshot) {
+                    titleElementIds.clear()
+                    const el = extractTitleTextEl(e.data.node as Node)
+                    if (windowId && el && el.textContent) {
+                        titleElementIds.add(el.id)
+                        cb(windowId, el.textContent)
+                    }
+                } else if (e.type === EventType.IncrementalSnapshot && e.data.source === IncrementalSource.Mutation) {
+                    e.data.texts.forEach(({ id, value }) => {
+                        if (titleElementIds.has(id) && value) {
+                            cb(windowId, value)
+                        }
+                    })
+                }
+            }
+        },
+    }
+}
+
+export const HLSPlayerPlugin: ReplayPlugin = {
+    onBuild: (node) => {
+        if (node && node.nodeName === 'VIDEO' && node.nodeType === 1) {
+            const videoEl = node as HTMLVideoElement
+            const hlsSrc = videoEl.getAttribute('hls-src')
+
+            if (videoEl && hlsSrc) {
+                if (Hls.isSupported()) {
+                    const hls = new Hls()
+                    hls.loadSource(hlsSrc)
+                    hls.attachMedia(videoEl)
+
+                    hls.on(Hls.Events.ERROR, (_, data) => {
+                        if (data.fatal) {
+                            switch (data.type) {
+                                case Hls.ErrorTypes.NETWORK_ERROR:
+                                    hls.startLoad()
+                                    break
+                                case Hls.ErrorTypes.MEDIA_ERROR:
+                                    hls.recoverMediaError()
+                                    break
+                                // Unrecoverable error
+                                default:
+                                    hls.destroy()
+                                    break
+                            }
+                        }
+                    })
+                }
+                // HLS not supported natively but can play in Safari
+                else if (videoEl.canPlayType('application/vnd.apple.mpegurl')) {
+                    videoEl.src = hlsSrc
+                }
+            }
         }
     },
 }

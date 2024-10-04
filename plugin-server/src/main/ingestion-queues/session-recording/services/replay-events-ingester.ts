@@ -35,7 +35,9 @@ export class ReplayEventsIngester {
         for (const message of messages) {
             const results = await retryOnDependencyUnavailableError(() => this.consume(message))
             if (results) {
-                pendingProduceRequests.push(...results)
+                results.forEach((result) => {
+                    pendingProduceRequests.push(result)
+                })
             }
         }
 

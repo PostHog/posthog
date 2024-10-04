@@ -65,6 +65,8 @@ DATABASE_FOR_LOCAL_EVALUATION = (
 
 BEHAVIOURAL_COHORT_FOUND_ERROR_CODE = "behavioral_cohort_found"
 
+MAX_PROPERTY_VALUES = 1000
+
 
 class FeatureFlagThrottle(BurstRateThrottle):
     # Throttle class that's scoped just to the local evaluation endpoint.
@@ -222,6 +224,16 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
 
             for property in condition.get("properties", []):
                 prop = Property(**property)
+                if isinstance(prop.value, list):
+                    upper_limit = MAX_PROPERTY_VALUES
+                    if settings.TEST:
+                        upper_limit = 10
+
+                    if len(prop.value) > upper_limit:
+                        raise serializers.ValidationError(
+                            f"Property group expressions of type {prop.key} cannot contain more than {upper_limit} values."
+                        )
+
                 if prop.type == "cohort":
                     try:
                         initial_cohort: Cohort = Cohort.objects.get(pk=prop.value, team_id=self.context["team_id"])
@@ -265,6 +277,17 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
 
         if not isinstance(payloads, dict):
             raise serializers.ValidationError("Payloads must be passed as a dictionary")
+
+        for value in payloads.values():
+            try:
+                if isinstance(value, str):
+                    json_value = json.loads(value)
+                else:
+                    json_value = value
+                json.dumps(json_value)
+
+            except json.JSONDecodeError:
+                raise serializers.ValidationError("Payload value is not valid JSON")
 
         if filters.get("multivariate"):
             if not all(key in variants for key in payloads):

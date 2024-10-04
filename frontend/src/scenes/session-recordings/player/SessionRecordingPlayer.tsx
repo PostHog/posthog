@@ -1,6 +1,6 @@
 import './SessionRecordingPlayer.scss'
 
-import { LemonButton, LemonSegmentedButton, LemonSegmentedButtonOption, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { BuilderHog2 } from 'lib/components/hedgehogs'
@@ -15,14 +15,15 @@ import { RecordingNotFound } from 'scenes/session-recordings/player/RecordingNot
 import { MatchingEventsMatchType } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { urls } from 'scenes/urls'
 
+import { SessionRecordingSidebarStacking } from '~/types'
+
 import { NetworkView } from '../apm/NetworkView'
 import { PlayerController } from './controller/PlayerController'
-import { PlayerInspector } from './inspector/PlayerInspector'
 import { PlayerFrame } from './PlayerFrame'
 import { PlayerFrameOverlay } from './PlayerFrameOverlay'
 import { PlayerMeta } from './PlayerMeta'
-import { PlayerPersonMeta } from './PlayerPersonMeta'
-import { PlaybackViewMode, playerSettingsLogic } from './playerSettingsLogic'
+import { PlaybackMode, playerSettingsLogic } from './playerSettingsLogic'
+import { PlayerSidebar } from './PlayerSidebar'
 import { sessionRecordingDataLogic } from './sessionRecordingDataLogic'
 import {
     ONE_FRAME_MS,
@@ -38,11 +39,6 @@ export interface SessionRecordingPlayerProps extends SessionRecordingPlayerLogic
     noBorder?: boolean
     noInspector?: boolean
     matchingEventsMatchType?: MatchingEventsMatchType
-}
-
-enum InspectorStacking {
-    Vertical = 'vertical',
-    Horizontal = 'horizontal',
 }
 
 export const createPlaybackSpeedKey = (action: (val: number) => void): HotkeysInterface => {
@@ -99,8 +95,8 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         sessionRecordingPlayerLogic(logicProps)
     )
     const speedHotkeys = useMemo(() => createPlaybackSpeedKey(setSpeed), [setSpeed])
-    const { preferredInspectorStacking, playbackViewMode } = useValues(playerSettingsLogic)
-    const { setPreferredInspectorStacking, setPlaybackViewMode } = useActions(playerSettingsLogic)
+    const { preferredSidebarStacking, sidebarOpen, playbackMode } = useValues(playerSettingsLogic)
+    const { setPreferredSidebarStacking } = useActions(playerSettingsLogic)
 
     useKeyboardHotkeys(
         {
@@ -165,8 +161,8 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
     )
 
     const compactLayout = size === 'small'
-    const layoutStacking = compactLayout ? InspectorStacking.Vertical : preferredInspectorStacking
-    const isVerticallyStacked = layoutStacking === InspectorStacking.Vertical
+    const layoutStacking = compactLayout ? SessionRecordingSidebarStacking.Vertical : preferredSidebarStacking
+    const isVerticallyStacked = layoutStacking === SessionRecordingSidebarStacking.Vertical
 
     const lessThanFiveMinutesOld = dayjs().diff(start, 'minute') <= 5
     const cannotPlayback = snapshotsInvalid && lessThanFiveMinutesOld && !messageTooLargeWarnings
@@ -181,32 +177,6 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         )
     }
 
-    const viewOptions: LemonSegmentedButtonOption<PlaybackViewMode>[] = [
-        {
-            value: PlaybackViewMode.Playback,
-            label: 'Playback',
-            'data-attr': 'session-recording-player-view-choice-playback',
-        },
-    ]
-    if (!noInspector) {
-        viewOptions.push({
-            value: PlaybackViewMode.Inspector,
-            label: 'Inspector',
-            'data-attr': 'session-recording-player-view-choice-inspector',
-        })
-
-        viewOptions.push({
-            value: PlaybackViewMode.Waterfall,
-            label: (
-                <div className="space-x-1">
-                    <span>Waterfall</span>
-                    <LemonTag type="success">New</LemonTag>
-                </div>
-            ),
-            'data-attr': 'session-recording-player-view-choice-waterfall',
-        })
-    }
-
     return (
         <BindLogic logic={sessionRecordingPlayerLogic} props={logicProps}>
             <div
@@ -217,6 +187,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                         'SessionRecordingPlayer--fullscreen': isFullScreen,
                         'SessionRecordingPlayer--no-border': noBorder,
                         'SessionRecordingPlayer--buffering': isBuffering,
+                        'SessionRecordingPlayer--stacked-vertically': sidebarOpen && isVerticallyStacked,
                     },
                     `SessionRecordingPlayer--${size}`
                 )}
@@ -226,76 +197,65 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                     {explorerMode ? (
                         <SessionRecordingPlayerExplorer {...explorerMode} onClose={() => closeExplorer()} />
                     ) : (
-                        <div className="flex flex-col h-full w-full">
-                            <div className="flex justify-between items-center p-2 border-b">
-                                <PlayerPersonMeta />
+                        <>
+                            <div
+                                className="SessionRecordingPlayer__main flex flex-col h-full w-full"
+                                ref={playerMainRef}
+                            >
+                                {cannotPlayback ? (
+                                    <div className="flex flex-1 flex-col items-center justify-center">
+                                        <BuilderHog2 height={200} />
+                                        <h1>We're still working on it</h1>
+                                        <p>
+                                            This recording hasn't been fully ingested yet. It should be ready to watch
+                                            in a few minutes.
+                                        </p>
+                                        <LemonButton type="secondary" onClick={loadSnapshots}>
+                                            Reload
+                                        </LemonButton>
+                                    </div>
+                                ) : (
+                                    <div className="flex w-full h-full">
+                                        <div className="flex flex-col flex-1 w-full">
+                                            {playbackMode === PlaybackMode.Recording ? (
+                                                <>
+                                                    {!noMeta || isFullScreen ? <PlayerMeta /> : null}
 
-                                <LemonSegmentedButton
-                                    size="xsmall"
-                                    value={playbackViewMode}
-                                    onChange={setPlaybackViewMode}
-                                    options={viewOptions}
-                                />
-                            </div>
-                            {playbackViewMode === PlaybackViewMode.Waterfall ? (
-                                <NetworkView sessionRecordingId={sessionRecordingId} />
-                            ) : (
-                                <div
-                                    className={clsx('flex w-full h-full', {
-                                        'SessionRecordingPlayer--stacked-vertically': isVerticallyStacked,
-                                    })}
-                                    ref={playerMainRef}
-                                >
-                                    {cannotPlayback ? (
-                                        <div className="flex flex-1 flex-col items-center justify-center">
-                                            <BuilderHog2 height={200} />
-                                            <h1>We're still working on it</h1>
-                                            <p>
-                                                This recording hasn't been fully ingested yet. It should be ready to
-                                                watch in a few minutes.
-                                            </p>
-                                            <LemonButton type="secondary" onClick={loadSnapshots}>
-                                                Reload
-                                            </LemonButton>
-                                        </div>
-                                    ) : (
-                                        <>
-                                            <div className="SessionRecordingPlayer__main">
-                                                {!noMeta || isFullScreen ? <PlayerMeta /> : null}
-
-                                                <div
-                                                    className="SessionRecordingPlayer__body"
-                                                    draggable={draggable}
-                                                    {...elementProps}
-                                                >
-                                                    <PlayerFrame />
-                                                    <PlayerFrameOverlay />
-                                                </div>
-                                                <PlayerController linkIconsOnly={playerMainSize === 'small'} />
-                                            </div>
-
-                                            {playbackViewMode === PlaybackViewMode.Inspector && (
-                                                <PlayerInspector
-                                                    onClose={() => setPlaybackViewMode(PlaybackViewMode.Playback)}
-                                                    isVerticallyStacked={isVerticallyStacked}
-                                                    toggleLayoutStacking={
-                                                        compactLayout
-                                                            ? undefined
-                                                            : () =>
-                                                                  setPreferredInspectorStacking(
-                                                                      preferredInspectorStacking ===
-                                                                          InspectorStacking.Vertical
-                                                                          ? InspectorStacking.Horizontal
-                                                                          : InspectorStacking.Vertical
-                                                                  )
-                                                    }
-                                                />
+                                                    <div
+                                                        className="SessionRecordingPlayer__body"
+                                                        draggable={draggable}
+                                                        {...elementProps}
+                                                    >
+                                                        <PlayerFrame />
+                                                        <PlayerFrameOverlay />
+                                                    </div>
+                                                    <PlayerController iconsOnly={playerMainSize === 'small'} />
+                                                </>
+                                            ) : (
+                                                <NetworkView sessionRecordingId={sessionRecordingId} />
                                             )}
-                                        </>
-                                    )}
-                                </div>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+
+                            {!noInspector && (
+                                <PlayerSidebar
+                                    isVerticallyStacked={isVerticallyStacked}
+                                    toggleLayoutStacking={
+                                        compactLayout
+                                            ? undefined
+                                            : () =>
+                                                  setPreferredSidebarStacking(
+                                                      preferredSidebarStacking ===
+                                                          SessionRecordingSidebarStacking.Vertical
+                                                          ? SessionRecordingSidebarStacking.Horizontal
+                                                          : SessionRecordingSidebarStacking.Vertical
+                                                  )
+                                    }
+                                />
                             )}
-                        </div>
+                        </>
                     )}
                 </FloatingContainerContext.Provider>
             </div>

@@ -1082,6 +1082,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         type: 'dashboard_load',
                         context: 'dashboard',
                         action,
+                        status: 'success',
                         primary_interaction_id: dashboardQueryId,
                         time_to_see_data_ms: Math.floor(performance.now() - startTime),
                         api_response_bytes: responseBytes,
@@ -1127,7 +1128,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 try {
                     breakpoint()
                     if (queryId) {
-                        await pollForResults(queryId, false, methodOptions)
+                        await pollForResults(queryId, methodOptions)
                         const currentTeamId = values.currentTeamId
                         // TODO: Check and remove - We get the insight again here to get everything in the right format (e.g. because of result vs results)
                         const polledInsight = await getSingleInsight(
@@ -1170,6 +1171,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         type: 'dashboard_load',
                         context: 'dashboard',
                         action,
+                        status: 'success',
                         primary_interaction_id: dashboardQueryId,
                         api_response_bytes: totalResponseBytes,
                         time_to_see_data_ms: Math.floor(performance.now() - refreshStartTime),
@@ -1305,7 +1307,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         },
     })),
 
-    urlToAction(({ actions }) => ({
+    urlToAction(({ values, actions }) => ({
         '/dashboard/:id/subscriptions(/:subscriptionId)': ({ subscriptionId }) => {
             const id = subscriptionId
                 ? subscriptionId == 'new'
@@ -1320,7 +1322,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
         '/dashboard/:id': () => {
             actions.setSubscriptionMode(false, undefined)
             actions.setTextTileId(null)
-            actions.setDashboardMode(null, DashboardEventSource.Browser)
+            if (values.dashboardMode === DashboardMode.Sharing) {
+                actions.setDashboardMode(null, null)
+            }
         },
         '/dashboard/:id/sharing': () => {
             actions.setSubscriptionMode(false, undefined)

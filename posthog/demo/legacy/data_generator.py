@@ -2,9 +2,7 @@ from uuid import uuid4
 
 from posthog.models import Person, PersonDistinctId, Team
 from posthog.models.utils import UUIDT
-from posthog.session_recordings.queries.test.session_replay_sql import (
-    produce_replay_summary,
-)
+from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 
 
 class DataGenerator:
@@ -82,6 +80,7 @@ class DataGenerator:
                 distinct_id=distinct_id,
                 first_timestamp=timestamp,
                 last_timestamp=timestamp,
+                ensure_analytics_event_in_session=False,
             )
 
     def add_if_not_contained(self, array, value):

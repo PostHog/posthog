@@ -23,7 +23,11 @@ export const insight = {
         cy.get('[data-attr=taxonomic-filter-searchfield]').click()
         cy.get('[data-attr=prop-filter-event_properties-1]').click({ force: true })
         cy.get('[data-attr=prop-val]').click()
-        cy.get('[data-attr=prop-val-0]').click({ force: true })
+        cy.get('body').then(($body) => {
+            if ($body.find('[data-attr=prop-val-0]').length === 0) {
+                cy.get('[data-attr=taxonomic-value-select]').click()
+            }
+        })
     },
     editName: (insightName: string): void => {
         if (insightName) {
@@ -169,10 +173,10 @@ export const dashboard = {
         cy.get('[data-attr=insight-save-button]').contains('Save & add to dashboard').click()
         cy.wait('@postInsight')
     },
-    addPropertyFilter(type: string, value: string = 'Chrome'): void {
+    addPropertyFilter(type: string = 'Browser', value: string = 'Chrome'): void {
         cy.get('.PropertyFilterButton').should('have.length', 0)
         cy.get('[data-attr="property-filter-0"]').click()
-        cy.get('[data-attr="taxonomic-filter-searchfield"]').click().type('Browser').wait(1000)
+        cy.get('[data-attr="taxonomic-filter-searchfield"]').click().type(type).wait(1000)
         cy.get('[data-attr="prop-filter-event_properties-0"]').click({ force: true }).wait(1000)
         cy.get('.LemonInput').type(value)
         cy.contains('.LemonButton__content', value).click({ force: true })

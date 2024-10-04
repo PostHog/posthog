@@ -11,7 +11,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { signupLogic } from '../signupLogic'
 
 export function SignupPanel1(): JSX.Element | null {
-    const { preflight } = useValues(preflightLogic)
+    const { preflight, socialAuthAvailable } = useValues(preflightLogic)
     const { isSignupPanel1Submitting, validatedPassword } = useValues(signupLogic)
     const emailInputRef = useRef<HTMLInputElement | null>(null)
 
@@ -22,11 +22,9 @@ export function SignupPanel1(): JSX.Element | null {
 
     return (
         <div className="space-y-4 Signup__panel__1">
-            {!preflight?.demo && (
+            {!preflight?.demo && socialAuthAvailable && (
                 <>
-                    <div className="mt-6">
-                        <SocialLoginButtons caption="Sign up with" bottomDivider />
-                    </div>
+                    <SocialLoginButtons caption="Sign up with" bottomDivider className="mt-6" />
                     <p className="text-muted text-center mb-0">Or use email & password</p>
                 </>
             )}

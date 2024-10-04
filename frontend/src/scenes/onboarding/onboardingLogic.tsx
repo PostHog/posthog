@@ -2,6 +2,7 @@ import { actions, connect, kea, listeners, path, props, reducers, selectors } fr
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { liveEventsTableLogic } from 'scenes/activity/live/liveEventsTableLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -46,6 +47,13 @@ export const availableOnboardingProducts: AvailableOnboardingProducts = {
         url: urls.insights(),
         scene: Scene.SavedInsights,
     },
+    [ProductKey.WEB_ANALYTICS]: {
+        name: 'Web Analytics',
+        icon: 'IconPieChart',
+        iconColor: 'var(--warning)',
+        url: urls.webAnalytics(),
+        scene: Scene.WebAnalytics,
+    },
     [ProductKey.DATA_WAREHOUSE]: {
         name: 'Data Warehouse',
         icon: 'IconDatabase',
@@ -72,7 +80,7 @@ export const availableOnboardingProducts: AvailableOnboardingProducts = {
     [ProductKey.SURVEYS]: {
         name: 'Surveys',
         icon: 'IconMessage',
-        iconColor: 'salmon',
+        iconColor: 'blue',
         url: urls.surveys(),
         scene: Scene.Surveys,
     },
@@ -110,6 +118,8 @@ export const getProductUri = (productKey: ProductKey): string => {
 export const onboardingLogic = kea<onboardingLogicType>([
     props({} as OnboardingLogicProps),
     path(['scenes', 'onboarding', 'onboardingLogic']),
+    // connect this so we start collecting live events the whole time during onboarding
+    connect(liveEventsTableLogic),
     connect({
         values: [
             billingLogic,

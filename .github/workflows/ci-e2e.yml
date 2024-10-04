@@ -191,6 +191,7 @@ jobs:
                   GITHUB_ACTION_RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
                   CELERY_METRICS_PORT=8999
                   CLOUD_DEPLOYMENT=E2E
+                  ENCRYPTION_SALT_KEYS=00beef0000beef0000beef0000beef00
                   EOT
 
             - name: Start PostHog
@@ -231,6 +232,9 @@ jobs:
                   config: retries=2
                   spec: ${{ matrix.chunk }}
                   install: false
+                  # We were seeing suprising crashes in headless mode
+                  # See https://github.com/cypress-io/cypress/issues/28893#issuecomment-1956480875
+                  headed: true
               env:
                   E2E_TESTING: 1
                   OPT_OUT_CAPTURE: 0

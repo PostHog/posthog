@@ -1,7 +1,13 @@
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const cyclotron = require('../index.node')
 import { convertToInternalPoolConfig, deserializeObject, serializeObject } from './helpers'
-import { CyclotronJob, CyclotronJobState, CyclotronJobUpdate, CyclotronPoolConfig } from './types'
+import {
+    CyclotronJob,
+    CyclotronJobState,
+    CyclotronJobUpdate,
+    CyclotronPoolConfig,
+    CyclotronWorkerTuningConfig,
+} from './types'
 
 const parseJob = (job: CyclotronJob): CyclotronJob => {
     return {
@@ -24,6 +30,8 @@ export type CyclotronWorkerConfig = {
     pollDelayMs?: number
     /** Heartbeat timeout. After this time without response from the worker loop the worker will be considered unhealthy. Default 30000 */
     heartbeatTimeoutMs?: number
+    /** Include empty batches - useful if you want to track them. Default: false */
+    includeEmptyBatches?: boolean
 }
 
 export class CyclotronWorker {
@@ -32,7 +40,15 @@ export class CyclotronWorker {
 
     private consumerLoopPromise: Promise<void> | null = null
 
-    constructor(private config: CyclotronWorkerConfig) {
+    constructor(private config: CyclotronWorkerConfig, private tuning?: CyclotronWorkerTuningConfig) {
+        const defaultTuning: CyclotronWorkerTuningConfig = {
+            heartbeatWindowSeconds: 5,
+            lingerTimeMs: 500,
+            maxUpdatesBuffered: 100,
+            maxBytesBuffered: 10000000,
+            flushLoopIntervalMs: 10,
+        }
+        this.tuning = { ...defaultTuning, ...this.tuning }
         this.config = config
     }
 
@@ -48,7 +64,10 @@ export class CyclotronWorker {
             throw new Error('Already consuming')
         }
 
-        await cyclotron.maybeInitWorker(JSON.stringify(convertToInternalPoolConfig(this.config.pool)))
+        await cyclotron.maybeInitWorker(
+            JSON.stringify(convertToInternalPoolConfig(this.config.pool)),
+            JSON.stringify(this.tuning)
+        )
 
         this.isConsuming = true
         this.consumerLoopPromise = this.startConsumerLoop(processBatch).finally(() => {
@@ -76,6 +95,9 @@ export class CyclotronWorker {
                 if (!jobs.length) {
                     // Wait a bit before polling again
                     await new Promise((resolve) => setTimeout(resolve, pollDelayMs))
+                    if (!this.config.includeEmptyBatches) {
+                        await processBatch(jobs)
+                    }
                     continue
                 }
 
@@ -92,8 +114,9 @@ export class CyclotronWorker {
         await (this.consumerLoopPromise ?? Promise.resolve())
     }
 
-    async flushJob(jobId: string): Promise<void> {
-        return await cyclotron.flushJob(jobId)
+    async releaseJob(jobId: string): Promise<void> {
+        // We hand the promise back to the user, letting them decide when to await it.
+        return cyclotron.releaseJob(jobId)
     }
 
     updateJob(id: CyclotronJob['id'], state: CyclotronJobState, updates?: CyclotronJobUpdate): void {

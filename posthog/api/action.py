@@ -1,25 +1,24 @@
+from datetime import UTC, datetime
 from typing import Any, cast
 
-from rest_framework import serializers, viewsets
 from django.db.models import Count
-from rest_framework import request
+from rest_framework import request, serializers, viewsets
+from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.auth import (
-    TemporaryTokenAuthentication,
-)
+from posthog.auth import TemporaryTokenAuthentication
 from posthog.constants import TREND_FILTER_TYPE_EVENTS
 from posthog.event_usage import report_user_action
 from posthog.models import Action
 from posthog.models.action.action import ACTION_STEP_MATCHING_OPTIONS
 
 from .forbid_destroy_model import ForbidDestroyModel
+from .hog_function import HogFunctionSerializer
 from .tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
-from datetime import datetime, UTC
 
 
 class ActionStepJSONSerializer(serializers.Serializer):
@@ -40,6 +39,7 @@ class ActionSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedModelSe
     created_by = UserBasicSerializer(read_only=True)
     is_calculating = serializers.SerializerMethodField()
     is_action = serializers.BooleanField(read_only=True, default=True)
+    creation_context = serializers.SerializerMethodField()
 
     class Meta:
         model = Action
@@ -60,6 +60,7 @@ class ActionSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedModelSe
             "is_action",
             "bytecode_error",
             "pinned_at",
+            "creation_context",
         ]
         read_only_fields = [
             "team_id",
@@ -69,6 +70,9 @@ class ActionSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedModelSe
 
     def get_is_calculating(self, action: Action) -> bool:
         return False
+
+    def get_creation_context(self, obj):
+        return None
 
     def validate(self, attrs):
         instance = cast(Action, self.instance)
@@ -96,13 +100,14 @@ class ActionSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedModelSe
         return attrs
 
     def create(self, validated_data: Any) -> Any:
+        creation_context = self.context["request"].data.get("creation_context")
         validated_data["created_by"] = self.context["request"].user
         instance = super().create(validated_data)
 
         report_user_action(
             validated_data["created_by"],
             "action created",
-            instance.get_analytics_metadata(),
+            {**instance.get_analytics_metadata(), "creation_context": creation_context},
         )
 
         return instance
@@ -157,3 +162,20 @@ class ActionViewSet(
             actions, many=True, context={"request": request}
         ).data  # type: ignore
         return Response({"results": actions_list})
+
+    @action(methods=["POST"], url_path="migrate", detail=True)
+    def migrate(self, request: request.Request, **kwargs):
+        obj = self.get_object()
+
+        from posthog.management.commands.migrate_action_webhooks import convert_to_hog_function
+
+        hog_function = convert_to_hog_function(obj, inert=False)
+        if not hog_function:
+            return Response({"detail": "Failed to convert action to function"}, status=400)
+        hog_function.save()
+        hog_function_serializer = HogFunctionSerializer(hog_function, context=self.get_serializer_context())
+        if obj.post_to_slack:
+            obj.post_to_slack = False
+            obj.save()
+
+        return Response(hog_function_serializer.data)

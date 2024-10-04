@@ -46,7 +46,11 @@ async def create_external_data_job_model_activity(inputs: CreateExternalDataJobM
 
         source = await sync_to_async(ExternalDataSource.objects.get)(team_id=inputs.team_id, id=inputs.source_id)
 
-        if source.source_type in [ExternalDataSource.Type.POSTGRES, ExternalDataSource.Type.MYSQL]:
+        if source.source_type in [
+            ExternalDataSource.Type.POSTGRES,
+            ExternalDataSource.Type.MYSQL,
+            ExternalDataSource.Type.MSSQL,
+        ]:
             host = source.job_inputs.get("host")
             port = source.job_inputs.get("port")
             user = source.job_inputs.get("user")

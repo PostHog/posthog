@@ -56,6 +56,7 @@ import posthog from 'posthog-js'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { insightTypeURL } from 'scenes/insights/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { WATCH_RECORDINGS_OF_KEY, watchRecordingsOfCommand } from 'scenes/session-recordings/replayPaletteCommands'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -119,7 +120,7 @@ export type RegExpCommandPairs = [RegExp | null, Command][]
 
 const RESULTS_MAX = 5
 
-const GLOBAL_COMMAND_SCOPE = 'global'
+export const GLOBAL_COMMAND_SCOPE = 'global'
 
 function resolveCommand(source: Command | CommandFlow, argument?: string, prefixApplied?: string): CommandResult[] {
     // run resolver or use ready-made results
@@ -715,35 +716,42 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                 scope: GLOBAL_COMMAND_SCOPE,
                 prefixes: ['open', 'visit'],
                 resolver: (argument) => {
-                    const results: CommandResultTemplate[] = (teamLogic.values.currentTeam?.app_urls ?? []).map(
-                        (url: string) => ({
+                    const words = argument?.split(' ')
+                    const url = words?.find((word) => isURL(word))
+                    if (url) {
+                        return {
                             icon: IconExternal,
                             display: `Open ${url}`,
                             synonyms: [`Visit ${url}`],
                             executor: () => {
                                 open(url)
                             },
-                        })
-                    )
-                    if (argument && isURL(argument)) {
+                        }
+                    }
+
+                    if (words && words.length > 0 && ['open', 'visit'].includes(words[0].toLowerCase())) {
+                        const results: CommandResultTemplate[] = (teamLogic.values.currentTeam?.app_urls ?? []).map(
+                            (url: string) => ({
+                                icon: IconExternal,
+                                display: `Open ${url}`,
+                                synonyms: [`Visit ${url}`],
+                                executor: () => {
+                                    open(url)
+                                },
+                            })
+                        )
                         results.push({
                             icon: IconExternal,
-                            display: `Open ${argument}`,
-                            synonyms: [`Visit ${argument}`],
+                            display: 'Open PostHog Docs',
+                            synonyms: ['technical documentation'],
                             executor: () => {
-                                open(argument)
+                                open('https://posthog.com/docs')
                             },
                         })
+                        return results
                     }
-                    results.push({
-                        icon: IconExternal,
-                        display: 'Open PostHog Docs',
-                        synonyms: ['technical documentation'],
-                        executor: () => {
-                            open('https://posthog.com/docs')
-                        },
-                    })
-                    return results
+
+                    return null
                 },
             }
 
@@ -931,6 +939,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
             actions.registerCommand(toggleHedgehogMode)
             actions.registerCommand(shortcuts)
             actions.registerCommand(sidepanel)
+            actions.registerCommand(watchRecordingsOfCommand(push))
         },
         beforeUnmount: () => {
             actions.deregisterCommand('go-to')
@@ -945,6 +954,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
             actions.deregisterCommand('toggle-hedgehog-mode')
             actions.deregisterCommand('shortcuts')
             actions.deregisterCommand('sidepanel')
+            actions.deregisterCommand(WATCH_RECORDINGS_OF_KEY)
         },
     })),
 ])

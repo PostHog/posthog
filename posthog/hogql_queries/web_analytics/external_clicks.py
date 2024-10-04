@@ -58,6 +58,7 @@ FROM (
         events.properties.$event_type == 'click',
         url IS NOT NULL,
         url != '',
+        cutToFirstSignificantSubdomain(properties.`$external_click_url`) != cutToFirstSignificantSubdomain(properties.`$host`),
         {all_properties}
     )
     GROUP BY events.`$session_id`, url

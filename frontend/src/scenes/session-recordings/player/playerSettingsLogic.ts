@@ -2,7 +2,7 @@ import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { AutoplayDirection, SessionRecordingPlayerTab } from '~/types'
+import { AutoplayDirection, SessionRecordingPlayerTab, SessionRecordingSidebarStacking } from '~/types'
 
 import type { playerSettingsLogicType } from './playerSettingsLogicType'
 
@@ -22,14 +22,8 @@ export enum TimestampFormat {
     Device = 'device',
 }
 
-export enum InspectorStacking {
-    Vertical = 'vertical',
-    Horizontal = 'horizontal',
-}
-
-export enum PlaybackViewMode {
-    Playback = 'playback',
-    Inspector = 'inspector',
+export enum PlaybackMode {
+    Recording = 'recording',
     Waterfall = 'waterfall',
 }
 
@@ -200,8 +194,9 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
         setShowFilters: (showFilters: boolean) => ({ showFilters }),
         setQuickFilterProperties: (properties: string[]) => ({ properties }),
         setTimestampFormat: (format: TimestampFormat) => ({ format }),
-        setPreferredInspectorStacking: (stacking: InspectorStacking) => ({ stacking }),
-        setPlaybackViewMode: (mode: PlaybackViewMode) => ({ mode }),
+        setPreferredSidebarStacking: (stacking: SessionRecordingSidebarStacking) => ({ stacking }),
+        setPlaybackMode: (mode: PlaybackMode) => ({ mode }),
+        setSidebarOpen: (open: boolean) => ({ open }),
         setShowMouseTail: (showMouseTail: boolean) => ({ showMouseTail }),
         setShowSeekbarTicks: (show: boolean) => ({ show }),
     }),
@@ -209,27 +204,20 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
         values: [teamLogic, ['currentTeam']],
     }),
     reducers(({ values }) => ({
-        showFilters: [
-            true,
-            {
-                persist: true,
-            },
-            {
-                setShowFilters: (_, { showFilters }) => showFilters,
-            },
-        ],
-        preferredInspectorStacking: [
-            InspectorStacking.Horizontal as InspectorStacking,
+        showFilters: [true, { persist: true }, { setShowFilters: (_, { showFilters }) => showFilters }],
+        sidebarOpen: [false, { persist: true }, { setSidebarOpen: (_, { open }) => open }],
+        preferredSidebarStacking: [
+            SessionRecordingSidebarStacking.Horizontal as SessionRecordingSidebarStacking,
             { persist: true },
             {
-                setPreferredInspectorStacking: (_, { stacking }) => stacking,
+                setPreferredSidebarStacking: (_, { stacking }) => stacking,
             },
         ],
-        playbackViewMode: [
-            PlaybackViewMode.Playback as PlaybackViewMode,
+        playbackMode: [
+            PlaybackMode.Recording as PlaybackMode,
             { persist: true },
             {
-                setPlaybackViewMode: (_, { mode }) => mode,
+                setPlaybackMode: (_, { mode }) => mode,
             },
         ],
         quickFilterProperties: [

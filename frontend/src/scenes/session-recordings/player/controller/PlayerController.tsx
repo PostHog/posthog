@@ -13,7 +13,7 @@ import { PlayerSettings } from '../PlayerSettings'
 import { SeekSkip, Timestamp } from './PlayerControllerTime'
 import { Seekbar } from './Seekbar'
 
-export function PlayerController({ linkIconsOnly }: { linkIconsOnly: boolean }): JSX.Element {
+export function PlayerController({ iconsOnly }: { iconsOnly: boolean }): JSX.Element {
     const { playingState, isFullScreen, endReached } = useValues(sessionRecordingPlayerLogic)
     const { togglePlayPause, setIsFullScreen } = useActions(sessionRecordingPlayerLogic)
 
@@ -58,8 +58,7 @@ export function PlayerController({ linkIconsOnly }: { linkIconsOnly: boolean }):
                     </div>
                     <PlayerSettings />
                 </div>
-
-                <PlayerMetaLinks iconsOnly={linkIconsOnly} />
+                <PlayerMetaLinks iconsOnly={iconsOnly} />
             </div>
         </div>
     )

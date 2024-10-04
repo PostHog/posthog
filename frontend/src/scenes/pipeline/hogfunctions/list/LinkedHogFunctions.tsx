@@ -1,5 +1,4 @@
 import { LemonButton } from '@posthog/lemon-ui'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useState } from 'react'
 
 import { HogFunctionFiltersType, HogFunctionSubTemplateIdType } from '~/types'
@@ -10,15 +9,15 @@ import { HogFunctionTemplateList } from './HogFunctionTemplateList'
 export type LinkedHogFunctionsProps = {
     filters: HogFunctionFiltersType
     subTemplateId?: HogFunctionSubTemplateIdType
+    newDisabledReason?: string
 }
 
-export function LinkedHogFunctions({ filters, subTemplateId }: LinkedHogFunctionsProps): JSX.Element | null {
-    const hogFunctionsEnabled = useFeatureFlag('HOG_FUNCTIONS')
+export function LinkedHogFunctions({
+    filters,
+    subTemplateId,
+    newDisabledReason,
+}: LinkedHogFunctionsProps): JSX.Element | null {
     const [showNewDestination, setShowNewDestination] = useState(false)
-
-    if (!hogFunctionsEnabled) {
-        return null
-    }
 
     return showNewDestination ? (
         <HogFunctionTemplateList
@@ -34,11 +33,15 @@ export function LinkedHogFunctions({ filters, subTemplateId }: LinkedHogFunction
         />
     ) : (
         <HogFunctionList
-            defaultFilters={{ onlyActive: true }}
             forceFilters={{ filters }}
             extraControls={
                 <>
-                    <LemonButton type="primary" size="small" onClick={() => setShowNewDestination(true)}>
+                    <LemonButton
+                        type="primary"
+                        size="small"
+                        disabledReason={newDisabledReason}
+                        onClick={() => setShowNewDestination(true)}
+                    >
                         New notification
                     </LemonButton>
                 </>

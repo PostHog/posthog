@@ -15,7 +15,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput/LemonFileInput'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect/LemonSelect'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
-import { useEffect, useRef } from 'react'
+import { useRef } from 'react'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -70,13 +70,14 @@ export function SupportForm(): JSX.Element | null {
         },
     })
 
-    useEffect(() => {
-        if (sendSupportRequest.kind === 'bug') {
+    const changeKind = (kind: SupportTicketKind): void => {
+        setSendSupportRequestValue('kind', kind)
+        if (kind === 'bug') {
             setSendSupportRequestValue('severity_level', 'medium')
         } else {
             setSendSupportRequestValue('severity_level', 'low')
         }
-    }, [sendSupportRequest.kind])
+    }
 
     return (
         <Form
@@ -97,7 +98,7 @@ export function SupportForm(): JSX.Element | null {
                 </>
             )}
             <LemonField name="kind" label="Message type">
-                <LemonSegmentedButton fullWidth options={SUPPORT_TICKET_OPTIONS} />
+                <LemonSegmentedButton onChange={changeKind} fullWidth options={SUPPORT_TICKET_OPTIONS} />
             </LemonField>
             <LemonField name="target_area" label="Topic">
                 <LemonSelect

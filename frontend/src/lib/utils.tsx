@@ -43,15 +43,23 @@ export function areObjectValuesEmpty(obj?: Record<string, any>): boolean {
 }
 
 // taken from https://stackoverflow.com/questions/10420352/converting-file-size-in-bytes-to-human-readable-string/10420404
-export const humanizeBytes = (fileSizeInBytes: number): string => {
+export const humanizeBytes = (fileSizeInBytes: number | null): string => {
+    if (fileSizeInBytes === null) {
+        return ''
+    }
+
     let i = -1
+    let convertedBytes = fileSizeInBytes
     const byteUnits = ['kB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB']
     do {
-        fileSizeInBytes = fileSizeInBytes / 1024
+        convertedBytes = convertedBytes / 1024
         i++
-    } while (fileSizeInBytes > 1024)
+    } while (convertedBytes > 1024)
 
-    return Math.max(fileSizeInBytes, 0.1).toFixed(1) + ' ' + byteUnits[i]
+    if (convertedBytes < 0.1) {
+        return fileSizeInBytes + ' bytes'
+    }
+    return convertedBytes.toFixed(2) + ' ' + byteUnits[i]
 }
 
 export function toParams(obj: Record<string, any>, explodeArrays: boolean = false): string {
@@ -219,6 +227,11 @@ export const selectorOperatorMap: Record<string, string> = {
     is_not: "≠ doesn't equal",
 }
 
+export const cohortOperatorMap: Record<string, string> = {
+    in: 'user in',
+    not_in: 'user not in',
+}
+
 export const allOperatorsMapping: Record<string, string> = {
     ...dateTimeOperatorMap,
     ...stringOperatorMap,
@@ -227,6 +240,7 @@ export const allOperatorsMapping: Record<string, string> = {
     ...booleanOperatorMap,
     ...durationOperatorMap,
     ...selectorOperatorMap,
+    ...cohortOperatorMap,
     // slight overkill to spread all of these into the map
     // but gives freedom for them to diverge more over time
 }
@@ -238,6 +252,7 @@ const operatorMappingChoice: Record<keyof typeof PropertyType, Record<string, st
     Boolean: booleanOperatorMap,
     Duration: durationOperatorMap,
     Selector: selectorOperatorMap,
+    Cohort: cohortOperatorMap,
 }
 
 export function chooseOperatorMap(propertyType: PropertyType | undefined): Record<string, string> {
@@ -254,7 +269,14 @@ export function isOperatorMulti(operator: PropertyOperator): boolean {
 
 export function isOperatorFlag(operator: PropertyOperator): boolean {
     // these filter operators can only be just set, no additional parameter
-    return [PropertyOperator.IsSet, PropertyOperator.IsNotSet].includes(operator)
+    return [PropertyOperator.IsSet, PropertyOperator.IsNotSet, PropertyOperator.In, PropertyOperator.NotIn].includes(
+        operator
+    )
+}
+
+export function isOperatorCohort(operator: PropertyOperator): boolean {
+    // these filter operators use value different ( to represent the number of the cohort )
+    return [PropertyOperator.In, PropertyOperator.NotIn].includes(operator)
 }
 
 export function isOperatorRegex(operator: PropertyOperator): boolean {
@@ -413,6 +435,22 @@ export function humanFriendlyNumber(d: number, precision: number = DEFAULT_DECIM
     return d.toLocaleString('en-US', { maximumFractionDigits: precision })
 }
 
+/** Format currency from string with commas and a number of decimal places (defaults to 2). */
+export function humanFriendlyCurrency(d: string | undefined | number, precision: number = 2): string {
+    if (!d) {
+        d = '0.00'
+    }
+
+    let number: number
+    if (typeof d === 'string') {
+        number = parseFloat(d)
+    } else {
+        number = d
+    }
+
+    return `$${number.toLocaleString('en-US', { maximumFractionDigits: precision, minimumFractionDigits: precision })}`
+}
+
 export function humanFriendlyLargeNumber(d: number): string {
     if (isNaN(d)) {
         return 'NaN'
@@ -459,13 +497,36 @@ export const humanFriendlyMilliseconds = (timestamp: number | undefined): string
 
     return `${(timestamp / 1000).toFixed(2)}s`
 }
-export function humanFriendlyDuration(d: string | number | null | undefined, maxUnits?: number): string {
+export function humanFriendlyDuration(
+    d: string | number | null | undefined,
+    {
+        maxUnits,
+        secondsPrecision,
+        secondsFixed,
+    }: { maxUnits?: number; secondsPrecision?: number; secondsFixed?: number } = {}
+): string {
     // Convert `d` (seconds) to a human-readable duration string.
     // Example: `1d 10hrs 9mins 8s`
-    if (d === '' || d === null || d === undefined) {
+    if (d === '' || d === null || d === undefined || maxUnits === 0) {
         return ''
     }
     d = Number(d)
+    if (d < 0) {
+        return `-${humanFriendlyDuration(-d)}`
+    }
+    if (d === 0) {
+        return `0s`
+    }
+    if (d < 1) {
+        return `${Math.round(d * 1000)}ms`
+    }
+    if (d < 60) {
+        if (secondsPrecision != null) {
+            return `${parseFloat(d.toPrecision(secondsPrecision))}s` // round to s.f. then throw away trailing zeroes
+        }
+        return `${parseFloat(d.toFixed(secondsFixed ?? 0))}s` // round to fixed point then throw away trailing zeroes
+    }
+
     const days = Math.floor(d / 86400)
     const h = Math.floor((d % 86400) / 3600)
     const m = Math.floor((d % 3600) / 60)
@@ -482,7 +543,7 @@ export function humanFriendlyDuration(d: string | number | null | undefined, max
     } else {
         units = [hDisplay, mDisplay, sDisplay].filter(Boolean)
     }
-    return units.slice(0, maxUnits).join(' ')
+    return units.slice(0, maxUnits ?? undefined).join(' ')
 }
 
 export function humanFriendlyDiff(from: dayjs.Dayjs | string, to: dayjs.Dayjs | string): string {
@@ -491,7 +552,7 @@ export function humanFriendlyDiff(from: dayjs.Dayjs | string, to: dayjs.Dayjs | 
 }
 
 export function humanFriendlyDetailedTime(
-    date: dayjs.Dayjs | string | null,
+    date: dayjs.Dayjs | string | null | undefined,
     formatDate = 'MMMM DD, YYYY',
     formatTime = 'h:mm:ss A'
 ): string {
@@ -1395,6 +1456,12 @@ export function hexToRGBA(hex: string, alpha = 1): string {
     const { r, g, b } = hexToRGB(hex)
     const a = alpha
     return `rgba(${[r, g, b, a].join(',')})`
+}
+
+export function RGBToHex(rgb: string): string {
+    const rgbValues = rgb.replace('rgb(', '').replace(')', '').split(',').map(Number)
+
+    return `#${rgbValues.map((val) => val.toString(16).padStart(2, '0')).join('')}`
 }
 
 export function RGBToRGBA(rgb: string, a: number): string {

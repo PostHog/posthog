@@ -15,7 +15,7 @@ class TestTemplateLoops(BaseHogFunctionTemplateTest):
         self.run_function(
             inputs=self._inputs(),
             globals={
-                "event": {"distinct_id": "66e614bd-d9f2-491e-9e2c-eeab3090f72f", "name": "$pageview"},
+                "event": {"distinct_id": "66e614bd-d9f2-491e-9e2c-eeab3090f72f", "event": "$pageview"},
                 "person": {
                     "properties": {"email": "max@posthog.com", "name": "Max", "company": "PostHog"},
                 },
@@ -54,7 +54,7 @@ class TestTemplateLoops(BaseHogFunctionTemplateTest):
             self.run_function(
                 inputs=self._inputs(),
                 globals={
-                    "event": {"name": event_name, "properties": {"url": "https://example.com", "$browser": "Chrome"}},
+                    "event": {"event": event_name, "properties": {"url": "https://example.com", "$browser": "Chrome"}},
                 },
             )
 

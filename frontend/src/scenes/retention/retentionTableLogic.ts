@@ -69,7 +69,7 @@ export const retentionTableLogic = kea<retentionTableLogicType>([
         tableRows: [
             (s) => [s.results, s.maxIntervalsCount, s.retentionFilter, s.breakdownFilter, s.hideSizeColumn],
             (results, maxIntervalsCount, retentionFilter, breakdownFilter, hideSizeColumn) => {
-                const { period, cumulative } = retentionFilter || {}
+                const { period } = retentionFilter || {}
                 const { breakdowns } = breakdownFilter || {}
 
                 return range(maxIntervalsCount).map((index: number) => {
@@ -99,21 +99,12 @@ export const retentionTableLogic = kea<retentionTableLogicType>([
 
                     const secondColumn = hideSizeColumn ? [] : [currentResult.values[0].count]
 
-                    const otherColumns = currentResult.values.map((value, valueIndex) => {
+                    const otherColumns = currentResult.values.map((value) => {
                         const totalCount = currentResult.values[0]['count']
-                        let count = value['count']
-
-                        if (cumulative && valueIndex > 0) {
-                            for (let i = valueIndex + 1; i < currentResult.values.length; i++) {
-                                count += currentResult.values[i]['count']
-                            }
-                            count = Math.min(count, totalCount)
-                        }
-
-                        const percentage = totalCount > 0 ? (count / totalCount) * 100 : 0
+                        const percentage = totalCount > 0 ? (value['count'] / totalCount) * 100 : 0
 
                         return {
-                            count,
+                            count: value['count'],
                             percentage,
                         }
                     })

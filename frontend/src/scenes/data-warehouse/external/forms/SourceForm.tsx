@@ -1,4 +1,4 @@
-import { LemonInput, LemonSelect, LemonSwitch, LemonTextArea } from '@posthog/lemon-ui'
+import { LemonFileInput, LemonInput, LemonSelect, LemonSwitch, LemonTextArea } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { Form, Group } from 'kea-forms'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -78,6 +78,18 @@ const sourceFieldToElement = (field: SourceFieldConfig, sourceConfig: SourceConf
                         value={value}
                         onChange={onChange}
                     />
+                )}
+            </LemonField>
+        )
+    }
+
+    if (field.type === 'file-upload') {
+        return (
+            <LemonField key={field.name} name={field.name} label={field.label}>
+                {({ value, onChange }) => (
+                    <div className="bg-[white] p-2 border rounded-[var(--radius)]">
+                        <LemonFileInput value={value} accept={field.fileFormat} multiple={false} onChange={onChange} />
+                    </div>
                 )}
             </LemonField>
         )

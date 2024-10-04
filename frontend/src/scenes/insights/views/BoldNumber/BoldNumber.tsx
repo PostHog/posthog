@@ -214,7 +214,7 @@ export function HogQLBoldNumber(): JSX.Element {
 
     const displayValue =
         ((!response || responseLoading) && 'Loading...') ||
-        tabularData?.[0]?.[0] ||
+        tabularData?.[0]?.[0]?.formattedValue ||
         response?.[0]?.[0] ||
         response?.results?.[0]?.[0] ||
         response?.result?.[0]?.[0] ||

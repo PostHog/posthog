@@ -1,9 +1,11 @@
 import { IconFlag } from '@posthog/icons'
 import { TitledSnack } from 'lib/components/TitledSnack'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import posthog from 'posthog-js'
+import { useState } from 'react'
 
 import { EventType } from '~/types'
 
@@ -13,6 +15,7 @@ interface StackFrame {
     colno: number
     function: string
     context_line?: string
+    in_app?: boolean
 }
 
 interface ExceptionTrace {
@@ -28,16 +31,16 @@ function parseToFrames(rawTrace: string): StackFrame[] {
     return JSON.parse(rawTrace)
 }
 
-function StackTrace({ rawTrace }: { rawTrace: string }): JSX.Element | null {
+function StackTrace({ rawTrace, showAllFrames }: { rawTrace: string; showAllFrames: boolean }): JSX.Element | null {
     try {
         const frames = parseToFrames(rawTrace)
         return (
             <>
                 {frames.length ? (
                     frames.map((frame, index) => {
-                        const { filename, lineno, colno, function: functionName, context_line } = frame
+                        const { filename, lineno, colno, function: functionName, context_line, in_app } = frame
 
-                        return (
+                        return showAllFrames || in_app ? (
                             <TitledSnack
                                 key={index}
                                 title={functionName}
@@ -48,7 +51,7 @@ function StackTrace({ rawTrace }: { rawTrace: string }): JSX.Element | null {
                                     </>
                                 }
                             />
-                        )
+                        ) : null
                     })
                 ) : (
                     <LemonTag>Empty stack trace</LemonTag>
@@ -63,15 +66,32 @@ function StackTrace({ rawTrace }: { rawTrace: string }): JSX.Element | null {
 }
 
 function ChainedStackTraces({ exceptionList }: { exceptionList: ExceptionTrace[] }): JSX.Element {
+    const [showAllFrames, setShowAllFrames] = useState(false)
+
     return (
         <>
             <LemonDivider dashed={true} />
-            <h2 className="mb-0">Stack Trace</h2>
+            <div className="flex gap-1 mt-6 justify-between items-center">
+                <h2 className="mb-0">Stack Trace</h2>
+                <LemonSwitch
+                    checked={showAllFrames}
+                    label="Show entire stack trace"
+                    onChange={() => {
+                        setShowAllFrames(!showAllFrames)
+                    }}
+                />
+            </div>
             {exceptionList.map(({ stacktrace, value }, index) => {
+                const { frames } = stacktrace || {}
+                if (!showAllFrames && !frames?.some((frame) => frame.in_app)) {
+                    // if we're not showing all frames and there are no in_app frames, skip this exception
+                    return null
+                }
+
                 return (
                     <div key={index} className="flex flex-col gap-1 mt-6">
                         <h3 className="mb-0">{value}</h3>
-                        <StackTrace rawTrace={JSON.stringify(stacktrace?.frames || [])} />
+                        <StackTrace rawTrace={JSON.stringify(frames || [])} showAllFrames={showAllFrames} />
                     </div>
                 )
             })}
@@ -211,7 +231,7 @@ export function ErrorDisplay({ eventProperties }: { eventProperties: EventType['
                     <LemonDivider dashed={true} />
                     <div className="flex flex-col gap-1 mt-6">
                         <h2 className="mb-0">Stack Trace</h2>
-                        <StackTrace rawTrace={$exception_stack_trace_raw} />
+                        <StackTrace rawTrace={$exception_stack_trace_raw} showAllFrames />
                     </div>
                 </>
             ) : null}

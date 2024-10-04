@@ -712,6 +712,8 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             self.user,
             "dashboard created",
             {
+                "$current_url": None,
+                "$session_id": mock.ANY,
                 "created_at": mock.ANY,
                 "dashboard_id": None,
                 "duplicated": False,
@@ -1152,7 +1154,8 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
     def test_create_from_template_json(self, mock_capture) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/dashboards/create_from_template_json",
-            {"template": valid_template},
+            {"template": valid_template, "creation_context": "onboarding"},
+            headers={"Referer": "https://posthog.com/my-referer", "X-Posthog-Session-Id": "my-session-id"},
         )
         self.assertEqual(response.status_code, 200, response.content)
 
@@ -1172,7 +1175,10 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             self.user,
             "dashboard created",
             {
+                "$current_url": "https://posthog.com/my-referer",
+                "$session_id": "my-session-id",
                 "created_at": mock.ANY,
+                "creation_context": "onboarding",
                 "dashboard_id": dashboard["id"],
                 "duplicated": False,
                 "from_template": True,
@@ -1328,3 +1334,30 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         }
 
         assert response.json() == error_message
+
+    def test_dashboard_duplication_breakdown_histogram_bin_count_none(self):
+        existing_dashboard = Dashboard.objects.create(team=self.team, name="existing dashboard", created_by=self.user)
+        insight1 = Insight.objects.create(
+            filters={
+                "name": "test1",
+                "breakdown_histogram_bin_count": None,
+                "breakdown_limit": None,
+                "breakdown_hide_other_aggregation": None,
+            },
+            team=self.team,
+            last_refresh=now(),
+        )
+        tile1 = DashboardTile.objects.create(dashboard=existing_dashboard, insight=insight1)
+        _, response = self.dashboard_api.create_dashboard({"name": "another", "use_dashboard": existing_dashboard.pk})
+
+        self.assertEqual(response["creation_mode"], "duplicate")
+        self.assertEqual(len(response["tiles"]), len(existing_dashboard.insights.all()))
+
+        existing_dashboard_item_id_set = {tile1.pk}
+        response_item_id_set = {x.get("id", None) for x in response["tiles"]}
+        # check both sets are disjoint to verify that the new items' ids are different than the existing items
+
+        self.assertTrue(existing_dashboard_item_id_set.isdisjoint(response_item_id_set))
+
+        for item in response["tiles"]:
+            self.assertNotEqual(item.get("dashboard", None), existing_dashboard.pk)

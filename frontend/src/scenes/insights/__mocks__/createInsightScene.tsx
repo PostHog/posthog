@@ -34,6 +34,20 @@ export function createInsightStory(
                     }),
                 ],
             },
+            post: {
+                '/api/projects/:team_id/query/': (req, __, ctx) => [
+                    ctx.status(200),
+                    ctx.json({
+                        cache_key: req.params.query,
+                        calculation_trigger: null,
+                        error: '',
+                        hasMore: false,
+                        is_cached: true,
+                        query_status: null,
+                        results: insight.result,
+                    }),
+                ],
+            },
         })
 
         useEffect(() => {

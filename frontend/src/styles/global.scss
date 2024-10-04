@@ -22,29 +22,10 @@ Only 400 (`normal`), 500 (`var(--font-medium)`), 600 (`var(--font-semibold)`), o
     @include root-variables;
 }
 
-// Text styles
-body b,
-body strong {
-    // body is specified to increase specificity – otherwise Ant Design's "bolder" takes precedence over "600"
-    font-weight: 600;
-}
-
-// Disable default styling for ul
-ul {
-    padding-left: 0;
-    margin-top: 0;
-    margin-bottom: 0;
-    list-style: none;
-}
-
-// This may look odd but sets up our utility classes
 *,
 *::before,
 *::after {
-    box-sizing: border-box;
-    border-color: var(--border);
-    border-style: solid;
-    border-width: 0;
+    border-color: var(--border); // Tailwind's default is currentColor, but --border is more useful
 }
 
 input[type='radio'] {
@@ -116,7 +97,8 @@ mark {
 }
 
 hr {
-    border: 1px solid var(--border);
+    margin: 1em 0;
+    border-top: 1px solid var(--border);
 }
 
 // Vendor-specific adjustments
@@ -350,26 +332,14 @@ html {
     text-size-adjust: 100%;
 }
 
-body {
-    // Remove below once we're using Tailwind's base
-    --tw-content: '';
-    --tw-ring-offset-width: 0px;
-    --tw-ring-offset-color: var(--bg-light);
-    --tw-ring-color: var(--primary-3000);
-    --tw-ring-inset: ;
-    --tw-translate-x: 0;
-    --tw-translate-y: 0;
-    --tw-rotate: 0;
-    --tw-skew-x: 0;
-    --tw-skew-y: 0;
-    --tw-scale-x: 1;
-    --tw-scale-y: 1;
+input::placeholder,
+textarea::placeholder {
+    color: var(--muted); // Overrides Tailwind's default
+}
 
-    margin: 0;
-    font-family: -apple-system, BlinkMacSystemFont, Inter, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif,
-        'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
+// Global styles nested under body to ensure they're more specific than Tailwind's base
+body {
     font-size: 14px;
-    font-variant: tabular-nums;
     line-height: 1.5715;
     color: var(--text-3000);
     touch-action: manipulation; // Disable double-tap-to-zoom on mobile, making taps slightly snappier
@@ -403,6 +373,11 @@ body {
         }
     }
 
+    b,
+    strong {
+        font-weight: 600; // Tailwind's default is "bolder" (800)
+    }
+
     h1,
     h2,
     h3,
@@ -421,6 +396,18 @@ body {
         color: var(--text-3000);
     }
 
+    h1 {
+        font-size: 1.75rem;
+    }
+
+    h2 {
+        font-size: 1.3125rem;
+    }
+
+    h3 {
+        font-size: 1rem;
+    }
+
     h5 {
         margin-bottom: 0.25rem;
         font-size: 0.6875rem;
@@ -429,17 +416,6 @@ body {
         color: var(--muted-alt);
         text-transform: uppercase;
         letter-spacing: 0.075em;
-    }
-
-    small {
-        font-size: 80%;
-    }
-
-    pre,
-    code,
-    kbd,
-    samp {
-        font-family: var(--font-mono);
     }
 
     pre {
@@ -474,25 +450,9 @@ p {
     margin-bottom: 1em;
 }
 
-table {
-    border-collapse: collapse;
-}
-
 img {
     vertical-align: middle;
     border-style: none;
-}
-
-button,
-input,
-optgroup,
-select,
-textarea {
-    margin: 0;
-    font-family: inherit;
-    font-size: inherit;
-    line-height: inherit;
-    color: inherit;
 }
 
 [tabindex='-1']:focus {

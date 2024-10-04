@@ -115,7 +115,7 @@ class ConvertPersonsNodeInsightsToActorsQueryMigrationTest(NonAtomicTestMigratio
                 "kind": "DataTableNode",
                 "source": {
                     "kind": "ActorsQuery",
-                    "properties": [{"key": "id", "type": "cohort", "value": 4669}],
+                    "properties": [{"key": "id", "type": "cohort", "operator": "in", "value": 4669}],
                 },
             },
         )
@@ -155,7 +155,7 @@ class ConvertPersonsNodeInsightsToActorsQueryMigrationTest(NonAtomicTestMigratio
                     "kind": "ActorsQuery",
                     "properties": [
                         {"key": "email", "type": "person", "value": "is_set", "operator": "is_set"},
-                        {"key": "id", "type": "cohort", "value": 3},
+                        {"key": "id", "type": "cohort", "operator": "in", "value": 3},
                     ],
                 },
                 "propertiesViaUrl": True,
@@ -185,7 +185,7 @@ class ConvertPersonsNodeInsightsToActorsQueryMigrationTest(NonAtomicTestMigratio
                     "properties": [
                         {"key": "name", "type": "person", "value": "is_set", "operator": "is_set"},
                         {"key": "surname", "type": "person", "value": "is_set", "operator": "is_set"},
-                        {"key": "id", "type": "cohort", "value": 3},
+                        {"key": "id", "type": "cohort", "operator": "in", "value": 3},
                     ],
                     "limit": 100,
                     "offset": 100,

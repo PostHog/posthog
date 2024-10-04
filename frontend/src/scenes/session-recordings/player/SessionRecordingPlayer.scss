@@ -46,7 +46,7 @@
     }
 
     .SessionRecordingPlayer__main,
-    .SessionRecordingPlayer__inspector {
+    .SessionRecordingPlayer__sidebar {
         display: flex;
         flex-direction: column;
         overflow: hidden;
@@ -58,25 +58,30 @@
         }
     }
 
-    .SessionRecordingPlayer__inspector {
+    .SessionRecordingPlayer__sidebar {
         position: relative;
         flex-shrink: 0;
         min-width: 20rem;
         max-width: 50%;
-    }
 
-    &--wide {
-        .SessionRecordingPlayer__inspector {
-            min-width: 26rem;
+        &--collapsed {
+            min-width: 0;
+        }
+
+        &__tabs {
+            & .LemonTabs__tab-content {
+                padding: 10px 0;
+            }
         }
     }
 
     &--stacked-vertically {
         flex-direction: column;
 
-        .SessionRecordingPlayer__inspector {
+        .SessionRecordingPlayer__sidebar {
             min-width: 100%;
             max-width: 100%;
+            max-height: 60%;
         }
     }
 }

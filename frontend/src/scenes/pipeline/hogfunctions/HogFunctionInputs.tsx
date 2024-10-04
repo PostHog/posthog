@@ -47,7 +47,7 @@ function JsonConfigField(props: {
     autoFocus?: boolean
     value?: string
 }): JSX.Element {
-    const { exampleInvocationGlobalsWithInputs } = useValues(hogFunctionConfigurationLogic)
+    const { globalsWithInputs } = useValues(hogFunctionConfigurationLogic)
     return (
         <CodeEditorResizeable
             language="hogJson"
@@ -63,13 +63,13 @@ function JsonConfigField(props: {
                     verticalScrollbarSize: 0,
                 },
             }}
-            globals={exampleInvocationGlobalsWithInputs}
+            globals={globalsWithInputs}
         />
     )
 }
 
 function EmailTemplateField({ schema }: { schema: HogFunctionInputSchemaType }): JSX.Element {
-    const { exampleInvocationGlobalsWithInputs, logicProps } = useValues(hogFunctionConfigurationLogic)
+    const { globalsWithInputs, logicProps } = useValues(hogFunctionConfigurationLogic)
 
     return (
         <>
@@ -78,15 +78,15 @@ function EmailTemplateField({ schema }: { schema: HogFunctionInputSchemaType }):
                 formLogicProps={logicProps}
                 formKey="configuration"
                 formFieldsPrefix={`inputs.${schema.key}.value`}
-                globals={exampleInvocationGlobalsWithInputs}
+                globals={globalsWithInputs}
             />
         </>
     )
 }
 
 function HogFunctionTemplateInput(props: Omit<CodeEditorInlineProps, 'globals'>): JSX.Element {
-    const { exampleInvocationGlobalsWithInputs } = useValues(hogFunctionConfigurationLogic)
-    return <CodeEditorInline {...props} globals={exampleInvocationGlobalsWithInputs} />
+    const { globalsWithInputs } = useValues(hogFunctionConfigurationLogic)
+    return <CodeEditorInline {...props} globals={globalsWithInputs} />
 }
 
 function DictionaryField({ onChange, value }: { onChange?: (value: any) => void; value: any }): JSX.Element {

@@ -188,6 +188,7 @@ export enum ProductKey {
     INTEGRATIONS = 'integrations',
     PLATFORM_AND_SUPPORT = 'platform_and_support',
     TEAMS = 'teams',
+    WEB_ANALYTICS = 'web_analytics',
 }
 
 type ProductKeyUnion = `${ProductKey}`
@@ -349,6 +350,7 @@ export interface OrganizationType extends OrganizationBasicType {
     updated_at: string
     plugins_access_level: PluginsAccessLevel
     teams: TeamBasicType[]
+    projects: ProjectBasicType[]
     available_product_features: BillingFeatureType[]
     is_member_join_email_enabled: boolean
     customer_id: string | null
@@ -375,6 +377,7 @@ export interface OrganizationDomainType {
 export interface BaseMemberType {
     id: string
     user: UserBasicType
+    last_login: string | null
     joined_at: string
     updated_at: string
     is_2fa_enabled: boolean
@@ -440,10 +443,17 @@ export interface PropertyUsageType {
     volume: number
 }
 
+export interface ProjectBasicType {
+    id: number
+    organization_id: string
+    name: string
+}
+
 export interface TeamBasicType {
     id: number
     uuid: string
     organization: string // Organization ID
+    project_id: number
     api_token: string
     name: string
     completed_snippet_onboarding: boolean
@@ -469,12 +479,10 @@ export interface SessionRecordingAIConfig {
     important_user_properties: string[]
 }
 
-export interface ProjectType {
-    id: number
-    name: string
-    organization_id: string
+export interface ProjectType extends ProjectBasicType {
     created_at: string
 }
+
 export interface TeamType extends TeamBasicType {
     created_at: string
     updated_at: string
@@ -589,7 +597,7 @@ export interface ElementType {
     text?: string
 }
 
-export type ToolbarUserIntent = 'add-action' | 'edit-action' | 'heatmaps'
+export type ToolbarUserIntent = 'add-action' | 'edit-action' | 'heatmaps' | 'add-experiment' | 'edit-experiment'
 export type ToolbarSource = 'url' | 'localstorage'
 export type ToolbarVersion = 'toolbar'
 
@@ -640,6 +648,8 @@ export enum PropertyOperator {
     NotBetween = 'not_between',
     Minimum = 'min',
     Maximum = 'max',
+    In = 'in',
+    NotIn = 'not_in',
 }
 
 export enum SavedInsightsTabs {
@@ -647,6 +657,7 @@ export enum SavedInsightsTabs {
     Yours = 'yours',
     Favorites = 'favorites',
     History = 'history',
+    Alerts = 'alerts',
 }
 
 export enum ReplayTabs {
@@ -770,6 +781,8 @@ export interface CohortPropertyFilter extends BasePropertyFilter {
     key: 'id'
     /**  @asType integer */
     value: number
+    /** @default 'in' */
+    operator: PropertyOperator
 }
 
 export interface GroupPropertyFilter extends BasePropertyFilter {
@@ -942,6 +955,17 @@ export enum SessionRecordingUsageType {
     VIEWED = 'viewed',
     ANALYZED = 'analyzed',
     LOADED = 'loaded',
+}
+
+export enum SessionRecordingSidebarTab {
+    OVERVIEW = 'overview',
+    INSPECTOR = 'inspector',
+    DEBUGGER = 'debugger',
+}
+
+export enum SessionRecordingSidebarStacking {
+    Vertical = 'vertical',
+    Horizontal = 'horizontal',
 }
 
 export enum SessionRecordingPlayerTab {
@@ -1375,6 +1399,17 @@ export interface SessionRecordingType {
     storage?: 'object_storage_lts' | 'object_storage'
     summary?: string
     snapshot_source: 'web' | 'mobile' | 'unknown'
+    /** whether we have received data for this recording in the last 5 minutes
+     * (assumes the recording was loaded from ClickHouse)
+     * **/
+    ongoing?: boolean
+}
+
+export interface SessionRecordingUpdateType {
+    viewed?: boolean
+    analyzed?: boolean
+    player_metadata?: Record<string, any> | null
+    durations?: Record<string, any> | null
 }
 
 export interface SessionRecordingPropertiesType {
@@ -1499,6 +1534,9 @@ export interface PerformanceEvent {
     request_body?: Body
     response_body?: Body
     method?: string
+    // normally, can rely on performance event values like duration,
+    // but they may be absent in which case the SDK may have sent start and end time
+    end_time?: number
 
     //rrweb/network@1 - i.e. not in ClickHouse table
     is_initial?: boolean
@@ -1528,6 +1566,7 @@ export type BillingFeatureType = {
         dark: string
     } | null
     icon_key?: string | null
+    entitlement_only?: boolean
     type?: 'primary' | 'secondary' | null
 }
 
@@ -1781,6 +1820,11 @@ export interface DashboardType<T = InsightModel> extends DashboardBasicType {
     filters: DashboardFilter
 }
 
+export enum TemplateAvailabilityContext {
+    GENERAL = 'general',
+    ONBOARDING = 'onboarding',
+}
+
 export interface DashboardTemplateType<T = InsightModel> {
     id: string
     team_id?: number
@@ -1793,6 +1837,7 @@ export interface DashboardTemplateType<T = InsightModel> {
     tags?: string[]
     image_url?: string
     scope?: DashboardTemplateScope
+    availability_contexts?: TemplateAvailabilityContext[]
 }
 
 export interface MonacoMarker {
@@ -1809,7 +1854,7 @@ export interface DashboardTemplateVariableType {
     name: string
     description: string
     type: 'event'
-    default: Record<string, JsonType>
+    default: TemplateVariableStep
     required: boolean
     touched?: boolean
     selector?: string
@@ -2147,14 +2192,18 @@ export interface FilterType {
 }
 
 export interface TemplateVariableStep {
-    id: string
-    math: BaseMathType
-    name: string | null
-    order: number
-    type: EntityTypes
+    id?: string
+    math?: BaseMathType
+    name?: string | null
+    order?: number
+    type?: EntityTypes
+    event?: string
     selector?: string | null
     href?: string | null
     url?: string | null
+    properties?: Record<string, any>[]
+    custom_name?: string
+    custom_event?: boolean
 }
 
 export interface PropertiesTimelineFilterType {
@@ -2287,10 +2336,10 @@ export interface RetentionFilterType extends FilterType {
     returning_entity?: RetentionEntity
     target_entity?: RetentionEntity
     period?: RetentionPeriod
+    cumulative?: boolean
 
     //frontend only
     show_mean?: boolean
-    cumulative?: boolean
 }
 export interface LifecycleFilterType extends FilterType {
     /** @deprecated */
@@ -2604,6 +2653,9 @@ export interface InsightLogicProps<T = InsightVizNode> {
 
     /** Used to group DataNodes into a collection for group operations like refreshAll **/
     dataNodeCollectionId?: string
+
+    /** Dashboard filters to override the ones in the query */
+    filtersOverride?: DashboardFilter | null
 }
 
 export interface SetInsightOptions {
@@ -2694,6 +2746,7 @@ export interface SurveyAppearance {
     thankYouMessageCloseButtonText?: string
     autoDisappear?: boolean
     position?: string
+    zIndex?: string
     shuffleQuestions?: boolean
     surveyPopupDelaySeconds?: number
     // widget only
@@ -3086,6 +3139,7 @@ export enum PropertyType {
     Boolean = 'Boolean',
     Duration = 'Duration',
     Selector = 'Selector',
+    Cohort = 'Cohort',
 }
 
 export enum PropertyDefinitionType {
@@ -3354,6 +3408,8 @@ interface LinkBreadcrumb extends BreadcrumbBase {
     symbol?: never
     /** Path to link to. */
     path?: string
+    /** Extra tag shown next to name. */
+    tag?: string | null
     onRename?: never
 }
 interface RenamableBreadcrumb extends BreadcrumbBase {
@@ -3586,7 +3642,7 @@ export enum EventDefinitionType {
     EventPostHog = 'event_posthog',
 }
 
-export type IntegrationKind = 'slack' | 'salesforce' | 'hubspot' | 'google-pubsub'
+export type IntegrationKind = 'slack' | 'salesforce' | 'hubspot' | 'google-pubsub' | 'google-cloud-storage'
 
 export interface IntegrationType {
     id: number
@@ -3861,6 +3917,8 @@ export interface DataWarehouseSavedQuery {
     name: string
     query: HogQLQuery
     columns: DatabaseSchemaField[]
+    last_run_at?: string
+    status?: string
 }
 
 export interface DataWarehouseViewLink {
@@ -3889,6 +3947,7 @@ export const externalDataSources = [
     'Snowflake',
     'Salesforce',
     'Vitally',
+    'BigQuery',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
@@ -4273,11 +4332,20 @@ export interface SourceFieldSwitchGroupConfig {
     fields: SourceFieldConfig[]
 }
 
+export interface SourceFieldFileUploadConfig {
+    type: 'file-upload'
+    name: string
+    label: string
+    fileFormat: string
+    required: boolean
+}
+
 export type SourceFieldConfig =
     | SourceFieldInputConfig
     | SourceFieldSwitchGroupConfig
     | SourceFieldSelectConfig
     | SourceFieldOauthConfig
+    | SourceFieldFileUploadConfig
 
 export interface SourceConfig {
     name: ExternalDataSourceType
@@ -4322,6 +4390,7 @@ export type AvailableOnboardingProducts = Pick<
     | ProductKey.FEATURE_FLAGS
     | ProductKey.SURVEYS
     | ProductKey.DATA_WAREHOUSE
+    | ProductKey.WEB_ANALYTICS
 >
 
 export type OnboardingProduct = {
@@ -4469,17 +4538,18 @@ export type HogFunctionInvocationGlobals = {
     }
     event: {
         uuid: string
-        name: string
+        event: string
+        elements_chain: string
         distinct_id: string
         properties: Record<string, any>
         timestamp: string
         url: string
     }
     person?: {
-        uuid: string
+        id: string
+        properties: Record<string, any>
         name: string
         url: string
-        properties: Record<string, any>
     }
     groups?: Record<
         string,

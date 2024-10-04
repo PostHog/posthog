@@ -42,3 +42,24 @@ def insight_funnels_use_udf(team: Team) -> bool:
         only_evaluate_locally=False,
         send_feature_flag_events=False,
     )
+
+
+def insight_funnels_use_udf_trends(team: Team) -> bool:
+    return posthoganalytics.feature_enabled(
+        "insight-funnels-use-udf-trends",
+        str(team.uuid),
+        groups={
+            "organization": str(team.organization_id),
+            "project": str(team.id),
+        },
+        group_properties={
+            "organization": {
+                "id": str(team.organization_id),
+            },
+            "project": {
+                "id": str(team.id),
+            },
+        },
+        only_evaluate_locally=False,
+        send_feature_flag_events=False,
+    )

@@ -59,7 +59,7 @@ impl Janitor {
         Ok(poison.len() as u64)
     }
 
-    pub async fn waiting_jobs(&self) -> Result<u64, QueueError> {
+    pub async fn waiting_jobs(&self) -> Result<Vec<(u64, String)>, QueueError> {
         count_total_waiting_jobs(&self.pool).await
     }
 

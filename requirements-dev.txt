@@ -123,7 +123,7 @@ inflect==5.6.2
     # via datamodel-code-generator
 iniconfig==1.1.1
     # via pytest
-inline-snapshot==0.10.2
+inline-snapshot==0.12.1
     # via -r requirements-dev.in
 isort==5.2.2
     # via datamodel-code-generator
@@ -350,6 +350,7 @@ typing-extensions==4.12.2
     #   django-stubs
     #   django-stubs-ext
     #   djangorestframework-stubs
+    #   inline-snapshot
     #   mypy
     #   mypy-boto3-s3
     #   pydantic

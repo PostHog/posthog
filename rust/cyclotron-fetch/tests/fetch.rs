@@ -25,7 +25,7 @@ pub async fn test_run_migrations(db: PgPool) {
 pub async fn test_completes_fetch(db: PgPool) {
     let context = Arc::new(get_app_test_context(db.clone()).await);
     let producer = QueueManager::from_pool(db.clone());
-    let return_worker = Worker::from_pool(db.clone());
+    let return_worker = Worker::from_pool(db.clone(), Default::default());
     let server = MockServer::start();
 
     let mock = server.mock(|when, then| {
@@ -62,7 +62,7 @@ pub async fn test_completes_fetch(db: PgPool) {
 pub async fn test_returns_failure_after_retries(db: PgPool) {
     let context = Arc::new(get_app_test_context(db.clone()).await);
     let producer = QueueManager::from_pool(db.clone());
-    let return_worker = Worker::from_pool(db.clone());
+    let return_worker = Worker::from_pool(db.clone(), Default::default());
     let server = MockServer::start();
 
     let mock = server.mock(|when, then| {
@@ -106,7 +106,7 @@ pub async fn test_returns_failure_after_retries(db: PgPool) {
 pub fn fetch_discards_bad_metadata(db: PgPool) {
     let context = Arc::new(get_app_test_context(db.clone()).await);
     let producer = QueueManager::from_pool(db.clone());
-    let return_worker = Worker::from_pool(db.clone());
+    let return_worker = Worker::from_pool(db.clone(), Default::default());
     let server = MockServer::start();
 
     let mock = server.mock(|when, then| {
@@ -144,7 +144,7 @@ pub fn fetch_discards_bad_metadata(db: PgPool) {
 pub fn fetch_with_minimum_params_works(db: PgPool) {
     let context = Arc::new(get_app_test_context(db.clone()).await);
     let producer = QueueManager::from_pool(db.clone());
-    let return_worker = Worker::from_pool(db.clone());
+    let return_worker = Worker::from_pool(db.clone(), Default::default());
     let server = MockServer::start();
 
     let mock = server.mock(|when, then| {
@@ -192,7 +192,7 @@ pub fn fetch_with_minimum_params_works(db: PgPool) {
 pub async fn test_completes_fetch_with_headers(db: PgPool) {
     let context = Arc::new(get_app_test_context(db.clone()).await);
     let producer = QueueManager::from_pool(db.clone());
-    let return_worker = Worker::from_pool(db.clone());
+    let return_worker = Worker::from_pool(db.clone(), Default::default());
     let server = MockServer::start();
 
     let mock = server.mock(|when, then| {
@@ -235,7 +235,7 @@ pub async fn test_completes_fetch_with_headers(db: PgPool) {
 pub async fn test_completes_fetch_with_body(db: PgPool) {
     let context = Arc::new(get_app_test_context(db.clone()).await);
     let producer = QueueManager::from_pool(db.clone());
-    let return_worker = Worker::from_pool(db.clone());
+    let return_worker = Worker::from_pool(db.clone(), Default::default());
     let server = MockServer::start();
 
     let mock = server.mock(|when, then| {
@@ -273,7 +273,7 @@ pub async fn test_completes_fetch_with_body(db: PgPool) {
 pub async fn test_completes_fetch_with_vm_state(db: PgPool) {
     let context = Arc::new(get_app_test_context(db.clone()).await);
     let producer = QueueManager::from_pool(db.clone());
-    let return_worker = Worker::from_pool(db.clone());
+    let return_worker = Worker::from_pool(db.clone(), Default::default());
     let server = MockServer::start();
 
     let mock = server.mock(|when, then| {

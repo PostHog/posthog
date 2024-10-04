@@ -10,7 +10,7 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { capitalizeFirstLetter } from 'lib/utils'
+import { capitalizeFirstLetter, humanFriendlyCurrency } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { useRef } from 'react'
 import { getProductIcon } from 'scenes/products/Products'
@@ -258,14 +258,13 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                     >
                                                         <div className="flex flex-col items-center">
                                                             <div className="font-bold text-3xl leading-7">
-                                                                $
-                                                                {(
+                                                                {humanFriendlyCurrency(
                                                                     parseFloat(product.current_amount_usd || '0') *
-                                                                    (1 -
-                                                                        (billing?.discount_percent
-                                                                            ? billing.discount_percent / 100
-                                                                            : 0))
-                                                                ).toFixed(2) || '0.00'}
+                                                                        (1 -
+                                                                            (billing?.discount_percent
+                                                                                ? billing.discount_percent / 100
+                                                                                : 0))
+                                                                )}
                                                             </div>
                                                             <span className="text-xs text-muted">
                                                                 {capitalizeFirstLetter(
@@ -285,16 +284,15 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                         >
                                                             <div className="flex flex-col items-center justify-end">
                                                                 <div className="font-bold text-muted text-lg leading-5">
-                                                                    $
-                                                                    {(
+                                                                    {humanFriendlyCurrency(
                                                                         parseFloat(
                                                                             product.projected_amount_usd || '0'
                                                                         ) *
-                                                                        (1 -
-                                                                            (billing?.discount_percent
-                                                                                ? billing.discount_percent / 100
-                                                                                : 0))
-                                                                    ).toFixed(2) || '0.00'}
+                                                                            (1 -
+                                                                                (billing?.discount_percent
+                                                                                    ? billing.discount_percent / 100
+                                                                                    : 0))
+                                                                    )}
                                                                 </div>
                                                                 <span className="text-xs text-muted">Projected</span>
                                                             </div>
@@ -310,7 +308,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                             >
                                                 <div className="flex flex-col items-center">
                                                     <div className="font-bold text-3xl leading-7">
-                                                        ${product.current_amount_usd}
+                                                        {humanFriendlyCurrency(product.current_amount_usd)}
                                                     </div>
                                                     <span className="text-xs text-muted">
                                                         per {billing?.billing_period?.interval || 'period'}

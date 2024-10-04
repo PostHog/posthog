@@ -36,6 +36,7 @@ describe('Insights', () => {
         })
 
         it('can duplicate from insight view', () => {
+            cy.wait(2000)
             cy.get('.TopBar3000 [data-attr="more-button"]').click()
             cy.get('[data-attr="duplicate-insight-from-insight-view"]').click()
             cy.get('[data-attr="top-bar-name"] .EditableField__display').should('contain', `${insightName} (copy)`)

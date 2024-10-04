@@ -66,6 +66,8 @@ export function ActionAttribute({
                             ? addAutomaticCreationIncludedPropertyKey(attribute)
                             : removeAutomaticCreationIncludedPropertyKey(attribute)
                     }
+                    sliderColorOverrideChecked="primary-3000-light"
+                    sliderColorOverrideUnchecked="muted-3000-light"
                 />
             )}
             <div className="text-muted text-xl">{icon}</div>

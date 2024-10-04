@@ -158,7 +158,7 @@ const cleanProperty = (property: Record<string, any>): AnyPropertyFilter => {
 }
 
 const isPropertyWithOperator = (property: Record<string, any>): boolean => {
-    return !['cohort', 'hogql'].includes(property['type'])
+    return !['hogql'].includes(property['type'])
 }
 
 // old style dict properties e.g. {"utm_medium__icontains": "email"}

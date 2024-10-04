@@ -56,6 +56,7 @@ from posthog.schema import (
 )
 from posthog.schema_helpers import to_dict, to_json
 from posthog.utils import generate_cache_key, get_from_dict_or_attr
+from posthog.hogql.modifiers import create_default_modifiers_for_user
 
 logger = structlog.get_logger(__name__)
 
@@ -363,10 +364,21 @@ def get_query_runner(
             limit_context=limit_context,
         )
 
-    if kind == "ExperimentResultQuery":
-        from .experiment_result_query_runner import ExperimentResultQueryRunner
+    if kind == "ExperimentFunnelQuery":
+        from .experiments.experiment_funnel_query_runner import ExperimentFunnelQueryRunner
 
-        return ExperimentResultQueryRunner(
+        return ExperimentFunnelQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
+
+    if kind == "ExperimentTrendQuery":
+        from .experiments.experiment_trend_query_runner import ExperimentTrendQueryRunner
+
+        return ExperimentTrendQueryRunner(
             query=query,
             team=team,
             timings=timings,
@@ -611,6 +623,13 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
         last_refresh = datetime.now(UTC)
         target_age = self.cache_target_age(last_refresh=last_refresh)
+
+        # Avoid affecting cache key
+        # Add user based modifiers here, primarily for user specific feature flagging
+        if user:
+            self.modifiers = create_default_modifiers_for_user(user, self.team, self.modifiers)
+            self.modifiers.useMaterializedViews = True
+
         fresh_response_dict = {
             **self.calculate().model_dump(),
             "is_cached": False,

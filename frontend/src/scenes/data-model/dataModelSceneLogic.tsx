@@ -12,10 +12,10 @@ import { Node } from './types'
 export const dataModelSceneLogic = kea<dataModelSceneLogicType>([
     path(['scenes', 'data-model', 'dataModelSceneLogic']),
     connect(() => ({
-        values: [databaseTableListLogic, ['posthogTablesMap', 'viewsMapById']],
+        values: [databaseTableListLogic, ['posthogTablesMap', 'viewsMapById', 'dataWarehouseTablesMapById']],
     })),
     actions({
-        traverseAncestors: (viewId: DataWarehouseSavedQuery['id']) => ({ viewId }),
+        traverseAncestors: (viewId: DataWarehouseSavedQuery['id'], level: number) => ({ viewId, level }),
         setNodes: (nodes: Record<string, Node>) => ({ nodes }),
     }),
     reducers({
@@ -27,18 +27,23 @@ export const dataModelSceneLogic = kea<dataModelSceneLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
-        traverseAncestors: async ({ viewId }) => {
-            const result = await api.dataWarehouseSavedQueries.ancestors(viewId)
+        traverseAncestors: async ({ viewId, level }) => {
+            const result = await api.dataWarehouseSavedQueries.ancestors(viewId, level)
 
             result.ancestors.forEach((ancestor) => {
                 actions.setNodes({
                     ...values.nodeMap,
                     [ancestor]: {
                         nodeId: ancestor,
-                        name: values.viewsMapById[ancestor]?.name || ancestor,
+                        name:
+                            values.viewsMapById[ancestor]?.name ||
+                            values.dataWarehouseTablesMapById[ancestor]?.name ||
+                            ancestor,
+                        savedQueryId: values.viewsMapById[ancestor]?.id,
                         leaf: [...(values.nodeMap[ancestor]?.leaf || []), viewId],
                     },
                 })
+                actions.traverseAncestors(ancestor, 1)
             })
         },
     })),
@@ -48,14 +53,14 @@ export const dataModelSceneLogic = kea<dataModelSceneLogicType>([
             (s) => [s.personFields],
             (personFields) =>
                 Object.entries(personFields)
-                    .filter(([_, data]) => data.type != 'view')
+                    .filter(([_, data]) => data.type != 'view' && !(data.type == 'lazy_table' && data.name !== 'pdi'))
                     .map(([column, data]) => ({ column, type: data.type })),
         ],
         joinedFields: [
             (s) => [s.personFields],
             (personFields) =>
                 Object.entries(personFields)
-                    .filter(([_, data]) => data.type == 'view')
+                    .filter(([_, data]) => data.type == 'view' || (data.type == 'lazy_table' && data.name !== 'pdi'))
                     .map(([_, data]) => data),
         ],
         joinedFieldsAsNodes: [
@@ -67,17 +72,7 @@ export const dataModelSceneLogic = kea<dataModelSceneLogicType>([
                     table: field.name,
                 })) || [],
         ],
-        allNodes: [
-            (s) => [s.nodeMap],
-            (nodeMap) => [
-                {
-                    nodeId: 'posthog',
-                    name: 'PostHog',
-                    leaf: ['schema'],
-                },
-                ...Object.values(nodeMap),
-            ],
-        ],
+        allNodes: [(s) => [s.nodeMap], (nodeMap) => [...Object.values(nodeMap)]],
     }),
     subscriptions(({ actions, values }) => ({
         joinedFields: (joinedFields) => {
@@ -86,11 +81,15 @@ export const dataModelSceneLogic = kea<dataModelSceneLogicType>([
                     ...values.nodeMap,
                     [field.id]: {
                         nodeId: field.id,
-                        name: values.viewsMapById[field.id]?.name || field.id,
-                        leaf: [field.name],
+                        name:
+                            values.viewsMapById[field.id]?.name ||
+                            values.dataWarehouseTablesMapById[field.id]?.name ||
+                            field.id,
+                        savedQueryId: values.viewsMapById[field.id]?.id,
+                        leaf: [`${field.name}_joined`],
                     },
                 })
-                actions.traverseAncestors(field.id)
+                field.id && actions.traverseAncestors(field.id, 1)
             })
         },
     })),

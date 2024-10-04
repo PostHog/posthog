@@ -40,7 +40,7 @@ const dateHighlight = (parsedDate: dayjs.Dayjs, interval: IntervalType): string 
     For example, a single date in a graph will be shown as: `Th` Apr 22.
 */
 export function DateDisplay({ date, secondaryDate, interval, hideWeekRange }: DateDisplayProps): JSX.Element {
-    const parsedDate = dayjs(date)
+    const parsedDate = dayjs.utc(date)
 
     return (
         <>

@@ -1,7 +1,7 @@
 use std::{num::ParseIntError, str::FromStr};
 
+use common_kafka::config::{ConsumerConfig, KafkaConfig};
 use envconfig::Envconfig;
-use rdkafka::ClientConfig;
 
 #[derive(Envconfig, Clone)]
 pub struct Config {
@@ -13,6 +13,9 @@ pub struct Config {
 
     #[envconfig(nested = true)]
     pub kafka: KafkaConfig,
+
+    #[envconfig(nested = true)]
+    pub consumer: ConsumerConfig,
 
     #[envconfig(default = "10")]
     pub max_concurrent_transactions: usize,
@@ -106,38 +109,6 @@ pub struct Config {
     pub filter_mode: TeamFilterMode,
 }
 
-#[derive(Envconfig, Clone)]
-pub struct KafkaConfig {
-    #[envconfig(default = "kafka:9092")]
-    pub kafka_hosts: String,
-    #[envconfig(default = "clickhouse_events_json")]
-    pub event_topic: String,
-    #[envconfig(default = "false")]
-    pub kafka_tls: bool,
-    #[envconfig(default = "false")]
-    pub verify_ssl_certificate: bool,
-    #[envconfig(default = "property-definitions-rs")]
-    pub consumer_group: String,
-}
-
-impl From<&KafkaConfig> for ClientConfig {
-    fn from(config: &KafkaConfig) -> Self {
-        let mut client_config = ClientConfig::new();
-        client_config
-            .set("bootstrap.servers", &config.kafka_hosts)
-            .set("statistics.interval.ms", "10000")
-            .set("group.id", config.consumer_group.clone());
-
-        if config.kafka_tls {
-            client_config.set("security.protocol", "ssl").set(
-                "enable.ssl.certificate.verification",
-                config.verify_ssl_certificate.to_string(),
-            );
-        };
-        client_config
-    }
-}
-
 #[derive(Clone)]
 pub struct TeamList {
     pub teams: Vec<i32>,
@@ -186,5 +157,12 @@ impl TeamFilterMode {
             TeamFilterMode::OptIn => list.contains(&team_id),
             TeamFilterMode::OptOut => !list.contains(&team_id),
         }
+    }
+}
+
+impl Config {
+    pub fn init_with_defaults() -> Result<Self, envconfig::Error> {
+        ConsumerConfig::set_defaults("property-defs-rs", "clickhouse_events_json");
+        Config::init_from_env()
     }
 }

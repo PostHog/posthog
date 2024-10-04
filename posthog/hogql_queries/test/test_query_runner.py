@@ -13,6 +13,7 @@ from posthog.schema import (
     HogQLQuery,
     HogQLQueryModifiers,
     MaterializationMode,
+    PersonsOnEventsMode,
     TestBasicQueryResponse,
     TestCachedBasicQueryResponse,
 )
@@ -93,7 +94,7 @@ class TestQueryRunner(BaseTest):
                     "materializationMode": "legacy_null_as_null",
                     "personsArgMaxVersion": "auto",
                     "optimizeJoinedFilters": False,
-                    "personsOnEventsMode": "disabled",
+                    "personsOnEventsMode": PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
                     "bounceRatePageViewMode": "count_pageviews",
                     "sessionTableVersion": "auto",
                 },
@@ -114,7 +115,7 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        self.assertEqual(cache_key, "cache_c4e20e19f3cad552478257f71f80b52f")
+        self.assertEqual(cache_key, "cache_93427f8f06e6cc8643a394ae002de2c1")
 
     def test_cache_key_runner_subclass(self):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -128,7 +129,7 @@ class TestQueryRunner(BaseTest):
         runner = TestSubclassQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        self.assertEqual(cache_key, "cache_db0fcd4797812983cbf9df57cd9f3032")
+        self.assertEqual(cache_key, "cache_bb6398a99867dfbdc45a2fc4fccb8f27")
 
     def test_cache_key_different_timezone(self):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -139,7 +140,7 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        self.assertEqual(cache_key, "cache_8c92e69a656cc68522e5b48a7304b97d")
+        self.assertEqual(cache_key, "cache_e0c2bb1ad091102533399ebdddbfb24d")
 
     @mock.patch("django.db.transaction.on_commit")
     def test_cache_response(self, mock_on_commit):

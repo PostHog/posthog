@@ -63,8 +63,9 @@ describe('Insights', () => {
         cy.url().should('match', /insights\/[\w\d]+\/edit/)
 
         cy.get('[data-attr="top-bar-name"] .EditableField__display').then(($pageTitle) => {
-            const pageTitle = $pageTitle.text()
+            cy.wait(2000)
 
+            const pageTitle = $pageTitle.text()
             cy.get('[data-attr="add-action-event-button"]').click()
             cy.get('[data-attr="trend-element-subject-1"]').click()
             cy.get('[data-attr="prop-filter-events-0"]').click()

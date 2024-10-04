@@ -39,7 +39,7 @@ describe('cleanGlobalProperties', () => {
 
         expect(result).toEqual({
             type: 'AND',
-            values: [{ type: 'AND', values: [{ key: 'id', type: 'cohort', value: 636 }] }],
+            values: [{ type: 'AND', values: [{ key: 'id', type: 'cohort', value: 636, operator: null }] }],
         })
     })
 
@@ -67,7 +67,7 @@ describe('cleanGlobalProperties', () => {
             values: [
                 {
                     type: 'AND',
-                    values: [{ key: 'id', type: 'cohort', value: 850 }],
+                    values: [{ key: 'id', type: 'cohort', value: 850, operator: null }],
                 },
             ],
         })

@@ -16,7 +16,7 @@ const FETCH_QUEUE: &str = "fetch";
 const RETURN_QUEUE: &str = "return";
 
 pub async fn get_app_test_context(db: PgPool) -> AppContext {
-    let worker = Worker::from_pool(db.clone());
+    let worker = Worker::from_pool(db.clone(), Default::default());
     let client = reqwest::Client::new();
     let concurrency_limit = Arc::new(Semaphore::new(1));
     let health = health::HealthRegistry::new("test");

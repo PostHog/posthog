@@ -6,6 +6,7 @@ import {
     KAFKA_EVENTS_JSON,
     KAFKA_EVENTS_PLUGIN_INGESTION,
     KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
+    KAFKA_EXCEPTION_SYMBOLIFICATION_EVENTS,
 } from './kafka-topics'
 
 export const DEFAULT_HTTP_SERVER_PORT = 6738
@@ -67,6 +68,8 @@ export function getDefaultConfig(): PluginsServerConfig {
         KAFKA_PRODUCER_BATCH_SIZE: 8 * 1024 * 1024, // rdkafka default is 1MiB
         KAFKA_PRODUCER_QUEUE_BUFFERING_MAX_MESSAGES: 100_000, // rdkafka default is 100_000
         REDIS_URL: 'redis://127.0.0.1',
+        INGESTION_REDIS_HOST: '',
+        INGESTION_REDIS_PORT: 6379,
         POSTHOG_REDIS_PASSWORD: '',
         POSTHOG_REDIS_HOST: '',
         POSTHOG_REDIS_PORT: 6379,
@@ -108,6 +111,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS_TEAMS: '',
         CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: KAFKA_EVENTS_JSON,
         CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: KAFKA_CLICKHOUSE_HEATMAP_EVENTS,
+        EXCEPTIONS_SYMBOLIFICATION_KAFKA_TOPIC: KAFKA_EXCEPTION_SYMBOLIFICATION_EVENTS,
         PERSON_INFO_CACHE_TTL: 5 * 60, // 5 min
         KAFKA_HEALTHCHECK_SECONDS: 20,
         OBJECT_STORAGE_ENABLED: true,
@@ -171,6 +175,9 @@ export function getDefaultConfig(): PluginsServerConfig {
         SESSION_RECORDING_OVERFLOW_MIN_PER_BATCH: 1_000_000, // All sessions consume at least 1MB/batch, to penalise poor batching
         SESSION_RECORDING_KAFKA_CONSUMPTION_STATISTICS_EVENT_INTERVAL_MS: 0, // 0 disables stats collection
         SESSION_RECORDING_KAFKA_FETCH_MIN_BYTES: 1_048_576, // 1MB
+
+        ENCRYPTION_SALT_KEYS: isDevEnv() || isTestEnv() ? '00beef0000beef0000beef0000beef00' : '',
+
         // CDP
         CDP_WATCHER_COST_ERROR: 100,
         CDP_WATCHER_COST_TIMING: 20,
@@ -184,6 +191,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         CDP_WATCHER_DISABLED_TEMPORARY_MAX_COUNT: 3,
         CDP_ASYNC_FUNCTIONS_RUSTY_HOOK_TEAMS: '',
         CDP_CYCLOTRON_ENABLED_TEAMS: '',
+        CDP_HOG_FILTERS_TELEMETRY_TEAMS: '',
         CDP_REDIS_PASSWORD: '',
         CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP: true,
         CDP_REDIS_HOST: '',
@@ -197,17 +205,8 @@ export function getDefaultConfig(): PluginsServerConfig {
             : isDevEnv()
             ? 'postgres://posthog:posthog@localhost:5432/cyclotron'
             : '',
-    }
-}
 
-export const sessionRecordingConsumerConfig = (config: PluginsServerConfig): PluginsServerConfig => {
-    // When running the blob consumer we override a bunch of settings to use the session recording ones if available
-    return {
-        ...config,
-        KAFKA_HOSTS: config.SESSION_RECORDING_KAFKA_HOSTS || config.KAFKA_HOSTS,
-        KAFKA_SECURITY_PROTOCOL: config.SESSION_RECORDING_KAFKA_SECURITY_PROTOCOL || config.KAFKA_SECURITY_PROTOCOL,
-        POSTHOG_REDIS_HOST: config.POSTHOG_SESSION_RECORDING_REDIS_HOST || config.POSTHOG_REDIS_HOST,
-        POSTHOG_REDIS_PORT: config.POSTHOG_SESSION_RECORDING_REDIS_PORT || config.POSTHOG_REDIS_PORT,
+        CYCLOTRON_SHARD_DEPTH_LIMIT: 1000000,
     }
 }
 

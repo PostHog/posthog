@@ -455,6 +455,35 @@ external_tables: dict[str, dict[str, DatabaseField]] = {
         ),
         "cancel_at_period_end": BooleanDatabaseField(name="cancel_at_period_end"),
         "cancellation_details": StringJSONDatabaseField(name="cancellation_details"),
+        "__trial_end": IntegerDatabaseField(name="trial_end", hidden=True),
+        "trial_end": ast.ExpressionField(
+            isolate_scope=True,
+            expr=ast.Call(
+                name="toDateTime",
+                args=[
+                    ast.Call(
+                        name="toString",
+                        args=[ast.Call(name="fromUnixTimestamp", args=[ast.Field(chain=["__trial_end"])])],
+                    )
+                ],
+            ),
+            name="trial_end",
+        ),
+        "__trial_start": IntegerDatabaseField(name="trial_start", hidden=True),
+        "trial_start": ast.ExpressionField(
+            isolate_scope=True,
+            expr=ast.Call(
+                name="toDateTime",
+                args=[
+                    ast.Call(
+                        name="toString",
+                        args=[ast.Call(name="fromUnixTimestamp", args=[ast.Field(chain=["__trial_start"])])],
+                    )
+                ],
+            ),
+            name="trial_start",
+        ),
+        "trial_settings": StringJSONDatabaseField(name="trial_settings"),
     },
     "stripe_balancetransaction": {
         "id": StringDatabaseField(name="id"),

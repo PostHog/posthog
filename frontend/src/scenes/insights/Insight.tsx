@@ -1,7 +1,10 @@
+import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { DebugCHQueries } from 'lib/components/CommandPalette/DebugCHQueries'
+import { isObject } from 'lib/utils'
 import { InsightPageHeader } from 'scenes/insights/InsightPageHeader'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
+import { urls } from 'scenes/urls'
 
 import { Query } from '~/queries/Query/Query'
 import { Node } from '~/queries/schema'
@@ -18,12 +21,14 @@ export interface InsightSceneProps {
 
 export function Insight({ insightId }: InsightSceneProps): JSX.Element {
     // insightSceneLogic
-    const { insightMode, insight } = useValues(insightSceneLogic)
+    const { insightMode, insight, filtersOverride } = useValues(insightSceneLogic)
 
     // insightLogic
     const logic = insightLogic({
         dashboardItemId: insightId || 'new',
-        cachedInsight: insight?.short_id === insightId ? insight : null,
+        // don't use cached insight if we have filtersOverride
+        cachedInsight: isObject(filtersOverride) && insight?.short_id === insightId ? insight : null,
+        filtersOverride,
     })
     const { insightProps } = useValues(logic)
 
@@ -47,6 +52,18 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element {
             <div className="Insight">
                 <InsightPageHeader insightLogicProps={insightProps} />
 
+                {isObject(filtersOverride) && (
+                    <LemonBanner type="warning" className="mb-4">
+                        <div className="flex flex-row items-center justify-between gap-2">
+                            <span>You are viewing this insight with filters from a dashboard</span>
+
+                            <LemonButton type="secondary" to={urls.insightView(insightId as InsightShortId)}>
+                                Discard dashboard filters
+                            </LemonButton>
+                        </div>
+                    </LemonBanner>
+                )}
+
                 {insightMode === ItemMode.Edit && <InsightsNav />}
 
                 {showDebugPanel && (
@@ -65,6 +82,7 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element {
                         showQueryHelp: insightMode === ItemMode.Edit && !containsHogQLQuery(query),
                         insightProps,
                     }}
+                    filtersOverride={filtersOverride}
                 />
             </div>
         </BindLogic>

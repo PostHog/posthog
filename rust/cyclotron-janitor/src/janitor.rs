@@ -135,7 +135,13 @@ impl Janitor {
             let _time = common_metrics::timing_guard(AVAILABLE_DEPTH_TIME, &self.metrics_labels);
             self.inner.waiting_jobs().await?
         };
-        common_metrics::gauge(AVAILABLE_DEPTH, &self.metrics_labels, available as f64);
+
+        let mut available_labels = self.metrics_labels.clone();
+        for (count, queue_name) in available {
+            available_labels.push(("queue_name".to_string(), queue_name));
+            common_metrics::gauge(AVAILABLE_DEPTH, &available_labels, count as f64);
+            available_labels.pop();
+        }
 
         let dlq_depth = {
             let _time = common_metrics::timing_guard(DLQ_DEPTH_TIME, &self.metrics_labels);

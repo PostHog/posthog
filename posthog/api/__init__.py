@@ -34,7 +34,9 @@ from . import (
     feature_flag,
     hog_function,
     hog_function_template,
+    hog,
     ingestion_warnings,
+    insight_variable,
     instance_settings,
     instance_status,
     integration,
@@ -85,6 +87,7 @@ router.register(r"feature_flag", feature_flag.LegacyFeatureFlagViewSet)  # Used 
 
 # Nested endpoints shared
 projects_router = router.register(r"projects", project.RootProjectViewSet, "projects")
+projects_router.register(r"environments", team.TeamViewSet, "project_environments", ["project_id"])
 environments_router = router.register(r"environments", team.RootTeamViewSet, "environments")
 
 
@@ -368,12 +371,11 @@ router.register(r"dead_letter_queue", dead_letter_queue.DeadLetterQueueViewSet, 
 router.register(r"async_migrations", async_migration.AsyncMigrationsViewset, "async_migrations")
 router.register(r"instance_settings", instance_settings.InstanceSettingsViewset, "instance_settings")
 router.register(r"kafka_inspector", kafka_inspector.KafkaInspectorViewSet, "kafka_inspector")
-
 router.register("debug_ch_queries/", debug_ch_queries.DebugCHQueries, "debug_ch_queries")
-
 
 from posthog.api.action import ActionViewSet  # noqa: E402
 from posthog.api.cohort import CohortViewSet, LegacyCohortViewSet  # noqa: E402
+from posthog.api.web_experiment import WebExperimentViewSet  # noqa: E402
 from posthog.api.element import ElementViewSet, LegacyElementViewSet  # noqa: E402
 from posthog.api.event import EventViewSet, LegacyEventViewSet  # noqa: E402
 from posthog.api.insight import InsightViewSet  # noqa: E402
@@ -388,6 +390,7 @@ router.register(r"event", LegacyEventViewSet, basename="event")
 # Nested endpoints CH
 register_grandfathered_environment_nested_viewset(r"events", EventViewSet, "environment_events", ["team_id"])
 projects_router.register(r"actions", ActionViewSet, "project_actions", ["project_id"])
+projects_router.register(r"web_experiments", WebExperimentViewSet, "web_experiments", ["project_id"])
 projects_router.register(r"cohorts", CohortViewSet, "project_cohorts", ["project_id"])
 register_grandfathered_environment_nested_viewset(
     r"elements",
@@ -449,13 +452,6 @@ project_insights_router.register(
     ["team_id", "insight_id"],
 )
 
-project_insights_router.register(
-    "alerts",
-    alert.AlertViewSet,
-    "project_insight_alerts",
-    ["team_id", "insight_id"],
-)
-
 environment_sessions_recordings_router.register(
     r"sharing",
     sharing.SharingConfigurationViewSet,
@@ -499,9 +495,23 @@ register_grandfathered_environment_nested_viewset(
 
 projects_router.register(
     r"hog_function_templates",
-    hog_function_template.HogFunctionTemplateViewSet,
+    hog_function_template.PublicHogFunctionTemplateViewSet,
     "project_hog_function_templates",
     ["project_id"],
+)
+
+projects_router.register(
+    r"hog",
+    hog.HogViewSet,
+    "hog",
+    ["team_id"],
+)
+
+projects_router.register(
+    r"insight_variables",
+    insight_variable.InsightVariableViewSet,
+    "insight_variables",
+    ["team_id"],
 )
 
 register_grandfathered_environment_nested_viewset(

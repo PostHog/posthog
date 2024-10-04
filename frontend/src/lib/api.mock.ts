@@ -38,6 +38,7 @@ export const api = apiReal as any as APIMockReturnType
 
 export const MOCK_DEFAULT_TEAM: TeamType = {
     id: MOCK_TEAM_ID,
+    project_id: MOCK_TEAM_ID,
     uuid: MOCK_TEAM_UUID,
     organization: MOCK_ORGANIZATION_ID,
     api_token: 'default-team-api-token',
@@ -74,7 +75,7 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     session_recording_sample_rate: '1.0',
     session_recording_minimum_duration_milliseconds: null,
     session_recording_linked_flag: null,
-    session_recording_network_payload_capture_config: null,
+    session_recording_network_payload_capture_config: { recordHeaders: true, recordBody: true },
     session_replay_config: null,
     capture_console_log_opt_in: true,
     capture_performance_opt_in: true,
@@ -109,6 +110,7 @@ export const MOCK_DEFAULT_ORGANIZATION: OrganizationType = {
     plugins_access_level: PluginsAccessLevel.Root,
     enforce_2fa: false,
     teams: [MOCK_DEFAULT_TEAM],
+    projects: [MOCK_DEFAULT_PROJECT],
     is_member_join_email_enabled: true,
     metadata: {},
     available_product_features: [],
@@ -163,6 +165,7 @@ export const MOCK_DEFAULT_ORGANIZATION_MEMBER: OrganizationMemberType = {
     updated_at: '2020-09-24T15:05:26.758837Z',
     is_2fa_enabled: false,
     has_social_auth: false,
+    last_login: '2020-09-24T15:05:26.758796Z',
 }
 
 export const MOCK_SECOND_BASIC_USER: UserBasicType = {
@@ -181,6 +184,7 @@ export const MOCK_SECOND_ORGANIZATION_MEMBER: OrganizationMemberType = {
     updated_at: '2021-03-11T19:11:11Z',
     is_2fa_enabled: false,
     has_social_auth: false,
+    last_login: '2020-09-24T15:05:26.758796Z',
 }
 
 export const MOCK_DEFAULT_ORGANIZATION_INVITE: OrganizationInviteType = {

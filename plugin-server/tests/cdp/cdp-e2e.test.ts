@@ -82,7 +82,7 @@ describe('CDP E2E', () => {
                 } as any,
                 event: {
                     uuid: 'b3a1fe86-b10c-43cc-acaf-d208977608d0',
-                    name: '$pageview',
+                    event: '$pageview',
                     properties: {
                         $current_url: 'https://posthog.com',
                         $lib_version: '1.0.0',
@@ -122,7 +122,7 @@ describe('CDP E2E', () => {
             expect(invocations).toHaveLength(1)
 
             await waitForExpect(() => {
-                expect(kafkaObserver.messages).toHaveLength(6)
+                expect(kafkaObserver.messages).toHaveLength(7)
             }, 5000)
 
             expect(mockFetch).toHaveBeenCalledTimes(1)
@@ -131,7 +131,7 @@ describe('CDP E2E', () => {
                 Array [
                   "https://example.com/posthog-webhook",
                   Object {
-                    "body": "{\\"event\\":{\\"uuid\\":\\"b3a1fe86-b10c-43cc-acaf-d208977608d0\\",\\"name\\":\\"$pageview\\",\\"distinct_id\\":\\"distinct_id\\",\\"url\\":\\"http://localhost:8000/events/1\\",\\"properties\\":{\\"$current_url\\":\\"https://posthog.com\\",\\"$lib_version\\":\\"1.0.0\\"},\\"timestamp\\":\\"2024-09-03T09:00:00Z\\"},\\"groups\\":{},\\"nested\\":{\\"foo\\":\\"http://localhost:8000/events/1\\"},\\"person\\":{\\"uuid\\":\\"uuid\\",\\"name\\":\\"test\\",\\"url\\":\\"http://localhost:8000/persons/1\\",\\"properties\\":{\\"email\\":\\"test@posthog.com\\"}},\\"event_url\\":\\"http://localhost:8000/events/1-test\\"}",
+                    "body": "{\\"event\\":{\\"uuid\\":\\"b3a1fe86-b10c-43cc-acaf-d208977608d0\\",\\"event\\":\\"$pageview\\",\\"elements_chain\\":\\"\\",\\"distinct_id\\":\\"distinct_id\\",\\"url\\":\\"http://localhost:8000/events/1\\",\\"properties\\":{\\"$current_url\\":\\"https://posthog.com\\",\\"$lib_version\\":\\"1.0.0\\"},\\"timestamp\\":\\"2024-09-03T09:00:00Z\\"},\\"groups\\":{},\\"nested\\":{\\"foo\\":\\"http://localhost:8000/events/1\\"},\\"person\\":{\\"id\\":\\"uuid\\",\\"name\\":\\"test\\",\\"url\\":\\"http://localhost:8000/persons/1\\",\\"properties\\":{\\"email\\":\\"test@posthog.com\\"}},\\"event_url\\":\\"http://localhost:8000/events/1-test\\"}",
                     "headers": Object {
                       "version": "v=1.0.0",
                     },
@@ -145,6 +145,17 @@ describe('CDP E2E', () => {
             const metricsMessages = kafkaObserver.messages.filter((m) => m.topic === KAFKA_APP_METRICS_2)
 
             expect(metricsMessages).toMatchObject([
+                {
+                    topic: 'clickhouse_app_metrics2_test',
+                    value: {
+                        app_source: 'hog_function',
+                        app_source_id: fnFetchNoFilters.id.toString(),
+                        count: 1,
+                        metric_kind: 'other',
+                        metric_name: 'fetch',
+                        team_id: 2,
+                    },
+                },
                 {
                     topic: 'clickhouse_app_metrics2_test',
                     value: {

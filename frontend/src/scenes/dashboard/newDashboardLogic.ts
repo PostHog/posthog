@@ -41,7 +41,7 @@ export function applyTemplate(obj: DashboardTile | JsonType, variables: Dashboar
             const variableId = obj.substring(1, obj.length - 1)
             const variable = variables.find((variable) => variable.id === variableId)
             if (variable && variable.default) {
-                return variable.default
+                return variable.default as JsonType
             }
             return obj
         }
@@ -79,11 +79,13 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
         createDashboardFromTemplate: (
             template: DashboardTemplateType,
             variables: DashboardTemplateVariableType[],
-            redirectAfterCreation?: boolean
+            redirectAfterCreation?: boolean,
+            creationContext: string | null = null
         ) => ({
             template,
             variables,
             redirectAfterCreation,
+            creationContext,
         }),
         submitNewDashboardSuccessWithResult: (result: DashboardType, variables?: DashboardTemplateVariableType[]) => ({
             result,
@@ -178,7 +180,12 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
             actions.clearActiveDashboardTemplate()
             actions.resetNewDashboard()
         },
-        createDashboardFromTemplate: async ({ template, variables, redirectAfterCreation = true }) => {
+        createDashboardFromTemplate: async ({
+            template,
+            variables,
+            redirectAfterCreation = true,
+            creationContext = null,
+        }) => {
             actions.setIsLoading(true)
             const tiles = makeTilesUsingVariables(template.tiles, variables)
             const dashboardJSON = {
@@ -189,7 +196,7 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
             try {
                 const result: DashboardType = await api.create(
                     `api/projects/${teamLogic.values.currentTeamId}/dashboards/create_from_template_json`,
-                    { template: dashboardJSON }
+                    { template: dashboardJSON, creation_context: creationContext }
                 )
                 actions.hideNewDashboardModal()
                 actions.resetNewDashboard()

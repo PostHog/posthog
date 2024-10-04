@@ -1,11 +1,13 @@
 use std::future::Future;
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::time::Duration;
 
+use health::{HealthHandle, HealthRegistry};
 use tokio::net::TcpListener;
 
 use crate::config::Config;
-use crate::database::PgClient;
+use crate::database::get_pool;
 use crate::geoip::GeoIpClient;
 use crate::redis::RedisClient;
 use crate::router;
@@ -22,13 +24,27 @@ where
         }
     };
 
-    let read_postgres_client = match PgClient::new_read_client(&config).await {
+    // TODO - we should have a dedicated URL for both this and the writer – the reader will read
+    // from the replica, and the writer will write to the main database.
+    let postgres_reader = match get_pool(&config.read_database_url, config.max_pg_connections).await
+    {
         Ok(client) => Arc::new(client),
         Err(e) => {
             tracing::error!("Failed to create read Postgres client: {}", e);
             return;
         }
     };
+
+    let postgres_writer =
+        // TODO - we should have a dedicated URL for both this and the reader – the reader will read
+        // from the replica, and the writer will write to the main database.
+        match get_pool(&config.write_database_url, config.max_pg_connections).await {
+            Ok(client) => Arc::new(client),
+            Err(e) => {
+                tracing::error!("Failed to create write Postgres client: {}", e);
+                return;
+            }
+        };
 
     let geoip_service = match GeoIpClient::new(&config) {
         Ok(service) => Arc::new(service),
@@ -38,8 +54,24 @@ where
         }
     };
 
+    let health = HealthRegistry::new("liveness");
+
+    // TODO - we don't have a more complex health check yet, but we should add e.g. some around DB operations
+    let simple_loop = health
+        .register("simple_loop".to_string(), Duration::from_secs(30))
+        .await;
+    tokio::spawn(liveness_loop(simple_loop));
+
     // You can decide which client to pass to the router, or pass both if needed
-    let app = router::router(redis_client, read_postgres_client, geoip_service);
+    let app = router::router(
+        redis_client,
+        postgres_reader,
+        postgres_writer,
+        geoip_service,
+        health,
+        config.enable_metrics,
+        config.max_concurrency,
+    );
 
     tracing::info!("listening on {:?}", listener.local_addr().unwrap());
     axum::serve(
@@ -49,4 +81,11 @@ where
     .with_graceful_shutdown(shutdown)
     .await
     .unwrap()
+}
+
+async fn liveness_loop(handle: HealthHandle) {
+    loop {
+        handle.report_healthy().await;
+        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+    }
 }

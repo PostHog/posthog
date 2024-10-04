@@ -26,10 +26,8 @@ export function PresentationTypeCard({
 }): JSX.Element {
     return (
         <div
-            // eslint-disable-next-line react/forbid-dom-props
-            style={{ height: 180, width: 200 }}
             className={clsx(
-                'border rounded relative px-4 py-2 overflow-hidden',
+                'border rounded relative px-4 py-2 overflow-hidden h-[180px] w-[200px]',
                 active ? 'border-primary' : 'border-border'
             )}
         >

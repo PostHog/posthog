@@ -15,6 +15,7 @@
         }
 
         .CohortCriteriaRow__Criteria__Field {
+            min-width: 0; // Prevent overflow, allow flex to shrink
             margin: 0.25rem 0;
 
             &.CohortCriteriaRow__Criteria__Field--error {

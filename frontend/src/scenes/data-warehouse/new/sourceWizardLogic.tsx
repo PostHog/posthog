@@ -606,6 +606,26 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
         ],
         caption: '',
     },
+    BigQuery: {
+        name: 'BigQuery',
+        fields: [
+            {
+                type: 'file-upload',
+                name: 'key_file',
+                label: 'Google Cloud JSON key file',
+                fileFormat: '.json',
+                required: true,
+            },
+            {
+                type: 'text',
+                name: 'dataset_id',
+                label: 'Dataset ID',
+                required: true,
+                placeholder: '',
+            },
+        ],
+        caption: '',
+    },
 }
 
 export const buildKeaFormDefaultFromSourceDetails = (
@@ -1144,7 +1164,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             },
             submit: async (sourceValues) => {
                 if (values.selectedConnector) {
-                    const payload = {
+                    const payload: Record<string, any> = {
                         ...sourceValues,
                         source_type: values.selectedConnector.name,
                     }
@@ -1153,17 +1173,42 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     try {
                         await api.externalDataSources.source_prefix(payload.source_type, sourceValues.prefix)
 
-                        const payloadKeys = (values.selectedConnector?.fields ?? []).map((n) => n.name)
+                        const payloadKeys = (values.selectedConnector?.fields ?? []).map((n) => ({
+                            name: n.name,
+                            type: n.type,
+                        }))
+
+                        const fieldPayload: Record<string, any> = {
+                            source_type: values.selectedConnector.name,
+                        }
+
+                        for (const { name, type } of payloadKeys) {
+                            if (type === 'file-upload') {
+                                try {
+                                    // Assumes we're loading a JSON file
+                                    const loadedFile: string = await new Promise((resolve, reject) => {
+                                        const fileReader = new FileReader()
+                                        fileReader.onload = (e) => resolve(e.target?.result as string)
+                                        fileReader.onerror = (e) => reject(e)
+                                        fileReader.readAsText(payload['payload'][name][0])
+                                    })
+                                    const jsonConfig = JSON.parse(loadedFile)
+
+                                    fieldPayload[name] = jsonConfig
+                                } catch (e) {
+                                    return lemonToast.error('File is not valid')
+                                }
+                            } else {
+                                fieldPayload[name] = payload['payload'][name]
+                            }
+                        }
 
                         // Only store the keys of the source type we're using
                         actions.updateSource({
                             ...payload,
                             payload: {
                                 source_type: values.selectedConnector.name,
-                                ...payloadKeys.reduce((acc, cur) => {
-                                    acc[cur] = payload['payload'][cur]
-                                    return acc
-                                }, {} as Record<string, any>),
+                                ...fieldPayload,
                             },
                         })
 

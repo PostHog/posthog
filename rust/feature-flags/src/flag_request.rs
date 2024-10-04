@@ -10,6 +10,12 @@ use crate::{
     redis::Client as RedisClient, team::Team,
 };
 
+#[derive(Debug, Clone, Copy)]
+pub enum FlagRequestType {
+    Decide,
+    LocalEvaluation,
+}
+
 #[derive(Default, Debug, Deserialize, Serialize)]
 pub struct FlagRequest {
     #[serde(
@@ -39,14 +45,24 @@ impl FlagRequest {
     #[instrument(skip_all)]
     pub fn from_bytes(bytes: Bytes) -> Result<FlagRequest, FlagError> {
         tracing::debug!(len = bytes.len(), "decoding new request");
-        // TODO: Add base64 decoding
-        let payload = String::from_utf8(bytes.into()).map_err(|e| {
+
+        let payload = String::from_utf8(bytes.to_vec()).map_err(|e| {
             tracing::error!("failed to decode body: {}", e);
             FlagError::RequestDecodingError(String::from("invalid body encoding"))
         })?;
 
         tracing::debug!(json = payload, "decoded event data");
-        Ok(serde_json::from_str::<FlagRequest>(&payload)?)
+
+        // Attempt to parse as JSON, rejecting invalid JSON
+        match serde_json::from_str::<FlagRequest>(&payload) {
+            Ok(request) => Ok(request),
+            Err(e) => {
+                tracing::error!("failed to parse JSON: {}", e);
+                Err(FlagError::RequestDecodingError(String::from(
+                    "invalid JSON",
+                )))
+            }
+        }
     }
 
     /// Extracts the token from the request and verifies it against the cache.
@@ -144,6 +160,7 @@ impl FlagRequest {
         redis_client: Arc<dyn RedisClient + Send + Sync>,
         pg_client: Arc<dyn DatabaseClient + Send + Sync>,
     ) -> Result<FeatureFlagList, FlagError> {
+        // TODO add a cache hit/miss counter
         match FeatureFlagList::from_redis(redis_client.clone(), team_id).await {
             Ok(flags) => Ok(flags),
             Err(_) => match FeatureFlagList::from_pg(pg_client, team_id).await {
@@ -177,7 +194,7 @@ mod tests {
     use crate::flag_request::FlagRequest;
     use crate::redis::Client as RedisClient;
     use crate::team::Team;
-    use crate::test_utils::{insert_new_team_in_redis, setup_pg_client, setup_redis_client};
+    use crate::test_utils::{insert_new_team_in_redis, setup_pg_reader_client, setup_redis_client};
     use bytes::Bytes;
     use serde_json::json;
 
@@ -200,7 +217,7 @@ mod tests {
     #[test]
     fn too_large_distinct_id_is_truncated() {
         let json = json!({
-            "distinct_id": std::iter::repeat("a").take(210).collect::<String>(),
+            "distinct_id": "a".repeat(210),
             "token": "my_token1",
         });
         let bytes = Bytes::from(json.to_string());
@@ -229,7 +246,7 @@ mod tests {
     #[tokio::test]
     async fn token_is_returned_correctly() {
         let redis_client = setup_redis_client(None);
-        let pg_client = setup_pg_client(None).await;
+        let pg_client = setup_pg_reader_client(None).await;
         let team = insert_new_team_in_redis(redis_client.clone())
             .await
             .expect("Failed to insert new team in Redis");
@@ -254,7 +271,7 @@ mod tests {
     #[tokio::test]
     async fn test_get_team_from_cache_or_pg() {
         let redis_client = setup_redis_client(None);
-        let pg_client = setup_pg_client(None).await;
+        let pg_client = setup_pg_reader_client(None).await;
         let team = insert_new_team_in_redis(redis_client.clone())
             .await
             .expect("Failed to insert new team in Redis");
@@ -308,7 +325,7 @@ mod tests {
     #[tokio::test]
     async fn test_get_flags_from_cache_or_pg() {
         let redis_client = setup_redis_client(None);
-        let pg_client = setup_pg_client(None).await;
+        let pg_client = setup_pg_reader_client(None).await;
         let team = insert_new_team_in_redis(redis_client.clone())
             .await
             .expect("Failed to insert new team in Redis");
@@ -464,7 +481,7 @@ mod tests {
     #[tokio::test]
     async fn test_error_cases() {
         let redis_client = setup_redis_client(None);
-        let pg_client = setup_pg_client(None).await;
+        let pg_client = setup_pg_reader_client(None).await;
 
         // Test invalid token
         let flag_request = FlagRequest {

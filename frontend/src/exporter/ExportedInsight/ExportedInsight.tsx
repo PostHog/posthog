@@ -102,6 +102,7 @@ export function ExportedInsight({
                         readOnly
                         context={{ insightProps: insightLogicProps }}
                         embedded
+                        inSharedMode
                     />
                     {showLegend && (
                         <div className="p-4">

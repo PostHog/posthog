@@ -44,6 +44,7 @@ interface InsightMetaProps
         | 'showEditingControls'
         | 'showDetailsControls'
         | 'moreButtons'
+        | 'filtersOverride'
     > {
     insight: QueryBasedInsightModel
     areDetailsShown?: boolean
@@ -55,6 +56,7 @@ export function InsightMeta({
     ribbonColor,
     dashboardId,
     updateColor,
+    filtersOverride,
     removeFromDashboard,
     deleteWithUndo,
     refresh,
@@ -98,7 +100,7 @@ export function InsightMeta({
             topHeading={<TopHeading insight={insight} />}
             meta={
                 <>
-                    <Link to={urls.insightView(short_id)}>
+                    <Link to={urls.insightView(short_id, filtersOverride)}>
                         <h4 title={name} data-attr="insight-card-title">
                             {name || <i>{summary}</i>}
                             {loading && (
@@ -106,8 +108,8 @@ export function InsightMeta({
                                     title="This insight is queued to check for newer results. It will be updated soon."
                                     placement="top-end"
                                 >
-                                    <span className="text-primary text-sm font-medium">
-                                        <Spinner className="mx-1" />
+                                    <span className="text-primary text-sm font-medium ml-1.5">
+                                        <Spinner className="mr-1.5 text-base" />
                                         Refreshing
                                     </span>
                                 </Tooltip>
@@ -130,7 +132,7 @@ export function InsightMeta({
             moreButtons={
                 <>
                     <>
-                        <LemonButton to={urls.insightView(short_id)} fullWidth>
+                        <LemonButton to={urls.insightView(short_id, filtersOverride)} fullWidth>
                             View
                         </LemonButton>
                         {refresh && (

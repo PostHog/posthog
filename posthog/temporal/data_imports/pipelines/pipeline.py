@@ -17,12 +17,12 @@ from dlt.sources import DltSource
 from deltalake.exceptions import DeltaError
 from collections import Counter
 
-from posthog.warehouse.data_load.validate_schema import validate_schema_and_update_table
+from posthog.warehouse.data_load.validate_schema import update_last_synced_at, validate_schema_and_update_table
 from posthog.warehouse.models.external_data_job import ExternalDataJob, get_external_data_job
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema, aget_schema_by_id
 from posthog.warehouse.models.external_data_source import ExternalDataSource
 from posthog.warehouse.models.table import DataWarehouseTable
-from posthog.warehouse.s3 import get_s3_client
+from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
 
 
 @dataclass
@@ -57,6 +57,7 @@ class DataImportPipeline:
             and inputs.job_type != ExternalDataSource.Type.MYSQL
             and inputs.job_type != ExternalDataSource.Type.MSSQL
             and inputs.job_type != ExternalDataSource.Type.SNOWFLAKE
+            and inputs.job_type != ExternalDataSource.Type.BIGQUERY
         )
 
         if self.should_chunk_pipeline:
@@ -100,21 +101,12 @@ class DataImportPipeline:
         )
 
     async def _prepare_s3_files_for_querying(self, file_uris: list[str]):
-        s3 = get_s3_client()
         job: ExternalDataJob = await get_external_data_job(job_id=self.inputs.run_id)
         schema: ExternalDataSchema = await aget_schema_by_id(self.inputs.schema_id, self.inputs.team_id)
 
         normalized_schema_name = NamingConvention().normalize_identifier(schema.name)
-        s3_folder_for_job = f"{settings.BUCKET_URL}/{job.folder_path()}"
-        s3_folder_for_schema = f"{s3_folder_for_job}/{normalized_schema_name}"
-        s3_folder_for_querying = f"{s3_folder_for_job}/{normalized_schema_name}__query"
 
-        if s3.exists(s3_folder_for_querying):
-            s3.delete(s3_folder_for_querying, recursive=True)
-
-        for file in file_uris:
-            file_name = file.replace(f"{s3_folder_for_schema}/", "")
-            s3.copy(file, f"{s3_folder_for_querying}/{file_name}")
+        prepare_s3_files_for_querying(job.folder_path(), normalized_schema_name, file_uris)
 
     def _run(self) -> dict[str, int]:
         if self.refresh_dlt:
@@ -251,6 +243,11 @@ class DataImportPipeline:
                 )
             else:
                 self.logger.info("No table_counts, skipping validate_schema_and_update_table")
+
+        # Update last_synced_at on schema
+        async_to_sync(update_last_synced_at)(
+            job_id=self.inputs.run_id, schema_id=str(self.inputs.schema_id), team_id=self.inputs.team_id
+        )
 
         # Cleanup: delete local state from the file system
         pipeline.drop()

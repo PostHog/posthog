@@ -16,6 +16,7 @@ from google.auth.transport.requests import Request as GoogleRequest
 
 from django.conf import settings
 from posthog.cache_utils import cache_for
+from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.instance_setting import get_instance_settings
 from posthog.models.user import User
 import structlog
@@ -43,6 +44,7 @@ class Integration(models.Model):
         SALESFORCE = "salesforce"
         HUBSPOT = "hubspot"
         GOOGLE_PUBSUB = "google-pubsub"
+        GOOGLE_CLOUD_STORAGE = "google-cloud-storage"
 
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
 
@@ -52,8 +54,10 @@ class Integration(models.Model):
     integration_id = models.TextField(null=True, blank=True)
     # Any config that COULD be passed to the frontend
     config = models.JSONField(default=dict)
-    # Any sensitive config that SHOULD NOT be passed to the frontend
-    sensitive_config = models.JSONField(default=dict)
+    sensitive_config = EncryptedJSONField(
+        default=dict,
+        ignore_decrypt_errors=True,  # allows us to load previously unencrypted data
+    )
 
     errors = models.TextField()
 
@@ -391,7 +395,7 @@ class SlackIntegration:
 
 
 class GoogleCloudIntegration:
-    supported_kinds = ["google-pubsub"]
+    supported_kinds = ["google-pubsub", "google-cloud-storage"]
     integration: Integration
 
     def __init__(self, integration: Integration) -> None:
@@ -403,6 +407,8 @@ class GoogleCloudIntegration:
     ) -> Integration:
         if kind == "google-pubsub":
             scope = "https://www.googleapis.com/auth/pubsub"
+        elif kind == "google-cloud-storage":
+            scope = "https://www.googleapis.com/auth/devstorage.read_write"
         else:
             raise NotImplementedError(f"Google Cloud integration kind {kind} not implemented")
 

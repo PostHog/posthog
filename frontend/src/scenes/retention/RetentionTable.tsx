@@ -12,7 +12,7 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { retentionModalLogic } from './retentionModalLogic'
 import { retentionTableLogic } from './retentionTableLogic'
 
-export function RetentionTable({ inCardView = false }: { inCardView?: boolean }): JSX.Element | null {
+export function RetentionTable({ inSharedMode = false }: { inSharedMode?: boolean }): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
     const { tableHeaders, tableRows, isLatestPeriod, hideSizeColumn, retentionVizOptions } = useValues(
         retentionTableLogic(insightProps)
@@ -71,7 +71,7 @@ export function RetentionTable({ inCardView = false }: { inCardView?: boolean })
                     <tr
                         key={rowIndex}
                         onClick={() => {
-                            if (!inCardView) {
+                            if (!inSharedMode) {
                                 openModal(rowIndex)
                             }
                         }}

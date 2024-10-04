@@ -16,7 +16,6 @@ from hogvm.python.operation import (
     HOGQL_BYTECODE_IDENTIFIER,
     HOGQL_BYTECODE_VERSION,
 )
-from posthog.schema import HogQLNotice
 
 if TYPE_CHECKING:
     from posthog.models import Team
@@ -163,7 +162,15 @@ class BytecodeCompiler(Visitor):
     def visit_compare_operation(self, node: ast.CompareOperation):
         operation = COMPARE_OPERATIONS[node.op]
         if operation in [Operation.IN_COHORT, Operation.NOT_IN_COHORT]:
-            raise QueryError("Cohort operations are not supported")
+            cohort_name = ""
+            if isinstance(node.right, ast.Constant):
+                if isinstance(node.right.value, int):
+                    cohort_name = f" (cohort id={node.right.value})"
+                else:
+                    cohort_name = f" (cohort: {str(node.right.value)})"
+            raise QueryError(
+                f"Can't use cohorts in real-time filters. Please inline the relevant expressions{cohort_name}."
+            )
         return [*self.visit(node.right), *self.visit(node.left), operation]
 
     def visit_arithmetic_operation(self, node: ast.ArithmeticOperation):
@@ -222,12 +229,10 @@ class BytecodeCompiler(Visitor):
         for element in reversed(node.chain):
             chain.extend([Operation.STRING, element])
         if self.context.globals and node.chain[0] in self.context.globals:
-            self.context.notices.append(
-                HogQLNotice(start=node.start, end=node.end, message="Global variable: " + str(node.chain[0]))
-            )
+            self.context.add_notice(start=node.start, end=node.end, message="Global variable: " + str(node.chain[0]))
         else:
-            self.context.warnings.append(
-                HogQLNotice(start=node.start, end=node.end, message="Unknown global variable: " + str(node.chain[0]))
+            self.context.add_warning(
+                start=node.start, end=node.end, message="Unknown global variable: " + str(node.chain[0])
             )
         return [*chain, Operation.GET_GLOBAL, len(node.chain)]
 
@@ -341,16 +346,14 @@ class BytecodeCompiler(Visitor):
                 response.extend([Operation.GET_UPVALUE, upvalue, Operation.CALL_LOCAL, len(args)])
             else:
                 if self.context.globals and node.name in self.context.globals:
-                    self.context.notices.append(
-                        HogQLNotice(start=node.start, end=node.end, message="Global variable: " + str(node.name))
+                    self.context.add_notice(
+                        start=node.start, end=node.end, message="Global variable: " + str(node.name)
                     )
                 elif node.name in self.supported_functions or node.name in STL:
                     pass
                 else:
-                    self.context.errors.append(
-                        HogQLNotice(
-                            start=node.start, end=node.end, message=f"Hog function `{node.name}` is not implemented"
-                        )
+                    self.context.add_error(
+                        start=node.start, end=node.end, message=f"Hog function `{node.name}` is not implemented"
                     )
 
                 response.extend([Operation.CALL_GLOBAL, node.name, len(args)])
@@ -392,12 +395,10 @@ class BytecodeCompiler(Visitor):
         if node.expr is None:
             return []
         if isinstance(node.expr, ast.CompareOperation) and node.expr.op == ast.CompareOperationOp.Eq:
-            self.context.warnings.append(
-                HogQLNotice(
-                    start=node.start,
-                    end=node.end,
-                    message="You must use ':=' for assignment instead of '='.",
-                )
+            self.context.add_warning(
+                start=node.start,
+                end=node.end,
+                message="You must use ':=' for assignment instead of '='.",
             )
         response = self.visit(node.expr)
         response.append(Operation.POP)
@@ -725,7 +726,11 @@ class BytecodeCompiler(Visitor):
     def visit_function(self, node: ast.Function):
         # add an implicit return if none at the end of the function
         body = node.body
-        if isinstance(node.body, ast.Block):
+
+        # Sometimes blocks like `fn x() {foo}` get parsed as placeholders
+        if isinstance(body, ast.Placeholder):
+            body = ast.Block(declarations=[ast.ExprStatement(expr=body.expr), ast.ReturnStatement(expr=None)])
+        elif isinstance(node.body, ast.Block):
             if len(node.body.declarations) == 0 or not isinstance(node.body.declarations[-1], ast.ReturnStatement):
                 body = ast.Block(declarations=[*node.body.declarations, ast.ReturnStatement(expr=None)])
         elif not isinstance(node.body, ast.ReturnStatement):
@@ -752,7 +757,11 @@ class BytecodeCompiler(Visitor):
     def visit_lambda(self, node: ast.Lambda):
         # add an implicit return if none at the end of the function
         expr: ast.Expr | ast.Statement = node.expr
-        if isinstance(expr, ast.Block):
+
+        # Sometimes blocks like `x -> {foo}` get parsed as placeholders
+        if isinstance(expr, ast.Placeholder):
+            expr = ast.Block(declarations=[ast.ExprStatement(expr=expr.expr), ast.ReturnStatement(expr=None)])
+        elif isinstance(expr, ast.Block):
             if len(expr.declarations) == 0 or not isinstance(expr.declarations[-1], ast.ReturnStatement):
                 expr = ast.Block(declarations=[*expr.declarations, ast.ReturnStatement(expr=None)])
         elif not isinstance(expr, ast.ReturnStatement):

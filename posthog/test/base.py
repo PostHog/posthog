@@ -98,7 +98,7 @@ freezegun.configure(extend_ignore_list=["posthog.test.assert_faster_than"])
 
 persons_cache_tests: list[dict[str, Any]] = []
 events_cache_tests: list[dict[str, Any]] = []
-persons_ordering_int: int = 1
+persons_ordering_int: int = 0
 
 
 # Expand string diffs
@@ -888,6 +888,13 @@ class ClickhouseTestMixin(QueryMatchingTest):
     CLASS_DATA_LEVEL_SETUP = False
 
     snapshot: Any
+
+    @staticmethod
+    def generalize_sql(value: str):
+        """Makes sure we can use inline_snapshot() for query SQL snapshots - swaps concrete team_id for placeholder."""
+        if "team_id," in value:
+            return re.sub(r"team_id, \d+", "team_id, <TEAM_ID>", value)
+        return value
 
     def capture_select_queries(self):
         return self.capture_queries_startswith(("SELECT", "WITH", "select", "with"))

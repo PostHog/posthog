@@ -884,7 +884,7 @@ describe('filtersToQueryNode', () => {
                                 key: 'id',
                                 type: PropertyFilterType.Cohort,
                                 value: 6,
-                                operator: null,
+                                operator: 'in',
                             },
                         ],
                     },
@@ -909,6 +909,7 @@ describe('filtersToQueryNode', () => {
                                 {
                                     key: 'id',
                                     type: PropertyFilterType.Cohort,
+                                    operator: PropertyOperator.In,
                                     value: 6,
                                 },
                             ],

@@ -153,7 +153,7 @@ def get_breakdown_prop_values(
         entity_filter, entity_params = FunnelEventQuery(
             filter,
             team,
-            person_on_events_mode=team.person_on_events_mode,
+            person_on_events_mode=alias_poe_mode_for_legacy(team.person_on_events_mode),
         )._get_entity_query()
         entity_format_params = {"entity_query": entity_filter}
     else:

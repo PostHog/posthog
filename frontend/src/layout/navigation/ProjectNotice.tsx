@@ -19,6 +19,7 @@ interface ProjectNoticeBlueprint {
     message: JSX.Element | string
     action?: LemonBannerAction
     type?: 'info' | 'warning' | 'success' | 'error'
+    closeable?: boolean
 }
 
 function CountDown({ datetime }: { datetime: dayjs.Dayjs }): JSX.Element {
@@ -37,7 +38,7 @@ function CountDown({ datetime }: { datetime: dayjs.Dayjs }): JSX.Element {
 }
 
 export function ProjectNotice(): JSX.Element | null {
-    const { projectNoticeVariantWithClosability } = useValues(navigationLogic)
+    const { projectNoticeVariant } = useValues(navigationLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { logout } = useActions(userLogic)
     const { user } = useValues(userLogic)
@@ -45,11 +46,9 @@ export function ProjectNotice(): JSX.Element | null {
     const { showInviteModal } = useActions(inviteLogic)
     const { requestVerificationLink } = useActions(verifyEmailLogic)
 
-    if (!projectNoticeVariantWithClosability) {
+    if (!projectNoticeVariant) {
         return null
     }
-
-    const [projectNoticeVariant, isClosable] = projectNoticeVariantWithClosability
 
     const altTeamForIngestion = currentOrganization?.teams?.find((team) => !team.is_demo && !team.ingested_event)
 
@@ -74,6 +73,7 @@ export function ProjectNotice(): JSX.Element | null {
                 </>
             ),
         },
+
         real_project_with_no_events: {
             message: (
                 <>
@@ -97,6 +97,7 @@ export function ProjectNotice(): JSX.Element | null {
                 icon: <IconGear />,
                 children: 'Go to wizard',
             },
+            closeable: true,
         },
         invite_teammates: {
             message: 'Get more out of PostHog by inviting your team for free',
@@ -106,6 +107,7 @@ export function ProjectNotice(): JSX.Element | null {
                 icon: <IconPlus />,
                 children: 'Invite team members',
             },
+            closeable: true,
         },
         unverified_email: {
             message: 'Please verify your email address.',
@@ -152,7 +154,7 @@ export function ProjectNotice(): JSX.Element | null {
             type={relevantNotice.type || 'info'}
             className="my-4"
             action={relevantNotice.action}
-            onClose={isClosable ? () => closeProjectNotice(projectNoticeVariant) : undefined}
+            onClose={relevantNotice.closeable ? () => closeProjectNotice(projectNoticeVariant) : undefined}
         >
             {relevantNotice.message}
         </LemonBanner>

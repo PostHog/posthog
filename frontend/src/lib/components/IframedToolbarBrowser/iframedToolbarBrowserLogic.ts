@@ -9,6 +9,7 @@ import {
 import { LemonBannerProps } from 'lib/lemon-ui/LemonBanner'
 import posthog from 'posthog-js'
 import { RefObject } from 'react'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { ToolbarUserIntent } from '~/types'
 
@@ -18,6 +19,7 @@ export type IframedToolbarBrowserLogicProps = {
     iframeRef: RefObject<HTMLIFrameElement | null>
     clearBrowserUrlOnUnmount?: boolean
     userIntent?: ToolbarUserIntent
+    automaticallyAuthorizeBrowserUrl?: boolean
 }
 
 export interface IFrameBanner {
@@ -25,19 +27,40 @@ export interface IFrameBanner {
     message: string | JSX.Element
 }
 
+export const UserIntentVerb: {
+    [K in ToolbarUserIntent]: string
+} = {
+    heatmaps: 'view the heatmap',
+    'add-action': 'add actions',
+    'edit-action': 'edit the action',
+    'add-experiment': 'add web experiment',
+    'edit-experiment': 'edit the experiment',
+}
+
 export const iframedToolbarBrowserLogic = kea<iframedToolbarBrowserLogicType>([
     path(['lib', 'components', 'iframedToolbarBrowser', 'iframedToolbarBrowserLogic']),
-    props({} as IframedToolbarBrowserLogicProps),
+    props({
+        automaticallyAuthorizeBrowserUrl: false,
+    } as IframedToolbarBrowserLogicProps),
 
     connect({
         values: [
             authorizedUrlListLogic({ actionId: null, type: AuthorizedUrlListType.TOOLBAR_URLS }),
             ['urlsKeyed', 'checkUrlIsAuthorized'],
+            teamLogic,
+            ['currentTeam'],
+        ],
+        actions: [
+            authorizedUrlListLogic({ actionId: null, type: AuthorizedUrlListType.TOOLBAR_URLS }),
+            ['addUrl'],
+            teamLogic,
+            ['updateCurrentTeamSuccess'],
         ],
     }),
 
     actions({
         setBrowserUrl: (url: string | null) => ({ url }),
+        setProposedBrowserUrl: (url: string | null) => ({ url }),
         onIframeLoad: true,
         sendToolbarMessage: (type: PostHogAppToolbarEvent, payload?: Record<string, any>) => ({
             type,
@@ -57,6 +80,8 @@ export const iframedToolbarBrowserLogic = kea<iframedToolbarBrowserLogicType>([
         disableElementSelector: true,
         setNewActionName: (name: string | null) => ({ name }),
         toolbarMessageReceived: (type: PostHogAppToolbarEvent, payload: Record<string, any>) => ({ type, payload }),
+        setCurrentPath: (path: string) => ({ path }),
+        setInitialPath: (path: string) => ({ path }),
     }),
 
     reducers(({ props }) => ({
@@ -99,6 +124,22 @@ export const iframedToolbarBrowserLogic = kea<iframedToolbarBrowserLogicType>([
                 setBrowserUrl: (_, { url }) => url,
             },
         ],
+        currentPath: [
+            // this does not have the leading / because we always need that to be a given since this value is user-editable
+            '' as string,
+            {
+                setCurrentPath: (_, { path }) => path,
+            },
+        ],
+        initialPath: [
+            // similar to currentPath, this also does not have the leading /
+            // this is used to set the initial browser URL if the user provides a path to navigate to
+            // we can't do this from within the iFrame with window.location.href = currentPath because we get XSS errors
+            '' as string,
+            {
+                setInitialPath: (_, { path }) => path,
+            },
+        ],
         loading: [
             false as boolean,
             {
@@ -114,6 +155,12 @@ export const iframedToolbarBrowserLogic = kea<iframedToolbarBrowserLogicType>([
                 setIframeBanner: (_, { banner }) => banner,
             },
         ],
+        proposedBrowserUrl: [
+            null as string | null,
+            {
+                setProposedBrowserUrl: (_, { url }) => url,
+            },
+        ],
     })),
 
     selectors({
@@ -126,11 +173,29 @@ export const iframedToolbarBrowserLogic = kea<iframedToolbarBrowserLogicType>([
                 return checkUrlIsAuthorized(browserUrl)
             },
         ],
+        isProposedBrowserUrlAuthorized: [
+            (s) => [s.proposedBrowserUrl, s.checkUrlIsAuthorized],
+            (proposedBrowserUrl, checkUrlIsAuthorized) => {
+                if (!proposedBrowserUrl) {
+                    return false
+                }
+                return checkUrlIsAuthorized(proposedBrowserUrl)
+            },
+        ],
 
         viewportRange: [
             (s) => [s.heatmapFilters, s.iframeWidth],
             (heatmapFilters, iframeWidth) => {
                 return iframeWidth ? calculateViewportRange(heatmapFilters, iframeWidth) : { min: 0, max: 1800 }
+            },
+        ],
+        currentFullUrl: [
+            (s) => [s.browserUrl, s.currentPath],
+            (browserUrl, currentPath) => {
+                if (!browserUrl) {
+                    return null
+                }
+                return browserUrl + '/' + currentPath
             },
         ],
     }),
@@ -144,6 +209,15 @@ export const iframedToolbarBrowserLogic = kea<iframedToolbarBrowserLogicType>([
                 },
                 '*'
             )
+        },
+        setProposedBrowserUrl: ({ url }) => {
+            if (url) {
+                if (props.automaticallyAuthorizeBrowserUrl && !values.isProposedBrowserUrlAuthorized) {
+                    actions.addUrl(url)
+                } else {
+                    actions.setBrowserUrl(url)
+                }
+            }
         },
         // heatmaps
         patchHeatmapFilters: ({ filters }) => {
@@ -255,6 +329,9 @@ export const iframedToolbarBrowserLogic = kea<iframedToolbarBrowserLogicType>([
                         actions.setNewActionName(null)
                         actions.disableElementSelector()
                         return
+                    case PostHogAppToolbarEvent.PH_TOOLBAR_NAVIGATED:
+                        // remove leading / from path
+                        return actions.setCurrentPath(payload.path.replace(/^\/+/, ''))
                     default:
                         console.warn(`[PostHog Heatmaps] Received unknown child window message: ${type}`)
                 }
@@ -270,7 +347,6 @@ export const iframedToolbarBrowserLogic = kea<iframedToolbarBrowserLogicType>([
                 actions.startTrackingLoading()
             }
         },
-
         startTrackingLoading: () => {
             actions.setIframeBanner(null)
 
@@ -290,6 +366,22 @@ export const iframedToolbarBrowserLogic = kea<iframedToolbarBrowserLogicType>([
 
             clearTimeout(cache.errorTimeout)
             clearTimeout(cache.warnTimeout)
+        },
+        setIframeBanner: ({ banner }) => {
+            posthog.capture('in-app iFrame banner set', {
+                level: banner?.level,
+                message: banner?.message,
+            })
+        },
+        updateCurrentTeamSuccess: () => {
+            if (
+                props.automaticallyAuthorizeBrowserUrl &&
+                values.proposedBrowserUrl &&
+                values.currentTeam?.app_urls?.includes(values.proposedBrowserUrl)
+            ) {
+                actions.setBrowserUrl(values.proposedBrowserUrl)
+                actions.setProposedBrowserUrl(null)
+            }
         },
     })),
 

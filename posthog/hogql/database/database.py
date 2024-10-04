@@ -289,11 +289,18 @@ def create_hogql_database(
     warehouse_tables: dict[str, Table] = {}
     views: dict[str, Table] = {}
 
+    for saved_query in DataWarehouseSavedQuery.objects.filter(team_id=team.pk).exclude(deleted=True):
+        views[saved_query.name] = saved_query.hogql_definition(modifiers)
+
     for table in (
         DataWarehouseTable.objects.filter(team_id=team.pk)
         .exclude(deleted=True)
         .select_related("credential", "external_data_source")
     ):
+        # Skip adding data warehouse tables that are materialized from views (in this case they have the same names)
+        if views.get(table.name, None) is not None:
+            continue
+
         s3_table = table.hogql_definition(modifiers)
 
         # If the warehouse table has no _properties_ field, then set it as a virtual table
@@ -312,9 +319,6 @@ def create_hogql_database(
             s3_table.fields["properties"] = WarehouseProperties()
 
         warehouse_tables[table.name] = s3_table
-
-    for saved_query in DataWarehouseSavedQuery.objects.filter(team_id=team.pk).exclude(deleted=True):
-        views[saved_query.name] = saved_query.hogql_definition()
 
     def define_mappings(warehouse: dict[str, Table], get_table: Callable):
         if "id" not in warehouse[warehouse_modifier.table_name].fields.keys():
@@ -591,7 +595,10 @@ def serialize_database(
         )
         if len(saved_query) != 0:
             tables[view_name] = DatabaseSchemaViewTable(
-                fields=fields_dict, id=str(saved_query[0].pk), name=view.name, query=HogQLQuery(query=view.query)
+                fields=fields_dict,
+                id=str(saved_query[0].pk),
+                name=view.name,
+                query=HogQLQuery(query=saved_query[0].query["query"]),
             )
 
     return tables
@@ -765,7 +772,7 @@ def serialize_fields(
                     schema_valid=schema_valid,
                     table=field.resolve_table(context).to_printed_hogql(),
                     fields=list(field.resolve_table(context).fields.keys()),
-                    id=id,
+                    id=id or field_key,
                 )
             )
         elif isinstance(field, VirtualTable):

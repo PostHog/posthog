@@ -1,3 +1,4 @@
+import { LemonSkeleton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Sparkline, SparklineTimeSeries } from 'lib/components/Sparkline'
 import { useEffect } from 'react'
@@ -26,7 +27,9 @@ export function AppMetricSparkLineV2({ id }: AppMetricsV2LogicProps): JSX.Elemen
         },
     ]
 
-    return (
+    return !appMetrics || appMetricsLoading ? (
+        <LemonSkeleton className="max-w-24 h-8" />
+    ) : (
         <Sparkline
             loading={appMetricsLoading}
             labels={appMetrics?.labels}

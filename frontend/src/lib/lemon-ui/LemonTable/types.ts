@@ -1,4 +1,4 @@
-import { HTMLProps, ReactNode } from 'react'
+import { CSSProperties, HTMLProps, ReactNode } from 'react'
 
 export interface TableCellRepresentation {
     children?: any
@@ -26,7 +26,15 @@ export interface LemonTableColumn<T extends Record<string, any>, D extends keyof
     sorter?: ((a: T, b: T) => number) | true
     /** Menu containing extra column options, accessible via a "More" button in the title of the column. */
     more?: JSX.Element
-    className?: string
+    className?: string | ((dataValue: D extends keyof T ? T[D] : undefined, record: T, recordIndex: number) => string)
+    style?:
+        | CSSProperties
+        | undefined
+        | ((
+              dataValue: D extends keyof T ? T[D] : undefined,
+              record: T,
+              recordIndex: number
+          ) => CSSProperties | undefined)
     /** Column content alignment. Left by default. Set to right for numerical values (amounts, days ago etc.) */
     align?: 'left' | 'right' | 'center'
     /** TODO: Whether the column should be sticky when scrolling */

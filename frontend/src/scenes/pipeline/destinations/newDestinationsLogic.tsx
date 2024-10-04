@@ -1,14 +1,10 @@
-import { LemonDialog, LemonInput, LemonTextArea, lemonToast } from '@posthog/lemon-ui'
 import FuseClass from 'fuse.js'
-import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { LemonField } from 'lib/lemon-ui/LemonField'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { objectsEqual } from 'lib/utils'
-import posthog from 'posthog-js'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -18,13 +14,13 @@ import {
     HogFunctionTemplateStatus,
     HogFunctionTemplateType,
     PipelineStage,
-    PluginType,
 } from '~/types'
 
 import { humanizeBatchExportName } from '../batch-exports/utils'
 import { HogFunctionIcon } from '../hogfunctions/HogFunctionIcon'
 import { PipelineBackend } from '../types'
-import { loadPluginsFromUrl, RenderApp, RenderBatchExportIcon } from '../utils'
+import { RenderBatchExportIcon } from '../utils'
+import { destinationsFiltersLogic } from './destinationsFiltersLogic'
 import type { newDestinationsLogicType } from './newDestinationsLogicType'
 
 export type NewDestinationItemType = {
@@ -32,19 +28,8 @@ export type NewDestinationItemType = {
     url: string
     name: string
     description: string
-    backend: PipelineBackend
+    backend: PipelineBackend.HogFunction | PipelineBackend.BatchExport
     status?: HogFunctionTemplateStatus
-}
-
-export type NewDestinationFilters = {
-    search?: string
-    kind?: PipelineBackend
-    sub_template?: string
-}
-
-export type NewDestinationsLogicProps = {
-    defaultFilters?: NewDestinationFilters
-    forceFilters?: NewDestinationFilters
 }
 
 // Helping kea-typegen navigate the exported default class for Fuse
@@ -53,34 +38,12 @@ export interface Fuse extends FuseClass<NewDestinationItemType> {}
 export const newDestinationsLogic = kea<newDestinationsLogicType>([
     path(() => ['scenes', 'pipeline', 'destinations', 'newDestinationsLogic']),
     connect({
-        values: [userLogic, ['user'], featureFlagLogic, ['featureFlags']],
+        values: [userLogic, ['user'], featureFlagLogic, ['featureFlags'], destinationsFiltersLogic, ['filters']],
     }),
     actions({
-        setFilters: (filters: Partial<NewDestinationFilters>) => ({ filters }),
-        resetFilters: true,
         openFeedbackDialog: true,
     }),
-    reducers({
-        filters: [
-            {} as NewDestinationFilters,
-            {
-                setFilters: (state, { filters }) => ({
-                    ...state,
-                    ...filters,
-                }),
-                resetFilters: () => ({}),
-            },
-        ],
-    }),
     loaders({
-        plugins: [
-            {} as Record<number, PluginType>,
-            {
-                loadPlugins: async () => {
-                    return loadPluginsFromUrl('api/organizations/@current/pipeline_destinations')
-                },
-            },
-        ],
         hogFunctionTemplates: [
             {} as Record<string, HogFunctionTemplateType>,
             {
@@ -96,10 +59,7 @@ export const newDestinationsLogic = kea<newDestinationsLogicType>([
     }),
 
     selectors(() => ({
-        loading: [
-            (s) => [s.pluginsLoading, s.hogFunctionTemplatesLoading],
-            (pluginsLoading, hogFunctionTemplatesLoading) => pluginsLoading || hogFunctionTemplatesLoading,
-        ],
+        loading: [(s) => [s.hogFunctionTemplatesLoading], (hogFunctionTemplatesLoading) => hogFunctionTemplatesLoading],
         batchExportServiceNames: [
             (s) => [s.user, s.featureFlags],
             (user, featureFlags): BatchExportService['type'][] => {
@@ -113,29 +73,14 @@ export const newDestinationsLogic = kea<newDestinationsLogicType>([
             },
         ],
         destinations: [
-            (s) => [
-                s.plugins,
-                s.hogFunctionTemplates,
-                s.batchExportServiceNames,
-                s.featureFlags,
-                router.selectors.hashParams,
-            ],
-            (
-                plugins,
-                hogFunctionTemplates,
-                batchExportServiceNames,
-                featureFlags,
-                hashParams
-            ): NewDestinationItemType[] => {
-                const hogFunctionsEnabled = !!featureFlags[FEATURE_FLAGS.HOG_FUNCTIONS]
-                const hogTemplates = hogFunctionsEnabled ? Object.values(hogFunctionTemplates) : []
-
+            (s) => [s.hogFunctionTemplates, s.batchExportServiceNames, router.selectors.hashParams],
+            (hogFunctionTemplates, batchExportServiceNames, hashParams): NewDestinationItemType[] => {
                 return [
-                    ...hogTemplates.map((hogFunction) => ({
+                    ...Object.values(hogFunctionTemplates).map((hogFunction) => ({
                         icon: <HogFunctionIcon size="small" src={hogFunction.icon_url} />,
                         name: hogFunction.name,
                         description: hogFunction.description,
-                        backend: PipelineBackend.HogFunction,
+                        backend: PipelineBackend.HogFunction as const,
                         url: combineUrl(
                             urls.pipelineNodeNew(PipelineStage.Destination, `hog-${hogFunction.id}`),
                             {},
@@ -143,21 +88,11 @@ export const newDestinationsLogic = kea<newDestinationsLogicType>([
                         ).url,
                         status: hogFunction.status,
                     })),
-                    ...Object.values(plugins)
-                        .filter((x) => !hogFunctionsEnabled || !x.hog_function_migration_available)
-                        .map((plugin) => ({
-                            icon: <RenderApp plugin={plugin} />,
-                            name: plugin.name,
-                            description: plugin.description || '',
-                            backend: PipelineBackend.Plugin,
-                            url: urls.pipelineNodeNew(PipelineStage.Destination, `${plugin.id}`),
-                            status: hogFunctionsEnabled ? ('deprecated' as const) : undefined,
-                        })),
                     ...batchExportServiceNames.map((service) => ({
                         icon: <RenderBatchExportIcon type={service} />,
                         name: humanizeBatchExportName(service),
                         description: `${service} batch export`,
-                        backend: PipelineBackend.BatchExport,
+                        backend: PipelineBackend.BatchExport as const,
                         url: urls.pipelineNodeNew(PipelineStage.Destination, `${service}`),
                     })),
                 ]
@@ -187,77 +122,16 @@ export const newDestinationsLogic = kea<newDestinationsLogicType>([
                 })
             },
         ],
-    })),
 
-    listeners(({ values }) => ({
-        setFilters: async ({ filters }, breakpoint) => {
-            if (filters.search && filters.search.length > 2) {
-                await breakpoint(1000)
-                posthog.capture('cdp destination search', { search: filters.search })
-            }
-        },
-
-        openFeedbackDialog: async (_, breakpoint) => {
-            await breakpoint(100)
-            LemonDialog.openForm({
-                title: 'What destination would you like to see?',
-                initialValues: { destination_name: values.filters.search },
-                errors: {
-                    destination_name: (x) => (!x ? 'Required' : undefined),
-                },
-                description: undefined,
-                content: (
-                    <div className="space-y-2">
-                        <LemonField name="destination_name" label="Destination">
-                            <LemonInput placeholder="What destination would you like to see?" autoFocus />
-                        </LemonField>
-                        <LemonField name="destination_details" label="Additional information" showOptional>
-                            <LemonTextArea placeholder="Any extra details about what you would need this destination to do or your overall goal" />
-                        </LemonField>
-                    </div>
-                ),
-                onSubmit: async (values) => {
-                    posthog.capture('cdp destination feedback', { ...values })
-                    lemonToast.success('Thank you for your feedback!')
-                },
-            })
-        },
-    })),
-
-    actionToUrl(({ values }) => {
-        const urlFromFilters = (): [
-            string,
-            Record<string, any>,
-            Record<string, any>,
-            {
-                replace: boolean
-            }
-        ] => [
-            router.values.location.pathname,
-            {
-                ...values.filters,
+        hiddenDestinations: [
+            (s) => [s.destinations, s.filteredDestinations],
+            (destinations, filteredDestinations): NewDestinationItemType[] => {
+                return destinations.filter((dest) => !filteredDestinations.includes(dest))
             },
-            router.values.hashParams,
-            {
-                replace: true,
-            },
-        ]
-
-        return {
-            setFilters: () => urlFromFilters(),
-            resetFilters: () => urlFromFilters(),
-        }
-    }),
-
-    urlToAction(({ actions, values }) => ({
-        '*': (_, searchParams) => {
-            if (!objectsEqual(values.filters, searchParams)) {
-                actions.setFilters(searchParams)
-            }
-        },
+        ],
     })),
+
     afterMount(({ actions }) => {
-        actions.loadPlugins()
         actions.loadHogFunctionTemplates()
     }),
 ])

@@ -542,7 +542,6 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             with self.assertNumQueries(FuzzyInt(5, 7)):
                 create_hogql_database(team_id=self.team.pk)
 
-    @patch.object(Team, "_person_on_events_person_id_override_properties_joined", True)
     def test_database_warehouse_joins_persons_poe_old_properties(self):
         DataWarehouseJoin.objects.create(
             team=self.team,

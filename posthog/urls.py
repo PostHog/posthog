@@ -28,6 +28,7 @@ from posthog.api import (
     authentication,
     capture,
     decide,
+    hog_function_template,
     router,
     sharing,
     signup,
@@ -36,6 +37,7 @@ from posthog.api import (
     uploaded_media,
     user,
 )
+from .api.web_experiment import web_experiments
 from .api.utils import hostname_in_allowed_url_list
 from posthog.api.early_access_feature import early_access_features
 from posthog.api.survey import surveys
@@ -175,6 +177,7 @@ urlpatterns = [
     opt_slash_path("api/user/redirect_to_website", user.redirect_to_website),
     opt_slash_path("api/user/test_slack_webhook", user.test_slack_webhook),
     opt_slash_path("api/early_access_features", early_access_features),
+    opt_slash_path("api/web_experiments", web_experiments),
     opt_slash_path("api/surveys", surveys),
     opt_slash_path("api/signup", signup.SignupViewset.as_view()),
     opt_slash_path("api/social_signup", signup.SocialSignupViewset.as_view()),
@@ -182,6 +185,10 @@ urlpatterns = [
     path(
         "api/reset/<str:user_uuid>/",
         authentication.PasswordResetCompleteViewSet.as_view({"get": "retrieve", "post": "create"}),
+    ),
+    opt_slash_path(
+        "api/public_hog_function_templates",
+        hog_function_template.PublicHogFunctionTemplateViewSet.as_view({"get": "list"}),
     ),
     re_path(r"^api.+", api_not_found),
     path("authorize_and_redirect/", login_required(authorize_and_redirect)),

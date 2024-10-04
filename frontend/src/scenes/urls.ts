@@ -1,8 +1,9 @@
 import { combineUrl } from 'kea-router'
+import { AlertType } from 'lib/components/Alerts/types'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 
 import { ExportOptions } from '~/exporter/types'
-import { HogQLFilters, Node } from '~/queries/schema'
+import { DashboardFilter, HogQLFilters, Node } from '~/queries/schema'
 import {
     ActionType,
     ActivityTab,
@@ -90,7 +91,12 @@ export const urls = {
             }
         ).url,
     insightEdit: (id: InsightShortId): string => `/insights/${id}/edit`,
-    insightView: (id: InsightShortId): string => `/insights/${id}`,
+    insightView: (id: InsightShortId, filtersOverride?: DashboardFilter): string =>
+        `/insights/${id}${
+            filtersOverride !== undefined
+                ? `?filters_override=${encodeURIComponent(JSON.stringify(filtersOverride))}`
+                : ''
+        }`,
     insightSubcriptions: (id: InsightShortId): string => `/insights/${id}/subscriptions`,
     insightSubcription: (id: InsightShortId, subscriptionId: string): string =>
         `/insights/${id}/subscriptions/${subscriptionId}`,
@@ -219,7 +225,10 @@ export const urls = {
     moveToPostHogCloud: (): string => '/move-to-cloud',
     heatmaps: (params?: string): string =>
         `/heatmaps${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
-    alert: (id: InsightShortId, alertId: string): string => `/insights/${id}/alerts/${alertId}`,
-    alerts: (id: InsightShortId): string => `/insights/${id}/alerts`,
+    alert: (alertId: string): string => `/insights?tab=alerts&alert_id=${alertId}`,
+    alerts: (): string => `/insights?tab=alerts`,
+    insightAlerts: (insightShortId: InsightShortId): string => `/insights/${insightShortId}/alerts`,
+    insightAlert: (insightShortId: InsightShortId, alertId: AlertType['id']): string =>
+        `/insights/${insightShortId}/alerts?alert_id=${alertId}`,
     sessionAttributionExplorer: (): string => '/web/session-attribution-explorer',
 }

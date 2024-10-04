@@ -197,6 +197,7 @@ export const actionsTabLogic = kea<actionsTabLogicType>([
                 const actionToSave = {
                     ...formValues,
                     steps: formValues.steps?.map(stepToDatabaseFormat) || [],
+                    creation_context: values.automaticActionCreationEnabled ? 'onboarding' : null,
                 }
                 const { apiURL, temporaryToken } = values
                 const { selectedActionId } = values

@@ -1,3 +1,5 @@
+import datetime
+
 import pytest
 from uuid import UUID
 
@@ -6,7 +8,6 @@ from django.test import override_settings
 from django.utils import timezone
 from freezegun import freeze_time
 
-from posthog import datetime
 from posthog.hogql import ast
 from posthog.hogql.errors import QueryError
 from posthog.hogql.property import property_to_expr
@@ -530,6 +531,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 session_id="111",
                 first_timestamp=timezone.now(),
                 team_id=self.team.pk,
+                ensure_analytics_event_in_session=False,
             )
 
             response = execute_hogql_query(

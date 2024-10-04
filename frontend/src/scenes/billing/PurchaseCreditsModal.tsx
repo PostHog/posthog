@@ -12,7 +12,7 @@ import { BillingGaugeItemKind } from './types'
 
 export const PurchaseCreditsModal = (): JSX.Element | null => {
     const { showPurchaseCreditsModal, submitCreditForm } = useActions(billingLogic)
-    const { selfServeCreditOverview, isCreditFormSubmitting, creditForm, creditDiscount } = useValues(billingLogic)
+    const { creditOverview, isCreditFormSubmitting, creditForm, creditDiscount } = useValues(billingLogic)
     const { openSupportForm } = useActions(supportLogic)
 
     const creditInputValue: number = +creditForm.creditInput || 0
@@ -20,7 +20,7 @@ export const PurchaseCreditsModal = (): JSX.Element | null => {
         <LemonModal
             onClose={() => showPurchaseCreditsModal(false)}
             width="max(44vw)"
-            title="Buy credits in advance, get a discount"
+            title="Prepay for usage credits and get a discount"
             footer={
                 <>
                     <LemonButton
@@ -49,30 +49,27 @@ export const PurchaseCreditsModal = (): JSX.Element | null => {
             <Form formKey="creditForm" logic={billingLogic} enableFormOnSubmit>
                 <div className="flex flex-col gap-3.5">
                     <p className="mb-0">
-                        We're giving you the option to buy credits in advance at discount of up to 30%.
+                        We're giving you the option to buy usage credits in advance at discount of up to 30%.
                     </p>
 
                     <p className="mb-0">
                         Based on your usage, we think you'll use{' '}
                         <b>
                             $
-                            {(+selfServeCreditOverview.estimated_monthly_credit_amount_usd).toLocaleString('en-US', {
+                            {(+creditOverview.estimated_monthly_credit_amount_usd).toLocaleString('en-US', {
                                 minimumFractionDigits: 0,
                                 maximumFractionDigits: 0,
                             })}
                         </b>{' '}
-                        of credits per months, for a total of{' '}
+                        of credits per month, for a total of{' '}
                         <b>
                             $
-                            {(+selfServeCreditOverview.estimated_monthly_credit_amount_usd * 12).toLocaleString(
-                                'en-US',
-                                {
-                                    minimumFractionDigits: 0,
-                                    maximumFractionDigits: 0,
-                                }
-                            )}
+                            {(+creditOverview.estimated_monthly_credit_amount_usd * 12).toLocaleString('en-US', {
+                                minimumFractionDigits: 0,
+                                maximumFractionDigits: 0,
+                            })}
                         </b>{' '}
-                        creditsfor the year.
+                        credits for the year.
                     </p>
 
                     <LemonField
@@ -148,10 +145,10 @@ export const PurchaseCreditsModal = (): JSX.Element | null => {
                                 text:
                                     creditInputValue >= 100000 ? (
                                         <>
-                                            <IconCheckCircle className="text-success" /> 30% off
+                                            <IconCheckCircle className="text-success" /> 35% off
                                         </>
                                     ) : (
-                                        '30% off'
+                                        '35% off'
                                     ),
                                 prefix: '$',
                                 value: 100000,
@@ -183,11 +180,15 @@ export const PurchaseCreditsModal = (): JSX.Element | null => {
                                 options={[
                                     {
                                         value: 'charge_automatically',
-                                        label: `Pay with credit card on file (**** ${selfServeCreditOverview.cc_last_four})`,
+                                        label: creditOverview.cc_last_four
+                                            ? `Pay with credit card on file (**** ${creditOverview.cc_last_four})`
+                                            : 'Pay with credit card on file',
                                     },
                                     {
                                         value: 'send_invoice',
-                                        label: `Send me an invoice to ${selfServeCreditOverview.email}`,
+                                        label: creditOverview.email
+                                            ? `Send me an invoice to ${creditOverview.email}`
+                                            : 'Send me an invoice',
                                     },
                                 ]}
                             />

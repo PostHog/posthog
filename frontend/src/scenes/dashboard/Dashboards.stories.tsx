@@ -9,7 +9,7 @@ import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 import { useAvailableFeatures } from '~/mocks/features'
-import { DashboardMode } from '~/types'
+import { BaseMathType, DashboardMode, EntityTypes } from '~/types'
 
 import { dashboardTemplatesLogic } from './dashboards/templates/dashboardTemplatesLogic'
 
@@ -76,8 +76,8 @@ export const NewSelectVariables = (): JSX.Element => {
                     type: 'event',
                     default: {
                         id: '$pageview',
-                        math: 'dau',
-                        type: 'events',
+                        math: BaseMathType.UniqueUsers,
+                        type: EntityTypes.EVENTS,
                     },
                     required: true,
                     description: 'Add the current_url filter that matches your sign up page',
@@ -88,8 +88,8 @@ export const NewSelectVariables = (): JSX.Element => {
                     type: 'event',
                     default: {
                         id: '$pageview',
-                        math: 'dau',
-                        type: 'events',
+                        math: BaseMathType.UniqueUsers,
+                        type: EntityTypes.EVENTS,
                     },
                     required: true,
                     description:
@@ -101,8 +101,8 @@ export const NewSelectVariables = (): JSX.Element => {
                     type: 'event',
                     default: {
                         id: '$pageview',
-                        math: 'dau',
-                        type: 'events',
+                        math: BaseMathType.UniqueUsers,
+                        type: EntityTypes.EVENTS,
                     },
                     required: false,
                     description: 'Select the event which best represents when a user is activated',

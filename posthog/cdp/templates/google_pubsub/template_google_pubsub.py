@@ -3,6 +3,7 @@ import json
 from copy import deepcopy
 
 from posthog.cdp.templates.hog_function_template import HogFunctionTemplate, HogFunctionTemplateMigrator
+from posthog.hogql.escape_sql import escape_hogql_string
 from posthog.models.integration import GoogleCloudIntegration
 
 template: HogFunctionTemplate = HogFunctionTemplate(
@@ -11,6 +12,7 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     name="Google Pub/Sub",
     description="Send data to a Google Pub/Sub topic",
     icon_url="/static/services/google-cloud.png",
+    category=["Custom"],
     hog="""
 let headers := () -> {
   'Authorization': f'Bearer {inputs.auth.access_token}',
@@ -76,7 +78,7 @@ class TemplateGooglePubSubMigrator(HogFunctionTemplateMigrator):
     def migrate(cls, obj):
         hf = deepcopy(dataclasses.asdict(template))
 
-        exportEventsToIgnore = obj.config.get("exportEventsToIgnore", "")
+        exportEventsToIgnore = [x.strip() for x in obj.config.get("exportEventsToIgnore", "").split(",") if x]
         topicId = obj.config.get("topicId", "")
 
         from posthog.models.plugin import PluginAttachment
@@ -92,26 +94,25 @@ class TemplateGooglePubSubMigrator(HogFunctionTemplateMigrator):
 
         hf["filters"] = {}
         if exportEventsToIgnore:
-            events = exportEventsToIgnore.split(",")
-            if len(events) > 0:
-                event_names = ", ".join(["'{}'".format(event.strip()) for event in events])
-                query = f"event not in ({event_names})"
-                hf["filters"]["events"] = [
-                    {
-                        "id": None,
-                        "name": "All events",
-                        "type": "events",
-                        "order": 0,
-                        "properties": [{"key": query, "type": "hogql"}],
-                    }
-                ]
+            event_names = ", ".join([escape_hogql_string(event) for event in exportEventsToIgnore])
+            query = f"event not in ({event_names})"
+            hf["filters"]["events"] = [
+                {
+                    "id": None,
+                    "name": "All events",
+                    "type": "events",
+                    "order": 0,
+                    "properties": [{"key": query, "type": "hogql"}],
+                }
+            ]
 
         hf["inputs"] = {
             "topicId": {"value": topicId},
             "payload": {
                 "value": {
-                    "event": "{event.name}",
+                    "event": "{event.event}",
                     "distinct_id": "{event.distinct_id}",
+                    "elements_chain": "{event.elements_chain}",
                     "timestamp": "{event.timestamp}",
                     "uuid": "{event.uuid}",
                     "properties": "{event.properties}",

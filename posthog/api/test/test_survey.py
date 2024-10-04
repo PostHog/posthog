@@ -1,21 +1,19 @@
 import re
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, UTC
 from typing import Any
-from unittest.mock import ANY
+from unittest.mock import ANY, patch
 
 import pytest
 from django.core.cache import cache
 from django.test.client import Client
-
 from freezegun.api import freeze_time
-from posthog.api.survey import nh3_clean_with_allow_list
-from posthog.models.cohort.cohort import Cohort
 from nanoid import generate
 from rest_framework import status
 
+from posthog.api.survey import nh3_clean_with_allow_list
 from posthog.constants import AvailableFeature
-from posthog.models import FeatureFlag, Action
-
+from posthog.models import Action, FeatureFlag
+from posthog.models.cohort.cohort import Cohort
 from posthog.models.feedback.survey import Survey
 from posthog.test.base import (
     APIBaseTest,
@@ -1343,6 +1341,83 @@ class TestSurvey(APIBaseTest):
             ],
         )
 
+    @patch("posthog.api.survey.report_user_action")
+    @freeze_time("2023-05-01 12:00:00")
+    def test_update_survey_dates_calls_report_user_action(self, mock_report_user_action):
+        survey = Survey.objects.create(
+            team=self.team,
+            name="Date Test Survey",
+            type="popover",
+            questions=[{"type": "open", "question": "Test question?"}],
+        )
+
+        start_date = datetime(2023, 5, 2, tzinfo=UTC)
+        end_date = datetime(2023, 5, 10, tzinfo=UTC)
+
+        # set the start date / aka launch survey
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={"start_date": start_date},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        expected_properties = {
+            "name": "Date Test Survey",
+            "id": survey.id,
+            "survey_type": "popover",
+            "question_types": ["open"],
+            "created_at": survey.created_at,
+        }
+
+        mock_report_user_action.assert_called_once_with(
+            self.user,
+            "survey launched",
+            {
+                **expected_properties,
+                "start_date": start_date,
+                "end_date": None,
+            },
+            self.team,
+        )
+        mock_report_user_action.reset_mock()
+
+        # set the end date / aka stop survey
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={"end_date": end_date},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        mock_report_user_action.assert_called_once_with(
+            self.user,
+            "survey stopped",
+            {
+                **expected_properties,
+                "start_date": start_date,
+                "end_date": end_date,
+            },
+            self.team,
+        )
+        mock_report_user_action.reset_mock()
+
+        # remove the end date / aka resume survey
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={"end_date": None},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        mock_report_user_action.assert_called_once_with(
+            self.user,
+            "survey resumed",
+            {
+                **expected_properties,
+                "start_date": start_date,
+                "end_date": None,
+            },
+            self.team,
+        )
+
     @freeze_time("2023-05-01 12:00:00")
     def test_delete_survey_records_activity(self):
         survey = Survey.objects.create(
@@ -2555,6 +2630,7 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
                                         "created_by": None,
                                         "deleted": False,
                                         "is_calculating": False,
+                                        "creation_context": None,
                                         "last_calculated_at": ANY,
                                         "team_id": self.team.id,
                                         "is_action": True,

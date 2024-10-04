@@ -33,7 +33,9 @@ class TestExternalClicksTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
                         },
                     )
                 )
-            for timestamp, session_id, pathname, click in timestamps:
+            for timestamp, session_id, click, *rest in timestamps:
+                properties = rest[0] if rest else {}
+
                 _create_event(
                     team=self.team,
                     event=event,
@@ -41,9 +43,10 @@ class TestExternalClicksTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     timestamp=timestamp,
                     properties={
                         "$session_id": session_id,
-                        "$pathname": pathname,
                         "$event_type": "click",
                         "$external_click_url": click,
+                        "$host": "www.host.com",
+                        **properties,
                     },
                     elements_chain=f'a:href="{click}"',
                 )
@@ -85,12 +88,12 @@ class TestExternalClicksTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 (
                     "p1",
                     [
-                        ("2023-12-02", s1a, "/", "https://www.example.com/"),
-                        ("2023-12-03", s1a, "/login", "https://www.example.com/login"),
-                        ("2023-12-13", s1b, "/docs", "https://www.example.com/docs"),
+                        ("2023-12-02", s1a, "https://www.example.com/"),
+                        ("2023-12-03", s1a, "https://www.example.com/login"),
+                        ("2023-12-13", s1b, "https://www.example.com/docs"),
                     ],
                 ),
-                ("p2", [("2023-12-10", s2, "/", "https://www.example.com/")]),
+                ("p2", [("2023-12-10", s2, "https://www.example.com/")]),
             ]
         )
 
@@ -113,12 +116,12 @@ class TestExternalClicksTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 (
                     "p1",
                     [
-                        ("2023-12-02", s1a, "/", "https://www.example.com/"),
-                        ("2023-12-03", s1a, "/login", "https://www.example.com/login"),
-                        ("2023-12-13", s1b, "/docs", "https://www.example.com/docs"),
+                        ("2023-12-02", s1a, "https://www.example.com/"),
+                        ("2023-12-03", s1a, "https://www.example.com/login"),
+                        ("2023-12-13", s1b, "https://www.example.com/docs"),
                     ],
                 ),
-                ("p2", [("2023-12-10", s2, "/", "https://www.example.com/")]),
+                ("p2", [("2023-12-10", s2, "https://www.example.com/")]),
             ]
         )
 
@@ -141,8 +144,8 @@ class TestExternalClicksTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 (
                     "test",
                     [
-                        ("2023-12-02", s1, "/", "https://www.example.com/"),
-                        ("2023-12-03", s1, "/login", "https://www.example.com/login"),
+                        ("2023-12-02", s1, "https://www.example.com/"),
+                        ("2023-12-03", s1, "https://www.example.com/login"),
                     ],
                 )
             ]
@@ -163,8 +166,8 @@ class TestExternalClicksTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 (
                     "test",
                     [
-                        ("2023-12-02", s1, "/", "https://www.example.com/"),
-                        ("2023-12-03", s1, "/login", "https://www.example.com/login"),
+                        ("2023-12-02", s1, "https://www.example.com/"),
+                        ("2023-12-03", s1, "https://www.example.com/login"),
                     ],
                 )
             ]
@@ -185,8 +188,8 @@ class TestExternalClicksTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 (
                     "test",
                     [
-                        ("2023-12-02", s1, "/login", "https://www.example.com/login?test=1#foo"),
-                        ("2023-12-03", s1, "/login", "https://www.example.com/login#bar"),
+                        ("2023-12-02", s1, "https://www.example.com/login?test=1#foo"),
+                        ("2023-12-03", s1, "https://www.example.com/login#bar"),
                     ],
                 )
             ]
@@ -208,4 +211,55 @@ class TestExternalClicksTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             [["https://www.example.com/login#bar", 1, 1], ["https://www.example.com/login?test=1#foo", 1, 1]],
             results_no_strip,
+        )
+
+    def test_should_exclude_subdomain_under_root(self):
+        s1 = str(uuid7("2023-12-02"))
+        # Create 1 test account
+        self._create_events(
+            [
+                (
+                    "test",
+                    [
+                        ("2023-12-02", s1, "https://subdomain.host.com/", {"$host": "host.com"}),
+                        ("2023-12-03", s1, "https://host.com/", {"$host": "host.com"}),
+                        ("2023-12-03", s1, "https://other.com/", {"$host": "host.com"}),
+                    ],
+                )
+            ]
+        )
+
+        results = self._run_external_clicks_table_query("2023-12-01", "2023-12-03", filter_test_accounts=False).results
+
+        self.assertEqual(
+            [
+                ["https://other.com/", 1, 1],
+            ],
+            results,
+        )
+
+    def test_should_exclude_subdomain_with_shared_root(self):
+        s1 = str(uuid7("2023-12-02"))
+        # Create 1 test account
+        self._create_events(
+            [
+                (
+                    "test",
+                    [
+                        ("2023-12-02", s1, "https://subdomain.host.com/", {"$host": "subdomain.host.com"}),
+                        ("2023-12-02", s1, "https://other.host.com/", {"$host": "subdomain.host.com"}),
+                        ("2023-12-03", s1, "https://host.com/", {"$host": "subdomain.host.com"}),
+                        ("2023-12-03", s1, "https://other.com/", {"$host": "subdomain.host.com"}),
+                    ],
+                )
+            ]
+        )
+
+        results = self._run_external_clicks_table_query("2023-12-01", "2023-12-03", filter_test_accounts=False).results
+
+        self.assertEqual(
+            [
+                ["https://other.com/", 1, 1],
+            ],
+            results,
         )

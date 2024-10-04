@@ -244,7 +244,7 @@ export const HOG_EXAMPLES: Record<string, Pick<HogFunctionType, 'hog' | 'bytecod
         ],
     },
     posthog_capture: {
-        hog: "postHogCapture({\n    'event': f'{event.name} (copy)',\n    'distinct_id': event.distinct_id,\n    'properties': {}\n})",
+        hog: "postHogCapture({\n    'event': f'{event.event} (copy)',\n    'distinct_id': event.distinct_id,\n    'properties': {}\n})",
         bytecode: [
             '_h',
             32,
@@ -252,7 +252,7 @@ export const HOG_EXAMPLES: Record<string, Pick<HogFunctionType, 'hog' | 'bytecod
             32,
             ' (copy)',
             32,
-            'name',
+            'event',
             32,
             'event',
             1,
@@ -370,6 +370,7 @@ export const HOG_INPUTS_EXAMPLES: Record<string, Pick<HogFunctionType, 'inputs' 
 
 export const HOG_FILTERS_EXAMPLES: Record<string, Pick<HogFunctionType, 'filters'>> = {
     no_filters: { filters: { events: [], actions: [], bytecode: ['_h', 29] } },
+    broken_filters: { filters: { events: [], actions: [], bytecode: ['_H', 1, 29, 35, 35, 35] } },
     pageview_or_autocapture_filter: {
         filters: {
             events: [

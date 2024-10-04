@@ -7,13 +7,15 @@ import { PostHogAppToolbarEvent } from 'lib/components/IframedToolbarBrowser/uti
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
+import { experimentsTabLogic } from '~/toolbar/experiments/experimentsTabLogic'
+import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { inBounds, TOOLBAR_ID } from '~/toolbar/utils'
 
 import type { toolbarLogicType } from './toolbarLogicType'
 
 const MARGIN = 2
 
-export type MenuState = 'none' | 'heatmap' | 'actions' | 'flags' | 'inspect' | 'hedgehog' | 'debugger'
+export type MenuState = 'none' | 'heatmap' | 'actions' | 'flags' | 'inspect' | 'hedgehog' | 'debugger' | 'experiments'
 export type ToolbarPositionType =
     | 'top-left'
     | 'top-center'
@@ -29,6 +31,7 @@ export const TOOLBAR_FIXED_POSITION_HITBOX = 100
 export const toolbarLogic = kea<toolbarLogicType>([
     path(['toolbar', 'bar', 'toolbarLogic']),
     connect(() => ({
+        values: [toolbarConfigLogic, ['posthog']],
         actions: [
             actionsTabLogic,
             [
@@ -38,6 +41,8 @@ export const toolbarLogic = kea<toolbarLogicType>([
                 'setAutomaticActionCreationEnabled',
                 'actionCreatedSuccess',
             ],
+            experimentsTabLogic,
+            ['showButtonExperiments'],
             elementsLogic,
             ['enableInspect', 'disableInspect', 'createAction'],
             heatmapLogic,
@@ -72,6 +77,8 @@ export const toolbarLogic = kea<toolbarLogicType>([
         setIsBlurred: (isBlurred: boolean) => ({ isBlurred }),
         setIsEmbeddedInApp: (isEmbedded: boolean) => ({ isEmbedded }),
         setFixedPosition: (position: ToolbarPositionType) => ({ position }),
+        setCurrentPathname: (pathname: string) => ({ pathname }),
+        maybeSendNavigationMessage: true,
     })),
     windowValues(() => ({
         windowHeight: (window: Window) => window.innerHeight,
@@ -164,6 +171,12 @@ export const toolbarLogic = kea<toolbarLogicType>([
                 setIsEmbeddedInApp: (_, { isEmbedded }) => isEmbedded,
             },
         ],
+        currentPathname: [
+            '',
+            {
+                setCurrentPathname: (_, { pathname }) => pathname,
+            },
+        ],
     })),
     selectors({
         position: [
@@ -238,7 +251,6 @@ export const toolbarLogic = kea<toolbarLogicType>([
                 }
             },
         ],
-
         menuProperties: [
             (s) => [s.element, s.menu, s.position, s.windowWidth, s.windowHeight, s.isBlurred],
             (element, menu, position, windowWidth, windowHeight, isBlurred) => {
@@ -283,6 +295,9 @@ export const toolbarLogic = kea<toolbarLogicType>([
                 values.hedgehogActor?.setOnFire(1)
             } else if (visibleMenu === 'actions') {
                 actions.showButtonActions()
+                values.hedgehogActor?.setAnimation('action')
+            } else if (visibleMenu === 'experiments') {
+                actions.showButtonExperiments()
                 values.hedgehogActor?.setAnimation('action')
             } else if (visibleMenu === 'flags') {
                 values.hedgehogActor?.setAnimation('flag')
@@ -403,6 +418,16 @@ export const toolbarLogic = kea<toolbarLogicType>([
             // if embedded, we need to tell the parent window that a new action was created
             window.parent.postMessage({ type: PostHogAppToolbarEvent.PH_NEW_ACTION_CREATED, payload: action }, '*')
         },
+        maybeSendNavigationMessage: () => {
+            const currentPath = window.location.pathname
+            if (currentPath !== values.currentPathname) {
+                actions.setCurrentPathname(currentPath)
+                window.parent.postMessage(
+                    { type: PostHogAppToolbarEvent.PH_TOOLBAR_NAVIGATED, payload: { path: currentPath } },
+                    '*'
+                )
+            }
+        },
     })),
     afterMount(({ actions, values, cache }) => {
         cache.clickListener = (e: MouseEvent): void => {
@@ -412,6 +437,16 @@ export const toolbarLogic = kea<toolbarLogicType>([
             }
         }
         window.addEventListener('mousedown', cache.clickListener)
+        window.addEventListener('popstate', () => {
+            actions.maybeSendNavigationMessage()
+        })
+
+        // Use a setInterval to periodically check for URL changes
+        // We do this because we don't want to write over the history.pushState function in case other scripts rely on it
+        // And mutation observers don't seem to work :shrug:
+        setInterval(() => {
+            actions.maybeSendNavigationMessage()
+        }, 500)
 
         // the toolbar can be run within the posthog parent app
         // if it is then it listens to parent messages

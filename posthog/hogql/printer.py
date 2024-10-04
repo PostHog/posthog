@@ -1,4 +1,5 @@
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime, date
 from difflib import get_close_matches
@@ -224,6 +225,13 @@ class PrintableMaterializedPropertyGroupItem:
     @property
     def value_expr(self) -> str:
         return f"{self.__qualified_column}[{self.property_name}]"
+
+
+def resolve_field_type(expr: ast.Expr) -> ast.Type | None:
+    expr_type = expr.type
+    while isinstance(expr_type, ast.FieldAliasType):
+        expr_type = expr_type.type
+    return expr_type
 
 
 class _Printer(Visitor):
@@ -608,12 +616,6 @@ class _Printer(Visitor):
         if self.context.modifiers.propertyGroupsMode != PropertyGroupsMode.OPTIMIZED:
             return None
 
-        def resolve_field_type(expr: ast.Expr) -> ast.Type | None:
-            expr_type = expr.type
-            while isinstance(expr_type, ast.FieldAliasType):
-                expr_type = expr_type.type
-            return expr_type
-
         if node.op in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.NotEq):
             # For commutative operations, we can rewrite the expression with parameters in either order without
             # affecting the result.
@@ -654,6 +656,14 @@ class _Printer(Visitor):
                     # "IS NULL" can be interpreted as "does not exist in the map" -- this avoids unnecessarily reading
                     # the ``values`` subcolumn of the map.
                     return f"not({property_source.has_expr})"
+
+                # Equality comparisons to boolean constants can skip NULL checks while maintaining our desired result
+                # (i.e. comparisons with NULL evaluate to false) since the value expression will return an empty string
+                # if the property doesn't exist in the map.
+                if constant_expr.value is True:
+                    return f"equals({property_source.value_expr}, 'true')"
+                elif constant_expr.value is False:
+                    return f"equals({property_source.value_expr}, 'false')"
 
                 printed_expr = f"equals({property_source.value_expr}, {self.visit(constant_expr)})"
                 if constant_expr.value == "":
@@ -937,11 +947,6 @@ class _Printer(Visitor):
         # XXX: A lot of this is duplicated (sometimes just copy/pasted) from the null equality comparison logic -- it
         # might make sense to make it so that ``isNull``/``isNotNull`` is rewritten to comparison expressions before
         # this step, similar to how ``equals``/``notEquals`` are interpreted as their comparison operation counterparts.
-        def resolve_field_type(expr: ast.Expr) -> ast.Type | None:
-            expr_type = expr.type
-            while isinstance(expr_type, ast.FieldAliasType):
-                expr_type = expr_type.type
-            return expr_type
 
         match node:
             case ast.Call(name="isNull" | "isNotNull" as function_name, args=[field]):
@@ -965,9 +970,14 @@ class _Printer(Visitor):
                 if not isinstance(field_type, ast.FieldType):
                     return None
 
-                property_source = self.__get_materialized_property_source(field_type, str(property_name))
-                if isinstance(property_source, PrintableMaterializedPropertyGroupItem):
-                    return property_source.has_expr
+                # TRICKY: Materialized property columns do not currently support null values (see comment in
+                # `visit_property_type`) so checking whether or not a property is set for a row cannot safely use that
+                # field and falls back to the equivalent ``JSONHas(properties, ...)`` call instead. However, if this
+                # property is part of *any* property group, we can use that column instead to evaluate this expression
+                # more efficiently -- even if the materialized column would be a better choice in other situations.
+                for property_source in self.__get_all_materialized_property_sources(field_type, str(property_name)):
+                    if isinstance(property_source, PrintableMaterializedPropertyGroupItem):
+                        return property_source.has_expr
 
         return None  # nothing to optimize
 
@@ -1151,7 +1161,9 @@ class _Printer(Visitor):
             raise QueryError(f"Unsupported function call '{node.name}(...)'")
 
     def visit_placeholder(self, node: ast.Placeholder):
-        raise QueryError(f"Placeholders, such as {{{node.field}}}, are not supported in this context")
+        if node.field is None:
+            raise QueryError("You can not use expressions inside placeholders")
+        raise QueryError(f"Unresolved placeholder: {{{node.field}}}")
 
     def visit_alias(self, node: ast.Alias):
         # Skip hidden aliases completely.
@@ -1256,19 +1268,22 @@ class _Printer(Visitor):
         self, type: ast.PropertyType
     ) -> PrintableMaterializedColumn | PrintableMaterializedPropertyGroupItem | None:
         """
-        Find a materialized property for the provided property type.
+        Find the most efficient materialized property source for the provided property type.
         """
-        return self.__get_materialized_property_source(type.field_type, str(type.chain[0]))
+        for source in self.__get_all_materialized_property_sources(type.field_type, str(type.chain[0])):
+            return source
+        return None
 
-    def __get_materialized_property_source(
+    def __get_all_materialized_property_sources(
         self, field_type: ast.FieldType, property_name: str
-    ) -> PrintableMaterializedColumn | PrintableMaterializedPropertyGroupItem | None:
+    ) -> Iterable[PrintableMaterializedColumn | PrintableMaterializedPropertyGroupItem]:
         """
-        Find a materialized property for the provided field type and property name.
+        Find all materialized property sources for the provided field type and property name, ordered from what is
+        likely to be the most efficient access path to the least efficient.
         """
         # TODO: It likely makes sense to make this independent of whether or not property groups are used.
         if self.context.modifiers.materializationMode == "disabled":
-            return None
+            return
 
         field = field_type.resolve_database_field(self.context)
 
@@ -1288,11 +1303,12 @@ class _Printer(Visitor):
 
             materialized_column = self._get_materialized_column(table_name, property_name, field_name)
             if materialized_column:
-                return PrintableMaterializedColumn(
+                yield PrintableMaterializedColumn(
                     self.visit(field_type.table_type),
                     self._print_identifier(materialized_column),
                 )
-            elif self.context.modifiers.propertyGroupsMode in (
+
+            if self.context.modifiers.propertyGroupsMode in (
                 PropertyGroupsMode.ENABLED,
                 PropertyGroupsMode.OPTIMIZED,
             ):
@@ -1302,7 +1318,7 @@ class _Printer(Visitor):
                 for property_group_column in property_groups.get_property_group_columns(
                     table_name, field_name, property_name
                 ):
-                    return PrintableMaterializedPropertyGroupItem(
+                    yield PrintableMaterializedPropertyGroupItem(
                         self.visit(field_type.table_type),
                         self._print_identifier(property_group_column),
                         self.context.add_value(property_name),
@@ -1318,9 +1334,7 @@ class _Printer(Visitor):
             else:
                 materialized_column = self._get_materialized_column("person", property_name, "properties")
             if materialized_column:
-                return PrintableMaterializedColumn(None, self._print_identifier(materialized_column))
-
-        return None
+                yield PrintableMaterializedColumn(None, self._print_identifier(materialized_column))
 
     def visit_property_type(self, type: ast.PropertyType):
         if type.joined_subquery is not None and type.joined_subquery_field_name is not None:
@@ -1505,6 +1519,9 @@ class _Printer(Visitor):
             return node.type.is_nullable(self.context)
         elif isinstance(node, ast.Alias):
             return self._is_nullable(node.expr)
+        elif isinstance(node.type, ast.FieldAliasType):
+            if (field_type := resolve_field_type(node)) and isinstance(field_type, ast.FieldType):
+                return field_type.is_nullable(self.context)
 
         # we don't know if it's nullable, so we assume it can be
         return True
