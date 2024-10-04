@@ -81,7 +81,7 @@ export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): 
             return <></>
         }
 
-        if (table.type === 'view' || table.type === 'data_warehouse' || table.type === 'materialized_view') {
+        if (table.type === 'view' || table.type === 'materialized_view') {
             return (
                 <LemonButton
                     data-attr="schema-list-item-delete"
@@ -95,10 +95,6 @@ export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): 
                     Delete
                 </LemonButton>
             )
-        }
-
-        if (table.type === 'posthog') {
-            return <></>
         }
 
         return <></>
