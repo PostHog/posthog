@@ -280,7 +280,7 @@ export function DataTableExport({ query }: DataTableExportProps): JSX.Element | 
                             onClick: () => {
                                 LemonDialog.openForm({
                                     title: 'Save as static cohort',
-                                    description: 'This will create a cohort with the current results of the query.',
+                                    description: 'This will create a cohort with the current list of people.',
                                     initialValues: {
                                         name: '',
                                     },
@@ -289,7 +289,7 @@ export function DataTableExport({ query }: DataTableExportProps): JSX.Element | 
                                             <LemonInput
                                                 type="text"
                                                 data-attr="insight-name"
-                                                placeholder="Please enter a name for the cohort"
+                                                placeholder="Name of the new cohort"
                                                 autoFocus
                                             />
                                         </LemonField>

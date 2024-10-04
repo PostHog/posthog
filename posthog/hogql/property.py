@@ -482,7 +482,8 @@ def property_to_expr(
         return ast.CompareOperation(
             left=ast.Field(chain=["id" if scope == "person" else "person_id"]),
             op=ast.CompareOperationOp.NotInCohort
-            if property.operator == PropertyOperator.NOT_IN.value
+            # Kludge: negation is outdated but still used in places
+            if property.negation or property.operator == PropertyOperator.NOT_IN.value
             else ast.CompareOperationOp.InCohort,
             right=ast.Constant(value=cohort.pk),
         )
