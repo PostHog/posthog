@@ -22,16 +22,17 @@ pub struct Config {
     #[envconfig(default = "4")]
     pub max_pg_connections: u32,
 
-    #[envconfig(default = "300")]
-    pub team_cache_ttl_secs: u64,
+    // These are unused for now, but useful while iterating in prod
+    #[envconfig(default = "true")]
+    pub skip_writes: bool,
 
-    #[envconfig(default = "10000")]
-    pub team_cache_capacity: u64,
+    #[envconfig(default = "true")]
+    pub skip_reads: bool,
 }
 
 impl Config {
     pub fn init_with_defaults() -> Result<Self, envconfig::Error> {
-        ConsumerConfig::set_defaults("error-tracking-rs", "exceptions_ingestions");
+        ConsumerConfig::set_defaults("error-tracking-rs", "exception_symbolification_events");
         Self::init_from_env()
     }
 }

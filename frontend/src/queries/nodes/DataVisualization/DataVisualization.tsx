@@ -7,16 +7,19 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { AnimationType } from 'lib/animations/animations'
 import { Animation } from 'lib/components/Animation/Animation'
+import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { useCallback, useState } from 'react'
 import { DatabaseTableTreeWithItems } from 'scenes/data-warehouse/external/DataWarehouseTables'
 import { InsightErrorState } from 'scenes/insights/EmptyStates'
+import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { HogQLBoldNumber } from 'scenes/insights/views/BoldNumber/BoldNumber'
 import { urls } from 'scenes/urls'
 
 import { insightVizDataCollectionId, insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { AnyResponseType, DataVisualizationNode, HogQLQuery, HogQLQueryResponse, NodeKind } from '~/queries/schema'
 import { QueryContext } from '~/queries/types'
-import { ChartDisplayType, InsightLogicProps } from '~/types'
+import { ChartDisplayType, ExporterFormat, InsightLogicProps } from '~/types'
 
 import { dataNodeLogic, DataNodeLogicProps } from '../DataNode/dataNodeLogic'
 import { DateRange } from '../DataNode/DateRange'
@@ -105,6 +108,9 @@ export function DataTableVisualization({
 
 function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX.Element {
     const { readOnly } = props
+    const { insightProps } = useValues(insightLogic)
+    const { exportContext } = useValues(insightDataLogic(insightProps))
+
     const {
         query,
         visualizationType,
@@ -206,6 +212,26 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                                         onClick={() => toggleChartSettingsPanel()}
                                         tooltip="Visualization settings"
                                     />
+
+                                    {exportContext && (
+                                        <ExportButton
+                                            disabledReason={
+                                                visualizationType != ChartDisplayType.ActionsTable &&
+                                                'Only table results are exportable'
+                                            }
+                                            type="secondary"
+                                            items={[
+                                                {
+                                                    export_format: ExporterFormat.CSV,
+                                                    export_context: exportContext,
+                                                },
+                                                {
+                                                    export_format: ExporterFormat.XLSX,
+                                                    export_context: exportContext,
+                                                },
+                                            ]}
+                                        />
+                                    )}
                                 </div>
                             </div>
                         </div>
@@ -220,11 +246,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                             <SideBar />
                         </div>
                     )}
-                    <div
-                        className={clsx('w-full h-full flex-1 overflow-auto', {
-                            'pt-[46px]': showEditingUI,
-                        })}
-                    >
+                    <div className={clsx('w-full h-full flex-1 overflow-auto')}>
                         {visualizationType !== ChartDisplayType.ActionsTable && responseError ? (
                             <div
                                 className={clsx('rounded bg-bg-light relative flex flex-1 flex-col p-2', {

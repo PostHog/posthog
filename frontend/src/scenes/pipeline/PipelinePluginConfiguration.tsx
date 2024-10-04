@@ -17,7 +17,6 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { CodeEditor } from 'lib/monaco/CodeEditor'
@@ -55,8 +54,6 @@ export function PipelinePluginConfiguration({
         configurationChanged,
     } = useValues(logic)
     const { submitConfiguration, resetConfiguration, migrateToHogFunction } = useActions(logic)
-
-    const hasHogFunctions = useFeatureFlag('HOG_FUNCTIONS')
 
     if (!stage) {
         return <NotFound object="pipeline stage" />
@@ -139,7 +136,7 @@ export function PipelinePluginConfiguration({
         <div className="space-y-3">
             <PageHeader buttons={buttons} />
 
-            {hasHogFunctions && plugin?.hog_function_migration_available && (
+            {plugin?.hog_function_migration_available && (
                 <LemonBanner
                     type="error"
                     action={{
