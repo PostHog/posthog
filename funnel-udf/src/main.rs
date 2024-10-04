@@ -113,7 +113,7 @@ impl AggregateFunnelRow {
                     &mut entered_timestamp,
                     prop_val,
                 ) {
-                    return
+                    return;
                 }
             } else if events_with_same_timestamp.iter().map(|x| &x.steps).all_equal() {
                 // Deal with the case where they are all the same event
@@ -125,12 +125,41 @@ impl AggregateFunnelRow {
                         &mut entered_timestamp,
                         prop_val,
                     ) {
-                        return
+                        return;
                     }
                 }
             } else {
                 // Handle permutations for events with the same timestamp
-                let mut entered_timestamps: Vec<_> = vec![];
+                // Don't worry about strict funnels or exclusions here yet, just think about happy path
+                // # TODO improve handling of events with same timestamp (if this ever becomes an issue)
+                let sorted_events = events_with_same_timestamp
+                    .iter()
+                    .flat_map(|&event| {
+                        event.steps
+                            .iter()
+                            .filter(|&&step| step > 0)
+                            .map(move |&step| Event { steps: vec![step], ..event.clone() })
+                    }).sorted_by_key(|event| event.steps[0]);
+
+                // TODO: Stop the same
+                // 1. Stop event reuse
+                for event in sorted_events {
+                    if !self.process_event(
+                        args,
+                        &mut vars,
+                        &event,
+                        &mut entered_timestamp,
+                        &prop_val,
+                    ) {
+                        // If any of the permutations hits an exclusion, we exclude this user.
+                        // This isn't an important implementation detail and we could do something smarter here.
+                        return;
+                    }
+                }
+
+                // let mut entered_timestamps: Vec<_> = vec![];
+
+                /*
                 for perm in events_with_same_timestamp.iter().permutations(events_with_same_timestamp.len()) {
                     entered_timestamps.push(entered_timestamp.clone());
                     for event in perm {
@@ -150,6 +179,7 @@ impl AggregateFunnelRow {
                 for i in 0..entered_timestamp.len() {
                     entered_timestamp[i] = entered_timestamps.iter().max_by_key(|x| x[i].timestamp as i32).unwrap()[i].clone();
                 }
+                 */
             }
 
             // If we hit the goal, we can terminate early
@@ -204,7 +234,8 @@ impl AggregateFunnelRow {
                     return false;
                 }
                 let is_unmatched_step_attribution = self.breakdown_step.map(|breakdown_step| step == breakdown_step - 1).unwrap_or(false) && *prop_val != event.breakdown;
-                if !is_unmatched_step_attribution {
+                let already_used_event = entered_timestamp[step-1].uuids.contains(&event.uuid);
+                if !is_unmatched_step_attribution && !already_used_event {
                     entered_timestamp[step] = EnteredTimestamp {
                         timestamp: entered_timestamp[step - 1].timestamp,
                         timings: {
@@ -221,9 +252,9 @@ impl AggregateFunnelRow {
                     if vars.event_uuids[step - 1].len() < MAX_REPLAY_EVENTS - 1 {
                         vars.event_uuids[step - 1].push(event.uuid);
                     }
-                }
-                if step > vars.max_step.0 {
-                    vars.max_step = (step, entered_timestamp[step].clone());
+                    if step > vars.max_step.0 {
+                        vars.max_step = (step, entered_timestamp[step].clone());
+                    }
                 }
             }
         }
@@ -245,7 +276,6 @@ impl AggregateFunnelRow {
 }
 
 fn main() {
-
     let stdin = io::stdin();
     let mut stdout = io::stdout();
 
@@ -254,7 +284,7 @@ fn main() {
             let args = parse_args(&line);
             let mut aggregate_funnel_row = AggregateFunnelRow {
                 results: Vec::with_capacity(args.prop_vals.len()),
-                breakdown_step: Option::None
+                breakdown_step: Option::None,
             };
             let result = aggregate_funnel_row.calculate_funnel_from_user_events(&args);
             let output = json!({ "result": result });
