@@ -449,14 +449,20 @@ def backfill_export(
         start_at=start_at.isoformat(),
         end_at=end_at.isoformat() if end_at else None,
     )
-    workflow_id = start_backfill_batch_export_workflow(temporal, inputs=inputs)
+    start_at_utc = start_at.astimezone(tz=dt.UTC)
+    end_at_utc = end_at.astimezone(tz=dt.UTC) if end_at else None
+
+    workflow_id = f"{inputs.batch_export_id}-Backfill-{start_at_utc}-{end_at_utc}"
+
+    workflow_id = start_backfill_batch_export_workflow(temporal, workflow_id, inputs=inputs)
     return workflow_id
 
 
 @async_to_sync
-async def start_backfill_batch_export_workflow(temporal: Client, inputs: BackfillBatchExportInputs) -> str:
+async def start_backfill_batch_export_workflow(
+    temporal: Client, workflow_id: str, inputs: BackfillBatchExportInputs
+) -> str:
     """Async call to start a BackfillBatchExportWorkflow."""
-    workflow_id = f"{inputs.batch_export_id}-Backfill-{inputs.start_at}-{inputs.end_at}"
     await temporal.start_workflow(
         "backfill-batch-export",
         inputs,

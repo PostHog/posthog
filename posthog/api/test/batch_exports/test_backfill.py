@@ -312,3 +312,55 @@ def test_backfill_is_partitioned_by_team_id(client: HttpClient):
         )
 
         assert response.status_code == status.HTTP_404_NOT_FOUND, response.json()
+
+
+def test_batch_export_backfill_created_in_timezone(client: HttpClient):
+    """Test creating a BatchExportBackfill sets the right ID in UTC timezone.
+
+    PostgreSQL stores datetime values in their UTC representation, converting the input
+    if it's in a different timezone. For this reason, we need backfills to have a workflow
+    ID in UTC representation, so that we can later re-construct this ID from the data stored
+    in PostgreSQL.
+
+    Otherwise, we would need to store a timezone field in PostgreSQL too. We may want
+    to do that later, but this test case is still valuable to ensure we are pulling and
+    using the timezone stored in PostgreSQL correctly.
+    """
+    temporal = sync_connect()
+
+    destination_data = {
+        "type": "S3",
+        "config": {
+            "bucket_name": "my-production-s3-bucket",
+            "region": "us-east-1",
+            "prefix": "posthog-events/",
+            "aws_access_key_id": "abc123",
+            "aws_secret_access_key": "secret",
+        },
+    }
+    batch_export_data = {
+        "name": "my-production-s3-bucket-destination",
+        "destination": destination_data,
+        "interval": "hour",
+    }
+
+    organization = create_organization("Test Org")
+    team = create_team(organization, timezone="US/Eastern")
+    user = create_user("test@user.com", "Test User", organization)
+    client.force_login(user)
+
+    with start_test_worker(temporal):
+        batch_export = create_batch_export_ok(client, team.pk, batch_export_data)
+        batch_export_id = batch_export["id"]
+
+        response = backfill_batch_export(
+            client,
+            team.pk,
+            batch_export_id,
+            "2021-01-01T00:00:00-05:00",
+            "2021-10-01T00:00:00-04:00",
+        )
+
+        data = response.json()
+        assert response.status_code == status.HTTP_200_OK, data
+        assert data["backfill_id"] == f"{batch_export_id}-Backfill-2021-01-01 05:00:00+00:00-2021-10-01 04:00:00+00:00"
