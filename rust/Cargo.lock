@@ -1399,6 +1399,7 @@ dependencies = [
  "common-alloc",
  "common-kafka",
  "common-metrics",
+ "common-types",
  "envconfig",
  "health",
  "metrics",

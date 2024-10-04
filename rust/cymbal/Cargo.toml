@@ -15,6 +15,7 @@ metrics = { workspace = true }
 common-metrics = { path = "../common/metrics" }
 common-alloc = { path = "../common/alloc" }
 common-kafka = { path = "../common/kafka" }
+common-types = { path = "../common/types" }
 thiserror = { workspace = true }
 sqlx = { workspace = true }
 serde_json = { workspace = true }
