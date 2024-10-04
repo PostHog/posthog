@@ -1,6 +1,8 @@
 from typing import cast
 from unittest.mock import Mock, patch
 
+from freezegun import freeze_time
+
 from hogql_parser import parse_expr
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.hogql.constants import HogQLGlobalSettings, MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY
@@ -61,6 +63,29 @@ class TestFunnelStrictStepsUDF(BaseTestFunnelStrictSteps):
         )
         # Make sure the events have been condensed down to one
         self.assertEqual(1, len(response.results[0][-1]))
+
+    def test_multiple_events_same_timestamp_doesnt_blow_up(self):
+        _create_person(distinct_ids=["test"], team_id=self.team.pk)
+        with freeze_time("2024-01-10T12:01:00"):
+            for _ in range(30):
+                _create_event(team=self.team, event="step one", distinct_id="test")
+            _create_event(team=self.team, event="step two", distinct_id="test")
+            _create_event(team=self.team, event="step three", distinct_id="test")
+        filters = {
+            "insight": INSIGHT_FUNNELS,
+            "funnel_viz_type": "steps",
+            "date_from": "2024-01-10 00:00:00",
+            "date_to": "2024-01-12 00:00:00",
+            "events": [
+                {"id": "step one", "order": 0},
+                {"id": "step two", "order": 1},
+                {"id": "step three", "order": 2},
+            ],
+        }
+
+        query = cast(FunnelsQuery, filter_to_query(filters))
+        results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+        self.assertEqual(1, results[-1]["count"])
 
 
 @patch("posthoganalytics.feature_enabled", new=Mock(return_value=True))

@@ -2828,9 +2828,9 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self.assertEqual(results[0]["count"], 1)
 
         def test_same_event_same_timestamp(self):
-            person1 = _create_person(distinct_ids=["test"], team_id=self.team.pk)
+            _create_person(distinct_ids=["test"], team_id=self.team.pk)
             with freeze_time("2024-01-10T12:01:00"):
-                for i in range(20):
+                for _ in range(20):
                     _create_event(team=self.team, event="step one", distinct_id="test")
             with freeze_time("2024-01-11T12:01:00"):
                 _create_event(team=self.team, event="step two", distinct_id="test")
@@ -2847,9 +2847,10 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             query = cast(FunnelsQuery, filter_to_query(filters))
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+            self.assertEqual(results[-1]["count"], 1)
 
         def test_events_same_timestamp_no_exclusions(self):
-            person1 = _create_person(distinct_ids=["test"], team_id=self.team.pk)
+            _create_person(distinct_ids=["test"], team_id=self.team.pk)
             with freeze_time("2024-01-10T12:01:00"):
                 _create_event(team=self.team, event="step one, ten", distinct_id="test")
                 _create_event(team=self.team, event="step two, three, seven", distinct_id="test")
@@ -2877,6 +2878,42 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                     {"id": "step two, three, seven", "order": 6},
                     {"id": "step four, five, eight", "order": 7},
                     {"id": "step six, nine", "order": 8},
+                ],
+            }
+
+            query = cast(FunnelsQuery, filter_to_query(filters))
+            results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+            self.assertEqual(1, results[-1]["count"])
+
+        def test_multiple_events_same_timestamp_exclusions(self):
+            _create_person(distinct_ids=["test"], team_id=self.team.pk)
+            with freeze_time("2024-01-10T12:00:00"):
+                _create_event(team=self.team, event="step zero", distinct_id="test")
+            with freeze_time("2024-01-10T12:01:00"):
+                for _ in range(30):
+                    _create_event(team=self.team, event="step one", distinct_id="test")
+                _create_event(team=self.team, event="exclusion", distinct_id="test")
+                _create_event(team=self.team, event="step two", distinct_id="test")
+            with freeze_time("2024-01-10T12:02:00"):
+                _create_event(team=self.team, event="step three", distinct_id="test")
+            filters = {
+                "insight": INSIGHT_FUNNELS,
+                "funnel_viz_type": "steps",
+                "date_from": "2024-01-10 00:00:00",
+                "date_to": "2024-01-12 00:00:00",
+                "events": [
+                    {"id": "step zero", "order": 0},
+                    {"id": "step one", "order": 1},
+                    {"id": "step two", "order": 2},
+                    {"id": "step three", "order": 3},
+                ],
+                "exclusions": [
+                    {
+                        "id": "exclusion",
+                        "type": "events",
+                        "funnel_from_step": 0,
+                        "funnel_to_step": 1,
+                    }
                 ],
             }
 

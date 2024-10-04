@@ -117,7 +117,7 @@ impl AggregateFunnelRow {
                     return;
                 }
             } else if events_with_same_timestamp.iter().map(|x| &x.steps).all_equal() {
-                // Deal with the case where they are all the same event
+                // Deal with the most common case where they are all the same event (order doesn't matter)
                 for event in events_with_same_timestamp {
                     if !self.process_event(
                         args,
@@ -132,8 +132,8 @@ impl AggregateFunnelRow {
                 }
             } else {
                 // Handle permutations for different events with the same timestamp
-                // The behavior here is a little undefined, we don't handle it for strict funnels or exclusions
-                // Could add more optimizations here but shouldn't be very common
+                // The behavior here is a little undefined, we don't handle it properly
+                // for strict funnels or exclusions.
                 let sorted_events = events_with_same_timestamp
                     .iter()
                     .flat_map(|&event| {
@@ -189,7 +189,7 @@ impl AggregateFunnelRow {
         event: &Event,
         entered_timestamp: &mut Vec<EnteredTimestamp>,
         prop_val: &PropVal,
-        validate_event_reuse: bool
+        processing_multiple_events: bool
     ) -> bool {
         for step in event.steps.iter().rev() {
             let mut exclusion = false;
@@ -210,7 +210,7 @@ impl AggregateFunnelRow {
                     return false;
                 }
                 let is_unmatched_step_attribution = self.breakdown_step.map(|breakdown_step| step == breakdown_step - 1).unwrap_or(false) && *prop_val != event.breakdown;
-                let already_used_event = validate_event_reuse && entered_timestamp[step-1].uuids.contains(&event.uuid);
+                let already_used_event = processing_multiple_events && entered_timestamp[step-1].uuids.contains(&event.uuid);
                 if !is_unmatched_step_attribution && !already_used_event {
                     entered_timestamp[step] = EnteredTimestamp {
                         timestamp: entered_timestamp[step - 1].timestamp,
@@ -235,7 +235,9 @@ impl AggregateFunnelRow {
             }
         }
 
-        if args.funnel_order_type == "strict" {
+        // If a strict funnel, clear all of the steps that we didn't match to
+        // If we are processing multiple events, skip this step, because ordering makes it complicated
+        if !processing_multiple_events && args.funnel_order_type == "strict" {
             for i in 1..entered_timestamp.len() {
                 if !event.steps.contains(&(i as i8)) {
                     entered_timestamp[i] = EnteredTimestamp {
