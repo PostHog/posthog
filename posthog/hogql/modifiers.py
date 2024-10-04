@@ -15,6 +15,28 @@ from posthog.schema import (
 
 if TYPE_CHECKING:
     from posthog.models import Team
+    from posthog.models import User
+
+
+def create_default_modifiers_for_user(
+    user: "User", team: "Team", modifiers: Optional[HogQLQueryModifiers] = None
+) -> HogQLQueryModifiers:
+    if modifiers is None:
+        modifiers = HogQLQueryModifiers()
+    else:
+        modifiers = modifiers.model_copy()
+
+    modifiers.useMaterializedViews = posthoganalytics.feature_enabled(
+        "data-modeling",
+        str(user.distinct_id),
+        person_properties={
+            "email": user.email,
+        },
+        only_evaluate_locally=True,
+        send_feature_flag_events=False,
+    )
+
+    return create_default_modifiers_for_team(team, modifiers)
 
 
 def create_default_modifiers_for_team(
