@@ -2,9 +2,13 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 import { AddToDashboard } from 'lib/components/AddToDashboard/AddToDashboard'
 import { AddToDashboardModal } from 'lib/components/AddToDashboard/AddToDashboardModal'
-import { AlertsButton, AlertsModal } from 'lib/components/Alerts/AlertsModal'
+import { AlertsButton } from 'lib/components/Alerts/AlertsButton'
+import { insightAlertsLogic } from 'lib/components/Alerts/insightAlertsLogic'
+import { EditAlertModal } from 'lib/components/Alerts/views/EditAlertModal'
+import { ManageAlertsModal } from 'lib/components/Alerts/views/ManageAlertsModal'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
+import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
@@ -12,7 +16,10 @@ import { SubscribeButton, SubscriptionsModal } from 'lib/components/Subscription
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
 import { useState } from 'react'
@@ -31,6 +38,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { tagsModel } from '~/models/tagsModel'
 import { DataTableNode, NodeKind } from '~/queries/schema'
+import { isDataTableNode, isDataVisualizationNode, isEventsQuery, isHogQLQuery } from '~/queries/utils'
 import {
     ExporterFormat,
     InsightLogicProps,
@@ -42,7 +50,8 @@ import {
 
 export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: InsightLogicProps }): JSX.Element {
     // insightSceneLogic
-    const { insightMode, itemId } = useValues(insightSceneLogic)
+    const { insightMode, itemId, alertId } = useValues(insightSceneLogic)
+
     const { setInsightMode } = useActions(insightSceneLogic)
 
     // insightLogic
@@ -51,14 +60,24 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
     )
     const { setInsightMetadata, saveAs, saveInsight } = useActions(insightLogic(insightLogicProps))
 
+    // insightAlertsLogic
+    const { loadAlerts } = useActions(
+        insightAlertsLogic({
+            insightLogicProps,
+            insightId: insight.id as number,
+            insightShortId: insight.short_id as InsightShortId,
+        })
+    )
+
     // savedInsightsLogic
     const { duplicateInsight, loadInsights } = useActions(savedInsightsLogic)
 
     // insightDataLogic
-    const { queryChanged, showQueryEditor, showDebugPanel, hogQL, exportContext } = useValues(
+    const { query, queryChanged, showQueryEditor, showDebugPanel, hogQL, exportContext } = useValues(
         insightDataLogic(insightProps)
     )
     const { toggleQueryEditorPanel, toggleDebugPanel } = useActions(insightDataLogic(insightProps))
+    const { createStaticCohort } = useActions(exportsLogic)
 
     // other logics
     useMountedLogic(insightCommandLogic(insightProps))
@@ -69,6 +88,9 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
     const { push } = useActions(router)
 
     const [addToDashboardModalOpen, setAddToDashboardModalOpenModal] = useState<boolean>(false)
+
+    const showCohortButton =
+        isDataTableNode(query) || isDataVisualizationNode(query) || isHogQLQuery(query) || isEventsQuery(query)
 
     return (
         <>
@@ -94,14 +116,29 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         insightProps={insightProps}
                         canEditInsight={canEditInsight}
                     />
-                    <AlertsModal
-                        closeModal={() => push(urls.insightView(insight.short_id as InsightShortId))}
-                        isOpen={insightMode === ItemMode.Alerts}
-                        insightLogicProps={insightLogicProps}
-                        insightId={insight.id as number}
-                        insightShortId={insight.short_id as InsightShortId}
-                        alertId={typeof itemId === 'string' ? itemId : null}
-                    />
+                    {insightMode === ItemMode.Alerts && (
+                        <ManageAlertsModal
+                            onClose={() => push(urls.insightView(insight.short_id as InsightShortId))}
+                            isOpen={insightMode === ItemMode.Alerts}
+                            insightLogicProps={insightLogicProps}
+                            insightId={insight.id as number}
+                            insightShortId={insight.short_id as InsightShortId}
+                        />
+                    )}
+
+                    {!!alertId && (
+                        <EditAlertModal
+                            onClose={() => push(urls.insightAlerts(insight.short_id as InsightShortId))}
+                            isOpen={!!alertId}
+                            alertId={alertId === null || alertId === 'new' ? undefined : alertId}
+                            insightShortId={insight.short_id as InsightShortId}
+                            insightId={insight.id!}
+                            onEditSuccess={() => {
+                                loadAlerts()
+                                push(urls.insightAlerts(insight.short_id as InsightShortId))
+                            }}
+                        />
+                    )}
                     <NewDashboardModal />
                 </>
             )}
@@ -228,6 +265,49 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                             >
                                                 Edit SQL directly
                                             </LemonButton>
+                                            {showCohortButton && (
+                                                <LemonButton
+                                                    data-attr="edit-insight-sql"
+                                                    onClick={() => {
+                                                        LemonDialog.openForm({
+                                                            title: 'Save as static cohort',
+                                                            description: (
+                                                                <div className="mt-2">
+                                                                    Your query must export a <code>person_id</code>,{' '}
+                                                                    <code>actor_id</code> or <code>id</code> column,
+                                                                    which must match the <code>id</code> of the{' '}
+                                                                    <code>persons</code> table
+                                                                </div>
+                                                            ),
+                                                            initialValues: {
+                                                                name: '',
+                                                            },
+                                                            content: (
+                                                                <LemonField name="name">
+                                                                    <LemonInput
+                                                                        data-attr="insight-name"
+                                                                        placeholder="Name of the new cohort"
+                                                                        autoFocus
+                                                                    />
+                                                                </LemonField>
+                                                            ),
+                                                            errors: {
+                                                                name: (name) =>
+                                                                    !name ? 'You must enter a name' : undefined,
+                                                            },
+                                                            onSubmit: async ({ name }) => {
+                                                                createStaticCohort(name, {
+                                                                    kind: NodeKind.HogQLQuery,
+                                                                    query: hogQL,
+                                                                })
+                                                            },
+                                                        })
+                                                    }}
+                                                    fullWidth
+                                                >
+                                                    Save as static cohort
+                                                </LemonButton>
+                                            )}
                                         </>
                                     )}
                                     {hasDashboardItemId && (

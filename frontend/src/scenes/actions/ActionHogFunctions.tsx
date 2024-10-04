@@ -1,6 +1,5 @@
 import { LemonBanner } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { actionEditLogic } from 'scenes/actions/actionEditLogic'
 import { actionLogic } from 'scenes/actions/actionLogic'
 import { LinkedHogFunctions } from 'scenes/pipeline/hogfunctions/list/LinkedHogFunctions'
@@ -12,9 +11,7 @@ export function ActionHogFunctions(): JSX.Element | null {
     const { hasCohortFilters, actionChanged, showCohortDisablesFunctionsWarning } = useValues(
         actionEditLogic({ id: action?.id, action })
     )
-    const hogFunctionsEnabled = useFeatureFlag('HOG_FUNCTIONS')
-
-    if (!action || !hogFunctionsEnabled) {
+    if (!action) {
         return null
     }
 

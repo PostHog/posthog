@@ -178,7 +178,7 @@ class TestPluginSourceFile(BaseTest, QueryMatchingTest):
             plugin_json_file,
             index_ts_file,
             frontend_tsx_file,
-            site_Ts_file,
+            site_ts_file,
         ) = PluginSourceFile.objects.sync_from_plugin_archive(test_plugin)
 
         self.assertEqual(PluginSourceFile.objects.count(), 2)
@@ -186,7 +186,7 @@ class TestPluginSourceFile(BaseTest, QueryMatchingTest):
         assert index_ts_file is not None
         self.assertEqual(index_ts_file.source, HELLO_WORLD_PLUGIN_GITHUB_INDEX_JS)
         self.assertIsNone(frontend_tsx_file)
-        self.assertIsNone(site_Ts_file)
+        self.assertIsNone(site_ts_file)
 
     @snapshot_postgres_queries
     def test_sync_from_plugin_archive_from_tgz_with_explicit_index_js_works(self):
@@ -201,7 +201,7 @@ class TestPluginSourceFile(BaseTest, QueryMatchingTest):
             plugin_json_file,
             index_ts_file,
             frontend_tsx_file,
-            site_Ts_file,
+            site_ts_file,
         ) = PluginSourceFile.objects.sync_from_plugin_archive(test_plugin)
 
         self.assertEqual(PluginSourceFile.objects.count(), 2)
@@ -209,14 +209,14 @@ class TestPluginSourceFile(BaseTest, QueryMatchingTest):
         assert index_ts_file is not None
         self.assertEqual(index_ts_file.source, HELLO_WORLD_PLUGIN_NPM_INDEX_JS)
         self.assertIsNone(frontend_tsx_file)
-        self.assertIsNone(site_Ts_file)
+        self.assertIsNone(site_ts_file)
 
         # Second time - update
         (
             plugin_json_file,
             index_ts_file,
             frontend_tsx_file,
-            site_Ts_file,
+            site_ts_file,
         ) = PluginSourceFile.objects.sync_from_plugin_archive(test_plugin)
 
         self.assertEqual(PluginSourceFile.objects.count(), 2)
@@ -224,7 +224,7 @@ class TestPluginSourceFile(BaseTest, QueryMatchingTest):
         assert index_ts_file is not None
         self.assertEqual(index_ts_file.source, HELLO_WORLD_PLUGIN_NPM_INDEX_JS)
         self.assertIsNone(frontend_tsx_file)
-        self.assertIsNone(site_Ts_file)
+        self.assertIsNone(site_ts_file)
 
     @snapshot_postgres_queries
     def test_sync_from_plugin_archive_from_zip_with_index_ts_works(self):
@@ -239,7 +239,7 @@ class TestPluginSourceFile(BaseTest, QueryMatchingTest):
             plugin_json_file,
             index_ts_file,
             frontend_tsx_file,
-            site_Ts_file,
+            site_ts_file,
         ) = PluginSourceFile.objects.sync_from_plugin_archive(test_plugin)
 
         self.assertEqual(PluginSourceFile.objects.count(), 2)
@@ -247,7 +247,7 @@ class TestPluginSourceFile(BaseTest, QueryMatchingTest):
         assert index_ts_file is not None
         self.assertEqual(index_ts_file.source, HELLO_WORLD_PLUGIN_GITHUB_INDEX_JS)
         self.assertIsNone(frontend_tsx_file)
-        self.assertIsNone(site_Ts_file)
+        self.assertIsNone(site_ts_file)
         self.assertFalse(self.team.inject_web_apps)
 
     @snapshot_postgres_queries
@@ -263,19 +263,19 @@ class TestPluginSourceFile(BaseTest, QueryMatchingTest):
             plugin_json_file,
             index_ts_file,
             frontend_tsx_file,
-            site_Ts_file,
+            site_ts_file,
         ) = PluginSourceFile.objects.sync_from_plugin_archive(test_plugin)
 
         self.assertEqual(PluginSourceFile.objects.count(), 2)
         self.assertEqual(plugin_json_file.source, HELLO_WORLD_PLUGIN_PLUGIN_JSON_WITHOUT_MAIN)
         self.assertIsNone(index_ts_file)
-        self.assertIsNone(site_Ts_file)
+        self.assertIsNone(site_ts_file)
         assert frontend_tsx_file is not None
         self.assertEqual(frontend_tsx_file.source, HELLO_WORLD_PLUGIN_FRONTEND_TSX)
         self.assertFalse(self.team.inject_web_apps)
 
     @snapshot_postgres_queries
-    def test_sync_from_plugin_archive_from_zip_without_index_ts_but_site_Ts_works(self):
+    def test_sync_from_plugin_archive_from_zip_without_index_ts_but_site_ts_works(self):
         self.assertFalse(self.team.inject_web_apps)
         test_plugin: Plugin = Plugin.objects.create(
             organization=self.organization,
@@ -287,15 +287,17 @@ class TestPluginSourceFile(BaseTest, QueryMatchingTest):
             plugin_json_file,
             index_ts_file,
             frontend_tsx_file,
-            site_Ts_file,
+            site_ts_file,
         ) = PluginSourceFile.objects.sync_from_plugin_archive(test_plugin)
 
         self.assertEqual(PluginSourceFile.objects.count(), 2)
         self.assertEqual(plugin_json_file.source, HELLO_WORLD_PLUGIN_PLUGIN_JSON_WITHOUT_MAIN)
         self.assertIsNone(index_ts_file)
         self.assertIsNone(frontend_tsx_file)
-        assert site_Ts_file is not None
-        self.assertEqual(site_Ts_file.source, HELLO_WORLD_PLUGIN_SITE_TS)
+        assert site_ts_file is not None
+        self.assertEqual(site_ts_file.source, HELLO_WORLD_PLUGIN_SITE_TS)
+        self.assertEqual(site_ts_file.status, PluginSourceFile.Status.TRANSPILED)
+        assert site_ts_file.transpiled is not None and len(site_ts_file.transpiled) > 0
 
     @snapshot_postgres_queries
     def test_sync_from_plugin_archive_from_zip_without_any_code_fails(self):
@@ -325,7 +327,7 @@ class TestPluginSourceFile(BaseTest, QueryMatchingTest):
             plugin_json_file,
             index_ts_file,
             frontend_tsx_file,
-            site_Ts_file,
+            site_ts_file,
         ) = PluginSourceFile.objects.sync_from_plugin_archive(test_plugin)
 
         self.assertEqual(PluginSourceFile.objects.count(), 2)
@@ -341,7 +343,7 @@ class TestPluginSourceFile(BaseTest, QueryMatchingTest):
             plugin_json_file,
             index_ts_file,
             frontend_tsx_file,
-            site_Ts_file,
+            site_ts_file,
         ) = PluginSourceFile.objects.sync_from_plugin_archive(test_plugin)
 
         self.assertEqual(PluginSourceFile.objects.count(), 2)  # frontend.tsx replaced by index.ts
@@ -349,6 +351,8 @@ class TestPluginSourceFile(BaseTest, QueryMatchingTest):
         self.assertIsNone(index_ts_file)
         assert frontend_tsx_file is not None
         self.assertEqual(frontend_tsx_file.source, HELLO_WORLD_PLUGIN_FRONTEND_TSX)
+        self.assertEqual(frontend_tsx_file.status, PluginSourceFile.Status.TRANSPILED)
+        assert frontend_tsx_file.transpiled is not None and len(frontend_tsx_file.transpiled) > 0
 
     @snapshot_postgres_queries
     def test_sync_from_plugin_archive_with_subdir_works(self):
@@ -363,7 +367,7 @@ class TestPluginSourceFile(BaseTest, QueryMatchingTest):
             plugin_json_file,
             index_ts_file,
             frontend_tsx_file,
-            site_Ts_file,
+            site_ts_file,
         ) = PluginSourceFile.objects.sync_from_plugin_archive(test_plugin)
 
         self.assertEqual(PluginSourceFile.objects.count(), 2)
