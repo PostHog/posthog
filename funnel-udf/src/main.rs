@@ -31,8 +31,7 @@ struct Event {
 #[derive(Deserialize)]
 struct Args {
     num_steps: usize,
-    // Converstion Window Limit in Seconds
-    conversion_window_limit: u64,
+    conversion_window_limit: u64, // In seconds
     breakdown_attribution_type: String,
     funnel_order_type: String,
     prop_vals: Vec<PropVal>,
@@ -45,11 +44,10 @@ struct Result(i8, PropVal, Vec<f64>, Vec<Vec<Uuid>>);
 struct Vars {
     max_step: (usize, EnteredTimestamp),
     event_uuids: Vec<Vec<Uuid>>,
+    entered_timestamp: Vec<EnteredTimestamp>
 }
 
 struct AggregateFunnelRow {
-    // vars: Vars,
-    // event_uuids: Vec<Vec<Uuid>>,
     breakdown_step: Option<usize>,
     results: Vec<Result>,
 }
@@ -84,8 +82,8 @@ impl AggregateFunnelRow {
         let mut vars = Vars {
             max_step: (0, DEFAULT_ENTERED_TIMESTAMP.clone()),
             event_uuids: repeat(Vec::new()).take(args.num_steps).collect(),
+            entered_timestamp: vec![DEFAULT_ENTERED_TIMESTAMP.clone(); args.num_steps + 1]
         };
-        let mut entered_timestamp = vec![DEFAULT_ENTERED_TIMESTAMP.clone(); args.num_steps + 1];
 
         let filtered_events = args.value.iter()
             .filter(|e| {
@@ -99,7 +97,7 @@ impl AggregateFunnelRow {
 
         for (timestamp, events_with_same_timestamp) in &filtered_events {
             let events_with_same_timestamp: Vec<_> = events_with_same_timestamp.collect();
-            entered_timestamp[0] = EnteredTimestamp {
+            vars.entered_timestamp[0] = EnteredTimestamp {
                 timestamp,
                 timings: vec![],
                 uuids: vec![],
@@ -110,7 +108,6 @@ impl AggregateFunnelRow {
                     args,
                     &mut vars,
                     &events_with_same_timestamp[0],
-                    &mut entered_timestamp,
                     prop_val,
                     false
                 ) {
@@ -123,7 +120,6 @@ impl AggregateFunnelRow {
                         args,
                         &mut vars,
                         event,
-                        &mut entered_timestamp,
                         prop_val,
                         false
                     ) {
@@ -154,7 +150,6 @@ impl AggregateFunnelRow {
                         args,
                         &mut vars,
                         &event,
-                        &mut entered_timestamp,
                         &prop_val,
                         true
                     ) {
@@ -164,7 +159,7 @@ impl AggregateFunnelRow {
             }
 
             // If we hit the goal, we can terminate early
-            if entered_timestamp[args.num_steps].timestamp > 0.0 {
+            if vars.entered_timestamp[args.num_steps].timestamp > 0.0 {
                 break;
             }
         }
@@ -193,7 +188,6 @@ impl AggregateFunnelRow {
         args: &Args,
         vars: &mut Vars,
         event: &Event,
-        entered_timestamp: &mut Vec<EnteredTimestamp>,
         prop_val: &PropVal,
         processing_multiple_events: bool
     ) -> bool {
@@ -206,9 +200,9 @@ impl AggregateFunnelRow {
                 *step
             }) as usize;
 
-            let in_match_window = (event.timestamp - entered_timestamp[step - 1].timestamp) <= args.conversion_window_limit as f64;
-            let already_reached_this_step = entered_timestamp[step].timestamp == entered_timestamp[step - 1].timestamp
-                && entered_timestamp[step].timestamp != 0.0;
+            let in_match_window = (event.timestamp - vars.entered_timestamp[step - 1].timestamp) <= args.conversion_window_limit as f64;
+            let already_reached_this_step = vars.entered_timestamp[step].timestamp == vars.entered_timestamp[step - 1].timestamp
+                && vars.entered_timestamp[step].timestamp != 0.0;
 
             if in_match_window && !already_reached_this_step {
                 if exclusion {
@@ -216,17 +210,17 @@ impl AggregateFunnelRow {
                     return false;
                 }
                 let is_unmatched_step_attribution = self.breakdown_step.map(|breakdown_step| step == breakdown_step - 1).unwrap_or(false) && *prop_val != event.breakdown;
-                let already_used_event = processing_multiple_events && entered_timestamp[step-1].uuids.contains(&event.uuid);
+                let already_used_event = processing_multiple_events && vars.entered_timestamp[step-1].uuids.contains(&event.uuid);
                 if !is_unmatched_step_attribution && !already_used_event {
-                    entered_timestamp[step] = EnteredTimestamp {
-                        timestamp: entered_timestamp[step - 1].timestamp,
+                    vars.entered_timestamp[step] = EnteredTimestamp {
+                        timestamp: vars.entered_timestamp[step - 1].timestamp,
                         timings: {
-                            let mut timings = entered_timestamp[step - 1].timings.clone();
+                            let mut timings = vars.entered_timestamp[step - 1].timings.clone();
                             timings.push(event.timestamp);
                             timings
                         },
                         uuids: {
-                            let mut uuids = entered_timestamp[step - 1].uuids.clone();
+                            let mut uuids = vars.entered_timestamp[step - 1].uuids.clone();
                             uuids.push(event.uuid);
                             uuids
                         },
@@ -235,7 +229,7 @@ impl AggregateFunnelRow {
                         vars.event_uuids[step - 1].push(event.uuid);
                     }
                     if step > vars.max_step.0 {
-                        vars.max_step = (step, entered_timestamp[step].clone());
+                        vars.max_step = (step, vars.entered_timestamp[step].clone());
                     }
                 }
             }
@@ -244,13 +238,9 @@ impl AggregateFunnelRow {
         // If a strict funnel, clear all of the steps that we didn't match to
         // If we are processing multiple events, skip this step, because ordering makes it complicated
         if !processing_multiple_events && args.funnel_order_type == "strict" {
-            for i in 1..entered_timestamp.len() {
+            for i in 1..vars.entered_timestamp.len() {
                 if !event.steps.contains(&(i as i8)) {
-                    entered_timestamp[i] = EnteredTimestamp {
-                        timestamp: 0.0,
-                        timings: vec![],
-                        uuids: vec![],
-                    };
+                    vars.entered_timestamp[i] = DEFAULT_ENTERED_TIMESTAMP;
                 }
             }
         }
