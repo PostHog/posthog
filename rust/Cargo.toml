@@ -93,5 +93,3 @@ uuid = { version = "1.6.1", features = ["v7", "serde"] }
 neon = "1"
 quick_cache = "0.6.9"
 ahash = "0.8.11"
-aws-config = { version = "1.1.7", features = ["behavior-version-latest"] }
-aws-sdk-s3 = "1.53.0"
