@@ -114,25 +114,20 @@ impl AggregateFunnelRow {
                     prop_val,
                 ) {
                     return
-                }/*
-                } else if events_with_same_timestamp.iter().map(|x| x.steps).all_equal_value() {
-                    // Deal with the case where they are all the same event
-                    for event in events_with_same_timestamp {
-                        if !self.process_event(
-                            &events_with_same_timestamp[0],
-                            &mut entered_timestamp,
-                            &prop_val,
-                            &mut event_uuids,
-                            conversion_window_limit_seconds,
-                            funnel_order_type,
-                            &mut max_step,
-                            breakdown_step,
-                            &mut results,
-                        ) {
-                            add_max_step = false;
-                            break;
-                        }
-                    }*/
+                }
+            } else if events_with_same_timestamp.iter().map(|x| &x.steps).all_equal() {
+                // Deal with the case where they are all the same event
+                for event in events_with_same_timestamp {
+                    if !self.process_event(
+                        args,
+                        &mut vars,
+                        event,
+                        &mut entered_timestamp,
+                        prop_val,
+                    ) {
+                        return
+                    }
+                }
             } else {
                 // Handle permutations for events with the same timestamp
                 let mut entered_timestamps: Vec<_> = vec![];
@@ -250,6 +245,7 @@ impl AggregateFunnelRow {
 }
 
 fn main() {
+
     let stdin = io::stdin();
     let mut stdout = io::stdout();
 
