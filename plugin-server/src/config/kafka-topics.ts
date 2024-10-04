@@ -38,10 +38,8 @@ export const KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS = `${prefix}clickhouse_sessi
 export const KAFKA_PERFORMANCE_EVENTS = `${prefix}clickhouse_performance_events${suffix}`
 // write heatmap events to ClickHouse
 export const KAFKA_CLICKHOUSE_HEATMAP_EVENTS = `${prefix}clickhouse_heatmap_events${suffix}`
-// write exception events to ClickHouse
-export const KAFKA_EXCEPTION_SYMBOLIFICATION_EVENTS = `${prefix}exception_symbolification_events${suffix}`
 
-// log entries for ingestion into ClickHouse
+// log entries for ingestion into clickhouse
 export const KAFKA_LOG_ENTRIES = `${prefix}log_entries${suffix}`
 
 // CDP topics
