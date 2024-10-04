@@ -45,6 +45,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
         """Possible states of this SavedQuery."""
 
         CANCELLED = "Cancelled"
+        MODIFIED = "Modified"  # if the model definition has changed and hasn't been materialized since
         COMPLETED = "Completed"
         FAILED = "Failed"
         RUNNING = "Running"
