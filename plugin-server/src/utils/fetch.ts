@@ -42,15 +42,17 @@ export async function trackedFetch(url: RequestInfo, init?: RequestInit): Promis
             description: `${request.method} ${request.url}`,
         },
         async () => {
-            const options = { ...init }
             if (isProdEnv() && !process.env.NODE_ENV?.includes('functional-tests')) {
                 await raiseIfUserProvidedUrlUnsafe(request.url)
-                options.agent = ({ protocol }: URL) =>
-                    protocol === 'http:'
-                        ? new http.Agent({ lookup: staticLookup })
-                        : new https.Agent({ lookup: staticLookup })
+                return await fetch(url, {
+                    ...init,
+                    agent: ({ protocol }: URL) =>
+                        protocol === 'http:'
+                            ? new http.Agent({ lookup: staticLookup })
+                            : new https.Agent({ lookup: staticLookup }),
+                })
             }
-            return await fetch(url, options)
+            return await fetch(url, init)
         }
     )
 }
