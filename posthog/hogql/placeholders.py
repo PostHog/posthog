@@ -70,7 +70,7 @@ class ReplacePlaceholders(CloningVisitor):
 
     def visit_placeholder(self, node):
         # TODO: HOG_PLACEHOLDERS feature flag
-        if True:
+        if len("use a flag here") > 0:
             return self._visit_placeholder_via_bytecode(node)
         else:
             return self._visit_placeholder_via_fields(node)
