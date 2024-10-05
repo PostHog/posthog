@@ -114,17 +114,15 @@ class EventsQueryRunner(QueryRunner):
                             Person.objects.filter(team=self.team), self.query.personId
                         ).first()
                         where_exprs.append(
-                            parse_expr(
-                                "cityHash64(distinct_id) in {list}",  # Because the events table is partitioned by cityHash64(distinct_ids), using cityhash for the comparison is much quicker,
-                                {
-                                    "list": ast.Constant(
-                                        value=[
-                                            ast.Call(name="cityHash64", args=[ast.Constant(value=id)])
-                                            for id in get_distinct_ids_for_subquery(person, self.team)
-                                        ]
-                                    )
-                                },
-                                timings=self.timings,
+                            ast.CompareOperation(
+                                left=ast.Call(name="cityHash64", args=[ast.Field(chain=["distinct_id"])]),
+                                right=ast.Tuple(
+                                    exprs=[
+                                        ast.Call(name="cityHash64", args=[ast.Constant(value=id)])
+                                        for id in get_distinct_ids_for_subquery(person, self.team)
+                                    ]
+                                ),
+                                op=ast.CompareOperationOp.In,
                             )
                         )
                 if self.query.filterTestAccounts:
