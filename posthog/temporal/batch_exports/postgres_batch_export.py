@@ -674,6 +674,8 @@ class PostgresBatchExportWorkflow(PostHogWorkflow):
                 "UndefinedColumn",
                 # A VARCHAR column is too small.
                 "StringDataRightTruncation",
+                # Raised by PostgreSQL client. Self explanatory.
+                "DiskFull",
             ],
             finish_inputs=finish_inputs,
         )
