@@ -30,8 +30,8 @@ FROZEN_TIME = dateutil.parser.parse("2024-06-02T08:55:00.000Z")
 
 
 @freeze_time("2024-06-02T08:55:00.000Z")
-@patch("posthog.tasks.alerts.checks._send_notifications_for_errors")
-@patch("posthog.tasks.alerts.checks._send_notifications_for_breaches")
+@patch("posthog.tasks.alerts.checks.send_notifications_for_errors")
+@patch("posthog.tasks.alerts.checks.send_notifications_for_breaches")
 class TestTimeSeriesTrendsAlerts(APIBaseTest, ClickhouseDestroyTablesMixin):
     def setUp(self) -> None:
         super().setUp()
@@ -54,8 +54,9 @@ class TestTimeSeriesTrendsAlerts(APIBaseTest, ClickhouseDestroyTablesMixin):
                     "type": "TrendsAlertConfig",
                     "series_index": series_index,
                 },
+                "condition": {"type": "absolute_value"},
                 "calculation_interval": AlertCalculationInterval.DAILY,
-                "threshold": {"configuration": {"absoluteThreshold": {"lower": lower, "upper": upper}}},
+                "threshold": {"configuration": {"type": "absolute", "bounds": {"lower": lower, "upper": upper}}},
             },
         ).json()
 
