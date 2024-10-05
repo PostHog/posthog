@@ -167,6 +167,7 @@ type AvailableFeatureUnion = `${AvailableFeature}`
 export enum ProductKey {
     COHORTS = 'cohorts',
     ACTIONS = 'actions',
+    ALERTS = 'alerts',
     EXPERIMENTS = 'experiments',
     FEATURE_FLAGS = 'feature_flags',
     ANNOTATIONS = 'annotations',
