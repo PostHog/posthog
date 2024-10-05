@@ -274,9 +274,9 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.Model
                 queryset = queryset.filter(created_by__uuid=value)
             elif key == "last_modified_by":
                 queryset = queryset.filter(last_modified_by__uuid=value)
-            elif key == "date_from":
+            elif key == "date_from" and isinstance(value, str):
                 queryset = queryset.filter(last_modified_at__gt=relative_date_parse(value, self.team.timezone_info))
-            elif key == "date_to":
+            elif key == "date_to" and isinstance(value, str):
                 queryset = queryset.filter(last_modified_at__lt=relative_date_parse(value, self.team.timezone_info))
             elif key == "search":
                 queryset = queryset.filter(
@@ -284,7 +284,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.Model
                     # TODO this can be removed once all/most notebooks have text_content
                     Q(title__search=value) | Q(text_content__search=value)
                 )
-            elif key == "contains":
+            elif key == "contains" and isinstance(value, str):
                 contains = value
                 match_pairs = contains.replace(",", " ").split(" ")
                 # content is a JSONB field that has an array of objects under the key "content"
@@ -364,8 +364,8 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.Model
                     attrs = node.get("content", [])[0].get("attrs", {})
                     content_node_recording_id = attrs.get("sessionRecordingId", None)
                     playback_time = attrs.get("playbackTime", None)
-                    text = node.get("content", [])[1].get("text", None)
                     if content_node_recording_id == recording_id and playback_time is not None:
+                        text = node.get("content", [])[1].get("text", None)
                         comments.append(
                             {
                                 "timeInRecording": playback_time,
