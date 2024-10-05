@@ -12,6 +12,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { NEW_EARLY_ACCESS_FEATURE } from 'scenes/early-access-features/earlyAccessFeatureLogic'
+import { experimentLogic } from 'scenes/experiments/experimentLogic'
 import { featureFlagsLogic, FeatureFlagsTab } from 'scenes/feature-flags/featureFlagsLogic'
 import { filterTrendsClientSideParams } from 'scenes/insights/sharedUtils'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
@@ -20,6 +21,7 @@ import { NEW_SURVEY, NewSurvey } from 'scenes/surveys/constants'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import {
@@ -200,6 +202,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             ['submitNewDashboardSuccessWithResult'],
             featureFlagsLogic,
             ['updateFlag', 'deleteFlag'],
+            sidePanelStateLogic,
+            ['closeSidePanel'],
         ],
     })),
     actions({
@@ -487,6 +491,33 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     throw error
                 }
             },
+            saveSidebarExperimentFeatureFlag: async (updatedFlag: Partial<FeatureFlagType>) => {
+                const { created_at, id, ...flag } = updatedFlag
+
+                const preparedFlag = indexToVariantKeyFeatureFlagPayloads(flag)
+
+                try {
+                    let savedFlag: FeatureFlagType
+                    if (!updatedFlag.id) {
+                        savedFlag = await api.create(`api/projects/${values.currentTeamId}/feature_flags`, preparedFlag)
+                        if (values.roleBasedAccessEnabled && savedFlag.id) {
+                            featureFlagPermissionsLogic({ flagId: null })?.actions.addAssociatedRoles(savedFlag.id)
+                        }
+                    } else {
+                        savedFlag = await api.update(
+                            `api/projects/${values.currentTeamId}/feature_flags/${updatedFlag.id}`,
+                            preparedFlag
+                        )
+                    }
+
+                    return variantKeyToIndexFeatureFlagPayloads(savedFlag)
+                } catch (error: any) {
+                    if (error.code === 'behavioral_cohort_found' || error.code === 'cohort_does_not_exist') {
+                        eventUsageLogic.actions.reportFailedToCreateFeatureFlagWithCohort(error.code, error.detail)
+                    }
+                    throw error
+                }
+            },
         },
         relatedInsights: [
             [] as QueryBasedInsightModel[],
@@ -664,6 +695,19 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             actions.updateFlag(featureFlag)
             featureFlag.id && router.actions.replace(urls.featureFlag(featureFlag.id))
             actions.editFeatureFlag(false)
+        },
+        saveSidebarExperimentFeatureFlagSuccess: ({ featureFlag }) => {
+            lemonToast.success('Release conditions updated')
+            actions.updateFlag(featureFlag)
+            actions.editFeatureFlag(false)
+            actions.closeSidePanel()
+
+            const currentPath = router.values.currentLocation.pathname
+            const experimentId = currentPath.split('/').pop()
+
+            if (experimentId) {
+                experimentLogic({ experimentId: parseInt(experimentId) }).actions.loadExperiment()
+            }
         },
         deleteFeatureFlag: async ({ featureFlag }) => {
             await deleteWithUndo({
