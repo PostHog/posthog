@@ -162,9 +162,16 @@ class SessionRecordingListFromFilters:
         exprs: list[ast.Expr] = [
             ast.CompareOperation(
                 op=ast.CompareOperationOp.GtEq,
+                # the table is partitioned by toYYYYMM so we use that as a coarse filter to reduce
+                # the amount of data ClickHouse looks at
+                left=ast.Call(name="toYYYYMM", args=[ast.Field(chain=["s", "min_first_timestamp"])]),
+                right=ast.Constant(value=datetime.utcnow() - timedelta(days=self.ttl_days)),
+            ),
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.GtEq,
                 left=ast.Field(chain=["s", "min_first_timestamp"]),
                 right=ast.Constant(value=datetime.utcnow() - timedelta(days=self.ttl_days)),
-            )
+            ),
         ]
 
         person_id_compare_operation = PersonsIdCompareOperation(self._team, self._filter, self.ttl_days).get_operation()
@@ -185,11 +192,38 @@ class SessionRecordingListFromFilters:
             exprs.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.GtEq,
+                    # the table is partitioned by toYYYYMM so we use that as a coarse filter to reduce
+                    # the amount of data ClickHouse looks at
+                    left=ast.Call(name="toYYYYMM", args=[ast.Field(chain=["s", "min_first_timestamp"])]),
+                    right=ast.Constant(value=self._filter.date_from),
+                )
+            )
+            exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.GtEq,
                     left=ast.Field(chain=["s", "min_first_timestamp"]),
                     right=ast.Constant(value=self._filter.date_from),
                 )
             )
         if self._filter.date_to:
+            exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.LtEq,
+                    # the table is partitioned by toYYYYMM so we use that as a coarse filter to reduce
+                    # the amount of data ClickHouse looks at
+                    # we need to add a month to the date_to to ensure we get all the data
+                    left=ast.Call(
+                        name="toYYYYMM",
+                        args=[
+                            ast.Call(
+                                name="addMonths",
+                                args=[ast.Field(chain=["s", "min_first_timestamp"]), ast.Constant(value=1)],
+                            )
+                        ],
+                    ),
+                    right=ast.Constant(value=self._filter.date_to),
+                )
+            )
             exprs.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.LtEq,
