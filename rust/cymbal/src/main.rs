@@ -11,7 +11,6 @@ use cymbal::{
     symbols::types::{PropertyView, RawFrame},
 };
 use envconfig::Envconfig;
-use serde_json::Value;
 use tokio::task::JoinHandle;
 use tracing::{error, info};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};

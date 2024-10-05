@@ -10,9 +10,9 @@ fn serde_passthrough() {
     let before: Value = serde_json::from_str(raw).unwrap();
     let raw: ClickHouseEvent = serde_json::from_str(raw).unwrap();
 
-    let before_properties: Value = serde_json::from_str(&raw.properties.as_ref().unwrap()).unwrap();
+    let before_properties: Value = serde_json::from_str(raw.properties.as_ref().unwrap()).unwrap();
     let properties_parsed: PropertyView =
-        serde_json::from_str(&raw.properties.as_ref().unwrap()).unwrap();
+        serde_json::from_str(raw.properties.as_ref().unwrap()).unwrap();
 
     let properties_raw = serde_json::to_string(&properties_parsed).unwrap();
     let after_properties = Value::from_str(&properties_raw).unwrap();
