@@ -67,6 +67,19 @@ export type InspectorListItemEvent = InspectorListItemBase & {
     data: RecordingEventType
 }
 
+export type RecordingComment = {
+    id: string
+    notebookShortId: string
+    notebookTitle: string
+    comment: string
+    timeInRecording: number
+}
+
+export type InspectorListItemComment = InspectorListItemBase & {
+    type: 'comment'
+    data: RecordingComment
+}
+
 export type InspectorListItemConsole = InspectorListItemBase & {
     type: SessionRecordingPlayerTab.CONSOLE
     data: RecordingConsoleLogV2
@@ -96,6 +109,7 @@ export type InspectorListItem =
     | InspectorListOfflineStatusChange
     | InspectorListItemDoctor
     | InspectorListBrowserVisibility
+    | InspectorListItemComment
 
 export interface PlayerInspectorLogicProps extends SessionRecordingPlayerLogicProps {
     matchingEventsMatchType?: MatchingEventsMatchType
@@ -160,6 +174,17 @@ function getPayloadFor(customEvent: customEvent, tag: string): Record<string, an
     return customEvent.data.payload as Record<string, any>
 }
 
+function commentTimestamp(
+    comment: RecordingComment,
+    start: Dayjs | null
+): {
+    timeInRecording: number
+    timestamp: dayjs.Dayjs | undefined
+} {
+    const timestamp = start?.add(comment.timeInRecording, 'ms')
+    return { timestamp, timeInRecording: comment.timeInRecording }
+}
+
 export const playerInspectorLogic = kea<playerInspectorLogicType>([
     path((key) => ['scenes', 'session-recordings', 'player', 'playerInspectorLogic', key]),
     props({} as PlayerInspectorLogicProps),
@@ -187,6 +212,8 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 'start',
                 'end',
                 'durationMs',
+                'sessionComments',
+                'windowIdForTimestamp',
             ],
             sessionRecordingPlayerLogic(props),
             ['currentPlayerTime'],
@@ -469,6 +496,8 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 s.offlineStatusChanges,
                 s.doctorEvents,
                 s.browserVisibilityChanges,
+                s.sessionComments,
+                s.windowIdForTimestamp,
             ],
             (
                 start,
@@ -478,7 +507,9 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 matchingEventUUIDs,
                 offlineStatusChanges,
                 doctorEvents,
-                browserVisibilityChanges
+                browserVisibilityChanges,
+                sessionComments,
+                windowIdForTimestamp
             ): InspectorListItem[] => {
                 // NOTE: Possible perf improvement here would be to have a selector to parse the items
                 // and then do the filtering of what items are shown, elsewhere
@@ -570,6 +601,21 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     })
                 }
 
+                for (const comment of sessionComments || []) {
+                    const { timestamp, timeInRecording } = commentTimestamp(comment, start)
+                    if (timestamp) {
+                        items.push({
+                            highlightColor: 'primary',
+                            type: 'comment',
+                            timeInRecording: timeInRecording,
+                            timestamp: timestamp,
+                            search: comment.comment,
+                            data: comment,
+                            windowId: windowIdForTimestamp(timestamp.valueOf()),
+                        })
+                    }
+                }
+
                 // NOTE: Native JS sorting is relatively slow here - be careful changing this
                 items.sort((a, b) => (a.timestamp.valueOf() > b.timestamp.valueOf() ? 1 : -1))
 
@@ -607,22 +653,37 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
 
         seekbarItems: [
             (s) => [s.allItems, s.showOnlyMatching, s.showSeekbarTicks, s.showMatchingEventsFilter],
-            (allItems, showOnlyMatching, showSeekbarTicks, showMatchingEventsFilter): InspectorListItemEvent[] => {
-                let items = allItems.filter((item) => {
-                    if (item.type !== SessionRecordingPlayerTab.EVENTS) {
+            (
+                allItems,
+                showOnlyMatching,
+                showSeekbarTicks,
+                showMatchingEventsFilter
+            ): (InspectorListItemEvent | InspectorListItemComment)[] => {
+                let items: (InspectorListItemEvent | InspectorListItemComment)[] = allItems.filter(
+                    (item): item is InspectorListItemEvent | InspectorListItemComment => {
+                        if (item.type === SessionRecordingPlayerTab.EVENTS) {
+                            if (!showSeekbarTicks && ['$pageview', '$screen'].includes(item.data.event)) {
+                                return false
+                            }
+
+                            return !(showMatchingEventsFilter && showOnlyMatching && item.highlightColor !== 'primary')
+                        }
+
+                        if (item.type === 'comment') {
+                            return !showMatchingEventsFilter
+                        }
+
                         return false
                     }
-
-                    if (!showSeekbarTicks && ['$pageview', '$screen'].includes(item.data.event)) {
-                        return false
-                    }
-
-                    return !(showMatchingEventsFilter && showOnlyMatching && item.highlightColor !== 'primary')
-                }) as InspectorListItemEvent[]
+                )
 
                 if (items.length > MAX_SEEKBAR_ITEMS) {
                     items = items.filter((item) => {
-                        return item.highlightColor === 'primary' || item.data.event === '$pageview'
+                        const isPrimary = item.highlightColor === 'primary'
+                        const isPageView =
+                            item.type === SessionRecordingPlayerTab.EVENTS && item.data.event === '$pageview'
+                        const isComment = item.type === 'comment'
+                        return isPrimary || isPageView || isComment
                     })
 
                     items = items.filter((_, i) => {

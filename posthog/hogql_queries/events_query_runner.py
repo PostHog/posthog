@@ -115,8 +115,15 @@ class EventsQueryRunner(QueryRunner):
                         ).first()
                         where_exprs.append(
                             parse_expr(
-                                "distinct_id in {list}",
-                                {"list": ast.Constant(value=get_distinct_ids_for_subquery(person, self.team))},
+                                "cityHash64(distinct_id) in {list}",  # Because the events table is partitioned by cityHash64(distinct_ids), using cityhash for the comparison is much quicker,
+                                {
+                                    "list": ast.Constant(
+                                        value=[
+                                            ast.Call(name="cityHash64", args=[ast.Constant(value=id)])
+                                            for id in get_distinct_ids_for_subquery(person, self.team)
+                                        ]
+                                    )
+                                },
                                 timings=self.timings,
                             )
                         )
