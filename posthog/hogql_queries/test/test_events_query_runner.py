@@ -137,7 +137,7 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         another_team = Team.objects.create(organization=Organization.objects.create())
         query_ast = EventsQueryRunner(query=query, team=another_team).to_query()
         where_expr = cast(ast.CompareOperation, cast(ast.And, query_ast.where).exprs[0])
-        right_expr = cast(ast.Constant, where_expr.right)
+        right_expr = cast(ast.Tuple, where_expr.right)
         self.assertEqual(right_expr.exprs, [])
 
     def test_test_account_filters(self):
