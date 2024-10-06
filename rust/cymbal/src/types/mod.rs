@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+pub mod error;
 pub mod frames;
 pub mod stacks;
 

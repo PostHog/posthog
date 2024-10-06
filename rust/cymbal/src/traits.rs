@@ -1,13 +1,13 @@
-use crate::types::stacks::RawStack;
+use axum::async_trait;
 
-// An "exception" is anything that can self-identify with a "fingerprint"
-pub trait Exception {
-    fn id(&self) -> String;
-    fn to_raw(self) -> serde_json::Value;
-}
+use crate::{
+    error::Error,
+    types::frames::{Frame, RawFrame},
+};
 
-// Some excpetions have a raw stack trace we can process. If they do,
-
-pub trait Stacked: Exception {
-    fn stack(&self) -> RawStack;
+#[async_trait]
+pub trait Resolver {
+    // Resolvers work on a per-frame basis, so we can be clever about the order
+    // in which we resolve them.
+    async fn resolve(&self, raw: RawFrame) -> Result<Frame, Error>;
 }
