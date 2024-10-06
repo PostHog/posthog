@@ -1,5 +1,5 @@
 import json
-from datetime import datetime, timedelta, UTC
+from datetime import UTC, datetime, timedelta
 from functools import cached_property
 from typing import Any, Optional, cast
 from uuid import UUID
@@ -523,41 +523,76 @@ class TeamViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     )
     def add_product_intent(self, request: request.Request, *args, **kwargs):
         team = self.get_object()
+        user = request.user
         product_type = request.data.get("product_type")
+        current_url = request.headers.get("Referer")
+        session_id = request.headers.get("X-Posthog-Session-Id")
+
+        if not product_type:
+            return response.Response({"error": "product_type is required"}, status=400)
+
+        product_intent, created = ProductIntent.objects.get_or_create(team=team, product_type=product_type)
+        if not created:
+            product_intent.updated_at = datetime.now(tz=UTC)
+            product_intent.save()
+
+        if created:
+            report_user_action(
+                user,
+                "user showed product intent",
+                {
+                    "product_key": product_type,
+                    "$set_once": {"first_onboarding_product_selected": product_type},
+                    "$current_url": current_url,
+                    "$session_id": session_id,
+                    "intent_context": request.data.get("intent_context"),
+                },
+                team=team,
+            )
+
+        return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data, status=201)
+
+    @action(methods=["PATCH"], detail=True)
+    def complete_product_onboarding(self, request: request.Request, *args, **kwargs):
+        team = self.get_object()
+        product_type = request.data.get("product_type")
+        user = request.user
+        current_url = request.headers.get("Referer")
+        session_id = request.headers.get("X-Posthog-Session-Id")
 
         if not product_type:
             return response.Response({"error": "product_type is required"}, status=400)
 
         product_intent, created = ProductIntent.objects.get_or_create(team=team, product_type=product_type)
 
-        status_code = 201 if created else 200
-        return response.Response(
-            {
-                "id": product_intent.id,
-                "created": created,
-                "product_type": product_intent.product_type,
-                "team_id": team.id,
-            },
-            status=status_code,
-        )
-
-    @action(methods=["PATCH"], detail=True)
-    def complete_product_onboarding(self, request: request.Request, *args, **kwargs):
-        team = self.get_object()
-        product_type = request.data.get("product_type")
-
-        if not product_type:
-            return response.Response({"error": "product_type is required"}, status=400)
-
-        product_intent = ProductIntent.objects.filter(team=team, product_type=product_type).first()
-
-        if not product_intent:
-            product_intent = ProductIntent.objects.create(team=team, product_type=product_type)
-
+        if created:
+            report_user_action(
+                user,
+                "user showed product intent",
+                {
+                    "product_key": product_type,
+                    "$set_once": {"first_onboarding_product_selected": product_type},
+                    "$current_url": current_url,
+                    "$session_id": session_id,
+                    "intent_context": request.data.get("intent_context"),
+                },
+                team=team,
+            )
         product_intent.onboarding_completed_at = datetime.now(tz=UTC)
         product_intent.save()
 
-        return response.Response(status=200)
+        report_user_action(
+            user,
+            "product onboarding completed",
+            {
+                "product_key": product_type,
+                "$current_url": current_url,
+                "$session_id": session_id,
+            },
+            team=team,
+        )
+
+        return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data)
 
     @cached_property
     def user_permissions(self):

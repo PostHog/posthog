@@ -1,5 +1,5 @@
 import json
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 from typing import Any, Optional
 from unittest import mock
 from unittest.mock import ANY, MagicMock, call, patch
@@ -993,17 +993,32 @@ def team_api_test_factory():
             # and the existing second level nesting is not preserved
             self._assert_replay_config_is({"ai_config": {"opt_in": None, "included_event_properties": ["and another"]}})
 
+        @patch("posthog.api.team.report_user_action")
         @freeze_time("2024-01-01T00:00:00Z")
-        def test_can_add_product_intent(self) -> None:
+        def test_can_add_product_intent(self, mock_report_user_action: MagicMock) -> None:
             response = self.client.patch(
-                f"/api/environments/{self.team.id}/add_product_intent/", {"product_type": "product_analytics"}
+                f"/api/environments/{self.team.id}/add_product_intent/",
+                {"product_type": "product_analytics", "intent_context": "onboarding product selected"},
+                headers={"Referer": "https://posthogtest.com/my-url", "X-Posthog-Session-Id": "test_session_id"},
             )
             assert response.status_code == status.HTTP_201_CREATED
-            assert response.json() == {"id": str(response.json()["id"]), "created": True}
             product_intent = ProductIntent.objects.get(team=self.team, product_type="product_analytics")
             assert product_intent.created_at == datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC)
+            mock_report_user_action.assert_called_once_with(
+                self.user,
+                "user showed product intent",
+                {
+                    "product_key": "product_analytics",
+                    "$current_url": "https://posthogtest.com/my-url",
+                    "$session_id": "test_session_id",
+                    "intent_context": "onboarding product selected",
+                    "$set_once": {"first_onboarding_product_selected": "product_analytics"},
+                },
+                team=self.team,
+            )
 
-        def test_can_complete_product_onboarding(self) -> None:
+        @patch("posthog.api.team.report_user_action")
+        def test_can_complete_product_onboarding(self, mock_report_user_action: MagicMock) -> None:
             with freeze_time("2024-01-01T00:00:00Z"):
                 product_intent = ProductIntent.objects.create(team=self.team, product_type="product_analytics")
             assert product_intent.created_at == datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC)
@@ -1012,10 +1027,21 @@ def team_api_test_factory():
                 response = self.client.patch(
                     f"/api/environments/{self.team.id}/complete_product_onboarding/",
                     {"product_type": "product_analytics"},
+                    headers={"Referer": "https://posthogtest.com/my-url", "X-Posthog-Session-Id": "test_session_id"},
                 )
             assert response.status_code == status.HTTP_200_OK
             product_intent = ProductIntent.objects.get(team=self.team, product_type="product_analytics")
             assert product_intent.onboarding_completed_at == datetime(2024, 1, 5, 0, 0, 0, tzinfo=UTC)
+            mock_report_user_action.assert_called_once_with(
+                self.user,
+                "product onboarding completed",
+                {
+                    "product_key": "product_analytics",
+                    "$current_url": "https://posthogtest.com/my-url",
+                    "$session_id": "test_session_id",
+                },
+                team=self.team,
+            )
 
         def _assert_replay_config_is(self, expected: dict[str, Any] | None) -> HttpResponse:
             get_response = self.client.get("/api/environments/@current/")
