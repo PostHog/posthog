@@ -458,6 +458,9 @@ export function LineGraph_({
                     formatter: (value: number, context) => {
                         // the type here doesn't allow for undefined, but we see errors where things are undefined
                         const data = context.chart?.data as ExtendedChartData
+                        if (!data) {
+                            return ''
+                        }
                         const { datasetIndex, dataIndex } = context
                         const percentageValue = data.calculatedData?.[datasetIndex][dataIndex]
                         return formatPercentStackAxisValue(trendsFilter, percentageValue || value, isPercentStackView)
