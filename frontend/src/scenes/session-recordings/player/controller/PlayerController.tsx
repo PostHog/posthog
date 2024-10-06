@@ -70,8 +70,8 @@ export function PlayerController({ iconsOnly }: { iconsOnly: boolean }): JSX.Ele
                 <div className="flex gap-2">
                     <Timestamp />
                     <div className="flex gap-0.5">
-                        <PlayPauseButton />
                         <SeekSkip direction="backward" />
+                        <PlayPauseButton />
                         <SeekSkip direction="forward" />
                         <SetPlaybackSpeed />
                         <PlayerSettings />
