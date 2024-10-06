@@ -5949,6 +5949,9 @@
                 "sessionTableVersion": {
                     "enum": ["auto", "v1", "v2"],
                     "type": "string"
+                },
+                "useMaterializedViews": {
+                    "type": "boolean"
                 }
             },
             "type": "object"

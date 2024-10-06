@@ -13,7 +13,7 @@ from posthog.hogql.database.models import (
 )
 
 from posthog.warehouse.models import (
-    get_or_create_datawarehouse_credential,
+    aget_or_create_datawarehouse_credential,
     DataWarehouseTable,
     DataWarehouseCredential,
     get_external_data_job,
@@ -103,7 +103,7 @@ async def validate_schema_and_update_table(
 
     job: ExternalDataJob = await get_external_data_job(job_id=run_id)
 
-    credential: DataWarehouseCredential = await get_or_create_datawarehouse_credential(
+    credential: DataWarehouseCredential = await aget_or_create_datawarehouse_credential(
         team_id=team_id,
         access_key=settings.AIRBYTE_BUCKET_KEY,
         access_secret=settings.AIRBYTE_BUCKET_SECRET,

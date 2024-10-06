@@ -228,6 +228,7 @@ export interface HogQLQueryModifiers {
     bounceRatePageViewMode?: 'count_pageviews' | 'uniq_urls' | 'uniq_page_screen_autocaptures'
     sessionTableVersion?: 'auto' | 'v1' | 'v2'
     propertyGroupsMode?: 'enabled' | 'disabled' | 'optimized'
+    useMaterializedViews?: boolean
 }
 
 export interface DataWarehouseEventsModifier {
