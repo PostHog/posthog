@@ -1,4 +1,4 @@
-use crate::symbols::types::RawStack;
+use crate::types::stacks::RawStack;
 
 // An "exception" is anything that can self-identify with a "fingerprint"
 pub trait Exception {

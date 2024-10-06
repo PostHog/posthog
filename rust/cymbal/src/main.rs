@@ -8,7 +8,7 @@ use cymbal::{
     app_context::AppContext,
     config::Config,
     error::Error,
-    symbols::types::{PropertyView, RawFrame},
+    types::{frames::RawFrame, ErrProps},
 };
 use envconfig::Envconfig;
 use tokio::task::JoinHandle;
@@ -89,7 +89,7 @@ async fn main() -> Result<(), Error> {
             continue;
         };
 
-        let properties: PropertyView = match serde_json::from_str(properties) {
+        let properties: ErrProps = match serde_json::from_str(properties) {
             Ok(r) => r,
             Err(err) => {
                 metrics::counter!("cymbal_errors", "cause" => "invalid_exception_properties")
@@ -99,16 +99,19 @@ async fn main() -> Result<(), Error> {
             }
         };
 
-        let _stack_trace: Vec<RawFrame> =
-            match serde_json::from_str(&properties.exception_stack_trace_raw) {
-                Ok(r) => r,
-                Err(err) => {
-                    metrics::counter!("cymbal_errors", "cause" => "invalid_stack_trace")
-                        .increment(1);
-                    error!("Error parsing stack trace: {:?}", err);
-                    continue;
-                }
-            };
+        let Some(trace) = properties.exception_stack_trace_raw.as_ref() else {
+            metrics::counter!("cymbal_errors", "cause" => "no_stack_trace").increment(1);
+            continue;
+        };
+
+        let _stack_trace: Vec<RawFrame> = match serde_json::from_str(trace) {
+            Ok(r) => r,
+            Err(err) => {
+                metrics::counter!("cymbal_errors", "cause" => "invalid_stack_trace").increment(1);
+                error!("Error parsing stack trace: {:?}", err);
+                continue;
+            }
+        };
 
         metrics::counter!("cymbal_stack_track_processed").increment(1);
     }
