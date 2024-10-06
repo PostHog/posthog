@@ -3,7 +3,7 @@ import { forms } from 'kea-forms'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
-import { AlertCalculationInterval } from '~/queries/schema'
+import { AlertCalculationInterval, AlertConditionType, InsightThresholdType } from '~/queries/schema'
 import { QueryBasedInsightModel } from '~/types'
 
 import type { alertFormLogicType } from './alertFormLogicType'
@@ -11,7 +11,7 @@ import { AlertType, AlertTypeWrite } from './types'
 
 export type AlertFormType = Pick<
     AlertType,
-    'name' | 'enabled' | 'created_at' | 'threshold' | 'subscribed_users' | 'checks' | 'config'
+    'name' | 'enabled' | 'created_at' | 'threshold' | 'condition' | 'subscribed_users' | 'checks' | 'config'
 > & {
     id?: AlertType['id']
     created_by?: AlertType['created_by'] | null
@@ -47,10 +47,9 @@ export const alertFormLogic = kea<alertFormLogicType>([
                         type: 'TrendsAlertConfig',
                         series_index: 0,
                     },
-                    threshold: {
-                        configuration: {
-                            absoluteThreshold: {},
-                        },
+                    threshold: { configuration: { type: InsightThresholdType.ABSOLUTE, bounds: {} } },
+                    condition: {
+                        type: AlertConditionType.ABSOLUTE_VALUE,
                     },
                     subscribed_users: [],
                     checks: [],
@@ -61,10 +60,14 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 name: !name ? 'You need to give your alert a name' : undefined,
             }),
             submit: async (alert) => {
-                const payload: Partial<AlertTypeWrite> = {
+                const payload: AlertTypeWrite = {
                     ...alert,
                     subscribed_users: alert.subscribed_users?.map(({ id }) => id),
                     insight: props.insightId,
+                }
+
+                if (payload.condition.type === AlertConditionType.ABSOLUTE_VALUE) {
+                    payload.threshold.configuration.type = InsightThresholdType.ABSOLUTE
                 }
 
                 try {

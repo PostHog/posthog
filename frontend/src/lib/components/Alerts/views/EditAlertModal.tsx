@@ -1,4 +1,4 @@
-import { LemonBanner, LemonCheckbox, LemonInput, LemonSelect, SpinnerOverlay } from '@posthog/lemon-ui'
+import { LemonCheckbox, LemonInput, LemonSegmentedButton, LemonSelect, SpinnerOverlay } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form, Group } from 'kea-forms'
 import { AlertStateIndicator } from 'lib/components/Alerts/views/ManageAlertsModal'
@@ -12,7 +12,7 @@ import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { alphabet } from 'lib/utils'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 
-import { AlertCalculationInterval } from '~/queries/schema'
+import { AlertCalculationInterval, AlertConditionType, InsightThresholdType } from '~/queries/schema'
 import { InsightShortId, QueryBasedInsightModel } from '~/types'
 
 import { alertFormLogic } from '../alertFormLogic'
@@ -82,7 +82,7 @@ export function EditAlertModal({
     const { setAlertFormValue } = useActions(formLogic)
 
     const trendsLogic = trendsDataLogic({ dashboardItemId: insightShortId })
-    const { alertSeries, breakdownFilter } = useValues(trendsLogic)
+    const { alertSeries } = useValues(trendsLogic)
 
     const creatingNewAlert = alertForm.id === undefined
 
@@ -107,97 +107,140 @@ export function EditAlertModal({
                     </LemonModal.Header>
 
                     <LemonModal.Content>
-                        <div className="space-y-4">
-                            {alert?.created_by ? (
-                                <UserActivityIndicator
-                                    at={alert.created_at}
-                                    by={alert.created_by}
-                                    prefix="Created"
-                                    className="mb-4"
-                                />
-                            ) : null}
-
-                            <LemonField name="name" label="Name">
-                                <LemonInput placeholder="e.g. High error rate" data-attr="alertForm-name" />
-                            </LemonField>
-
-                            <LemonField name="enabled">
-                                <LemonCheckbox
-                                    checked={alertForm?.enabled}
-                                    data-attr="alertForm-enabled"
-                                    fullWidth
-                                    label="Enabled"
-                                />
-                            </LemonField>
-
-                            {breakdownFilter && (
-                                <LemonBanner type="warning" className="mb-4">
-                                    <span>
-                                        Alerts on insights with breakdowns alert when any of the breakdown values
-                                        breaches the threshold
-                                    </span>
-                                </LemonBanner>
-                            )}
-
-                            <Group name={['config']}>
-                                <LemonField name="series_index" label="Series">
-                                    <LemonSelect
-                                        fullWidth
-                                        data-attr="alertForm-series-index"
-                                        options={alertSeries?.map(({ event }, index) => ({
-                                            label: `${alphabet[index]} - ${event}`,
-                                            value: index,
-                                        }))}
+                        <div className="space-y-8">
+                            <div className="space-y-4">
+                                <div className="flex gap-4 items-center">
+                                    <LemonField className="flex-auto" name="name">
+                                        <LemonInput placeholder="Alert name" data-attr="alertForm-name" />
+                                    </LemonField>
+                                    <LemonField name="enabled">
+                                        <LemonCheckbox
+                                            checked={alertForm?.enabled}
+                                            data-attr="alertForm-enabled"
+                                            fullWidth
+                                            label="Enabled"
+                                        />
+                                    </LemonField>
+                                </div>
+                                {alert?.created_by ? (
+                                    <UserActivityIndicator
+                                        at={alert.created_at}
+                                        by={alert.created_by}
+                                        prefix="Created"
+                                        // className="mb-4"
                                     />
-                                </LemonField>
-                            </Group>
+                                ) : null}
+                            </div>
 
-                            <LemonField name="calculation_interval" label="Calculation Interval">
-                                <LemonSelect
-                                    fullWidth
-                                    data-attr="alertForm-calculation-interval"
-                                    options={Object.values(AlertCalculationInterval)
-                                        // TODO: support all intervals by setting up celery jobs
-                                        .filter((interval) => ['hourly', 'daily'].includes(interval))
-                                        .map((interval) => ({
-                                            label: interval,
-                                            value: interval,
-                                        }))}
-                                />
-                            </LemonField>
-
-                            <Group name={['threshold', 'configuration', 'absoluteThreshold']}>
-                                <span className="flex gap-10">
-                                    <LemonField
-                                        name="lower"
-                                        label="Lower threshold"
-                                        help="Notify if the value is strictly below"
-                                    >
-                                        <LemonInput
-                                            type="number"
-                                            className="w-20"
-                                            data-attr="alertForm-lower-threshold"
-                                        />
-                                    </LemonField>
-                                    <LemonField
-                                        name="upper"
-                                        label="Upper threshold"
-                                        help="Notify if the value is strictly above"
-                                    >
-                                        <LemonInput
-                                            type="number"
-                                            className="w-20"
-                                            data-attr="alertForm-upper-threshold"
-                                        />
-                                    </LemonField>
-                                </span>
-                            </Group>
-
-                            <MemberSelectMultiple
-                                value={alertForm.subscribed_users?.map((u) => u.id) ?? []}
-                                idKey="id"
-                                onChange={(value) => setAlertFormValue('subscribed_users', value)}
-                            />
+                            <div className="space-y-6">
+                                <h3>Definition</h3>
+                                <div className="space-y-5">
+                                    <div className="flex gap-4 items-center">
+                                        <div>When</div>
+                                        <Group name={['config']}>
+                                            <LemonField name="series_index" className="flex-auto">
+                                                <LemonSelect
+                                                    fullWidth
+                                                    data-attr="alertForm-series-index"
+                                                    options={alertSeries?.map(({ event }, index) => ({
+                                                        label: `${alphabet[index]} - ${event}`,
+                                                        value: index,
+                                                    }))}
+                                                />
+                                            </LemonField>
+                                        </Group>
+                                        <Group name={['condition']}>
+                                            <LemonField name="type">
+                                                <LemonSelect
+                                                    fullWidth
+                                                    className="w-40"
+                                                    data-attr="alertForm-calculation-interval"
+                                                    options={[
+                                                        {
+                                                            label: 'has value',
+                                                            value: AlertConditionType.ABSOLUTE_VALUE,
+                                                        },
+                                                        {
+                                                            label: 'increases by',
+                                                            value: AlertConditionType.RELATIVE_INCREASE,
+                                                        },
+                                                        {
+                                                            label: 'decreases by',
+                                                            value: AlertConditionType.RELATIVE_DECREASE,
+                                                        },
+                                                    ]}
+                                                />
+                                            </LemonField>
+                                        </Group>
+                                    </div>
+                                    <div className="flex gap-4 items-center">
+                                        <Group name={['threshold', 'configuration', 'bounds']}>
+                                            <div>less than</div>
+                                            <LemonField name="lower">
+                                                <LemonInput
+                                                    type="number"
+                                                    className="w-30"
+                                                    data-attr="alertForm-lower-threshold"
+                                                />
+                                            </LemonField>
+                                            <div>or more than</div>
+                                            <LemonField name="upper">
+                                                <LemonInput
+                                                    type="number"
+                                                    className="w-30"
+                                                    data-attr="alertForm-upper-threshold"
+                                                />
+                                            </LemonField>
+                                        </Group>
+                                        {alertForm.condition.type !== AlertConditionType.ABSOLUTE_VALUE && (
+                                            <Group name={['threshold', 'configuration']}>
+                                                <LemonField name="type">
+                                                    <LemonSegmentedButton
+                                                        options={[
+                                                            {
+                                                                value: InsightThresholdType.PERCENTAGE,
+                                                                label: '%',
+                                                                tooltip: 'Percentage',
+                                                            },
+                                                            {
+                                                                value: InsightThresholdType.ABSOLUTE,
+                                                                label: '#',
+                                                                tooltip: 'Absolute number',
+                                                            },
+                                                        ]}
+                                                    />
+                                                </LemonField>
+                                            </Group>
+                                        )}
+                                    </div>
+                                    <div className="flex gap-4 items-center">
+                                        <div>
+                                            {alertForm.condition.type === AlertConditionType.ABSOLUTE_VALUE
+                                                ? 'check'
+                                                : 'compare'}
+                                        </div>
+                                        <LemonField name="calculation_interval">
+                                            <LemonSelect
+                                                fullWidth
+                                                className="w-28"
+                                                data-attr="alertForm-calculation-interval"
+                                                options={Object.values(AlertCalculationInterval).map((interval) => ({
+                                                    label: interval,
+                                                    value: interval,
+                                                }))}
+                                            />
+                                        </LemonField>
+                                        <div>and notify</div>
+                                        <div className="flex-auto">
+                                            <MemberSelectMultiple
+                                                value={alertForm.subscribed_users?.map((u) => u.id) ?? []}
+                                                idKey="id"
+                                                onChange={(value) => setAlertFormValue('subscribed_users', value)}
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                         {alert && <AlertStateTable alert={alert} />}
                     </LemonModal.Content>
