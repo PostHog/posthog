@@ -111,6 +111,7 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
             "has_completed_onboarding_for",  # Compat with TeamSerializer
             "surveys_opt_in",  # Compat with TeamSerializer
             "heatmaps_opt_in",  # Compat with TeamSerializer
+            "product_intents",  # Compat with TeamSerializer
         )
         read_only_fields = (
             "id",
@@ -189,7 +190,9 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
         )
 
     def get_product_intents(self, obj):
-        return ProductIntent.objects.filter(team=obj).values("product_type", "created_at", "onboarding_completed_at")
+        project = obj
+        team = project.passthrough_team
+        return ProductIntent.objects.filter(team=team).values("product_type", "created_at", "onboarding_completed_at")
 
     @staticmethod
     def validate_session_recording_linked_flag(value) -> dict | None:
