@@ -151,6 +151,8 @@ def execute_process_query(
     sentry_sdk.set_tag("team_id", team_id)
 
     is_staff_user = False
+
+    user = None
     if user_id:
         user = User.objects.only("email", "is_staff").get(pk=user_id)
         is_staff_user = user.is_staff
@@ -184,6 +186,7 @@ def execute_process_query(
             execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
             insight_id=query_status.insight_id,
             dashboard_id=query_status.dashboard_id,
+            user=user,
         )
         if isinstance(results, BaseModel):
             results = results.model_dump(by_alias=True)

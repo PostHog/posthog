@@ -228,9 +228,8 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
                                 return 1
                             } else if (a.created_at.isAfter(b.created_at)) {
                                 return -1
-                            } else {
-                                return 0
                             }
+                            return 0
                         })
                         return notifications
                     }

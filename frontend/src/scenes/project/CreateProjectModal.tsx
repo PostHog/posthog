@@ -7,6 +7,17 @@ import { projectLogic } from 'scenes/projectLogic'
 
 import { organizationLogic } from '../organizationLogic'
 
+const MOCK_PRODUCT_NAMES = [
+    'Lemonify',
+    'Pineapplify',
+    'Bananify',
+    'Mangofy',
+    'Peachify',
+    'Plumify',
+    'Cherryfy',
+    'Raspberryfy',
+]
+
 export function CreateProjectModal({
     isVisible,
     onClose,
@@ -32,10 +43,13 @@ export function CreateProjectModal({
     }
     const handleSubmit = (): void => {
         createProject({ name })
-        reportProjectCreationSubmitted(currentOrganization?.teams ? currentOrganization.teams.length : 0, name.length)
+        reportProjectCreationSubmitted(
+            currentOrganization?.projects ? currentOrganization.projects.length : 0,
+            name.length
+        )
     }
 
-    // Anytime the team changes close the modal as it indicates we have created a new team
+    // Anytime the project changes close the modal as it indicates we have created a new project
     useEffect(() => {
         closeModal()
     }, [currentProject])
@@ -47,8 +61,8 @@ export function CreateProjectModal({
             description={
                 <>
                     <p>
-                        Use projects to organize your data into separate collections – for example, to create
-                        separate environments for production / staging / local development.
+                        Use projects to isolate products that share nothing at all. Both data and setup (such as
+                        dashboards or taxonomy) is separate between projects.
                     </p>
                     <p>
                         <strong>Tip:</strong> We recommend using the same project for both your website and app to track
@@ -57,7 +71,9 @@ export function CreateProjectModal({
                             Learn more in PostHog Docs.
                         </Link>
                     </p>
-                    {currentOrganization?.teams?.some((team) => team.name.toLowerCase() === 'default project') && (
+                    {currentOrganization?.projects?.some(
+                        (project) => project.name.toLowerCase() === 'default project'
+                    ) && (
                         <p>
                             <strong>Bonus tip:</strong> You can always rename your "Default project".
                         </p>
@@ -70,7 +86,7 @@ export function CreateProjectModal({
                         <LemonButton
                             type="secondary"
                             onClick={onClose}
-                            disabledReason={currentProjectLoading ? 'Creating team...' : undefined}
+                            disabledReason={currentProjectLoading ? 'Creating project...' : undefined}
                         >
                             Cancel
                         </LemonButton>
@@ -92,7 +108,7 @@ export function CreateProjectModal({
         >
             <LemonField.Pure label="Project name">
                 <LemonInput
-                    placeholder="Production / Staging / Admin App"
+                    placeholder={`E.g. ${MOCK_PRODUCT_NAMES[Math.floor(Math.random() * MOCK_PRODUCT_NAMES.length)]}`}
                     maxLength={64}
                     autoFocus
                     value={name}

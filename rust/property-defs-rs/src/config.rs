@@ -41,12 +41,6 @@ pub struct Config {
     #[envconfig(default = "1000000")]
     pub cache_capacity: usize,
 
-    // We expire cache entries after this many seconds. This is /mostly/ to handle
-    // cases where we don't handle an insert error properly, so that a subsequent
-    // event seen can re-try the insert.
-    #[envconfig(default = "600")] // 10 minutes
-    pub cache_ttl_seconds: u64,
-
     // We impose a slow-start, where each batch update operation is delayed by
     // this many milliseconds, multiplied by the % of the cache currently unused. The idea
     // is that we want to drip-feed updates to the DB during warmup, since

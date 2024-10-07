@@ -4,13 +4,11 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { LemonCard } from 'lib/lemon-ui/LemonCard/LemonCard'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { availableOnboardingProducts, getProductUri, onboardingLogic } from 'scenes/onboarding/onboardingLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
-import { userLogic } from 'scenes/userLogic'
 
 import { OnboardingProduct, ProductKey } from '~/types'
 
@@ -38,8 +36,7 @@ export function ProductCard({
 }): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { setIncludeIntro } = useActions(onboardingLogic)
-    const { user } = useValues(userLogic)
-    const { reportOnboardingProductSelected } = useActions(eventUsageLogic)
+    const { addProductIntent } = useActions(teamLogic)
     const onboardingCompleted = currentTeam?.has_completed_onboarding_for?.[productKey]
     const vertical = orientation === 'vertical'
 
@@ -51,13 +48,13 @@ export function ProductCard({
             onClick={() => {
                 setIncludeIntro(false)
                 if (!onboardingCompleted) {
-                    const includeFirstOnboardingProductOnUserProperties = user?.date_joined
-                        ? new Date(user?.date_joined) > new Date('2024-01-10T00:00:00Z')
-                        : false
-                    reportOnboardingProductSelected(productKey, includeFirstOnboardingProductOnUserProperties)
                     getStartedActionOverride && getStartedActionOverride()
                 }
                 router.actions.push(urls.onboarding(productKey))
+                addProductIntent({
+                    product_type: productKey as ProductKey,
+                    intent_context: 'onboarding product selected',
+                })
             }}
         >
             {onboardingCompleted && (
@@ -100,7 +97,7 @@ export function Products(): JSX.Element {
                 {isFirstProductOnboarding && <p className="text-center">You can set up additional products later.</p>}
             </div>
             <>
-                <div className="grid gap-4 grid-rows-[160px] grid-cols-[repeat(2,_minmax(min-content,_160px))] md:grid-cols-[repeat(5,_minmax(min-content,_160px))] ">
+                <div className="grid gap-4 grid-rows-[160px] grid-cols-[repeat(2,_minmax(min-content,_160px))] md:grid-cols-[repeat(3,_minmax(min-content,_160px))] ">
                     {Object.keys(availableOnboardingProducts).map((productKey) => (
                         <ProductCard
                             product={availableOnboardingProducts[productKey]}
