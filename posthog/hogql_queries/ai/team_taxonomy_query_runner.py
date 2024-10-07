@@ -26,7 +26,7 @@ class TeamTaxonomyQueryRunner(QueryRunner):
         hogql = to_printed_hogql(query, self.team)
 
         response = execute_hogql_query(
-            query_type="TaxonomyQuery",
+            query_type="TeamTaxonomyQuery",
             query=query,
             team=self.team,
             timings=self.timings,

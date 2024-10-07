@@ -108,6 +108,7 @@ export enum NodeKind {
 
     // AI queries
     TeamTaxonomyQuery = 'TeamTaxonomyQuery',
+    EventTaxonomyQuery = 'EventTaxonomyQuery',
 }
 
 export type AnyDataNode =
@@ -1973,10 +1974,25 @@ export interface TeamTaxonomyResponse {
     count: number
 }
 
-export type TeamTaxonomyQueryResponse = AnalyticsQueryResponseBase<TeamTaxonomyResponse[]>
-
 export interface TeamTaxonomyQuery extends DataNode<TeamTaxonomyQueryResponse> {
     kind: NodeKind.TeamTaxonomyQuery
 }
 
+export type TeamTaxonomyQueryResponse = AnalyticsQueryResponseBase<TeamTaxonomyResponse[]>
+
 export type CachedTeamTaxonomyQueryResponse = CachedQueryResponse<TeamTaxonomyQueryResponse>
+
+export interface EventTaxonomyResponse {
+    property: string
+    sample_values: string[]
+    sample_count: number
+}
+
+export interface EventTaxonomyQuery extends DataNode<EventTaxonomyQueryResponse> {
+    kind: NodeKind.EventTaxonomyQuery
+    event: string
+}
+
+export type EventTaxonomyQueryResponse = AnalyticsQueryResponseBase<EventTaxonomyResponse[]>
+
+export type CachedEventTaxonomyQueryResponse = CachedQueryResponse<EventTaxonomyQueryResponse>
