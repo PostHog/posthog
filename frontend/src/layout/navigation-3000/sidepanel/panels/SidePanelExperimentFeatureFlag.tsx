@@ -1,10 +1,11 @@
-import { LemonBanner, LemonButton, LemonDivider, LemonInput, LemonTable, Spinner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonDivider, LemonInput, LemonTable, Link, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useEffect, useMemo } from 'react'
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
 import { featureFlagLogic, FeatureFlagLogicProps } from 'scenes/feature-flags/featureFlagLogic'
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
+import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '../sidePanelStateLogic'
 
@@ -21,6 +22,7 @@ export const SidePanelExperimentFeatureFlag = (): JSX.Element => {
         }
     }, [currentLocation, closeSidePanel])
 
+    // Retrieve experiment ID from URL
     const experimentId = useMemo(() => {
         const match = currentLocation.pathname.match(/\/experiments\/(\d+)/)
         return match ? parseInt(match[1]) : null
@@ -28,10 +30,12 @@ export const SidePanelExperimentFeatureFlag = (): JSX.Element => {
 
     const { experiment } = useValues(experimentLogic({ experimentId: experimentId ?? 'new' }))
 
-    // CLEAN UP NAMING ETC
-    const logic = featureFlagLogic({ id: experiment.feature_flag?.id ?? null } as FeatureFlagLogicProps)
-    const { featureFlag, areVariantRolloutsValid, variantRolloutSum, featureFlagLoading } = useValues(logic)
-    const { setFeatureFlagFilters, saveSidebarExperimentFeatureFlag, distributeVariantsEqually } = useActions(logic)
+    const _featureFlagLogic = featureFlagLogic({ id: experiment.feature_flag?.id ?? null } as FeatureFlagLogicProps)
+    const { featureFlag, areVariantRolloutsValid, variantRolloutSum, featureFlagLoading } = useValues(_featureFlagLogic)
+    const { setFeatureFlagFilters, saveSidebarExperimentFeatureFlag, distributeVariantsEqually } =
+        useActions(_featureFlagLogic)
+
+    const variants = featureFlag?.filters?.multivariate?.variants || []
 
     const handleRolloutPercentageChange = (index: number, value: number | undefined): void => {
         if (!featureFlag?.filters?.multivariate || !value) {
@@ -50,8 +54,6 @@ export const SidePanelExperimentFeatureFlag = (): JSX.Element => {
         setFeatureFlagFilters(updatedFilters, null)
     }
 
-    const variants = featureFlag?.filters?.multivariate?.variants || []
-
     if (featureFlagLoading || !featureFlag.id) {
         return (
             <div className="flex items-center justify-center h-full">
@@ -61,15 +63,28 @@ export const SidePanelExperimentFeatureFlag = (): JSX.Element => {
     }
 
     return (
-        <div className="space-y-4 p-2">
+        <div className="space-y-6 p-2">
             <LemonBanner type="info">
-                Here you can adjust the experiment's release conditions and variant rollout percentages. The default
-                settings are generally suitable, so proceed with caution. Modifying these parameters can significantly
-                impact your experiment's results. Ensure you fully understand the implications of any changes before
-                saving.
+                <div className="space-y-3">
+                    <div>
+                        Adjusting variant distribution or user targeting may impact the validity of your results. Adjust
+                        only if you're aware of how changes will affect your experiment.
+                    </div>
+                    <div>
+                        For full feature flag settings, go to{' '}
+                        <Link
+                            target="_blank"
+                            className="font-semibold"
+                            to={experiment.feature_flag ? urls.featureFlag(experiment.feature_flag.id) : undefined}
+                        >
+                            {experiment.feature_flag?.key}
+                        </Link>{' '}
+                        .
+                    </div>
+                </div>
             </LemonBanner>
             <div>
-                <h4 className="l3">Feature flag variants</h4>
+                <h3>Experiment variants</h3>
                 <LemonTable
                     dataSource={variants}
                     columns={[
@@ -78,6 +93,7 @@ export const SidePanelExperimentFeatureFlag = (): JSX.Element => {
                             dataIndex: 'key',
                             key: 'key',
                             render: (value) => <span className="font-semibold">{value}</span>,
+                            width: '50%',
                         },
                         {
                             title: (
@@ -118,18 +134,15 @@ export const SidePanelExperimentFeatureFlag = (): JSX.Element => {
                 )}
             </div>
 
+            <FeatureFlagReleaseConditions
+                id={`${experiment.feature_flag?.id}`}
+                filters={featureFlag?.filters ?? []}
+                onChange={setFeatureFlagFilters}
+            />
             <LemonDivider />
-
-            <div>
-                <FeatureFlagReleaseConditions
-                    id={`${experiment.feature_flag?.id}`}
-                    filters={featureFlag?.filters ?? []}
-                    onChange={setFeatureFlagFilters}
-                />
-            </div>
-
             <div>
                 <LemonButton
+                    className="-mt-4"
                     type="primary"
                     onClick={() => {
                         saveSidebarExperimentFeatureFlag(featureFlag)

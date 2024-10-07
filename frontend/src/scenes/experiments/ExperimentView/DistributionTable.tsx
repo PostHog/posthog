@@ -1,16 +1,18 @@
 import '../Experiment.scss'
 
-import { LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
-import { useValues } from 'kea'
-import { urls } from 'scenes/urls'
+import { IconFlag } from '@posthog/icons'
+import { LemonButton, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
 
-import { MultivariateFlagVariant } from '~/types'
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { MultivariateFlagVariant, SidePanelTab } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
 import { VariantTag } from './components'
 
 export function DistributionTable(): JSX.Element {
     const { experimentId, experiment, experimentResults } = useValues(experimentLogic)
+    const { openSidePanel } = useActions(sidePanelStateLogic)
 
     const columns: LemonTableColumns<MultivariateFlagVariant> = [
         {
@@ -43,13 +45,15 @@ export function DistributionTable(): JSX.Element {
 
                 <div className="w-1/2 flex flex-col justify-end">
                     <div className="ml-auto mb-2">
-                        <Link
-                            target="_blank"
+                        <LemonButton
+                            icon={<IconFlag />}
+                            onClick={() => openSidePanel(SidePanelTab.ExperimentFeatureFlag)}
+                            type="secondary"
+                            size="xsmall"
                             className="font-semibold"
-                            to={experiment.feature_flag ? urls.featureFlag(experiment.feature_flag.id) : undefined}
                         >
                             Manage distribution
-                        </Link>
+                        </LemonButton>
                     </div>
                 </div>
             </div>
