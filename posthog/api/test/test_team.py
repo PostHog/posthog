@@ -993,9 +993,14 @@ def team_api_test_factory():
             # and the existing second level nesting is not preserved
             self._assert_replay_config_is({"ai_config": {"opt_in": None, "included_event_properties": ["and another"]}})
 
+        @patch("posthog.api.project.report_user_action")
         @patch("posthog.api.team.report_user_action")
         @freeze_time("2024-01-01T00:00:00Z")
-        def test_can_add_product_intent(self, mock_report_user_action: MagicMock) -> None:
+        def test_can_add_product_intent(
+            self, mock_report_user_action: MagicMock, mock_report_user_action_legacy_endpoint: MagicMock
+        ) -> None:
+            if self.client_class is EnvironmentToProjectRewriteClient:
+                mock_report_user_action = mock_report_user_action_legacy_endpoint
             response = self.client.patch(
                 f"/api/environments/{self.team.id}/add_product_intent/",
                 {"product_type": "product_analytics", "intent_context": "onboarding product selected"},
@@ -1017,8 +1022,13 @@ def team_api_test_factory():
                 team=self.team,
             )
 
+        @patch("posthog.api.project.report_user_action")
         @patch("posthog.api.team.report_user_action")
-        def test_can_complete_product_onboarding(self, mock_report_user_action: MagicMock) -> None:
+        def test_can_complete_product_onboarding(
+            self, mock_report_user_action: MagicMock, mock_report_user_action_legacy_endpoint: MagicMock
+        ) -> None:
+            if self.client_class is EnvironmentToProjectRewriteClient:
+                mock_report_user_action = mock_report_user_action_legacy_endpoint
             with freeze_time("2024-01-01T00:00:00Z"):
                 product_intent = ProductIntent.objects.create(team=self.team, product_type="product_analytics")
             assert product_intent.created_at == datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC)
