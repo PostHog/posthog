@@ -12,7 +12,7 @@ from posthog.test.base import (
 
 @override_settings(IN_UNIT_TESTING=True)
 class TestEventTaxonomyQueryRunner(ClickhouseTestMixin, APIBaseTest):
-    def test_taxonomy_query_runner(self):
+    def test_event_taxonomy_query_runner(self):
         _create_person(
             distinct_ids=["person1"],
             properties={"email": "person1@example.com"},
@@ -55,11 +55,11 @@ class TestEventTaxonomyQueryRunner(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
         )
 
-        results = EventTaxonomyQueryRunner(team=self.team, query=EventTaxonomyQuery(event="event1")).calculate()
-        self.assertEqual(len(results.results), 2)
-        self.assertEqual(results.results[0].property, "$browser")
+        response = EventTaxonomyQueryRunner(team=self.team, query=EventTaxonomyQuery(event="event1")).calculate()
+        self.assertEqual(len(response.results), 2)
+        self.assertEqual(response.results[0].property, "$browser")
         self.assertEqual(
-            results.results[0].sample_values,
+            response.results[0].sample_values,
             [
                 "Mobile Chrome",
                 "Netscape",
@@ -68,7 +68,96 @@ class TestEventTaxonomyQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 "Safari",
             ],
         )
-        self.assertEqual(results.results[0].sample_count, 6)
-        self.assertEqual(results.results[1].property, "$country")
-        self.assertEqual(results.results[1].sample_values, ["UK", "US"])
-        self.assertEqual(results.results[1].sample_count, 2)
+        self.assertEqual(response.results[0].sample_count, 6)
+        self.assertEqual(response.results[1].property, "$country")
+        self.assertEqual(response.results[1].sample_values, ["UK", "US"])
+        self.assertEqual(response.results[1].sample_count, 2)
+
+    def test_event_taxonomy_query_filters_by_event(self):
+        _create_person(
+            distinct_ids=["person1"],
+            properties={"email": "person1@example.com"},
+            team=self.team,
+        )
+        _create_event(
+            event="event1",
+            distinct_id="person1",
+            properties={"$browser": "Chrome", "$country": "US"},
+            team=self.team,
+        )
+        _create_event(
+            event="event2",
+            distinct_id="person1",
+            properties={"$browser": "Safari", "$country": "UK"},
+            team=self.team,
+        )
+
+        response = EventTaxonomyQueryRunner(team=self.team, query=EventTaxonomyQuery(event="event1")).calculate()
+        self.assertEqual(len(response.results), 2)
+        self.assertEqual(response.results[0].property, "$country")
+        self.assertEqual(response.results[0].sample_values, ["US"])
+        self.assertEqual(response.results[0].sample_count, 1)
+        self.assertEqual(response.results[1].property, "$browser")
+        self.assertEqual(response.results[1].sample_values, ["Chrome"])
+        self.assertEqual(response.results[1].sample_count, 1)
+
+    def test_event_taxonomy_query_excludes_properties(self):
+        _create_person(
+            distinct_ids=["person1"],
+            properties={"email": "person1@example.com"},
+            team=self.team,
+        )
+        _create_event(
+            event="event1",
+            distinct_id="person1",
+            properties={"$browser__name": "Chrome", "$country": "US"},
+            team=self.team,
+        )
+        _create_event(
+            event="event1",
+            distinct_id="person1",
+            properties={"$set": "data", "$set_once": "data"},
+            team=self.team,
+        )
+
+        response = EventTaxonomyQueryRunner(team=self.team, query=EventTaxonomyQuery(event="event1")).calculate()
+        self.assertEqual(len(response.results), 1)
+        self.assertEqual(response.results[0].property, "$country")
+        self.assertEqual(response.results[0].sample_values, ["US"])
+        self.assertEqual(response.results[0].sample_count, 1)
+
+    def test_event_taxonomy_includes_properties_from_multiple_persons(self):
+        _create_person(
+            distinct_ids=["person1"],
+            properties={"email": "person1@example.com"},
+            team=self.team,
+        )
+        _create_person(
+            distinct_ids=["person2"],
+            properties={"email": "person1@example.com"},
+            team=self.team,
+        )
+        _create_event(
+            event="event1",
+            distinct_id="person1",
+            properties={"$browser": "Chrome", "$country": "US"},
+            team=self.team,
+        )
+        _create_event(
+            event="event1",
+            distinct_id="person2",
+            properties={"$browser": "Chrome", "$screen": "1024x768"},
+            team=self.team,
+        )
+
+        response = EventTaxonomyQueryRunner(team=self.team, query=EventTaxonomyQuery(event="event1")).calculate()
+        self.assertEqual(len(response.results), 3)
+        self.assertEqual(response.results[0].property, "$country")
+        self.assertEqual(response.results[0].sample_values, ["US"])
+        self.assertEqual(response.results[0].sample_count, 1)
+        self.assertEqual(response.results[1].property, "$screen")
+        self.assertEqual(response.results[1].sample_values, ["1024x768"])
+        self.assertEqual(response.results[1].sample_count, 1)
+        self.assertEqual(response.results[2].property, "$browser")
+        self.assertEqual(response.results[2].sample_values, ["Chrome"])
+        self.assertEqual(response.results[2].sample_count, 1)

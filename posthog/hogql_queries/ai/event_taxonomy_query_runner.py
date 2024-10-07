@@ -71,12 +71,17 @@ class EventTaxonomyQueryRunner(QueryRunner):
         """
         Ignore properties that are not useful for AI.
         """
-        event_omitlist = [
-            "$set",
-            "$time",
-            "$set_once",
-            "$sent_at",
+        omit_list = [
+            # events
+            r"\$set",
+            r"\$time",
+            r"\$set_once",
+            r"\$sent_at",
+            # privacy-related
+            r"\$ip",
+            # flatten-properties-plugin
             "__",
+            # other metadata
             "phjs",
             "survey_dismissed",
             "survey_responded",
@@ -86,7 +91,7 @@ class EventTaxonomyQueryRunner(QueryRunner):
             "changed_event",
             "partial_filter",
         ]
-        regex_conditions = "|".join(event_omitlist)
+        regex_conditions = "|".join(omit_list)
 
         return ast.Not(
             expr=ast.Call(
