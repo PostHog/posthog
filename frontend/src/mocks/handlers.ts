@@ -71,6 +71,9 @@ export const defaultMocks: Mocks = {
                 },
             ]
         },
+        'api/projects/:team/notebooks/recording_comments': {
+            results: [],
+        },
         '/api/projects/:team_id/groups/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/groups_types/': [],
         '/api/projects/:team_id/insights/': EMPTY_PAGINATED_RESPONSE,

@@ -2,6 +2,8 @@ import { actions, afterMount, connect, kea, key, path, props, reducers, selector
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getVariablesFromQuery } from 'scenes/insights/utils/queryUtils'
 
 import { DataVisualizationNode, HogQLVariable } from '~/queries/schema'
@@ -22,7 +24,7 @@ export const variablesLogic = kea<variablesLogicType>([
     key((props) => props.key),
     connect({
         actions: [dataVisualizationLogic, ['setQuery', 'loadData']],
-        values: [dataVisualizationLogic, ['query']],
+        values: [dataVisualizationLogic, ['query'], featureFlagLogic, ['featureFlags']],
     }),
     actions({
         addVariable: (variable: HogQLVariable) => ({ variable }),
@@ -110,6 +112,10 @@ export const variablesLogic = kea<variablesLogicType>([
                 },
             }
 
+            if (!values.featureFlags[FEATURE_FLAGS.INSIGHT_VARIABLES]) {
+                return
+            }
+
             if (props.readOnly) {
                 // Refresh the data manaully via dataNodeLogic when in insight view mode
                 actions.loadData(true, undefined, query.source)
@@ -139,6 +145,10 @@ export const variablesLogic = kea<variablesLogicType>([
         },
     })),
     afterMount(({ actions, values }) => {
+        if (!values.featureFlags[FEATURE_FLAGS.INSIGHT_VARIABLES]) {
+            return
+        }
+
         Object.values(values.query.source.variables ?? {}).forEach((variable) => {
             actions.addVariable(variable)
         })

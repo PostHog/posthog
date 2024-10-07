@@ -349,6 +349,10 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
     })),
 
     selectors({
+        isVerticallyStacked: [
+            (s) => [s.preferredSidebarStacking],
+            (preferredSidebarStacking) => preferredSidebarStacking === SessionRecordingSidebarStacking.Vertical,
+        ],
         miniFilters: [
             (s) => [s.tab, s.selectedMiniFilters],
             (tab, selectedMiniFilters): SharedListMiniFilter[] => {
