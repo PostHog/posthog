@@ -12,6 +12,7 @@ from sentry_sdk import capture_message
 from requests import JSONDecodeError  # type: ignore[attr-defined]
 from rest_framework.exceptions import NotAuthenticated
 from sentry_sdk import capture_exception
+from django.contrib.auth.models import AbstractUser
 
 from ee.billing.billing_types import BillingStatus
 from ee.billing.quota_limiting import set_org_usage_summary, sync_org_quota_limits
@@ -28,21 +29,26 @@ class BillingAPIErrorCodes(Enum):
     OPEN_INVOICES_ERROR = "open_invoices_error"
 
 
-def build_billing_token(license: License, organization: Organization):
+def build_billing_token(license: License, organization: Organization, user: Optional[AbstractUser] = None):
     if not organization or not license:
         raise NotAuthenticated()
 
     license_id = license.key.split("::")[0]
     license_secret = license.key.split("::")[1]
 
+    payload = {
+        "exp": datetime.now(tz=timezone.utc) + timedelta(minutes=15),
+        "id": license_id,
+        "organization_id": str(organization.id),
+        "organization_name": organization.name,
+        "aud": "posthog:license-key",
+    }
+
+    if user:
+        payload["distinct_id"] = str(user.id)
+
     encoded_jwt = jwt.encode(
-        {
-            "exp": datetime.now(tz=timezone.utc) + timedelta(minutes=15),
-            "id": license_id,
-            "organization_id": str(organization.id),
-            "organization_name": organization.name,
-            "aud": "posthog:license-key",
-        },
+        payload,
         license_secret,
         algorithm="HS256",
     )
@@ -62,9 +68,11 @@ def handle_billing_service_error(res: requests.Response, valid_codes=(200, 404, 
 
 class BillingManager:
     license: Optional[License]
+    user: Optional[AbstractUser]
 
-    def __init__(self, license):
+    def __init__(self, license, user: Optional[AbstractUser] = None):
         self.license = license or get_cached_instance_license()
+        self.user = user
 
     def get_billing(self, organization: Optional[Organization], plan_keys: Optional[str]) -> dict[str, Any]:
         if organization and self.license and self.license.is_v2_license:
@@ -331,7 +339,7 @@ class BillingManager:
     def get_auth_headers(self, organization: Organization):
         if not self.license:  # mypy
             raise Exception("No license found")
-        billing_service_token = build_billing_token(self.license, organization)
+        billing_service_token = build_billing_token(self.license, organization, self.user)
         return {"Authorization": f"Bearer {billing_service_token}"}
 
     def get_invoices(self, organization: Organization, status: Optional[str]):
