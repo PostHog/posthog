@@ -7,7 +7,7 @@ import { useState } from 'react'
 import { experimentLogic } from '../experimentLogic'
 import { VariantTag } from './components'
 
-export function VariantPreviewImage({
+export function VariantScreenshot({
     variantKey,
     rolloutPercentage,
 }: {
@@ -17,7 +17,7 @@ export function VariantPreviewImage({
     const { experiment } = useValues(experimentLogic)
     const { updateExperimentVariantImages } = useActions(experimentLogic)
 
-    const [mediaId, setMediaId] = useState(experiment.parameters?.variant_preview_media_ids?.[variantKey] || null)
+    const [mediaId, setMediaId] = useState(experiment.parameters?.variant_screenshot_media_ids?.[variantKey] || null)
     const [isLoadingImage, setIsLoadingImage] = useState(true)
     const [isModalOpen, setIsModalOpen] = useState(false)
 
@@ -26,7 +26,7 @@ export function VariantPreviewImage({
             setMediaId(id)
             if (id) {
                 const updatedVariantImages = {
-                    ...experiment.parameters?.variant_preview_media_ids,
+                    ...experiment.parameters?.variant_screenshot_media_ids,
                     [variantKey]: id,
                 }
                 updateExperimentVariantImages(updatedVariantImages)
@@ -75,7 +75,7 @@ export function VariantPreviewImage({
                                             e.stopPropagation()
                                             setMediaId(null)
                                             const updatedVariantImages = {
-                                                ...experiment.parameters?.variant_preview_media_ids,
+                                                ...experiment.parameters?.variant_screenshot_media_ids,
                                             }
                                             delete updatedVariantImages[variantKey]
                                             updateExperimentVariantImages(updatedVariantImages)
@@ -97,7 +97,7 @@ export function VariantPreviewImage({
                 onClose={() => setIsModalOpen(false)}
                 title={
                     <div className="flex items-center gap-2">
-                        <span>Preview</span>
+                        <span>Screenshot</span>
                         <LemonDivider className="my-0 mx-1" vertical />
                         <VariantTag experimentId={experiment.id} variantKey={variantKey} />
                         {rolloutPercentage !== undefined && (
@@ -108,7 +108,7 @@ export function VariantPreviewImage({
             >
                 <img
                     src={mediaId?.startsWith('data:') ? mediaId : `/uploaded_media/${mediaId}`}
-                    alt={`Variant Preview: ${variantKey}`}
+                    alt={`Screenshot: ${variantKey}`}
                     className="max-w-full max-h-[80vh] overflow-auto"
                 />
             </LemonModal>

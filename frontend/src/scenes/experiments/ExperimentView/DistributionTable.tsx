@@ -1,6 +1,7 @@
 import '../Experiment.scss'
 
-import { LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
+import { IconInfo } from '@posthog/icons'
+import { LemonTable, LemonTableColumns, Link, Tooltip } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { urls } from 'scenes/urls'
 
@@ -8,7 +9,7 @@ import { MultivariateFlagVariant } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
 import { VariantTag } from './components'
-import { VariantPreviewImage } from './VariantPreviewImage'
+import { VariantScreenshot } from './VariantScreenshot'
 
 export function DistributionTable(): JSX.Element {
     const { experimentId, experiment, experimentResults } = useValues(experimentLogic)
@@ -35,12 +36,19 @@ export function DistributionTable(): JSX.Element {
         },
         {
             className: 'w-1/3',
-            key: 'variant_preview_image',
-            title: 'Preview',
+            key: 'variant_screenshot',
+            title: (
+                <div className="inline-flex items-center space-x-1">
+                    <div className="">Screenshot</div>
+                    <Tooltip title="Upload images to show the visual differences between variants.">
+                        <IconInfo className="text-muted-alt text-base" />
+                    </Tooltip>
+                </div>
+            ),
             render: function Key(_, item): JSX.Element {
                 return (
                     <div className="my-2">
-                        <VariantPreviewImage variantKey={item.key} rolloutPercentage={item.rollout_percentage} />
+                        <VariantScreenshot variantKey={item.key} rolloutPercentage={item.rollout_percentage} />
                     </div>
                 )
             },

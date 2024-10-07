@@ -719,7 +719,7 @@ export const experimentLogic = kea<experimentLogicType>([
             try {
                 const updatedParameters = {
                     ...values.experiment.parameters,
-                    variant_preview_media_ids: variantPreviewMediaIds,
+                    variant_screenshot_media_ids: variantPreviewMediaIds,
                 }
                 await api.update(`api/projects/${values.currentTeamId}/experiments/${values.experimentId}`, {
                     parameters: updatedParameters,
