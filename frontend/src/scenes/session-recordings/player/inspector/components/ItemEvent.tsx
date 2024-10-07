@@ -84,10 +84,10 @@ export function ItemEvent({ item, expanded, setExpanded }: ItemEventProps): JSX.
     return (
         <div data-attr="item-event">
             <LemonButton noPadding onClick={() => setExpanded(!expanded)} fullWidth className="font-normal">
-                <div className="flex flex-row w-full justify-between gap-2 items-center p-2 text-xs cursor-pointer truncate">
-                    <div>
+                <div className="flex flex-row w-full justify-between gap-2 items-center p-2 text-xs cursor-pointer">
+                    <div className="truncate">
                         <PropertyKeyInfo
-                            className="font-medium shrink-0"
+                            className="font-medium"
                             disablePopover
                             ellipsis={true}
                             value={capitalizeFirstLetter(autoCaptureEventToDescription(item.data))}

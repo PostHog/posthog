@@ -9,6 +9,7 @@ import { pluralize } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
 import { AlertState } from '~/queries/schema'
+import { InsightShortId } from '~/types'
 
 import { insightAlertsLogic, InsightAlertsLogicProps } from '../insightAlertsLogic'
 import { AlertType } from '../types'
@@ -58,6 +59,7 @@ export function AlertListItem({ alert, onClick }: AlertListItemProps): JSX.Eleme
 
 interface ManageAlertsModalProps extends InsightAlertsLogicProps {
     isOpen: boolean
+    insightShortId: InsightShortId
     onClose?: () => void
 }
 
@@ -77,7 +79,7 @@ export function ManageAlertsModal(props: ManageAlertsModalProps): JSX.Element {
             <LemonModal.Content>
                 <div className="mb-4">
                     With alerts, PostHog will monitor your insight and notify you when certain conditions are met. We do
-                    not evaluate alerts in real-time, but rather on a schedule of once every hour. Please note that
+                    not evaluate alerts in real-time, but rather on a schedule (hourly, daily...). Please note that
                     alerts are in alpha and may not be fully reliable.
                 </div>
                 {alerts.length ? (
