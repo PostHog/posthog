@@ -14,6 +14,7 @@ interface LemonInputPropsBase
         // NOTE: We explicitly pick rather than omit to ensure these components aren't used incorrectly
         React.InputHTMLAttributes<HTMLInputElement>,
         | 'className'
+        | 'onClick'
         | 'onFocus'
         | 'onBlur'
         | 'autoFocus'
