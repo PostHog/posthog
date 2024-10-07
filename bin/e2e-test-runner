@@ -77,8 +77,8 @@ recreateDatabases() {
   createdb $DATABASE
 
   # Delete and recreate clickhouse database
-  echo 'DROP DATABASE if exists posthog_test' | curl 'http://clickhouse:8123/' --data-binary @-
-  echo 'create database posthog_test' | curl 'http://clickhouse:8123/' --data-binary @-
+  echo 'DROP DATABASE if exists posthog_test' | curl 'http://localhost:8123/' --data-binary @-
+  echo 'create database posthog_test' | curl 'http://localhost:8123/' --data-binary @-
 }
 
 migrateDatabases() {
