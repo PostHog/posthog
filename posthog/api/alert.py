@@ -149,6 +149,21 @@ class AlertSerializer(serializers.ModelSerializer):
         return instance
 
     def update(self, instance, validated_data):
+        if self.context["request"].data.get("resolve"):
+            instance.state = AlertState.RESOLVED_MANUALLY
+
+            AlertCheck.objects.create(
+                alert_configuration=instance,
+                calculated_value=None,
+                condition=instance.condition,
+                # TODO: might want to send update when user manually resolves
+                targets_notified={},
+                state=AlertState.RESOLVED_MANUALLY,
+                error=None,
+            )
+
+            return super().update(instance, validated_data)
+
         conditions_or_threshold_changed = False
 
         threshold_data = validated_data.pop("threshold", None)

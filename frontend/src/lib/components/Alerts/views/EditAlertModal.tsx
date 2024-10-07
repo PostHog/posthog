@@ -12,7 +12,7 @@ import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { alphabet } from 'lib/utils'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 
-import { AlertCalculationInterval } from '~/queries/schema'
+import { AlertCalculationInterval, AlertState } from '~/queries/schema'
 import { InsightShortId, QueryBasedInsightModel } from '~/types'
 
 import { alertFormLogic } from '../alertFormLogic'
@@ -27,8 +27,7 @@ export function AlertStateTable({ alert }: { alert: AlertType }): JSX.Element | 
     return (
         <div className="bg-bg-3000 p-4 mt-10 rounded-lg">
             <h3>
-                Current status {alert.state}
-                <AlertStateIndicator alert={alert} />
+                Current status - {alert.state} <AlertStateIndicator alert={alert} />
             </h3>
             <table className="w-full table-auto border-spacing-2 border-collapse">
                 <thead>
@@ -78,7 +77,7 @@ export function EditAlertModal({
     const formLogicProps = { alert, insightId, onEditSuccess }
     const formLogic = alertFormLogic(formLogicProps)
     const { alertForm, isAlertFormSubmitting, alertFormChanged } = useValues(formLogic)
-    const { deleteAlert } = useActions(formLogic)
+    const { deleteAlert, resolveAlert } = useActions(formLogic)
     const { setAlertFormValue } = useActions(formLogic)
 
     const trendsLogic = trendsDataLogic({ dashboardItemId: insightShortId })
@@ -204,15 +203,23 @@ export function EditAlertModal({
 
                     <LemonModal.Footer>
                         <div className="flex-1">
-                            {!creatingNewAlert ? (
-                                <LemonButton type="secondary" status="danger" onClick={deleteAlert}>
-                                    Delete alert
-                                </LemonButton>
-                            ) : null}
+                            <div className="flex gap-2">
+                                {!creatingNewAlert ? (
+                                    <LemonButton type="secondary" status="danger" onClick={deleteAlert}>
+                                        Delete alert
+                                    </LemonButton>
+                                ) : null}
+                                {!creatingNewAlert && alert?.state === AlertState.FIRING ? (
+                                    <LemonButton
+                                        type="secondary"
+                                        onClick={resolveAlert}
+                                        tooltip="This will set alert status to not firing. You will then be notified if condition is breached again."
+                                    >
+                                        Resolve alert
+                                    </LemonButton>
+                                ) : null}
+                            </div>
                         </div>
-                        <LemonButton type="secondary" onClick={onClose}>
-                            Cancel
-                        </LemonButton>
                         <LemonButton
                             type="primary"
                             htmlType="submit"

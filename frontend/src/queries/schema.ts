@@ -1962,6 +1962,7 @@ export enum AlertState {
     FIRING = 'Firing',
     NOT_FIRING = 'Not firing',
     ERRORED = 'Errored',
+    RESOLVED_MANUALLY = 'Resolved manually',
 }
 
 export enum AlertCalculationInterval {

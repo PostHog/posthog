@@ -20,6 +20,7 @@ export interface AlertTypeBase {
 export interface AlertTypeWrite extends Omit<AlertTypeBase, 'insight'> {
     subscribed_users: number[]
     insight: number
+    resolve?: boolean
 }
 
 export interface AlertCheck {

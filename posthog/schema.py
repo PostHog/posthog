@@ -53,6 +53,7 @@ class AlertState(StrEnum):
     FIRING = "Firing"
     NOT_FIRING = "Not firing"
     ERRORED = "Errored"
+    RESOLVED_MANUALLY = "Resolved manually"
 
 
 class Kind(StrEnum):

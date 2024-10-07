@@ -16,6 +16,7 @@ ALERT_STATE_CHOICES = [
     (AlertState.FIRING, AlertState.FIRING),
     (AlertState.NOT_FIRING, AlertState.NOT_FIRING),
     (AlertState.ERRORED, AlertState.ERRORED),
+    (AlertState.RESOLVED_MANUALLY, AlertState.RESOLVED_MANUALLY),
 ]
 
 
@@ -139,7 +140,7 @@ class AlertConfiguration(CreatedMetaFields, UUIDModel):
     threshold = models.ForeignKey(Threshold, on_delete=models.CASCADE, null=True, blank=True)
     condition = models.JSONField(default=dict)
 
-    state = models.CharField(max_length=10, choices=ALERT_STATE_CHOICES, default=AlertState.NOT_FIRING)
+    state = models.CharField(max_length=30, choices=ALERT_STATE_CHOICES, default=AlertState.NOT_FIRING)
     enabled = models.BooleanField(default=True)
     is_calculating = models.BooleanField(default=False, null=True, blank=True)
 
@@ -257,7 +258,7 @@ class AlertCheck(UUIDModel):
     targets_notified = models.JSONField(default=dict)
     error = models.JSONField(null=True, blank=True)
 
-    state = models.CharField(max_length=10, choices=ALERT_STATE_CHOICES, default=AlertState.NOT_FIRING)
+    state = models.CharField(max_length=30, choices=ALERT_STATE_CHOICES, default=AlertState.NOT_FIRING)
 
     def __str__(self):
         return f"AlertCheck for {self.alert_configuration.name} at {self.created_at}"
