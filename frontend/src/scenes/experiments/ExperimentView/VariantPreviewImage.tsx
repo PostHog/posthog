@@ -7,7 +7,13 @@ import { useState } from 'react'
 import { experimentLogic } from '../experimentLogic'
 import { VariantTag } from './components'
 
-export function VariantPreviewImage({ variantKey }: { variantKey: string }): JSX.Element {
+export function VariantPreviewImage({
+    variantKey,
+    rolloutPercentage,
+}: {
+    variantKey: string
+    rolloutPercentage: number
+}): JSX.Element {
     const { experiment } = useValues(experimentLogic)
     const { updateExperimentVariantImages } = useActions(experimentLogic)
 
@@ -30,10 +36,6 @@ export function VariantPreviewImage({ variantKey }: { variantKey: string }): JSX
             lemonToast.error(`Error uploading image: ${detail}`)
         },
     })
-
-    const rolloutPercentage = experiment.parameters?.feature_flag_variants?.find(
-        (v) => v.key === variantKey
-    )?.rollout_percentage
 
     return (
         <div className="space-y-4">

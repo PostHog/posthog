@@ -40,7 +40,7 @@ export function DistributionTable(): JSX.Element {
             render: function Key(_, item): JSX.Element {
                 return (
                     <div className="my-2">
-                        <VariantPreviewImage variantKey={item.key} />
+                        <VariantPreviewImage variantKey={item.key} rolloutPercentage={item.rollout_percentage} />
                     </div>
                 )
             },
