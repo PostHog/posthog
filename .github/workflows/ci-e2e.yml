@@ -120,13 +120,6 @@ jobs:
               with:
                   node-version: 18.12.1
 
-            - name: Install curl
-              # Used to check if ClickHouse is up within the docker network vs exposing the host port
-              if: needs.changes.outputs.shouldTriggerCypress == 'true'
-              run: |
-                  sudo apt-get update
-                  sudo apt-get install -y curl
-
             - name: Get pnpm cache directory path
               if: needs.changes.outputs.shouldTriggerCypress == 'true'
               id: pnpm-cache-dir

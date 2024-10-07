@@ -260,13 +260,6 @@ jobs:
                   # Use PostHog Bot token when not on forks to enable proper snapshot updating
                   token: ${{ github.event.pull_request.head.repo.full_name == github.repository && secrets.POSTHOG_BOT_GITHUB_TOKEN || github.token }}
 
-            - name: Install curl
-              # Used to check if ClickHouse is up within the docker network vs exposing the host port
-              if: needs.changes.outputs.backend == 'true'
-              run: |
-                  sudo apt-get update
-                  sudo apt-get install -y curl
-
             - uses: ./.github/actions/run-backend-tests
               if: needs.changes.outputs.backend == 'true'
               with:

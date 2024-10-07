@@ -209,13 +209,6 @@ jobs:
               if: needs.changes.outputs.plugin-server == 'true'
               uses: actions/checkout@v3
 
-            - name: Install curl
-              # Used to check if ClickHouse is up within the docker network vs exposing the host port
-              if: needs.changes.outputs.plugin-server == 'true'
-              run: |
-                  sudo apt-get update
-                  sudo apt-get install -y curl
-
             - name: Stop/Start stack with Docker Compose
               if: needs.changes.outputs.plugin-server == 'true'
               run: |
