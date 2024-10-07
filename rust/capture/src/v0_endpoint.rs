@@ -8,15 +8,18 @@ use axum::extract::{MatchedPath, Query, State};
 use axum::http::{HeaderMap, Method};
 use axum_client_ip::InsecureClientIp;
 use base64::Engine;
+use common_types::CapturedEvent;
 use metrics::counter;
 use serde_json::json;
 use serde_json::Value;
 use tracing::instrument;
 
 use crate::prometheus::report_dropped_events;
-use crate::v0_request::{Compression, ProcessingContext, RawRequest};
+use crate::v0_request::{
+    Compression, DataType, ProcessedEvent, ProcessedEventMetadata, ProcessingContext, RawRequest,
+};
 use crate::{
-    api::{CaptureError, CaptureResponse, CaptureResponseCode, DataType, ProcessedEvent},
+    api::{CaptureError, CaptureResponse, CaptureResponseCode},
     router, sinks,
     utils::uuid_v7,
     v0_request::{EventFormData, EventQuery, RawEvent},
@@ -277,8 +280,12 @@ pub fn process_single_event(
         CaptureError::NonRetryableSinkError
     })?;
 
-    Ok(ProcessedEvent {
+    let metadata = ProcessedEventMetadata {
         data_type,
+        session_id: None,
+    };
+
+    let event = CapturedEvent {
         uuid: event.uuid.unwrap_or_else(uuid_v7),
         distinct_id: event.extract_distinct_id()?,
         ip: context.client_ip.clone(),
@@ -286,8 +293,8 @@ pub fn process_single_event(
         now: context.now.clone(),
         sent_at: context.sent_at,
         token: context.token.clone(),
-        session_id: None,
-    })
+    };
+    Ok(ProcessedEvent { metadata, event })
 }
 
 #[instrument(skip_all, fields(events = events.len()))]
@@ -351,8 +358,17 @@ pub async fn process_replay_events<'a>(
         }
     }
 
-    let event = ProcessedEvent {
+    let metadata = ProcessedEventMetadata {
         data_type: DataType::SnapshotMain,
+        session_id: Some(
+            session_id
+                .as_str()
+                .ok_or(CaptureError::InvalidSessionId)?
+                .to_string(),
+        ),
+    };
+
+    let event = CapturedEvent {
         uuid,
         distinct_id: distinct_id.clone(),
         ip: context.client_ip.clone(),
@@ -370,13 +386,7 @@ pub async fn process_replay_events<'a>(
         now: context.now.clone(),
         sent_at: context.sent_at,
         token: context.token.clone(),
-        session_id: Some(
-            session_id
-                .as_str()
-                .ok_or(CaptureError::InvalidSessionId)?
-                .to_string(),
-        ),
     };
 
-    sink.send(event).await
+    sink.send(ProcessedEvent { metadata, event }).await
 }

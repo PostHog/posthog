@@ -435,31 +435,26 @@ class FunnelBase(ABC):
             extra_fields.append(prop)
 
         funnel_events_query = FunnelEventQuery(
-            context=self.context,
-            extra_fields=[*self._extra_event_fields, *extra_fields],
-            extra_event_properties=self._extra_event_properties,
+            context=self.context, extra_fields=[*self.extra_event_fields_and_properties, *extra_fields]
         ).to_query(
             skip_entity_filter=skip_entity_filter,
         )
-        # funnel_events_query, params = FunnelEventQuery(
-        #     extra_fields=[*self._extra_event_fields, *extra_fields],
-        #     extra_event_properties=self._extra_event_properties,
-        # ).get_query(entities_to_use, entity_name, skip_entity_filter=skip_entity_filter)
 
         all_step_cols: list[ast.Expr] = []
         all_exclusions: list[list[FunnelExclusionEventsNode | FunnelExclusionActionsNode]] = []
         for index, entity in enumerate(entities_to_use):
-            step_cols = self._get_step_col(entity, index, entity_name)
+            step_cols = self._get_step_col(entity, index, entity_name, for_udf=True)
             all_step_cols.extend(step_cols)
             all_exclusions.append([])
 
-        for excluded_entity in funnelsFilter.exclusions or []:
-            for i in range(excluded_entity.funnelFromStep + 1, excluded_entity.funnelToStep + 1):
-                all_exclusions[i].append(excluded_entity)
+        if funnelsFilter.exclusions:
+            for excluded_entity in funnelsFilter.exclusions:
+                for i in range(excluded_entity.funnelFromStep + 1, excluded_entity.funnelToStep + 1):
+                    all_exclusions[i].append(excluded_entity)
 
-        for index, exclusions in enumerate(all_exclusions):
-            exclusion_col_expr = self._get_exclusions_col(exclusions, index, entity_name)
-            all_step_cols.append(exclusion_col_expr)
+            for index, exclusions in enumerate(all_exclusions):
+                exclusion_col_expr = self._get_exclusions_col(exclusions, index, entity_name)
+                all_step_cols.append(exclusion_col_expr)
 
         breakdown_select_prop = self._get_breakdown_select_prop()
 
@@ -491,7 +486,6 @@ class FunnelBase(ABC):
     ) -> ast.Expr:
         if not exclusions:
             return parse_expr(f"0 as exclusion_{index}")
-
         conditions = [self._build_step_query(exclusion, index, entity_name, "") for exclusion in exclusions]
         return parse_expr(
             f"if({{condition}}, 1, 0) as exclusion_{index}", placeholders={"condition": ast.Or(exprs=conditions)}
@@ -664,10 +658,10 @@ class FunnelBase(ABC):
                 parse_expr(f"if({step_prefix}step_{index} = 1, timestamp, null) as {step_prefix}latest_{index}")
             )
 
-        for field in self.extra_event_fields_and_properties:
-            step_cols.append(
-                parse_expr(f'if({step_prefix}step_{index} = 1, "{field}", null) as "{step_prefix}{field}_{index}"')
-            )
+            for field in self.extra_event_fields_and_properties:
+                step_cols.append(
+                    parse_expr(f'if({step_prefix}step_{index} = 1, "{field}", null) as "{step_prefix}{field}_{index}"')
+                )
 
         return step_cols
 
@@ -758,12 +752,15 @@ class FunnelBase(ABC):
 
         return ast.And(exprs=conditions)
 
-    def _get_funnel_person_step_events(self) -> list[ast.Expr]:
-        if (
+    def _include_matched_events(self):
+        return (
             hasattr(self.context, "actorsQuery")
             and self.context.actorsQuery is not None
             and self.context.actorsQuery.includeRecordings
-        ):
+        )
+
+    def _get_funnel_person_step_events(self) -> list[ast.Expr]:
+        if self._include_matched_events():
             if self.context.includeFinalMatchingEvents:
                 # Always returns the user's final step of the funnel
                 return [parse_expr("final_matching_events as matching_events")]

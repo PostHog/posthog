@@ -227,6 +227,13 @@ class PrintableMaterializedPropertyGroupItem:
         return f"{self.__qualified_column}[{self.property_name}]"
 
 
+def resolve_field_type(expr: ast.Expr) -> ast.Type | None:
+    expr_type = expr.type
+    while isinstance(expr_type, ast.FieldAliasType):
+        expr_type = expr_type.type
+    return expr_type
+
+
 class _Printer(Visitor):
     # NOTE: Call "print_ast()", not this class directly.
 
@@ -609,12 +616,6 @@ class _Printer(Visitor):
         if self.context.modifiers.propertyGroupsMode != PropertyGroupsMode.OPTIMIZED:
             return None
 
-        def resolve_field_type(expr: ast.Expr) -> ast.Type | None:
-            expr_type = expr.type
-            while isinstance(expr_type, ast.FieldAliasType):
-                expr_type = expr_type.type
-            return expr_type
-
         if node.op in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.NotEq):
             # For commutative operations, we can rewrite the expression with parameters in either order without
             # affecting the result.
@@ -664,15 +665,16 @@ class _Printer(Visitor):
                 elif constant_expr.value is False:
                     return f"equals({property_source.value_expr}, 'false')"
 
-                printed_expr = f"equals({property_source.value_expr}, {self.visit(constant_expr)})"
-                if constant_expr.value == "":
-                    # If we're comparing to an empty string literal, we need to disambiguate this from the default value
-                    # for the ``Map(String, String)`` type used for storing property group values by also ensuring that
-                    # the property key is present in the map. If this is in a ``WHERE`` clause, this also ensures we can
-                    # still use the data skipping index on keys, even though the values index cannot be used.
-                    printed_expr = f"and({property_source.has_expr}, {printed_expr})"
+                if isinstance(constant_expr.type, ast.StringType):
+                    printed_expr = f"equals({property_source.value_expr}, {self.visit(constant_expr)})"
+                    if constant_expr.value == "":
+                        # If we're comparing to an empty string literal, we need to disambiguate this from the default value
+                        # for the ``Map(String, String)`` type used for storing property group values by also ensuring that
+                        # the property key is present in the map. If this is in a ``WHERE`` clause, this also ensures we can
+                        # still use the data skipping index on keys, even though the values index cannot be used.
+                        printed_expr = f"and({property_source.has_expr}, {printed_expr})"
 
-                return printed_expr
+                    return printed_expr
 
             elif node.op == ast.CompareOperationOp.NotEq:
                 if constant_expr.value is None:
@@ -700,20 +702,23 @@ class _Printer(Visitor):
                 elif node.right.value == "":
                     # If the RHS is the empty string, we need to disambiguate it from the default value for missing keys.
                     return f"and({property_source.has_expr}, equals({property_source.value_expr}, {self.visit(node.right)}))"
-                else:
+                elif isinstance(node.right.type, ast.StringType):
                     return f"in({property_source.value_expr}, {self.visit(node.right)})"
             elif isinstance(node.right, ast.Tuple):
                 # If any of the values on the RHS are the empty string, we need to disambiguate it from the default
-                # value for missing keys. NULLs should also be dropped, but everything else can be passed through as-is.
+                # value for missing keys. NULLs should also be dropped, but everything else we can directly compare
+                # (strings) can be passed through as-is
                 default_value_expr: ast.Constant | None = None
                 for expr in node.right.exprs[:]:
                     if not isinstance(expr, ast.Constant):
                         return None  # only optimize constants for now, see above
-                    elif expr.value is None:
+                    if expr.value is None:
                         node.right.exprs.remove(expr)
                     elif expr.value == "":
                         default_value_expr = expr
                         node.right.exprs.remove(expr)
+                    elif not isinstance(expr.type, ast.StringType):
+                        return None
                 if len(node.right.exprs) > 0:
                     # TODO: Check to see if it'd be faster to do equality comparison here instead?
                     printed_expr = f"in({property_source.value_expr}, {self.visit(node.right)})"
@@ -946,11 +951,6 @@ class _Printer(Visitor):
         # XXX: A lot of this is duplicated (sometimes just copy/pasted) from the null equality comparison logic -- it
         # might make sense to make it so that ``isNull``/``isNotNull`` is rewritten to comparison expressions before
         # this step, similar to how ``equals``/``notEquals`` are interpreted as their comparison operation counterparts.
-        def resolve_field_type(expr: ast.Expr) -> ast.Type | None:
-            expr_type = expr.type
-            while isinstance(expr_type, ast.FieldAliasType):
-                expr_type = expr_type.type
-            return expr_type
 
         match node:
             case ast.Call(name="isNull" | "isNotNull" as function_name, args=[field]):
@@ -1523,6 +1523,9 @@ class _Printer(Visitor):
             return node.type.is_nullable(self.context)
         elif isinstance(node, ast.Alias):
             return self._is_nullable(node.expr)
+        elif isinstance(node.type, ast.FieldAliasType):
+            if (field_type := resolve_field_type(node)) and isinstance(field_type, ast.FieldType):
+                return field_type.is_nullable(self.context)
 
         # we don't know if it's nullable, so we assume it can be
         return True

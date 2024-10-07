@@ -112,17 +112,9 @@ export const PlanComparison = ({
     product: BillingProductV2Type
     includeAddons?: boolean
 }): JSX.Element | null => {
-    const plans = product.plans?.filter(
-        (plan) => !plan.included_if || plan.included_if == 'has_subscription' || plan.current_plan
-    )
-    if (plans?.length === 0) {
-        return null
-    }
-    const fullyFeaturedPlan = plans[plans.length - 1]
     const { billing, redirectPath, timeRemainingInSeconds, timeTotalInSeconds } = useValues(billingLogic)
     const { width, ref: planComparisonRef } = useResizeObserver()
     const { reportBillingUpgradeClicked, reportBillingDowngradeClicked } = useActions(eventUsageLogic)
-    const currentPlanIndex = plans.findIndex((plan) => plan.current_plan)
     const { surveyID, comparisonModalHighlightedFeatureKey, billingProductLoading } = useValues(
         billingProductLogic({ product })
     )
@@ -130,6 +122,15 @@ export const PlanComparison = ({
         billingProductLogic({ product })
     )
     const { featureFlags } = useValues(featureFlagLogic)
+
+    const plans = product.plans?.filter(
+        (plan) => !plan.included_if || plan.included_if == 'has_subscription' || plan.current_plan
+    )
+    if (plans?.length === 0) {
+        return null
+    }
+    const currentPlanIndex = plans.findIndex((plan) => plan.current_plan)
+    const fullyFeaturedPlan = plans[plans.length - 1]
 
     const ctaAction = billing?.subscription_level === 'custom' ? 'Subscribe' : 'Upgrade'
     const upgradeButtons = plans?.map((plan, i) => {

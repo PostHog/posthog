@@ -22,7 +22,7 @@ describe('funnelPropertyCorrelationLogic', () => {
         useAvailableFeatures([AvailableFeature.CORRELATION_ANALYSIS, AvailableFeature.GROUP_ANALYTICS])
         useMocks({
             get: {
-                '/api/projects/@current': () => [
+                '/api/environments/@current': () => [
                     200,
                     {
                         ...MOCK_DEFAULT_TEAM,
@@ -46,7 +46,7 @@ describe('funnelPropertyCorrelationLogic', () => {
                 },
             },
             patch: {
-                '/api/projects/:id': (req) => [
+                '/api/environments/:id': (req) => [
                     200,
                     {
                         ...MOCK_DEFAULT_TEAM,
@@ -102,7 +102,7 @@ describe('funnelPropertyCorrelationLogic', () => {
             },
         })
         initKeaTests(false)
-        window.POSTHOG_APP_CONTEXT = undefined // to force API request to /api/project/@current
+        window.POSTHOG_APP_CONTEXT = undefined // to force API request to /api/environments/@current
     })
 
     const defaultProps: InsightLogicProps = {

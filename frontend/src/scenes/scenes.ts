@@ -261,7 +261,7 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
     },
     [Scene.Max]: {
         projectBased: true,
-        name: 'Max',
+        name: 'Max AI',
         layout: 'app-raw',
         hideProjectNotice: true, // FIXME: Currently doesn't render well...
     },
@@ -473,8 +473,9 @@ export const routes: Record<string, Scene> = {
     [urls.insightView(':shortId' as InsightShortId)]: Scene.Insight,
     [urls.insightSubcriptions(':shortId' as InsightShortId)]: Scene.Insight,
     [urls.insightSubcription(':shortId' as InsightShortId, ':itemId')]: Scene.Insight,
-    [urls.alert(':shortId' as InsightShortId, ':itemId')]: Scene.Insight,
-    [urls.alerts(':shortId' as InsightShortId)]: Scene.Insight,
+    [urls.alert(':shortId')]: Scene.SavedInsights,
+    [urls.alerts()]: Scene.SavedInsights,
+    [urls.insightAlerts(':shortId' as InsightShortId)]: Scene.Insight,
     [urls.insightSharing(':shortId' as InsightShortId)]: Scene.Insight,
     [urls.savedInsights()]: Scene.SavedInsights,
     [urls.webAnalytics()]: Scene.WebAnalytics,

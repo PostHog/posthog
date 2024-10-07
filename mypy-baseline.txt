@@ -282,7 +282,6 @@ posthog/api/utils.py:0: error: Argument 1 to "UUID" has incompatible type "int |
 posthog/queries/trends/util.py:0: error: Argument 1 to "translate_hogql" has incompatible type "str | None"; expected "str"  [arg-type]
 posthog/hogql/property.py:0: error: Incompatible type for lookup 'id': (got "str | int | list[str]", expected "str | int")  [misc]
 posthog/hogql/property.py:0: error: Incompatible type for lookup 'pk': (got "str | float", expected "str | int")  [misc]
-posthog/api/routing.py:0: error: Incompatible return value type (got "Project | None", expected "Project")  [return-value]
 posthog/api/capture.py:0: error: Module has no attribute "utc"  [attr-defined]
 posthog/hogql/filters.py:0: error: Incompatible default for argument "team" (default has type "None", argument has type "Team")  [assignment]
 posthog/hogql/filters.py:0: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True

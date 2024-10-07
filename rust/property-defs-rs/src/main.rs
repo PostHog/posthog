@@ -2,31 +2,25 @@ use std::{sync::Arc, time::Duration};
 
 use ahash::AHashSet;
 use axum::{routing::get, Router};
-use envconfig::Envconfig;
+use common_kafka::kafka_consumer::{RecvErr, SingleTopicConsumer};
+
 use futures::future::ready;
 use property_defs_rs::{
     app_context::AppContext,
     config::{Config, TeamFilterMode, TeamList},
-    message_to_event,
     metrics_consts::{
-        BATCH_ACQUIRE_TIME, CACHE_CONSUMED, COMPACTED_UPDATES, EVENTS_RECEIVED, FORCED_SMALL_BATCH,
-        ISSUE_FAILED, PERMIT_WAIT_TIME, RECV_DEQUEUED, SKIPPED_DUE_TO_TEAM_FILTER,
-        TRANSACTION_LIMIT_SATURATION, UPDATES_FILTERED_BY_CACHE, UPDATES_PER_EVENT, UPDATES_SEEN,
-        UPDATE_ISSUE_TIME, WORKER_BLOCKED,
+        BATCH_ACQUIRE_TIME, CACHE_CONSUMED, CHUNK_SIZE, COMPACTED_UPDATES, DUPLICATES_IN_BATCH,
+        EMPTY_EVENTS, EVENTS_RECEIVED, EVENT_PARSE_ERROR, FORCED_SMALL_BATCH, ISSUE_FAILED,
+        RECV_DEQUEUED, SKIPPED_DUE_TO_TEAM_FILTER, UPDATES_FILTERED_BY_CACHE, UPDATES_PER_EVENT,
+        UPDATES_SEEN, UPDATE_ISSUE_TIME, WORKER_BLOCKED,
     },
-    types::Update,
+    types::{Event, Update},
 };
+
 use quick_cache::sync::Cache;
-use rdkafka::{
-    consumer::{Consumer, StreamConsumer},
-    ClientConfig,
-};
 use serve_metrics::{serve, setup_metrics_routes};
 use tokio::{
-    sync::{
-        mpsc::{self, error::TrySendError},
-        Semaphore,
-    },
+    sync::mpsc::{self, error::TrySendError},
     task::JoinHandle,
 };
 use tracing::{error, info, warn};
@@ -66,7 +60,7 @@ fn start_health_liveness_server(config: &Config, context: Arc<AppContext>) -> Jo
 }
 
 async fn spawn_producer_loop(
-    consumer: Arc<StreamConsumer>,
+    consumer: SingleTopicConsumer,
     channel: mpsc::Sender<Update>,
     shared_cache: Arc<Cache<Update, ()>>,
     skip_threshold: usize,
@@ -77,14 +71,25 @@ async fn spawn_producer_loop(
     let mut batch = AHashSet::with_capacity(compaction_batch_size);
     let mut last_send = tokio::time::Instant::now();
     loop {
-        let message = consumer
-            .recv()
-            .await
-            .expect("TODO - workers panic on kafka recv fail");
-
-        let Some(event) = message_to_event(message) else {
-            continue;
+        let (event, offset): (Event, _) = match consumer.json_recv().await {
+            Ok(r) => r,
+            Err(RecvErr::Empty) => {
+                warn!("Received empty event");
+                metrics::counter!(EMPTY_EVENTS).increment(1);
+                continue;
+            }
+            Err(RecvErr::Serde(e)) => {
+                metrics::counter!(EVENT_PARSE_ERROR).increment(1);
+                warn!("Failed to parse event: {:?}", e);
+                continue;
+            }
+            Err(RecvErr::Kafka(e)) => {
+                panic!("Kafka error: {:?}", e); // We just panic if we fail to recv from kafka, if it's down, we're down
+            }
         };
+
+        // Panicking on offset store failure, same reasoning as the panic above - if kafka's down, we're down
+        offset.store().expect("Failed to store offset");
 
         if !team_filter_mode.should_process(&team_list.teams, event.team_id) {
             metrics::counter!(SKIPPED_DUE_TO_TEAM_FILTER).increment(1);
@@ -143,23 +148,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     setup_tracing();
     info!("Starting up...");
 
-    let config = Config::init_from_env()?;
+    let config = Config::init_with_defaults()?;
 
-    let kafka_config: ClientConfig = (&config.kafka).into();
-
-    let consumer: Arc<StreamConsumer> = Arc::new(kafka_config.create()?);
+    let consumer = SingleTopicConsumer::new(config.kafka.clone(), config.consumer.clone())?;
 
     let context = Arc::new(AppContext::new(&config).await?);
 
-    consumer.subscribe(&[config.kafka.event_topic.as_str()])?;
-
-    info!("Subscribed to topic: {}", config.kafka.event_topic);
+    info!(
+        "Subscribed to topic: {}",
+        config.consumer.kafka_consumer_topic
+    );
 
     start_health_liveness_server(&config, context.clone());
 
     let (tx, mut rx) = mpsc::channel(config.update_batch_size * config.channel_slots_per_worker);
-    let transaction_limit = Arc::new(Semaphore::new(config.max_concurrent_transactions));
-    let cache = Arc::new(Cache::new(config.cache_capacity));
+
+    let cache = Cache::new(config.cache_capacity);
+
+    let cache = Arc::new(cache);
 
     for _ in 0..config.worker_loop_count {
         tokio::spawn(spawn_producer_loop(
@@ -206,30 +212,64 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         batch_time.fin();
 
-        metrics::gauge!(TRANSACTION_LIMIT_SATURATION).set(
-            (config.max_concurrent_transactions - transaction_limit.available_permits()) as f64,
-        );
+        // We de-duplicate the batch, in case racing inserts slipped through the shared-cache filter. This
+        // is important because duplicate updates touch the same row, and we issue in parallel, so we'd end
+        // up deadlocking ourselves. We can still encounter deadlocks due to other pods, but those should
+        // be rarer, and we use retries to handle them.
+        let start_len = batch.len();
+        batch.sort_unstable();
+        batch.dedup();
+
+        metrics::counter!(DUPLICATES_IN_BATCH).increment((start_len - batch.len()) as u64);
 
         let cache_utilization = cache.len() as f64 / config.cache_capacity as f64;
         metrics::gauge!(CACHE_CONSUMED).set(cache_utilization);
 
-        // We unconditionally wait to wait for a transaction permit - this is our backpressure mechanism. If we
-        // fail to acquire a permit for long enough, we will fail liveness checks (but that implies our ongoing
-        // transactions are halted, at which point DB health is a concern).
-        let permit_acquire_time = common_metrics::timing_guard(PERMIT_WAIT_TIME, &[]);
-        // This semaphore will never be closed.
-        let permit = transaction_limit.clone().acquire_owned().await.unwrap();
-        permit_acquire_time.fin();
+        // We split our update batch into chunks, one per transaction. We know each update touches
+        // exactly one row, so we can issue the chunks in parallel, and smaller batches issue faster,
+        // which helps us with inter-pod deadlocking and retries.
+        let chunk_size = batch.len() / config.max_concurrent_transactions;
+        let mut chunks = vec![Vec::with_capacity(chunk_size); config.max_concurrent_transactions];
+        for (i, update) in batch.drain(..).enumerate() {
+            chunks[i % config.max_concurrent_transactions].push(update);
+        }
 
-        let context = context.clone();
-        tokio::spawn(async move {
-            let _permit = permit;
-            let issue_time = common_metrics::timing_guard(UPDATE_ISSUE_TIME, &[]);
-            if let Err(e) = context.issue(batch, cache_utilization).await {
-                metrics::counter!(ISSUE_FAILED).increment(1);
-                error!("Issue failed: {:?}", e);
-            }
-            issue_time.fin();
-        });
+        metrics::gauge!(CHUNK_SIZE).set(chunk_size as f64);
+
+        let mut handles = Vec::new();
+        let issue_time = common_metrics::timing_guard(UPDATE_ISSUE_TIME, &[]);
+        for mut chunk in chunks {
+            let m_context = context.clone();
+            let m_cache = cache.clone();
+            let handle = tokio::spawn(async move {
+                let mut tries = 0;
+                // We occasionally enocounter deadlocks while issuing updates, so we retry a few times, and
+                // if we still fail, we drop the batch and clear it's content from the cached update set, because
+                // we assume everything in it will be seen again.
+                while let Err(e) = m_context.issue(&mut chunk, cache_utilization).await {
+                    tries += 1;
+                    if tries > 3 {
+                        metrics::counter!(ISSUE_FAILED).increment(1);
+                        error!("Too many tries, dropping batch");
+                        // We clear any updates that were in this batch from the cache, so that
+                        // if we see them again we'll try again to issue them.
+                        chunk.iter().for_each(|u| {
+                            m_cache.remove(u);
+                        });
+                        return;
+                    }
+
+                    let jitter = rand::random::<u64>() % 50;
+                    warn!("Issue failed: {:?}, sleeping for {}ms", e, jitter);
+                    tokio::time::sleep(Duration::from_millis(jitter)).await;
+                }
+            });
+            handles.push(handle);
+        }
+
+        for handle in handles {
+            handle.await?;
+        }
+        issue_time.fin();
     }
 }

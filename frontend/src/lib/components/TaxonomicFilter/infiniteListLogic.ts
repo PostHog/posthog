@@ -75,6 +75,8 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
         values: [
             taxonomicFilterLogic(props),
             ['searchQuery', 'value', 'groupType', 'taxonomicGroups'],
+            teamLogic,
+            ['currentTeamId'],
             featureFlagsLogic,
             ['featureFlags'],
         ],
@@ -151,7 +153,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
 
                     const queryChanged = values.remoteItems.searchQuery !== values.searchQuery
 
-                    await captureTimeToSeeData(teamLogic.values.currentTeamId, {
+                    await captureTimeToSeeData(values.currentTeamId, {
                         type: 'properties_load',
                         context: 'filters',
                         action: listGroupType,

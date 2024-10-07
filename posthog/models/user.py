@@ -22,10 +22,11 @@ from .utils import UUIDClassicModel, generate_random_token, sane_repr
 
 class Notifications(TypedDict, total=False):
     plugin_disabled: bool
-    batch_export_run_failure: bool
 
 
-NOTIFICATION_DEFAULTS: Notifications = {"plugin_disabled": True, "batch_export_run_failure": True}
+NOTIFICATION_DEFAULTS: Notifications = {
+    "plugin_disabled": True  # Catch all for any Pipeline destination issue (plugins, hog functions, batch exports)
+}
 
 # We don't ned the following attributes in most cases, so we defer them by default
 DEFERED_ATTRS = ["requested_password_reset_at"]

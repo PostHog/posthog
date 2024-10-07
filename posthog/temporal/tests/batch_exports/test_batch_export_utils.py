@@ -1,11 +1,16 @@
 import asyncio
 import datetime as dt
 
+import pyarrow as pa
 import pytest
 import pytest_asyncio
 
 from posthog.batch_exports.models import BatchExportRun
-from posthog.temporal.batch_exports.utils import make_retryable_with_exponential_backoff, set_status_to_running_task
+from posthog.temporal.batch_exports.utils import (
+    JsonType,
+    make_retryable_with_exponential_backoff,
+    set_status_to_running_task,
+)
 from posthog.temporal.common.logger import bind_temporal_worker_logger
 from posthog.temporal.tests.utils.models import (
     acreate_batch_export,
@@ -162,3 +167,23 @@ async def test_make_retryable_with_exponential_backoff_raises_if_not_retryable()
         await make_retryable_with_exponential_backoff(raise_value_error, retryable_exceptions=(TypeError,))()
 
     assert counter == 1
+
+
+@pytest.mark.parametrize(
+    "input,expected",
+    [
+        ([b'{"asdf": "\udee5\ud83e\udee5\\ud83e"}'], [{"asdf": "????"}]),
+        ([b'{"asdf": "\\"Hello\\" \\udfa2"}'], [{"asdf": '"Hello" ?'}]),
+        ([b'{"asdf": "\n"}'], [{"asdf": "\n"}]),
+        (
+            [b'{"finally": "a", "normal": "json", "thing": 1, "bool": false}'],
+            [{"finally": "a", "normal": "json", "thing": 1, "bool": False}],
+        ),
+    ],
+)
+def test_json_type_as_py(input, expected):
+    array = pa.array(input)
+    casted_array = array.cast(JsonType())
+    result = casted_array.to_pylist()
+
+    assert result == expected
