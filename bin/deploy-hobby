@@ -12,6 +12,9 @@ export SENTRY_DSN="${SENTRY_DSN:-'https://public@sentry.example.com/1'}"
 POSTHOG_SECRET=$(head -c 28 /dev/urandom | sha224sum -b | head -c 56)
 export POSTHOG_SECRET
 
+POSTHOG_SALT_KEY=$(head -c 32 /dev/urandom | sha224sum -b | head -c 56)
+export POSTHOG_SALT_KEY
+
 # Talk to the user
 echo "Welcome to the single instance PostHog installer 🦔"
 echo ""
@@ -128,6 +131,7 @@ EOF
 # Write .env file
 envsubst > .env <<EOF
 POSTHOG_SECRET=$POSTHOG_SECRET
+POSTHOG_SALT_KEY=$POSTHOG_SALT_KEY
 SENTRY_DSN=$SENTRY_DSN
 DOMAIN=$DOMAIN
 EOF

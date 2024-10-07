@@ -79,6 +79,7 @@ services:
             SENTRY_DSN: $SENTRY_DSN
             SITE_URL: https://$DOMAIN
             SECRET_KEY: $POSTHOG_SECRET
+            ENCRYPTION_SALT_KEYS: $POSTHOG_SALT_KEY
             OBJECT_STORAGE_ACCESS_KEY_ID: 'object_storage_root_user'
             OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password'
             OBJECT_STORAGE_ENDPOINT: http://objectstorage:19000
@@ -96,6 +97,7 @@ services:
             SENTRY_DSN: $SENTRY_DSN
             SITE_URL: https://$DOMAIN
             SECRET_KEY: $POSTHOG_SECRET
+            ENCRYPTION_SALT_KEYS: $POSTHOG_SALT_KEY
             OBJECT_STORAGE_ACCESS_KEY_ID: 'object_storage_root_user'
             OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password'
             OBJECT_STORAGE_ENDPOINT: http://objectstorage:19000
@@ -116,6 +118,7 @@ services:
             SENTRY_DSN: $SENTRY_DSN
             SITE_URL: https://$DOMAIN
             SECRET_KEY: $POSTHOG_SECRET
+            ENCRYPTION_SALT_KEYS: $POSTHOG_SALT_KEY
             OBJECT_STORAGE_ACCESS_KEY_ID: 'object_storage_root_user'
             OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password'
             OBJECT_STORAGE_ENDPOINT: http://objectstorage:19000
@@ -162,6 +165,7 @@ services:
             SENTRY_DSN: $SENTRY_DSN
             SITE_URL: https://$DOMAIN
             SECRET_KEY: $POSTHOG_SECRET
+            ENCRYPTION_SALT_KEYS: $POSTHOG_SALT_KEY
             SKIP_ASYNC_MIGRATIONS_SETUP: 0
 
     # Temporal containers
@@ -208,6 +212,7 @@ services:
             SENTRY_DSN: $SENTRY_DSN
             SITE_URL: https://$DOMAIN
             SECRET_KEY: $POSTHOG_SECRET
+            ENCRYPTION_SALT_KEYS: $POSTHOG_SALT_KEY
         depends_on:
             - db
             - redis
