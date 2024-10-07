@@ -330,6 +330,7 @@ async def materialize_model(model_label: str, team: Team) -> tuple[str, DeltaTab
         table.vacuum(retention_hours=24, enforce_retention_duration=False, dry_run=False)
 
         file_uris = table.file_uris()
+
         prepare_s3_files_for_querying(saved_query.folder_path, saved_query.name, file_uris)
 
     key, delta_table = tables.popitem()
