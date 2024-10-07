@@ -6,9 +6,8 @@ import { useActions, useValues } from 'kea'
 import { playerSettingsLogic } from './playerSettingsLogic'
 
 export const PlayerSettings = (): JSX.Element => {
-    const { autoplayDirection, skipInactivitySetting, showMouseTail, showSeekbarTicks } = useValues(playerSettingsLogic)
-    const { setAutoplayDirection, setSkipInactivitySetting, setShowMouseTail, setShowSeekbarTicks } =
-        useActions(playerSettingsLogic)
+    const { autoplayDirection, skipInactivitySetting, showMouseTail } = useValues(playerSettingsLogic)
+    const { setAutoplayDirection, setSkipInactivitySetting, setShowMouseTail } = useActions(playerSettingsLogic)
 
     return (
         <LemonMenu
@@ -50,19 +49,6 @@ export const PlayerSettings = (): JSX.Element => {
                             checked={showMouseTail}
                             onChange={setShowMouseTail}
                             label="Show mouse tail"
-                            fullWidth
-                        />
-                    ),
-                },
-                {
-                    custom: true,
-                    label: () => (
-                        <LemonSwitch
-                            className="px-2 py-1"
-                            checked={showSeekbarTicks}
-                            onChange={setShowSeekbarTicks}
-                            label="Seekbar ticks"
-                            tooltip="Show $pageview and $screen events on the seekbar"
                             fullWidth
                         />
                     ),
