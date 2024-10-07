@@ -536,7 +536,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             product_intent.updated_at = datetime.now(tz=UTC)
             product_intent.save()
 
-        if created:
+        if created and isinstance(user, User):
             report_user_action(
                 user,
                 "user showed product intent",
@@ -565,7 +565,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         product_intent, created = ProductIntent.objects.get_or_create(team=team, product_type=product_type)
 
-        if created:
+        if created and isinstance(user, User):
             report_user_action(
                 user,
                 "user showed product intent",
@@ -581,16 +581,17 @@ class TeamViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         product_intent.onboarding_completed_at = datetime.now(tz=UTC)
         product_intent.save()
 
-        report_user_action(
-            user,
-            "product onboarding completed",
-            {
-                "product_key": product_type,
-                "$current_url": current_url,
-                "$session_id": session_id,
-            },
-            team=team,
-        )
+        if isinstance(user, User):  # typing
+            report_user_action(
+                user,
+                "product onboarding completed",
+                {
+                    "product_key": product_type,
+                    "$current_url": current_url,
+                    "$session_id": session_id,
+                },
+                team=team,
+            )
 
         return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data)
 
