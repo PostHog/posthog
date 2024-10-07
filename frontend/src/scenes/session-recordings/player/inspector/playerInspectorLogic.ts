@@ -200,7 +200,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         ],
         values: [
             playerSettingsLogic,
-            ['showOnlyMatching', 'showSeekbarTicks', 'tab', 'miniFiltersByKey', 'searchQuery'],
+            ['showOnlyMatching', 'tab', 'miniFiltersByKey', 'searchQuery'],
             sessionRecordingDataLogic(props),
             [
                 'sessionPlayerData',
@@ -652,20 +652,15 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         ],
 
         seekbarItems: [
-            (s) => [s.allItems, s.showOnlyMatching, s.showSeekbarTicks, s.showMatchingEventsFilter],
+            (s) => [s.filteredItems, s.showOnlyMatching, s.showMatchingEventsFilter],
             (
-                allItems,
+                filteredItems,
                 showOnlyMatching,
-                showSeekbarTicks,
                 showMatchingEventsFilter
             ): (InspectorListItemEvent | InspectorListItemComment)[] => {
-                let items: (InspectorListItemEvent | InspectorListItemComment)[] = allItems.filter(
+                let items: (InspectorListItemEvent | InspectorListItemComment)[] = filteredItems.filter(
                     (item): item is InspectorListItemEvent | InspectorListItemComment => {
                         if (item.type === SessionRecordingPlayerTab.EVENTS) {
-                            if (!showSeekbarTicks && ['$pageview', '$screen'].includes(item.data.event)) {
-                                return false
-                            }
-
                             return !(showMatchingEventsFilter && showOnlyMatching && item.highlightColor !== 'primary')
                         }
 
