@@ -48,7 +48,7 @@ export function sanitizePossibleWildCardedURL(url: string): URL {
 }
 
 /**
- * Checks if the URL has a wildcard (*) in the port position eg https://*.example.com or http://localhost:*
+ * Checks if the URL has a wildcard (*) in the port position eg http://localhost:*
  */
 export function hasPortWildcard(input: string): boolean {
     if (!input || typeof input !== 'string') {
