@@ -19,6 +19,6 @@ pub trait SymbolStore {
 }
 
 pub struct SymbolSetRef {
-    team_id: i32,
-    id: String,
+    pub team_id: i32,
+    pub id: String,
 }
