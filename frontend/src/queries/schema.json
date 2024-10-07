@@ -1992,7 +1992,7 @@
             ],
             "type": "object"
         },
-        "CachedTaxonomyQueryResponse": {
+        "CachedTeamTaxonomyQueryResponse": {
             "additionalProperties": false,
             "properties": {
                 "cache_key": {
@@ -2005,10 +2005,6 @@
                 "calculation_trigger": {
                     "description": "What triggered the calculation of the query, leave empty if user/immediate",
                     "type": "string"
-                },
-                "columns": {
-                    "items": {},
-                    "type": "array"
                 },
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -2038,7 +2034,9 @@
                     "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
                 "results": {
-                    "items": {},
+                    "items": {
+                        "$ref": "#/definitions/TeamTaxonomyResponse"
+                    },
                     "type": "array"
                 },
                 "timezone": {
@@ -2049,10 +2047,6 @@
                     "items": {
                         "$ref": "#/definitions/QueryTiming"
                     },
-                    "type": "array"
-                },
-                "types": {
-                    "items": {},
                     "type": "array"
                 }
             },
@@ -7064,7 +7058,7 @@
                 "ExperimentFunnelQuery",
                 "ExperimentTrendQuery",
                 "DatabaseSchemaQuery",
-                "TaxonomyQuery"
+                "TeamTaxonomyQuery"
             ],
             "type": "string"
         },
@@ -10483,15 +10477,11 @@
             ],
             "type": "string"
         },
-        "TaxonomyQuery": {
+        "TeamTaxonomyQuery": {
             "additionalProperties": false,
             "properties": {
-                "entity": {
-                    "enum": ["event", "person", "group"],
-                    "type": "string"
-                },
                 "kind": {
-                    "const": "TaxonomyQuery",
+                    "const": "TeamTaxonomyQuery",
                     "type": "string"
                 },
                 "modifiers": {
@@ -10499,19 +10489,16 @@
                     "description": "Modifiers used when performing the query"
                 },
                 "response": {
-                    "$ref": "#/definitions/TaxonomyQueryResponse"
+                    "$ref": "#/definitions/TeamTaxonomyQueryResponse"
                 }
             },
-            "required": ["entity", "kind"],
+            "required": ["kind"],
             "type": "object"
         },
-        "TaxonomyQueryResponse": {
+        "TeamTaxonomyQueryResponse": {
             "additionalProperties": false,
+            "description": "All analytics query responses must inherit from this.",
             "properties": {
-                "columns": {
-                    "items": {},
-                    "type": "array"
-                },
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
@@ -10529,7 +10516,9 @@
                     "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
                 "results": {
-                    "items": {},
+                    "items": {
+                        "$ref": "#/definitions/TeamTaxonomyResponse"
+                    },
                     "type": "array"
                 },
                 "timings": {
@@ -10538,13 +10527,22 @@
                         "$ref": "#/definitions/QueryTiming"
                     },
                     "type": "array"
-                },
-                "types": {
-                    "items": {},
-                    "type": "array"
                 }
             },
             "required": ["results"],
+            "type": "object"
+        },
+        "TeamTaxonomyResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "count": {
+                    "type": "number"
+                },
+                "event": {
+                    "type": "string"
+                }
+            },
+            "required": ["event", "count"],
             "type": "object"
         },
         "TestBasicQueryResponse": {

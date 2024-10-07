@@ -29,7 +29,6 @@ import {
     LogEntryPropertyFilter,
     PathsFilterType,
     PersonPropertyFilter,
-    PropertyFilterType,
     PropertyGroupFilter,
     PropertyMathType,
     RetentionFilterType,
@@ -108,7 +107,7 @@ export enum NodeKind {
     DatabaseSchemaQuery = 'DatabaseSchemaQuery',
 
     // AI queries
-    TaxonomyQuery = 'TaxonomyQuery',
+    TeamTaxonomyQuery = 'TeamTaxonomyQuery',
 }
 
 export type AnyDataNode =
@@ -1969,14 +1968,15 @@ export interface HogCompileResponse {
     bytecode: any[]
 }
 
-export interface TaxonomyQueryResponse extends AnalyticsQueryResponseBase<unknown[]> {
-    types?: unknown[]
-    columns?: unknown[]
+export interface TeamTaxonomyResponse {
+    event: string
+    count: number
 }
 
-export interface TaxonomyQuery extends DataNode<TaxonomyQueryResponse> {
-    kind: NodeKind.TaxonomyQuery
-    entity: PropertyFilterType.Event | PropertyFilterType.Person | PropertyFilterType.Group
+export type TeamTaxonomyQueryResponse = AnalyticsQueryResponseBase<TeamTaxonomyResponse[]>
+
+export interface TeamTaxonomyQuery extends DataNode<TeamTaxonomyQueryResponse> {
+    kind: NodeKind.TeamTaxonomyQuery
 }
 
-export type CachedTaxonomyQueryResponse = CachedQueryResponse<TaxonomyQueryResponse>
+export type CachedTeamTaxonomyQueryResponse = CachedQueryResponse<TeamTaxonomyQueryResponse>
