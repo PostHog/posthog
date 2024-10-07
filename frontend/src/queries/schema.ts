@@ -1971,7 +1971,7 @@ export interface HogCompileResponse {
 
 export interface TeamTaxonomyResponse {
     event: string
-    count: number
+    count: integer
 }
 
 export interface TeamTaxonomyQuery extends DataNode<TeamTaxonomyQueryResponse> {
@@ -1985,7 +1985,7 @@ export type CachedTeamTaxonomyQueryResponse = CachedQueryResponse<TeamTaxonomyQu
 export interface EventTaxonomyResponse {
     property: string
     sample_values: string[]
-    sample_count: number
+    sample_count: integer
 }
 
 export interface EventTaxonomyQuery extends DataNode<EventTaxonomyQueryResponse> {

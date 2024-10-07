@@ -480,7 +480,7 @@ class EventTaxonomyResponse(BaseModel):
         extra="forbid",
     )
     property: str
-    sample_count: float
+    sample_count: int
     sample_values: list[str]
 
 
@@ -1322,7 +1322,7 @@ class TeamTaxonomyResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    count: float
+    count: int
     event: str
 
 

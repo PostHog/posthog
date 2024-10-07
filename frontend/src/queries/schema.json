@@ -4492,7 +4492,7 @@
                     "type": "string"
                 },
                 "sample_count": {
-                    "type": "number"
+                    "type": "integer"
                 },
                 "sample_values": {
                     "items": {
@@ -10682,7 +10682,7 @@
             "additionalProperties": false,
             "properties": {
                 "count": {
-                    "type": "number"
+                    "type": "integer"
                 },
                 "event": {
                     "type": "string"
