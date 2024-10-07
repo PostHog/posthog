@@ -10,11 +10,11 @@ pub trait Resolver {
     // Resolvers work on a per-frame basis, so we can be clever about the order
     // in which we resolve them. We also force any resolver to handle all frame
     // types
-    async fn resolve(&self, raw: RawFrame) -> Result<Frame, Error>;
+    async fn resolve(&self, raw: RawFrame, team_id: i32) -> Result<Frame, Error>;
 }
 
 #[async_trait]
-pub trait SymbolStore {
+pub trait SymbolStore: Send + Sync + 'static {
     async fn fetch(&self, r: SymbolSetRef) -> Result<Vec<u8>, Error>;
 }
 
