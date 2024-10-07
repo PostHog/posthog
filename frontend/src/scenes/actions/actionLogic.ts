@@ -51,7 +51,7 @@ export const actionLogic = kea<actionLogicType>([
         action: [
             null as ActionType | null,
             {
-                updateAction: (state, { action }) => ({ ...state, ...action }),
+                updateAction: (state, { action }) => (state ? { ...state, ...action } : null),
             },
         ],
         pollTimeout: [
