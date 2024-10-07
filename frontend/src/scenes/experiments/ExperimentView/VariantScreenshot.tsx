@@ -47,49 +47,46 @@ export function VariantScreenshot({
                     loading={uploading}
                     value={filesToUpload}
                     callToAction={
-                        <div className="relative">
-                            <div className="Lettermark Lettermark--xlarge Lettermark--rounded Lettermark--variant-4">
-                                <IconUpload />
-                            </div>
-                        </div>
+                        <>
+                            <IconUpload className="text-2xl" />
+                            <span>Upload a preview of this variant's UI</span>
+                        </>
                     }
                 />
             ) : (
                 <div className="relative">
-                    <>
-                        <div className="text-muted inline-flex flow-row items-center gap-1 cursor-pointer">
-                            <div onClick={() => setIsModalOpen(true)} className="cursor-pointer relative">
-                                <div className="relative flex overflow-hidden select-none size-16 rounded before:absolute before:inset-0 before:border before:rounded">
-                                    {isLoadingImage && <LemonSkeleton className="absolute inset-0" />}
-                                    <img
-                                        className="size-full object-cover"
-                                        src={mediaId.startsWith('data:') ? mediaId : `/uploaded_media/${mediaId}`}
-                                        onError={() => setIsLoadingImage(false)}
-                                        onLoad={() => setIsLoadingImage(false)}
-                                    />
-                                </div>
-                                <div className="absolute -inset-2 group">
-                                    <LemonButton
-                                        icon={<IconX />}
-                                        onClick={(e) => {
-                                            e.stopPropagation()
-                                            setMediaId(null)
-                                            const updatedVariantImages = {
-                                                ...experiment.parameters?.variant_screenshot_media_ids,
-                                            }
-                                            delete updatedVariantImages[variantKey]
-                                            updateExperimentVariantImages(updatedVariantImages)
-                                        }}
-                                        size="small"
-                                        tooltip="Remove"
-                                        tooltipPlacement="right"
-                                        noPadding
-                                        className="group-hover:flex hidden absolute right-0 top-0"
-                                    />
-                                </div>
+                    <div className="text-muted inline-flex flow-row items-center gap-1 cursor-pointer">
+                        <div onClick={() => setIsModalOpen(true)} className="cursor-zoom-in relative">
+                            <div className="relative flex overflow-hidden select-none size-20 w-full rounded before:absolute before:inset-0 before:border before:rounded">
+                                {isLoadingImage && <LemonSkeleton className="absolute inset-0" />}
+                                <img
+                                    className="size-full object-cover"
+                                    src={mediaId.startsWith('data:') ? mediaId : `/uploaded_media/${mediaId}`}
+                                    onError={() => setIsLoadingImage(false)}
+                                    onLoad={() => setIsLoadingImage(false)}
+                                />
+                            </div>
+                            <div className="absolute -inset-2 group">
+                                <LemonButton
+                                    icon={<IconX />}
+                                    onClick={(e) => {
+                                        e.stopPropagation()
+                                        setMediaId(null)
+                                        const updatedVariantImages = {
+                                            ...experiment.parameters?.variant_screenshot_media_ids,
+                                        }
+                                        delete updatedVariantImages[variantKey]
+                                        updateExperimentVariantImages(updatedVariantImages)
+                                    }}
+                                    size="small"
+                                    tooltip="Remove"
+                                    tooltipPlacement="right"
+                                    noPadding
+                                    className="group-hover:flex hidden absolute right-0 top-0"
+                                />
                             </div>
                         </div>
-                    </>
+                    </div>
                 </div>
             )}
             <LemonModal

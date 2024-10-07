@@ -1,7 +1,6 @@
 import '../Experiment.scss'
 
-import { IconInfo } from '@posthog/icons'
-import { LemonTable, LemonTableColumns, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { urls } from 'scenes/urls'
 
@@ -37,14 +36,7 @@ export function DistributionTable(): JSX.Element {
         {
             className: 'w-1/3',
             key: 'variant_screenshot',
-            title: (
-                <div className="inline-flex items-center space-x-1">
-                    <div className="">Screenshot</div>
-                    <Tooltip title="Upload images to show the visual differences between variants.">
-                        <IconInfo className="text-muted-alt text-base" />
-                    </Tooltip>
-                </div>
-            ),
+            title: 'Screenshot',
             render: function Key(_, item): JSX.Element {
                 return (
                     <div className="my-2">
