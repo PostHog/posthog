@@ -381,7 +381,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         return values.dashboard
                     }
                     const dashboard: DashboardType<InsightModel> = await api.update(
-                        `api/projects/${teamLogic.values.currentTeamId}/dashboards/${props.id}/move_tile`,
+                        `api/environments/${teamLogic.values.currentTeamId}/dashboards/${props.id}/move_tile`,
                         {
                             tile,
                             toDashboard,
@@ -732,7 +732,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             () => [(_, props) => props.id],
             (id) => {
                 return (refresh?: RefreshType, filtersOverride?: DashboardFilter) =>
-                    `api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}/?${toParams({
+                    `api/environments/${teamLogic.values.currentTeamId}/dashboards/${id}/?${toParams({
                         refresh,
                         filters_override: filtersOverride,
                     })}`
