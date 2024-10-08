@@ -1138,7 +1138,7 @@ const api = {
             }
 
             const pagingParameters = { page: page || 1, limit: ACTIVITY_PAGE_SIZE }
-            const scopes = props.scope.split(',')
+            const scopes = Array.isArray(props.scope) ? props.scope : [props.scope]
 
             const request =
                 scopes.length > 1 && !props.id
