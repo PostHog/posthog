@@ -1,10 +1,10 @@
-import { afterMount, connect, kea, path, selectors } from 'kea'
+import { afterMount, kea, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 
 import { AlertState } from '~/queries/schema'
 
-import { alertLogic, AlertLogicProps } from './alertLogic'
+import { AlertLogicProps } from './alertLogic'
 import type { alertsLogicType } from './alertsLogicType'
 import { AlertType } from './types'
 
@@ -12,10 +12,6 @@ export interface AlertsLogicProps extends AlertLogicProps {}
 
 export const alertsLogic = kea<alertsLogicType>([
     path(['lib', 'components', 'Alerts', 'alertsLogic']),
-
-    connect((props: AlertsLogicProps) => ({
-        values: [alertLogic(props), ['alert', 'alertLoading']],
-    })),
 
     loaders({
         alerts: {
