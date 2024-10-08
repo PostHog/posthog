@@ -7,11 +7,13 @@ from posthog.test.base import (
     ClickhouseTestMixin,
     _create_event,
     _create_person,
+    snapshot_clickhouse_queries,
 )
 
 
 @override_settings(IN_UNIT_TESTING=True)
 class TestTeamTaxonomyQueryRunner(ClickhouseTestMixin, APIBaseTest):
+    @snapshot_clickhouse_queries
     def test_taxonomy_query_runner(self):
         _create_person(
             distinct_ids=["person1"],
