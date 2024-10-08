@@ -793,12 +793,6 @@ function MathSelector(props: MathSelectorProps): JSX.Element {
     const { math, mathGroupTypeIndex, index, onMathSelect, disabled, disabledReason } = props
 
     const mathType = apiValueToMathType(math, mathGroupTypeIndex)
-    /*
-    if (props.mathAvailability === MathAvailability.FunnelsOnly && mathType === BaseMathType.TotalCount) {
-        mathType = 'First match in time range'
-    }
-
-     */
 
     return (
         <LemonSelect

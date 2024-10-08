@@ -3517,6 +3517,7 @@ export interface InstanceSetting {
 export enum FunnelMathType {
     AnyMatch = 'total',
     FirstTimeForUser = 'first_time_for_user',
+    FirstTimeForUserWithFilters = 'first_time_for_user_with_filters',
 }
 
 export enum BaseMathType {

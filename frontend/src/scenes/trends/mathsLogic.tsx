@@ -37,11 +37,27 @@ export const FUNNEL_MATH_DEFINITIONS: Record<FunnelMathType, MathDefinition> = {
         shortName: 'first event',
         description: (
             <>
-                This only matches if it is first time the user performed the event and the filters match.
+                This only matches if the event filters match the first time the user performed this event.
                 <br />
                 <i>
-                    Example: If the we are looking for pageview events to posthog.com, but the user's first impression
-                    was on posthog.com/about, it will not match
+                    Example: If the we are looking for pageview events to posthog.com/about, but the user's first
+                    pageview was on posthog.com, it will not match, even if they went to posthog.com/about afterwards.
+                </i>
+            </>
+        ),
+        category: MathCategory.EventCount,
+    },
+    [FunnelMathType.FirstTimeForUserWithFilters]: {
+        name: 'First matching event for user',
+        shortName: 'first matching event',
+        description: (
+            <>
+                This matches the first time the user performed this event with the event filters.
+                <br />
+                <i>
+                    Example: If the we are looking for pageview events to posthog.com/about, and the user's first
+                    pageview was on posthog.com but then they navigated to posthog.com/about, it will match the pageview
+                    event from pagehog.com/about
                 </i>
             </>
         ),
