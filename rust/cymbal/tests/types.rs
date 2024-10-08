@@ -1,7 +1,7 @@
 use std::str::FromStr;
 
 use common_types::ClickHouseEvent;
-use cymbal::symbols::types::PropertyView;
+use cymbal::types::ErrProps;
 use serde_json::Value;
 
 #[test]
@@ -11,7 +11,7 @@ fn serde_passthrough() {
     let raw: ClickHouseEvent = serde_json::from_str(raw).unwrap();
 
     let before_properties: Value = serde_json::from_str(raw.properties.as_ref().unwrap()).unwrap();
-    let properties_parsed: PropertyView =
+    let properties_parsed: ErrProps =
         serde_json::from_str(raw.properties.as_ref().unwrap()).unwrap();
 
     let properties_raw = serde_json::to_string(&properties_parsed).unwrap();
