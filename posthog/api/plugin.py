@@ -391,8 +391,10 @@ class PluginViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         allowed_plugins_q = Q(plugin__is_global=True) & (
             Q(plugin__capabilities__methods__contains=["processEvent"]) | Q(plugin__capabilities={})
         )
+        # also allow local site apps
+        allowed_local_plugins_q = Q(plugin__is_global=False) & Q(plugin__capabilities={})
         plugin_configs = PluginConfig.objects.filter(
-            Q(team__organization_id=self.organization_id, enabled=True) & ~allowed_plugins_q
+            Q(team__organization_id=self.organization_id, enabled=True) & ~allowed_plugins_q & ~allowed_local_plugins_q
         )
         return Response(
             PluginConfigSerializer(plugin_configs, many=True, context=super().get_serializer_context()).data
