@@ -9,10 +9,6 @@ import { FeatureFlagBasicType } from '~/types'
 
 import type { sessionReplayIngestionControlLogicType } from './sessionReplayIngestionControlLogicType'
 
-export interface ReplayIngestionControlLogicProps {
-    linkedFeatureFlagId: number | null
-}
-
 export const sessionReplayIngestionControlLogic = kea<sessionReplayIngestionControlLogicType>([
     path(['scenes', 'settings', 'project', 'sessionReplayIngestionControlLogic']),
     actions({
@@ -27,12 +23,12 @@ export const sessionReplayIngestionControlLogic = kea<sessionReplayIngestionCont
             },
         ],
     }),
-    props({} as ReplayIngestionControlLogicProps),
-    loaders(({ props }) => ({
+    props({}),
+    loaders(({ values }) => ({
         featureFlag: {
             loadFeatureFlag: async () => {
-                if (props.linkedFeatureFlagId) {
-                    const retrievedFlag = await api.featureFlags.get(props.linkedFeatureFlagId)
+                if (values.linkedFeatureFlagId) {
+                    const retrievedFlag = await api.featureFlags.get(values.linkedFeatureFlagId)
                     return variantKeyToIndexFeatureFlagPayloads(retrievedFlag)
                 }
                 return null
@@ -40,6 +36,10 @@ export const sessionReplayIngestionControlLogic = kea<sessionReplayIngestionCont
         },
     })),
     selectors({
+        linkedFeatureFlagId: [
+            (s) => [s.currentTeam],
+            (currentTeam) => currentTeam?.session_recording_linked_flag?.id || null,
+        ],
         linkedFlag: [
             (s) => [s.featureFlag, s.selectedFlag, s.currentTeam],
             // an existing linked flag is loaded from the API,

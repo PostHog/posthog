@@ -259,11 +259,8 @@ function LinkedFlagSelector(): JSX.Element | null {
 
     const featureFlagRecordingFeatureEnabled = hasAvailableFeature(AvailableFeature.REPLAY_FEATURE_FLAG_BASED_RECORDING)
 
-    const logic = sessionReplayIngestionControlLogic({
-        linkedFeatureFlagId: currentTeam?.session_recording_linked_flag?.id || null,
-    })
-    const { linkedFlag, featureFlagLoading, flagHasVariants } = useValues(logic)
-    const { selectFeatureFlag } = useActions(logic)
+    const { linkedFlag, featureFlagLoading, flagHasVariants } = useValues(sessionReplayIngestionControlLogic)
+    const { selectFeatureFlag } = useActions(sessionReplayIngestionControlLogic)
 
     if (!featureFlagRecordingFeatureEnabled) {
         return null
