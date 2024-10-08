@@ -71,18 +71,6 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     payload.threshold.configuration.type = InsightThresholdType.ABSOLUTE
                 }
 
-                // change bounds to percentage values if percentage threshold
-                if (payload.threshold.configuration.type === InsightThresholdType.PERCENTAGE) {
-                    const bounds = payload.threshold.configuration.bounds
-
-                    if (bounds?.lower) {
-                        bounds.lower = bounds.lower / 100
-                    }
-                    if (bounds?.upper) {
-                        bounds.upper = bounds.upper / 100
-                    }
-                }
-
                 try {
                     if (alert.id === undefined) {
                         const updatedAlert: AlertType = await api.alerts.create(payload)

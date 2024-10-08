@@ -44,9 +44,11 @@ export function AlertListItem({ alert, onClick }: AlertListItemProps): JSX.Eleme
 
                     {alert.enabled ? (
                         <div className="text-muted pl-3">
-                            {bounds?.lower && `Low ${bounds.lower}${isPercentage ? '%' : ''}`}
+                            {bounds?.lower &&
+                                `Low ${isPercentage ? bounds.lower * 100 : bounds.lower}${isPercentage ? '%' : ''}`}
                             {bounds?.lower && bounds?.upper ? ' · ' : ''}
-                            {bounds?.upper && `High ${bounds.upper}${isPercentage ? '%' : ''}`}
+                            {bounds?.upper &&
+                                `High ${isPercentage ? bounds.upper * 100 : bounds.upper}${isPercentage ? '%' : ''}`}
                         </div>
                     ) : (
                         <div className="text-muted pl-3">Disabled</div>
