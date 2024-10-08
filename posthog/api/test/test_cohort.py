@@ -971,6 +971,76 @@ email@example.org,
         self.assertEqual(response.status_code, 400, response.content)
 
     @patch("posthog.api.cohort.report_user_action")
+    def test_creating_with_query_and_fields(self, patch_capture):
+        _create_person(
+            distinct_ids=["p1"],
+            team_id=self.team.pk,
+            properties={"$some_prop": "something"},
+        )
+        _create_person(
+            distinct_ids=["p2"],
+            team_id=self.team.pk,
+            properties={"$some_prop": "not it"},
+        )
+        _create_person(
+            distinct_ids=["p3"],
+            team_id=self.team.pk,
+            properties={"$some_prop": "not it"},
+        )
+        _create_person(distinct_ids=["p4"], team_id=self.team.pk, properties={})
+        _create_event(team=self.team, event="$pageview", distinct_id="p4", timestamp=datetime.now())
+        _create_event(team=self.team, event="$pageview", distinct_id="p4", timestamp=datetime.now())
+        flush_persons_and_events()
+
+        def _calc(query: str) -> int:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/cohorts",
+                data={
+                    "name": "cohort A",
+                    "is_static": True,
+                    "query": {
+                        "kind": "HogQLQuery",
+                        "query": query,
+                    },
+                },
+            )
+            cohort_id = response.json()["id"]
+            while response.json()["is_calculating"]:
+                response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}")
+            response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}/persons/?cohort={cohort_id}")
+            return len(response.json()["results"])
+
+        # works with "actor_id"
+        self.assertEqual(2, _calc("select id as actor_id from persons where properties.$some_prop='not it'"))
+
+        # works with "person_id"
+        self.assertEqual(2, _calc("select id as person_id from persons where properties.$some_prop='not it'"))
+
+        # works with "id"
+        self.assertEqual(2, _calc("select id from persons where properties.$some_prop='not it'"))
+
+        # only "p4" had events
+        self.assertEqual(1, _calc("select person_id from events"))
+
+        # works with selecting anything from persons and events
+        self.assertEqual(4, _calc("select 1 from persons"))
+        self.assertEqual(1, _calc("select 1 from events"))
+
+        # raises on all other cases
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={
+                "name": "cohort A",
+                "is_static": True,
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": "select 1 from groups",
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 500, response.content)
+
+    @patch("posthog.api.cohort.report_user_action")
     def test_cohort_with_is_set_filter_missing_value(self, patch_capture):
         # regression test: Removing `value` was silently failing
 

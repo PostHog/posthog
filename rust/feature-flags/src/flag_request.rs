@@ -160,6 +160,7 @@ impl FlagRequest {
         redis_client: Arc<dyn RedisClient + Send + Sync>,
         pg_client: Arc<dyn DatabaseClient + Send + Sync>,
     ) -> Result<FeatureFlagList, FlagError> {
+        // TODO add a cache hit/miss counter
         match FeatureFlagList::from_redis(redis_client.clone(), team_id).await {
             Ok(flags) => Ok(flags),
             Err(_) => match FeatureFlagList::from_pg(pg_client, team_id).await {
@@ -193,7 +194,7 @@ mod tests {
     use crate::flag_request::FlagRequest;
     use crate::redis::Client as RedisClient;
     use crate::team::Team;
-    use crate::test_utils::{insert_new_team_in_redis, setup_pg_client, setup_redis_client};
+    use crate::test_utils::{insert_new_team_in_redis, setup_pg_reader_client, setup_redis_client};
     use bytes::Bytes;
     use serde_json::json;
 
@@ -245,7 +246,7 @@ mod tests {
     #[tokio::test]
     async fn token_is_returned_correctly() {
         let redis_client = setup_redis_client(None);
-        let pg_client = setup_pg_client(None).await;
+        let pg_client = setup_pg_reader_client(None).await;
         let team = insert_new_team_in_redis(redis_client.clone())
             .await
             .expect("Failed to insert new team in Redis");
@@ -270,7 +271,7 @@ mod tests {
     #[tokio::test]
     async fn test_get_team_from_cache_or_pg() {
         let redis_client = setup_redis_client(None);
-        let pg_client = setup_pg_client(None).await;
+        let pg_client = setup_pg_reader_client(None).await;
         let team = insert_new_team_in_redis(redis_client.clone())
             .await
             .expect("Failed to insert new team in Redis");
@@ -324,7 +325,7 @@ mod tests {
     #[tokio::test]
     async fn test_get_flags_from_cache_or_pg() {
         let redis_client = setup_redis_client(None);
-        let pg_client = setup_pg_client(None).await;
+        let pg_client = setup_pg_reader_client(None).await;
         let team = insert_new_team_in_redis(redis_client.clone())
             .await
             .expect("Failed to insert new team in Redis");
@@ -480,7 +481,7 @@ mod tests {
     #[tokio::test]
     async fn test_error_cases() {
         let redis_client = setup_redis_client(None);
-        let pg_client = setup_pg_client(None).await;
+        let pg_client = setup_pg_reader_client(None).await;
 
         // Test invalid token
         let flag_request = FlagRequest {

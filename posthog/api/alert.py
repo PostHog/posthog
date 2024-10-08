@@ -13,6 +13,8 @@ from posthog.models.alert import (
     AlertSubscription,
     are_alerts_supported_for_insight,
 )
+from posthog.schema import AlertState
+from posthog.api.insight import InsightBasicSerializer
 
 
 class ThresholdSerializer(serializers.ModelSerializer):
@@ -97,18 +99,25 @@ class AlertSerializer(serializers.ModelSerializer):
             "state",
             "enabled",
             "last_notified_at",
+            "last_checked_at",
+            "next_check_at",
             "checks",
+            "config",
+            "calculation_interval",
         ]
         read_only_fields = [
             "id",
             "created_at",
             "state",
             "last_notified_at",
+            "last_checked_at",
+            "next_check_at",
         ]
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
         data["subscribed_users"] = UserBasicSerializer(instance.subscribed_users.all(), many=True, read_only=True).data
+        data["insight"] = InsightBasicSerializer(instance.insight).data
         return data
 
     def add_threshold(self, threshold_data, validated_data):
@@ -169,8 +178,8 @@ class AlertSerializer(serializers.ModelSerializer):
                 )
 
         if conditions_or_threshold_changed:
-            # If anything changed we set inactive, so it's firing and notifying with the new settings
-            instance.state = "inactive"
+            # If anything changed we set to NOT_FIRING, so it's firing and notifying with the new settings
+            instance.state = AlertState.NOT_FIRING
 
         return super().update(instance, validated_data)
 
@@ -215,6 +224,21 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         instance = self.get_object()
         instance.checks = instance.alertcheck_set.all().order_by("-created_at")[:5]
         serializer = self.get_serializer(instance)
+        return Response(serializer.data)
+
+    def list(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset())
+
+        insight_id = request.GET.get("insight_id")
+        if insight_id is not None:
+            queryset = queryset.filter(insight=insight_id)
+
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+
+        serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
 
 

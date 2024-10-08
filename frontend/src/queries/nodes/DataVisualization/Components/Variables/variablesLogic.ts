@@ -2,6 +2,9 @@ import { actions, afterMount, connect, kea, key, path, props, reducers, selector
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { getVariablesFromQuery } from 'scenes/insights/utils/queryUtils'
 
 import { DataVisualizationNode, HogQLVariable } from '~/queries/schema'
 
@@ -21,11 +24,12 @@ export const variablesLogic = kea<variablesLogicType>([
     key((props) => props.key),
     connect({
         actions: [dataVisualizationLogic, ['setQuery', 'loadData']],
-        values: [dataVisualizationLogic, ['query']],
+        values: [dataVisualizationLogic, ['query'], featureFlagLogic, ['featureFlags']],
     }),
     actions({
         addVariable: (variable: HogQLVariable) => ({ variable }),
         updateVariableValue: (variableId: string, value: any) => ({ variableId, value }),
+        setEditorQuery: (query: string) => ({ query }),
     }),
     reducers({
         internalSelectedVariables: [
@@ -45,6 +49,13 @@ export const variablesLogic = kea<variablesLogicType>([
 
                     return variablesInState
                 },
+            },
+        ],
+        editorQuery: [
+            '' as string,
+            {
+                setEditorQuery: (_, { query }) => query,
+                setQuery: (_, { node }) => node.source.query,
             },
         ],
     }),
@@ -101,6 +112,10 @@ export const variablesLogic = kea<variablesLogicType>([
                 },
             }
 
+            if (!values.featureFlags[FEATURE_FLAGS.INSIGHT_VARIABLES]) {
+                return
+            }
+
             if (props.readOnly) {
                 // Refresh the data manaully via dataNodeLogic when in insight view mode
                 actions.loadData(true, undefined, query.source)
@@ -109,8 +124,31 @@ export const variablesLogic = kea<variablesLogicType>([
                 actions.setQuery(query)
             }
         },
+        editorQuery: (query: string) => {
+            const queryVariableMatches = getVariablesFromQuery(query)
+
+            queryVariableMatches?.forEach((match) => {
+                if (match === null) {
+                    return
+                }
+
+                const variableExists = values.variables.find((n) => n.code_name === match)
+                if (!variableExists) {
+                    return
+                }
+
+                const variableAlreadySelected = values.variablesForInsight.find((n) => n.code_name === match)
+                if (!variableAlreadySelected) {
+                    actions.addVariable({ variableId: variableExists.id, code_name: variableExists.code_name })
+                }
+            })
+        },
     })),
     afterMount(({ actions, values }) => {
+        if (!values.featureFlags[FEATURE_FLAGS.INSIGHT_VARIABLES]) {
+            return
+        }
+
         Object.values(values.query.source.variables ?? {}).forEach((variable) => {
             actions.addVariable(variable)
         })

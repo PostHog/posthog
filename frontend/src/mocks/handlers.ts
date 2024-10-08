@@ -16,6 +16,7 @@ import { SharingConfigurationType } from '~/types'
 
 import { getAvailableProductFeatures } from './features'
 import { billingJson } from './fixtures/_billing'
+import _hogFunctionTemplates from './fixtures/_hogFunctionTemplates.json'
 import * as statusPageAllOK from './fixtures/_status_page_all_ok.json'
 import { Mocks, MockSignature, mocksToHandlers } from './utils'
 
@@ -26,6 +27,14 @@ export const toPaginatedResponse = (results: any[]): typeof EMPTY_PAGINATED_RESP
     next: null,
     previous: null,
 })
+
+const hogFunctionTemplateRetrieveMock: MockSignature = (req, res, ctx) => {
+    const hogFunctionTemplate = _hogFunctionTemplates.results.find((conf) => conf.id === req.params.id)
+    if (!_hogFunctionTemplates) {
+        return res(ctx.status(404))
+    }
+    return res(ctx.json({ ...hogFunctionTemplate }))
+}
 
 // this really returns MaybePromise<ResponseFunction<any>>
 // but MSW doesn't export MaybePromise 🤷
@@ -61,6 +70,9 @@ export const defaultMocks: Mocks = {
                     results: [],
                 },
             ]
+        },
+        'api/projects/:team/notebooks/recording_comments': {
+            results: [],
         },
         '/api/projects/:team_id/groups/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/groups_types/': [],
@@ -135,6 +147,9 @@ export const defaultMocks: Mocks = {
             eligible: false,
         },
         'https://status.posthog.com/api/v2/summary.json': statusPageAllOK,
+        '/api/projects/:team_id/hog_function_templates': _hogFunctionTemplates,
+        '/api/projects/:team_id/hog_function_templates/:id': hogFunctionTemplateRetrieveMock,
+        '/api/projects/:team_id/hog_functions': EMPTY_PAGINATED_RESPONSE,
     },
     post: {
         'https://us.i.posthog.com/e/': (req, res, ctx): MockSignature => posthogCORSResponse(req, res, ctx),
