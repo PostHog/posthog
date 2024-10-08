@@ -51,8 +51,8 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         series_index: int,
         condition_type: AlertConditionType,
         threshold_type: InsightThresholdType,
-        lower: Optional[int] = None,
-        upper: Optional[int] = None,
+        lower: Optional[float] = None,
+        upper: Optional[float] = None,
     ) -> dict:
         alert = self.client.post(
             f"/api/projects/{self.team.id}/alerts",

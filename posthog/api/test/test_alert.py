@@ -6,6 +6,7 @@ from rest_framework import status
 
 from posthog.test.base import APIBaseTest, QueryMatchingTest
 from posthog.models.team import Team
+from posthog.schema import InsightThresholdType
 
 
 class TestAlert(APIBaseTest, QueryMatchingTest):
@@ -33,7 +34,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             ],
             "config": {"type": "TrendsAlertConfig", "series_index": 0},
             "name": "alert name",
-            "threshold": {"configuration": {}},
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
             "calculation_interval": "daily",
         }
         response = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request)
@@ -52,7 +53,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             "state": "Not firing",
             "config": {"type": "TrendsAlertConfig", "series_index": 0},
             "threshold": {
-                "configuration": {},
+                "configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}},
                 "created_at": mock.ANY,
                 "id": mock.ANY,
                 "name": "",
@@ -107,7 +108,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             "subscribed_users": [
                 self.user.id,
             ],
-            "threshold": {"configuration": {}},
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
             "name": "alert name",
         }
         alert = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request).json()
@@ -133,7 +134,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
                 "subscribed_users": [
                     self.user.id,
                 ],
-                "threshold": {"configuration": {}},
+                "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
                 "name": "alert name",
             }
             self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request)
@@ -151,7 +152,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             "subscribed_users": [
                 self.user.id,
             ],
-            "threshold": {"configuration": {}},
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
             "name": "alert name",
         }
         alert = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request).json()

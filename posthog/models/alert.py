@@ -3,6 +3,7 @@ from datetime import datetime, UTC, timedelta
 
 from django.db import models
 from django.core.exceptions import ValidationError
+import pydantic
 
 from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager import conversion_to_query_based
 from posthog.models.insight import Insight
@@ -53,7 +54,11 @@ class Threshold(CreatedMetaFields, UUIDModel):
     configuration = models.JSONField(default=dict)
 
     def clean(self):
-        config = InsightThreshold.model_validate(self.configuration)
+        try:
+            config = InsightThreshold.model_validate(self.configuration)
+        except pydantic.ValidationError as e:
+            raise ValidationError(f"Invalid threshold configuration: {e}")
+
         if not config or not config.bounds:
             return
         if config.bounds.lower is not None and config.bounds.upper is not None:

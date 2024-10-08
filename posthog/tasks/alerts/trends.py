@@ -51,6 +51,9 @@ def check_trends_alert(alert: AlertConfiguration, insight: Insight, query: Trend
     condition = AlertCondition.model_validate(alert.condition)
     threshold = InsightThreshold.model_validate(alert.threshold.configuration) if alert.threshold else None
 
+    if not threshold:
+        return AlertEvaluationResult(value=0, breaches=[])
+
     match condition.type:
         case AlertConditionType.ABSOLUTE_VALUE:
             if threshold.type != InsightThresholdType.ABSOLUTE:
@@ -150,7 +153,7 @@ def check_trends_alert(alert: AlertConfiguration, insight: Insight, query: Trend
             raise NotImplementedError(f"Unsupported alert condition type: {condition.type}")
 
 
-def _is_non_time_series_trend(query: str) -> bool:
+def _is_non_time_series_trend(query: TrendsQuery) -> bool:
     return query.trendsFilter and query.trendsFilter.display in NON_TIME_SERIES_DISPLAY_TYPES
 
 
@@ -196,8 +199,11 @@ def _pick_interval_value_from_trend_result(
 
 
 def _validate_bounds(
-    bounds: InsightsThresholdBounds, calculated_value: float, is_percentage: bool = False
+    bounds: InsightsThresholdBounds | None, calculated_value: float, is_percentage: bool = False
 ) -> list[str]:
+    if not bounds:
+        return []
+
     formatted_value = f"{calculated_value:.2%}" if is_percentage else calculated_value
 
     if bounds.lower is not None and calculated_value < bounds.lower:

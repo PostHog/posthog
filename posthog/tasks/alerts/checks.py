@@ -237,7 +237,7 @@ def check_alert_and_notify_atomically(alert: AlertConfiguration) -> None:
     try:
         match alert_check.state:
             case AlertState.NOT_FIRING:
-                logger.info("Check state is %s", alert_check.check.state, alert_id=alert.id)
+                logger.info("Check state is %s", alert_check.state, alert_id=alert.id)
             case AlertState.ERRORED:
                 send_notifications_for_errors(alert, alert_check.error)
             case AlertState.FIRING:
