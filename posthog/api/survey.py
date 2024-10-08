@@ -30,7 +30,6 @@ from posthog.models.activity_logging.activity_log import Change, changes_between
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.feedback.survey import Survey
-from posthog.models.feedback.survey_settings import SurveySettings
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.utils_cors import cors_response
@@ -609,10 +608,10 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return activity_page_response(activity_page, limit, page, request)
 
 
-class SurveySettingsSerializer(serializers.ModelSerializer):
+class SurveyConfigSerializer(serializers.ModelSerializer):
     class Meta:
-        model = SurveySettings
-        fields = ["appearance"]
+        model = Team
+        fields = ["survey_config"]
 
 
 class SurveyAPISerializer(serializers.ModelSerializer):
@@ -703,15 +702,15 @@ def surveys(request: Request):
 
     survey_settings = None
     # survey_settings =
-    if hasattr(team, "survey_settings"):
-        survey_settings = SurveySettingsSerializer(team.survey_settings).data
+    if team.survey_config is not None:
+        survey_settings = SurveyConfigSerializer(team.survey_config).data
 
     return cors_response(
         request,
         JsonResponse(
             {
                 "surveys": surveys,
-                "team_survey_settings": survey_settings,
+                "survey_config": survey_settings,
                 "settings": {
                     "appearance": {
                         "maxWidth": "300px",
