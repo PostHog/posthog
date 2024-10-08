@@ -1,7 +1,11 @@
 use reqwest::Url;
 use serde::Deserialize;
+use sourcemap::Token;
 
-use crate::error::Error;
+use crate::{
+    error::{Error, JsResolveErr},
+    types::frames::Frame,
+};
 
 // A minifed JS stack frame. Just the minimal information needed to lookup some
 // sourcemap for it and produce a "real" stack frame.
@@ -13,27 +17,104 @@ pub struct RawJSFrame {
     #[serde(rename = "colno")]
     pub column: u32,
     #[serde(rename = "filename")]
-    pub script_url: String,
+    pub script_url: Option<String>,
     pub in_app: bool,
     #[serde(rename = "function")]
     pub fn_name: String,
 }
 
 impl RawJSFrame {
-    pub fn source_ref(&self) -> Result<Url, Error> {
-        // Frame scrupt URLs are in the form: `<protocol>://<domain>/<path>:<line>:<column>`. We
-        // want to strip the line and column, if they're present, and then return the rest
-        let to_protocol_end = self
-            .script_url
-            .find("://")
-            .ok_or(Error::InvalidSourceRef(self.script_url.clone()))?
-            + 3;
+    pub fn source_ref(&self) -> Result<Url, JsResolveErr> {
+        // We can't resolve a frame without a source ref, and are forced
+        // to assume this frame is not minified
+        let Some(script_url) = &self.script_url else {
+            return Err(JsResolveErr::NoSourceUrl);
+        };
 
-        let (protocol, rest) = self.script_url.split_at(to_protocol_end);
-        let to_end_of_path = rest.find(':').unwrap_or(rest.len());
-        let useful = protocol.len() + to_end_of_path;
-        let url = &self.script_url[..useful];
-        Url::parse(url).map_err(|_| Error::InvalidSourceRef(self.script_url.clone()))
+        // We outright reject relative URLs, or ones that are not HTTP
+        if !script_url.starts_with("http://") && !script_url.starts_with("https://") {
+            return Err(JsResolveErr::InvalidSourceUrl(script_url.clone()));
+        }
+
+        // TODO - we assume these are always absolute urls, and maybe should handle cases where
+        // they aren't? We control this on the client side, and I'd prefer to enforce it here.
+
+        // These urls can have a trailing line and column number, formatted like: http://example.com/path/to/file.js:1:2.
+        // We need to strip that off to get the actual source url
+        // If the last colon is after the last slash, remove it, under the assumption that it's a column number.
+        // If there is no colon, or it's before the last slash, we assume the whole thing is a url,
+        // with no trailing line and column numbers
+        let last_colon = script_url.rfind(':');
+        let last_slash = script_url.rfind('/');
+        let useful = match (last_colon, last_slash) {
+            (Some(colon), Some(slash)) if colon > slash => slash,
+            _ => script_url.len(),
+        };
+
+        // We do this check one more time, to account for possible line number
+        let script_url = &script_url[..useful];
+        let last_colon = script_url.rfind(':');
+        let last_slash = script_url.rfind('/');
+        let useful = match (last_colon, last_slash) {
+            (Some(colon), Some(slash)) if colon > slash => slash,
+            _ => script_url.len(),
+        };
+
+        Url::parse(&script_url[..useful])
+            .map_err(|_| JsResolveErr::InvalidSourceUrl(script_url.to_string()))
+    }
+
+    // JS frames can only handle JS resolution errors - errors at the network level
+    pub fn try_handle_resolution_error(&self, e: JsResolveErr) -> Result<Frame, Error> {
+        // A bit naughty, but for code like this, justified I think
+        use JsResolveErr::{
+            InvalidSourceMap, InvalidSourceMapHeader, InvalidSourceMapUrl, InvalidSourceUrl,
+            NoSourceUrl, NoSourcemap, TokenNotFound,
+        };
+
+        // I break out all the cases individually here, rather than using an _ to match all,
+        // because I want this to stop compiling if we add new cases
+        Ok(match e {
+            NoSourceUrl => self.try_assume_unminified().ok_or(NoSourceUrl), // We assume we're not minified
+            NoSourcemap(u) => self.try_assume_unminified().ok_or(NoSourcemap(u)),
+            InvalidSourceMap(e) => Err(JsResolveErr::from(e)),
+            TokenNotFound(s) => Err(TokenNotFound(s)),
+            InvalidSourceUrl(u) => Err(InvalidSourceUrl(u)),
+            InvalidSourceMapHeader(u) => Err(InvalidSourceMapHeader(u)),
+            InvalidSourceMapUrl(u) => Err(InvalidSourceMapUrl(u)),
+        }?)
+    }
+
+    // Returns none if the frame is
+    fn try_assume_unminified(&self) -> Option<Frame> {
+        // TODO - we should include logic here that uses some kind of heuristic to determine
+        // if this frame is minified or not. Right now, we simply assume it isn't if this is
+        // being called (and all the cases where it's called are above)
+        Some(Frame {
+            mangled_name: self.fn_name.clone(),
+            line: Some(self.line),
+            column: Some(self.column),
+            source: self.script_url.clone(), // Maybe we have one?
+            in_app: self.in_app,
+            resolved_name: Some(self.fn_name.clone()), // This is the bit we'd want to check
+            lang: "javascript".to_string(),
+        })
+    }
+}
+
+impl From<(&RawJSFrame, Token<'_>)> for Frame {
+    fn from(src: (&RawJSFrame, Token)) -> Self {
+        let (raw_frame, token) = src;
+
+        Self {
+            mangled_name: raw_frame.fn_name.clone(),
+            line: Some(token.get_src_line()),
+            column: Some(token.get_src_col()),
+            source: token.get_source().map(String::from),
+            in_app: raw_frame.in_app,
+            resolved_name: token.get_name().map(String::from),
+            lang: "javascript".to_string(),
+        }
     }
 }
 
@@ -44,7 +125,7 @@ mod test {
         let frame = super::RawJSFrame {
             line: 1,
             column: 2,
-            script_url: "http://example.com/path/to/file.js:1:2".to_string(),
+            script_url: Some("http://example.com/path/to/file.js:1:2".to_string()),
             in_app: true,
             fn_name: "main".to_string(),
         };
@@ -57,7 +138,7 @@ mod test {
         let frame = super::RawJSFrame {
             line: 1,
             column: 2,
-            script_url: "http://example.com/path/to/file.js".to_string(),
+            script_url: Some("http://example.com/path/to/file.js".to_string()),
             in_app: true,
             fn_name: "main".to_string(),
         };

@@ -3,9 +3,7 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-pub mod error;
 pub mod frames;
-pub mod stacks;
 
 // Given a Clickhouse Event's properties, we care about the contents
 // of only a small subset. This struct is used to give us a strongly-typed
@@ -40,7 +38,7 @@ mod test {
 
     #[test]
     fn it_symbolifies() {
-        let raw: &'static str = include_str!("../../tests/static/raw_js_stack.json");
+        let raw: &'static str = include_str!("../../tests/static/raw_ch_exception.json");
 
         let raw: ClickHouseEvent = serde_json::from_str(raw).unwrap();
 
