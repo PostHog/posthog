@@ -17,6 +17,7 @@ import {
     FeaturePropertyFilter,
     FilterLogicalOperator,
     FilterType,
+    FunnelMathType,
     FunnelsFilterType,
     GroupMathType,
     GroupPropertyFilter,
@@ -456,7 +457,13 @@ export interface HogQLAutocomplete extends DataNode<HogQLAutocompleteResponse> {
     endPosition: integer
 }
 
-export type MathType = BaseMathType | PropertyMathType | CountPerActorMathType | GroupMathType | HogQLMathType
+export type MathType =
+    | BaseMathType
+    | FunnelMathType
+    | PropertyMathType
+    | CountPerActorMathType
+    | GroupMathType
+    | HogQLMathType
 
 export interface EntityNode extends Node {
     name?: string

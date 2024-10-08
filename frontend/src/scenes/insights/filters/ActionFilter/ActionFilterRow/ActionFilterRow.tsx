@@ -6,7 +6,6 @@ import { CSS } from '@dnd-kit/utilities'
 import { IconCopy, IconEllipsis, IconFilter, IconPencil, IconTrash, IconWarning } from '@posthog/icons'
 import {
     LemonBadge,
-    LemonCheckbox,
     LemonDivider,
     LemonMenu,
     LemonSelect,
@@ -538,21 +537,6 @@ export function ActionFilterRow({
                                                                     mathAvailability={mathAvailability}
                                                                     trendsDisplayCategory={trendsDisplayCategory}
                                                                 />
-                                                                <LemonCheckbox
-                                                                    className="py-1 px-2 flex-row-reverse [&_svg]:ml-1 [&>label]:gap-2.5"
-                                                                    checked={math === BaseMathType.FirstTimeForUser}
-                                                                    onChange={(checked) => {
-                                                                        onMathSelect(
-                                                                            index,
-                                                                            checked
-                                                                                ? BaseMathType.FirstTimeForUser
-                                                                                : undefined
-                                                                        )
-                                                                    }}
-                                                                    data-attr={`math-first-time-for-user-${index}`}
-                                                                    label="Count by first time for user"
-                                                                    fullWidth
-                                                                />
                                                                 <LemonDivider />
                                                             </>
                                                         ),
@@ -579,7 +563,7 @@ export function ActionFilterRow({
                                             <LemonBadge
                                                 position="top-right"
                                                 size="small"
-                                                visible={math === BaseMathType.FirstTimeForUser}
+                                                visible={math !== undefined}
                                             />
                                         </div>
                                     </>
