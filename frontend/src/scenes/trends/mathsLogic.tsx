@@ -37,7 +37,8 @@ export const FUNNEL_MATH_DEFINITIONS: Record<FunnelMathType, MathDefinition> = {
         shortName: 'first event',
         description: (
             <>
-                This only matches if the event filters match the first time the user performed this event.
+                Only the first time the user performed this event will count towards the funnel, and only if it matches
+                the event filters.
                 <br />
                 <i>
                     Example: If the we are looking for pageview events to posthog.com/about, but the user's first
@@ -52,7 +53,8 @@ export const FUNNEL_MATH_DEFINITIONS: Record<FunnelMathType, MathDefinition> = {
         shortName: 'first matching event',
         description: (
             <>
-                This matches the first time the user performed this event with the event filters.
+                The first time the user performed this event that matches the event filters will count towards the
+                funnel.
                 <br />
                 <i>
                     Example: If the we are looking for pageview events to posthog.com/about, and the user's first
