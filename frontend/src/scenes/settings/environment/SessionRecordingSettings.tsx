@@ -23,7 +23,7 @@ import { SESSION_REPLAY_MINIMUM_DURATION_OPTIONS } from 'lib/constants'
 import { IconCancel, IconSelectEvents } from 'lib/lemon-ui/icons'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { objectsEqual } from 'lib/utils'
-import { sessionReplayLinkedFlagLogic } from 'scenes/settings/environment/sessionReplayLinkedFlagLogic'
+import { sessionReplayIngestionControlLogic } from 'scenes/settings/environment/sessionReplayIngestionControlLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -259,7 +259,9 @@ function LinkedFlagSelector(): JSX.Element | null {
 
     const featureFlagRecordingFeatureEnabled = hasAvailableFeature(AvailableFeature.REPLAY_FEATURE_FLAG_BASED_RECORDING)
 
-    const logic = sessionReplayLinkedFlagLogic({ id: currentTeam?.session_recording_linked_flag?.id || null })
+    const logic = sessionReplayIngestionControlLogic({
+        linkedFeatureFlagId: currentTeam?.session_recording_linked_flag?.id || null,
+    })
     const { linkedFlag, featureFlagLoading, flagHasVariants } = useValues(logic)
     const { selectFeatureFlag } = useActions(logic)
 

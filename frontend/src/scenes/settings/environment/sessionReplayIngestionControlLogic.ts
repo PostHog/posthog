@@ -7,14 +7,14 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { FeatureFlagBasicType } from '~/types'
 
-import type { sessionReplayLinkedFlagLogicType } from './sessionReplayLinkedFlagLogicType'
+import type { sessionReplayIngestionControlLogicType } from './sessionReplayIngestionControlLogicType'
 
-export interface ReplayLinkedFlagLogicProps {
-    id: number | null
+export interface ReplayIngestionControlLogicProps {
+    linkedFeatureFlagId: number | null
 }
 
-export const sessionReplayLinkedFlagLogic = kea<sessionReplayLinkedFlagLogicType>([
-    path(['scenes', 'settings', 'project', 'sessionReplayLinkedFlagLogic']),
+export const sessionReplayIngestionControlLogic = kea<sessionReplayIngestionControlLogicType>([
+    path(['scenes', 'settings', 'project', 'sessionReplayIngestionControlLogic']),
     actions({
         selectFeatureFlag: (flag: FeatureFlagBasicType) => ({ flag }),
     }),
@@ -27,12 +27,12 @@ export const sessionReplayLinkedFlagLogic = kea<sessionReplayLinkedFlagLogicType
             },
         ],
     }),
-    props({} as ReplayLinkedFlagLogicProps),
+    props({} as ReplayIngestionControlLogicProps),
     loaders(({ props }) => ({
         featureFlag: {
             loadFeatureFlag: async () => {
-                if (props.id) {
-                    const retrievedFlag = await api.featureFlags.get(props.id)
+                if (props.linkedFeatureFlagId) {
+                    const retrievedFlag = await api.featureFlags.get(props.linkedFeatureFlagId)
                     return variantKeyToIndexFeatureFlagPayloads(retrievedFlag)
                 }
                 return null
