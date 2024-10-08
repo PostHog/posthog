@@ -47,6 +47,7 @@ from posthog.schema import (
     InsightDateRange,
     PersonsOnEventsMode,
     PropertyOperator,
+    FunnelMathType,
 )
 from posthog.test.base import (
     APIBaseTest,
@@ -4142,7 +4143,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 series=[
                     EventsNode(
                         event="event1",
-                        math=BaseMathType.FIRST_TIME_FOR_USER,
+                        math=FunnelMathType.FIRST_TIME_FOR_USER_WITH_FILTERS,
                         properties=[
                             EventPropertyFilter(key="property", value="woah", operator=PropertyOperator.EXACT),
                         ],
@@ -4158,6 +4159,11 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             self.assertEqual(results[0]["count"], 1)
             self.assertEqual(results[1]["count"], 1)
+
+            query.series[0].math = FunnelMathType.FIRST_TIME_FOR_USER
+            results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+            # classic and udf funnels handle no events differently
+            assert len(results) == 0 or results[0]["count"] == 0
 
         def test_funnel_personless_events_are_supported(self):
             user_id = uuid.uuid4()

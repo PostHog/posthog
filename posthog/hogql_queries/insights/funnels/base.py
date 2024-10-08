@@ -25,7 +25,6 @@ from posthog.queries.breakdown_props import ALL_USERS_COHORT_ID, get_breakdown_c
 from posthog.queries.util import correct_result_for_sampling
 from posthog.schema import (
     ActionsNode,
-    BaseMathType,
     BreakdownAttributionType,
     BreakdownType,
     DataWarehouseNode,
@@ -34,6 +33,7 @@ from posthog.schema import (
     FunnelTimeToConvertResults,
     FunnelVizType,
     FunnelExclusionEventsNode,
+    FunnelMathType,
 )
 from posthog.types import EntityNode, ExclusionEntityNode
 
@@ -697,7 +697,11 @@ class FunnelBase(ABC):
             filter_expr = property_to_expr(entity.properties, self.context.team)
             filters.append(filter_expr)
 
-        if entity.math == BaseMathType.FIRST_TIME_FOR_USER:
+        if entity.math == FunnelMathType.FIRST_TIME_FOR_USER:
+            subquery = FirstTimeForUserAggregationQuery(self.context, filter_expr, event_expr).to_query()
+            first_time_filter = parse_expr("e.uuid IN {subquery}", placeholders={"subquery": subquery})
+            return ast.And(exprs=[*filters, first_time_filter])
+        elif entity.math == FunnelMathType.FIRST_TIME_FOR_USER_WITH_FILTERS:
             subquery = FirstTimeForUserAggregationQuery(self.context, ast.Constant(value=1), filter_expr).to_query()
             first_time_filter = parse_expr("e.uuid IN {subquery}", placeholders={"subquery": subquery})
             return ast.And(exprs=[*filters, first_time_filter])
