@@ -90,7 +90,7 @@ async fn find_sourcemap_url(client: &reqwest::Client, start: Url) -> Result<Opti
     // Grab the body as text, and split it into lines
     metrics::counter!(SOURCE_REF_BODY_FETCHES).increment(1);
     let body = res.text().await?;
-    let lines = body.lines();
+    let lines = body.lines().rev(); // Our needle tends to be at the bottom of the haystack
     for line in lines {
         if line.starts_with("//# sourceMappingURL=") {
             metrics::counter!(SOURCEMAP_BODY_REF_FOUND).increment(1);
