@@ -159,8 +159,6 @@ export function FeatureFlagReleaseConditions({
 
                     {readOnly ? (
                         <>
-                            {console.log(group.properties)}
-                            {console.log('readOnly', readOnly)}
                             {group.properties?.map((property, idx) => (
                                 <div className="feature-flag-property-display" key={idx}>
                                     {idx === 0 ? (
@@ -216,8 +214,6 @@ export function FeatureFlagReleaseConditions({
                         </>
                     ) : (
                         <div>
-                            {console.log(group.properties)}
-                            {console.log('readOnly', readOnly)}
                             <PropertyFilters
                                 orFiltering={true}
                                 pageKey={`feature-flag-${id}-${index}-${filterGroups.length}-${
