@@ -8,7 +8,7 @@ import structlog
 from ee.clickhouse.materialized_columns.columns import (
     DEFAULT_TABLE_COLUMN,
     backfill_materialized_columns,
-    get_materialized_columns,
+    get_materialized_column_info,
     materialize,
 )
 from ee.settings import (
@@ -180,7 +180,7 @@ def materialize_properties_task(
     result = []
     for suggestion in columns_to_materialize:
         table, table_column, property_name = suggestion
-        if (property_name, table_column) not in get_materialized_columns(table):
+        if (property_name, table_column) not in get_materialized_column_info(table):
             result.append(suggestion)
 
     if len(result) > 0:

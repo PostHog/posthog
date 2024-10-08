@@ -113,7 +113,7 @@ def materialize(
     create_minmax_index=not TEST,
     is_nullable: bool = False,
 ) -> None:
-    if (property, table_column) in get_materialized_columns(table, use_cache=False):
+    if (property, table_column) in get_materialized_column_info(table, use_cache=False):
         if TEST:
             return
 
