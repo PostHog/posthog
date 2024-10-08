@@ -7,7 +7,7 @@ use axum::async_trait;
 use sourcemap::SourceMap;
 
 #[async_trait]
-pub trait Resolver {
+pub trait Resolver: Send + Sync + 'static {
     // Resolvers work on a per-frame basis, so we can be clever about the order
     // in which we resolve them. We also force any resolver to handle all frame
     // types

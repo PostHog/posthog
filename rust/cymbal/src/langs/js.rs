@@ -26,9 +26,10 @@ impl RawJSFrame {
         let to_protocol_end = self
             .script_url
             .find("://")
-            .ok_or(Error::InvalidSourceRef(self.script_url.clone()))?;
+            .ok_or(Error::InvalidSourceRef(self.script_url.clone()))?
+            + 3;
 
-        let (protocol, rest) = self.script_url.split_at(to_protocol_end + 3);
+        let (protocol, rest) = self.script_url.split_at(to_protocol_end);
         let to_end_of_path = rest.find(':').unwrap_or(rest.len());
         let useful = protocol.len() + to_end_of_path;
         let url = &self.script_url[..useful];

@@ -4,27 +4,26 @@ use axum::async_trait;
 use reqwest::Url;
 use tracing::{info, warn};
 
-use crate::{config::Config, error::Error};
+use crate::{
+    config::Config,
+    error::Error,
+    metric_consts::{
+        BASIC_FETCHES, SOURCEMAP_BODY_FETCHES, SOURCEMAP_BODY_REF_FOUND, SOURCEMAP_HEADER_FOUND,
+        SOURCEMAP_NOT_FOUND, SOURCE_REF_BODY_FETCHES,
+    },
+};
 
-#[async_trait]
-pub trait SymbolStore: Send + Sync + 'static {
-    // Symbol stores return an Arc, to allow them to cache (and evict) without any consent from callers
-    async fn fetch(&self, team_id: i32, r: SymbolSetRef) -> Result<Arc<Vec<u8>>, Error>;
-}
-
-pub enum SymbolSetRef {
-    Js(Url),
-}
+use super::{SymbolSetRef, SymbolStore};
 
 // A store that implements basic lookups, for whatever that means for each language. In
 // JS, that means it does fetching and searches for sourcemap references. In other languages,
 // it might mean talking to S3, or something else. It implements no caching, and no storing of
 // fetched symbol sets - other stores should wrap this one to provide that functionality.
-pub struct Basic {
+pub struct BasicStore {
     pub client: reqwest::Client,
 }
 
-impl Basic {
+impl BasicStore {
     pub fn new(config: &Config) -> Result<Self, Error> {
         let mut client = reqwest::Client::builder();
 
@@ -43,10 +42,12 @@ impl Basic {
 }
 
 #[async_trait]
-impl SymbolStore for Basic {
+impl SymbolStore for BasicStore {
     async fn fetch(&self, _: i32, r: SymbolSetRef) -> Result<Arc<Vec<u8>>, Error> {
+        metrics::counter!(BASIC_FETCHES).increment(1);
         let SymbolSetRef::Js(sref) = r; // We only support this
         let Some(sourcemap_url) = find_sourcemap_url(&self.client, sref.clone()).await? else {
+            warn!("No sourcemap URL found for {}", sref);
             // TODO - this might not actually count as an error, and simply means we don't /need/ a sourcemap
             // for a give frame, but I haven't decided how to handle that yet
             return Err(Error::InvalidSourceRef(format!(
@@ -71,6 +72,7 @@ async fn find_sourcemap_url(client: &reqwest::Client, start: Url) -> Result<Opti
 
     if let Some(header_url) = header_url {
         info!("Found sourcemap header: {:?}", header_url);
+        metrics::counter!(SOURCEMAP_HEADER_FOUND).increment(1);
         let url = header_url.to_str().map_err(|_| {
             Error::InvalidSourceRef(format!("Failed to parse url from header of {}", res.url()))
         })?;
@@ -86,10 +88,12 @@ async fn find_sourcemap_url(client: &reqwest::Client, start: Url) -> Result<Opti
     let mut final_url = res.url().clone();
 
     // Grab the body as text, and split it into lines
+    metrics::counter!(SOURCE_REF_BODY_FETCHES).increment(1);
     let body = res.text().await?;
     let lines = body.lines();
     for line in lines {
         if line.starts_with("//# sourceMappingURL=") {
+            metrics::counter!(SOURCEMAP_BODY_REF_FOUND).increment(1);
             let found = line.trim_start_matches("//# sourceMappingURL=");
             // These URLs can be relative, so we have to check if they are, and if they are, append the base URLs domain to them
             let url = if found.starts_with("http") {
@@ -104,10 +108,13 @@ async fn find_sourcemap_url(client: &reqwest::Client, start: Url) -> Result<Opti
         }
     }
 
+    metrics::counter!(SOURCEMAP_NOT_FOUND).increment(1);
+
     Ok(None) // We didn't hit an error, but we failed to find a sourcemap for the provided URL
 }
 
 async fn fetch_source_map(client: &reqwest::Client, url: Url) -> Result<Vec<u8>, Error> {
+    metrics::counter!(SOURCEMAP_BODY_FETCHES).increment(1);
     let res = client.get(url).send().await?;
     let bytes = res.bytes().await?;
     Ok(bytes.to_vec())
@@ -117,8 +124,8 @@ async fn fetch_source_map(client: &reqwest::Client, url: Url) -> Result<Vec<u8>,
 mod test {
     use httpmock::MockServer;
 
-    const MINIFIED: &[u8] = include_bytes!("../tests/static/chunk-PGUQKT6S.js");
-    const MAP: &[u8] = include_bytes!("../tests/static/chunk-PGUQKT6S.js.map");
+    const MINIFIED: &[u8] = include_bytes!("../../tests/static/chunk-PGUQKT6S.js");
+    const MAP: &[u8] = include_bytes!("../../tests/static/chunk-PGUQKT6S.js.map");
 
     use super::*;
 
@@ -176,15 +183,13 @@ mod test {
         let mut config = Config::init_with_defaults().unwrap();
         // Needed because we're using mockserver, so hitting localhost
         config.allow_internal_ips = true;
-        let store = Basic::new(&config).unwrap();
+        let store = BasicStore::new(&config).unwrap();
 
         let start_url = server.url("/static/chunk-PGUQKT6S.js").parse().unwrap();
 
         let res = store.fetch(1, SymbolSetRef::Js(start_url)).await.unwrap();
 
-        let expected = include_bytes!("../tests/static/chunk-PGUQKT6S.js.map").to_vec();
-
-        assert_eq!(*res, expected);
+        assert_eq!(*res, MAP);
         first_mock.assert_hits(1);
         second_mock.assert_hits(1);
     }

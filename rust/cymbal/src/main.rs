@@ -8,6 +8,7 @@ use cymbal::{
     app_context::AppContext,
     config::Config,
     error::Error,
+    metric_consts::{ERRORS, EVENT_RECEIVED, STACK_PROCESSED},
     types::{frames::RawFrame, ErrProps},
 };
 use envconfig::Envconfig;
@@ -70,12 +71,12 @@ async fn main() -> Result<(), Error> {
             Err(err) => {
                 // If we failed to parse the message, or it was empty, just log and continue, our
                 // consumer has already stored the offset for us.
-                metrics::counter!("cymbal_errors", "cause" => "recv_err").increment(1);
+                metrics::counter!(ERRORS, "cause" => "recv_err").increment(1);
                 error!("Error receiving message: {:?}", err);
                 continue;
             }
         };
-        metrics::counter!("cymbal_events_received").increment(1);
+        metrics::counter!(EVENT_RECEIVED).increment(1);
 
         offset.store().unwrap();
 
@@ -85,34 +86,33 @@ async fn main() -> Result<(), Error> {
         }
 
         let Some(properties) = &event.properties else {
-            metrics::counter!("cymbal_errors", "cause" => "no_properties").increment(1);
+            metrics::counter!(ERRORS, "cause" => "no_properties").increment(1);
             continue;
         };
 
         let properties: ErrProps = match serde_json::from_str(properties) {
             Ok(r) => r,
             Err(err) => {
-                metrics::counter!("cymbal_errors", "cause" => "invalid_exception_properties")
-                    .increment(1);
+                metrics::counter!(ERRORS, "cause" => "invalid_exception_properties").increment(1);
                 error!("Error parsing properties: {:?}", err);
                 continue;
             }
         };
 
         let Some(trace) = properties.exception_stack_trace_raw.as_ref() else {
-            metrics::counter!("cymbal_errors", "cause" => "no_stack_trace").increment(1);
+            metrics::counter!(ERRORS, "cause" => "no_stack_trace").increment(1);
             continue;
         };
 
         let _stack_trace: Vec<RawFrame> = match serde_json::from_str(trace) {
             Ok(r) => r,
             Err(err) => {
-                metrics::counter!("cymbal_errors", "cause" => "invalid_stack_trace").increment(1);
+                metrics::counter!(ERRORS, "cause" => "invalid_stack_trace").increment(1);
                 error!("Error parsing stack trace: {:?}", err);
                 continue;
             }
         };
 
-        metrics::counter!("cymbal_stack_track_processed").increment(1);
+        metrics::counter!(STACK_PROCESSED).increment(1);
     }
 }
