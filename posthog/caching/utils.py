@@ -127,7 +127,7 @@ class ThresholdMode(Enum):
     AI = "ai"
 
 
-staleness_threshold_map = {
+staleness_threshold_map: dict[ThresholdMode, dict[Optional[str], timedelta]] = {
     ThresholdMode.DEFAULT: {
         None: timedelta(minutes=1),
         "minute": timedelta(seconds=15),
