@@ -407,7 +407,7 @@ def stripResponse(response, remove=("action", "label", "persons_urls", "filter")
 
 def default_materialised_columns():
     try:
-        from ee.clickhouse.materialized_columns.analyze import get_materialized_columns
+        from ee.clickhouse.materialized_columns.columns import get_materialized_columns
         from ee.clickhouse.materialized_columns.test.test_columns import (
             EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS,
         )
