@@ -43,7 +43,9 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     def get_billing_manager(self) -> BillingManager:
         license = get_cached_instance_license()
-        user = self.request.user if isinstance(self.request.user, AbstractUser) and self.request.user.distinct_id else None
+        user = (
+            self.request.user if isinstance(self.request.user, AbstractUser) and self.request.user.distinct_id else None
+        )
         return BillingManager(license, user)
 
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -161,7 +163,6 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     @action(methods=["GET"], detail=False)
     def deactivate(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
-        license = get_cached_instance_license()
         organization = self._get_org_required()
 
         serializer = self.DeactivateSerializer(data=request.GET)
