@@ -41,6 +41,7 @@ from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSave
 from posthog.warehouse.models.table import DataWarehouseTable
 from posthog.warehouse.models.modeling import DataWarehouseModelPath
 from posthog.warehouse.util import database_sync_to_async
+from dlt.common.normalizers.naming.snake_case import NamingConvention
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 
@@ -131,6 +132,7 @@ async def test_create_table_activity(activity_environment, ateam):
 
     table = await DataWarehouseTable.objects.aget(name=saved_query.name)
     assert table.name == saved_query.name
+    assert NamingConvention().normalize_identifier(saved_query.name) in table.url_pattern
 
 
 @pytest.mark.parametrize(

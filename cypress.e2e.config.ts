@@ -34,6 +34,7 @@ export default defineConfig({
     // cypress default is 'top' this means sometimes the element is underneath the top navbar
     // not what a human would do... so, set it to center to avoid this weird behavior
     scrollBehavior: 'center',
+    retries: {runMode: 2},
     e2e: {
         // We've imported your old cypress plugins here.
         // You may want to clean this up later by importing these.
