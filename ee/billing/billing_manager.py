@@ -12,7 +12,6 @@ from sentry_sdk import capture_message
 from requests import JSONDecodeError  # type: ignore[attr-defined]
 from rest_framework.exceptions import NotAuthenticated
 from sentry_sdk import capture_exception
-from django.contrib.auth.models import AbstractUser
 
 from ee.billing.billing_types import BillingStatus
 from ee.billing.quota_limiting import set_org_usage_summary, sync_org_quota_limits
@@ -21,6 +20,7 @@ from ee.settings import BILLING_SERVICE_URL
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.models import Organization
 from posthog.models.organization import OrganizationMembership, OrganizationUsageInfo
+from posthog.models.user import User
 
 logger = structlog.get_logger(__name__)
 
@@ -29,7 +29,7 @@ class BillingAPIErrorCodes(Enum):
     OPEN_INVOICES_ERROR = "open_invoices_error"
 
 
-def build_billing_token(license: License, organization: Organization, user: Optional[AbstractUser] = None):
+def build_billing_token(license: License, organization: Organization, user: Optional[User] = None):
     if not organization or not license:
         raise NotAuthenticated()
 
@@ -68,9 +68,9 @@ def handle_billing_service_error(res: requests.Response, valid_codes=(200, 404, 
 
 class BillingManager:
     license: Optional[License]
-    user: Optional[AbstractUser]
+    user: Optional[User]
 
-    def __init__(self, license, user: Optional[AbstractUser] = None):
+    def __init__(self, license, user: Optional[User] = None):
         self.license = license or get_cached_instance_license()
         self.user = user
 
