@@ -1964,3 +1964,5 @@ export interface AlertType extends AlertTypeBase {
 export interface HogCompileResponse {
     bytecode: any[]
 }
+
+export interface Noop {}
