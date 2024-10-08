@@ -2,6 +2,7 @@ import 'chartjs-adapter-dayjs-3'
 
 import { LegendOptions } from 'chart.js'
 import { DeepPartial } from 'chart.js/dist/types/utils'
+import annotationPlugin, { AnnotationPluginOptions } from 'chartjs-plugin-annotation'
 import ChartDataLabels from 'chartjs-plugin-datalabels'
 import ChartjsPluginStacked100, { ExtendedChartData } from 'chartjs-plugin-stacked100'
 import clsx from 'clsx'
@@ -40,7 +41,7 @@ import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { hexToRGBA, lightenDarkenColor } from '~/lib/utils'
 import { groupsModel } from '~/models/groupsModel'
-import { TrendsFilter } from '~/queries/schema'
+import { GoalLine, TrendsFilter } from '~/queries/schema'
 import { GraphDataset, GraphPoint, GraphPointPayload, GraphType } from '~/types'
 
 let tooltipRoot: Root
@@ -238,6 +239,7 @@ export interface LineGraphProps {
     hideYAxis?: boolean
     legend?: DeepPartial<LegendOptions<ChartType>>
     yAxisScaleType?: string | null
+    alertLines?: GoalLine[]
 }
 
 export const LineGraph = (props: LineGraphProps): JSX.Element => {
@@ -277,6 +279,7 @@ export function LineGraph_({
     hideYAxis,
     legend = { display: false },
     yAxisScaleType,
+    alertLines = [],
 }: LineGraphProps): JSX.Element {
     let datasets = _datasets
 
@@ -394,6 +397,19 @@ export function LineGraph_({
             }
         }
 
+        const annotations = alertLines.reduce((acc, { value }, idx) => {
+            acc[`${idx}`] = {
+                type: 'line',
+                yMin: value,
+                yMax: value,
+                borderColor: 'rgb(255, 99, 132)',
+                borderWidth: 1,
+                borderDash: [5, 8],
+            }
+
+            return acc
+        }, {} as AnnotationPluginOptions['annotations'])
+
         datasets = datasets.map(processDataset)
 
         const seriesNonZeroMax = Math.max(...datasets.flatMap((d) => d.data).filter((n) => !!n && n !== LOG_ZERO))
@@ -439,21 +455,28 @@ export function LineGraph_({
                 datalabels: {
                     color: 'white',
                     anchor: (context) => {
-                        const datum = context.dataset.data[context.dataIndex]
+                        // the type here doesn't allow for undefined, but we see errors where things are undefined
+                        const datum = context.dataset?.data[context.dataIndex]
                         return typeof datum !== 'number' ? 'end' : datum > 0 ? 'end' : 'start'
                     },
                     backgroundColor: (context) => {
-                        return (context.dataset.borderColor as string) || 'black'
+                        // the type here doesn't allow for undefined, but we see errors where things are undefined
+                        return (context.dataset?.borderColor as string) || 'black'
                     },
                     display: (context) => {
-                        const datum = context.dataset.data[context.dataIndex]
+                        // the type here doesn't allow for undefined, but we see errors where things are undefined
+                        const datum = context.dataset?.data[context.dataIndex]
                         if (showValuesOnSeries && inSurveyView) {
                             return true
                         }
                         return showValuesOnSeries === true && typeof datum === 'number' && datum !== 0 ? 'auto' : false
                     },
                     formatter: (value: number, context) => {
-                        const data = context.chart.data as ExtendedChartData
+                        // the type here doesn't allow for undefined, but we see errors where things are undefined
+                        const data = context.chart?.data as ExtendedChartData
+                        if (!data) {
+                            return ''
+                        }
                         const { datasetIndex, dataIndex } = context
                         const percentageValue = data.calculatedData?.[datasetIndex][dataIndex]
                         return formatPercentStackAxisValue(trendsFilter, percentageValue || value, isPercentStackView)
@@ -463,6 +486,7 @@ export function LineGraph_({
                     borderColor: 'white',
                 },
                 legend: legend,
+                annotation: { annotations },
                 tooltip: {
                     ...tooltipOptions,
                     external({ tooltip }: { chart: Chart; tooltip: TooltipModel<ChartType> }) {
@@ -767,6 +791,7 @@ export function LineGraph_({
             options.indexAxis = 'y'
         }
         Chart.register(ChartjsPluginStacked100)
+        Chart.register(annotationPlugin)
         const newChart = new Chart(canvasRef.current?.getContext('2d') as ChartItem, {
             type: (isBar ? GraphType.Bar : type) as ChartType,
             data: { labels, datasets },
@@ -775,7 +800,16 @@ export function LineGraph_({
         })
         setMyLineChart(newChart)
         return () => newChart.destroy()
-    }, [datasets, hiddenLegendIndexes, isDarkModeOn, trendsFilter, formula, showValuesOnSeries, showPercentStackView])
+    }, [
+        datasets,
+        hiddenLegendIndexes,
+        isDarkModeOn,
+        trendsFilter,
+        formula,
+        showValuesOnSeries,
+        showPercentStackView,
+        alertLines,
+    ])
 
     return (
         <div className={clsx('LineGraph w-full grow relative overflow-hidden')} data-attr={dataAttr}>

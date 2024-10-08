@@ -31,12 +31,15 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             "subscribed_users": [
                 self.user.id,
             ],
+            "config": {"type": "TrendsAlertConfig", "series_index": 0},
             "name": "alert name",
             "threshold": {"configuration": {}},
+            "calculation_interval": "daily",
         }
         response = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request)
 
         expected_alert_json = {
+            "calculation_interval": "daily",
             "condition": {},
             "created_at": mock.ANY,
             "created_by": mock.ANY,
@@ -46,13 +49,16 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             "last_notified_at": None,
             "name": "alert name",
             "subscribed_users": mock.ANY,
-            "state": "inactive",
+            "state": "Not firing",
+            "config": {"type": "TrendsAlertConfig", "series_index": 0},
             "threshold": {
                 "configuration": {},
                 "created_at": mock.ANY,
                 "id": mock.ANY,
                 "name": "",
             },
+            "last_checked_at": None,
+            "next_check_at": None,
         }
         assert response.status_code == status.HTTP_201_CREATED, response.content
         assert response.json() == expected_alert_json
@@ -162,7 +168,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         assert response.status_code == status.HTTP_200_OK
 
         insight_without_alert_support = deepcopy(self.default_insight_data)
-        insight_without_alert_support["query"]["trendsFilter"]["display"] = "ActionsLineGraph"
+        insight_without_alert_support["query"] = {"kind": "FunnelsQuery", "series": []}
         self.client.patch(
             f"/api/projects/{self.team.id}/insights/{another_insight['id']}",
             data=insight_without_alert_support,

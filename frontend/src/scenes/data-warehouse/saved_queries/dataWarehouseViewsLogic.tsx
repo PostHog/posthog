@@ -39,7 +39,6 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                     const newView = await api.dataWarehouseSavedQueries.create(view)
 
                     lemonToast.success(`${newView.name ?? 'View'} successfully created`)
-                    router.actions.push(urls.dataWarehouseView(newView.id))
 
                     return [...values.dataWarehouseSavedQueries, newView]
                 },

@@ -252,8 +252,12 @@ class ErrorTrackingQueryRunner(QueryRunner):
     @cached_property
     def error_tracking_groups(self):
         queryset = ErrorTrackingGroup.objects.filter(team=self.team)
+        # :TRICKY: Ideally we'd have no null characters in the fingerprint, but if something made it into the pipeline with null characters
+        # (because rest of the system supports it), try cleaning it up here. Make sure this cleaning is consistent with the rest of the system.
+        # This does mean we'll not match with this ErrorTrackingGroup
+        cleaned_fingerprint = [part.replace("\x00", "\ufffd") for part in self.query.fingerprint or []]
         queryset = (
-            queryset.filter(fingerprint=self.query.fingerprint)
+            queryset.filter(fingerprint=cleaned_fingerprint)
             if self.query.fingerprint
             else queryset.filter(status__in=[ErrorTrackingGroup.Status.ACTIVE])
         )

@@ -461,6 +461,9 @@ class TestPrinter(BaseTest):
             expected_skip_indexes_used={"properties_group_custom_keys_bf", "properties_group_custom_values_bf"},
         )
 
+        # Don't optimize comparisons to types that require non-trivial type conversions.
+        self._test_property_group_comparison("properties.key = 1", None)
+
         # TODO: We'll want to eventually support this type of expression where the right hand side is a non-``Nullable``
         # value, since this would allow expressions that only reference constant values to also use the appropriate
         # index, but for right now we only want to optimize comparisons to constant values directly for simplicity.
@@ -625,6 +628,12 @@ class TestPrinter(BaseTest):
             {"hogql_val_0": "key", "hogql_val_1": ""},
             expected_skip_indexes_used={"properties_group_custom_keys_bf"},
         )
+
+        # Don't optimize comparisons to types that require additional type conversions.
+        self._test_property_group_comparison("properties.key in true", None)
+        self._test_property_group_comparison("properties.key in (true, false)", None)
+        self._test_property_group_comparison("properties.key in 1", None)
+        self._test_property_group_comparison("properties.key in (1, 2, 3)", None)
 
         # Only direct constant comparison is supported for now -- see above.
         self._test_property_group_comparison("properties.key in lower('value')", None)
