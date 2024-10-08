@@ -455,21 +455,28 @@ export function LineGraph_({
                 datalabels: {
                     color: 'white',
                     anchor: (context) => {
-                        const datum = context.dataset.data[context.dataIndex]
+                        // the type here doesn't allow for undefined, but we see errors where things are undefined
+                        const datum = context.dataset?.data[context.dataIndex]
                         return typeof datum !== 'number' ? 'end' : datum > 0 ? 'end' : 'start'
                     },
                     backgroundColor: (context) => {
-                        return (context.dataset.borderColor as string) || 'black'
+                        // the type here doesn't allow for undefined, but we see errors where things are undefined
+                        return (context.dataset?.borderColor as string) || 'black'
                     },
                     display: (context) => {
-                        const datum = context.dataset.data[context.dataIndex]
+                        // the type here doesn't allow for undefined, but we see errors where things are undefined
+                        const datum = context.dataset?.data[context.dataIndex]
                         if (showValuesOnSeries && inSurveyView) {
                             return true
                         }
                         return showValuesOnSeries === true && typeof datum === 'number' && datum !== 0 ? 'auto' : false
                     },
                     formatter: (value: number, context) => {
-                        const data = context.chart.data as ExtendedChartData
+                        // the type here doesn't allow for undefined, but we see errors where things are undefined
+                        const data = context.chart?.data as ExtendedChartData
+                        if (!data) {
+                            return ''
+                        }
                         const { datasetIndex, dataIndex } = context
                         const percentageValue = data.calculatedData?.[datasetIndex][dataIndex]
                         return formatPercentStackAxisValue(trendsFilter, percentageValue || value, isPercentStackView)
