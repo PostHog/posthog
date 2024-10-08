@@ -152,8 +152,7 @@ export const LemonInput = React.forwardRef<HTMLDivElement, LemonInputProps>(func
         )
     }
 
-    // TRICKY: Autosize is disabled in Storybook, because it uses ResizeObserver - famously flaky in UI snapshots
-    const InputComponent = autoWidth && !global.process?.env.STORYBOOK ? RawInputAutosize : 'input'
+    const InputComponent = autoWidth ? RawInputAutosize : 'input'
 
     return (
         <span
