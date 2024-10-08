@@ -22,6 +22,7 @@ def materialize(
     column_name=None,
     table_column: TableColumn = "properties",
     create_minmax_index=False,
+    is_nullable: bool = False,
 ) -> None:
     pass
 
