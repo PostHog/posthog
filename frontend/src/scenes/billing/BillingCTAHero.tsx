@@ -10,7 +10,7 @@ import { BillingProductV2Type } from '~/types'
 
 import { billingLogic } from './billingLogic'
 import { billingProductLogic } from './billingProductLogic'
-import { paymentEntryLogic } from './PaymentEntryLogic'
+import { paymentEntryLogic } from './paymentEntryLogic'
 import { PlanComparisonModal } from './PlanComparison'
 
 export const BillingCTAHero = ({ product }: { product: BillingProductV2Type }): JSX.Element => {
