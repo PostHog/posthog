@@ -1,5 +1,7 @@
-from typing import cast
+from datetime import datetime
+from typing import Optional, cast
 
+from posthog.caching.utils import ThresholdMode, is_stale
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import to_printed_hogql
@@ -66,6 +68,15 @@ class EventTaxonomyQueryRunner(QueryRunner):
         )
 
         return query
+
+    def _is_stale(self, last_refresh: Optional[datetime], lazy: bool = False) -> bool:
+        """
+        Despite the lazy mode, it caches for an hour by default. We don't want frequent updates here.
+        """
+        return is_stale(self.team, date_to=None, interval=None, last_refresh=last_refresh, mode=ThresholdMode.AI)
+
+    def cache_target_age(self, last_refresh: Optional[datetime], lazy: bool = False) -> Optional[datetime]:
+        return None
 
     def _get_omit_filter(self):
         """

@@ -1,12 +1,17 @@
+from datetime import timedelta
+
 from django.test import override_settings
+from django.utils import timezone
+from freezegun import freeze_time
 
 from posthog.hogql_queries.ai.event_taxonomy_query_runner import EventTaxonomyQueryRunner
-from posthog.schema import EventTaxonomyQuery
+from posthog.schema import CachedEventTaxonomyQueryResponse, EventTaxonomyQuery
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
     _create_event,
     _create_person,
+    flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
 
@@ -170,3 +175,66 @@ class TestEventTaxonomyQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(results[2].property, "$screen")
         self.assertEqual(results[2].sample_values, ["1024x768"])
         self.assertEqual(results[2].sample_count, 1)
+
+    def test_is_stale(self):
+        date = timezone.now()
+        runner = EventTaxonomyQueryRunner(team=self.team, query=EventTaxonomyQuery(event="event1"))
+        self.assertFalse(runner._is_stale(last_refresh=date, lazy=False))
+        self.assertFalse(runner._is_stale(last_refresh=date, lazy=True))
+        self.assertFalse(runner._is_stale(last_refresh=date - timedelta(minutes=15), lazy=False))
+        self.assertFalse(runner._is_stale(last_refresh=date - timedelta(minutes=15), lazy=True))
+        self.assertFalse(runner._is_stale(last_refresh=date - timedelta(minutes=59), lazy=True))
+        self.assertFalse(runner._is_stale(last_refresh=date - timedelta(minutes=59), lazy=False))
+        self.assertTrue(runner._is_stale(last_refresh=date - timedelta(minutes=60), lazy=True))
+        self.assertTrue(runner._is_stale(last_refresh=date - timedelta(minutes=60), lazy=False))
+
+    def test_caching(self):
+        now = timezone.now()
+
+        with freeze_time(now):
+            _create_person(
+                distinct_ids=["person1"],
+                properties={"email": "person1@example.com"},
+                team=self.team,
+            )
+            _create_event(
+                event="event1",
+                distinct_id="person1",
+                team=self.team,
+            )
+
+            runner = EventTaxonomyQueryRunner(team=self.team, query=EventTaxonomyQuery(event="event1"))
+            response = runner.run()
+
+            assert isinstance(response, CachedEventTaxonomyQueryResponse)
+            self.assertEqual(len(response.results), 0)
+
+            key = response.cache_key
+            _create_event(
+                event="event1",
+                distinct_id="person1",
+                properties={"$browser": "Chrome"},
+                team=self.team,
+            )
+            flush_persons_and_events()
+
+            runner = EventTaxonomyQueryRunner(team=self.team, query=EventTaxonomyQuery(event="event1"))
+            response = runner.run()
+
+            assert isinstance(response, CachedEventTaxonomyQueryResponse)
+            self.assertEqual(response.cache_key, key)
+            self.assertEqual(len(response.results), 0)
+
+        with freeze_time(now + timedelta(minutes=59)):
+            runner = EventTaxonomyQueryRunner(team=self.team, query=EventTaxonomyQuery(event="event1"))
+            response = runner.run()
+
+            assert isinstance(response, CachedEventTaxonomyQueryResponse)
+            self.assertEqual(len(response.results), 0)
+
+        with freeze_time(now + timedelta(minutes=61)):
+            runner = EventTaxonomyQueryRunner(team=self.team, query=EventTaxonomyQuery(event="event1"))
+            response = runner.run()
+
+            assert isinstance(response, CachedEventTaxonomyQueryResponse)
+            self.assertEqual(len(response.results), 1)
