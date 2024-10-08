@@ -28,6 +28,16 @@ pub struct Config {
 
     #[envconfig(default = "true")]
     pub skip_reads: bool,
+
+    // cymbal makes HTTP get requests to auto-resolve sourcemaps - and follows redirects. To protect against SSRF, we only allow requests to public URLs by default
+    #[envconfig(default = "false")]
+    pub allow_internal_ips: bool,
+
+    #[envconfig(default = "30")]
+    pub sourcemap_timeout_seconds: u64,
+
+    #[envconfig(default = "100000000")] // 100MB - in prod, we should use closer to 1-10GB
+    pub symbol_store_cache_max_bytes: usize,
 }
 
 impl Config {
