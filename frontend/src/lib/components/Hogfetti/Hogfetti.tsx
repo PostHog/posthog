@@ -71,7 +71,7 @@ interface HogfettiOptions {
 }
 
 interface HogfettiHook {
-    triggerConfetti: () => void
+    trigger: () => void
     HogfettiComponent: React.FC
 }
 
@@ -104,7 +104,7 @@ export const useHogfetti = (options: HogfettiOptions = {}): HogfettiHook => {
         }
     }
 
-    const triggerConfetti = useCallback((): void => {
+    const trigger = useCallback((): void => {
         const centerX = Math.random() * dimensions.width
         const centerY = Math.random() * dimensions.height
 
@@ -161,5 +161,5 @@ export const useHogfetti = (options: HogfettiOptions = {}): HogfettiHook => {
         </div>
     )
 
-    return { triggerConfetti, HogfettiComponent }
+    return { trigger, HogfettiComponent }
 }
