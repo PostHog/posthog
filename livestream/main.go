@@ -111,6 +111,8 @@ func main() {
 	e.GET("/stats", statsHandler(stats))
 
 	e.GET("/events", func(c echo.Context) error {
+		e.Logger.Printf("SSE client connected, ip: %v", c.RealIP())
+
 		var teamId string
 		eventType := c.QueryParam("eventType")
 		distinctId := c.QueryParam("distinctId")
@@ -168,6 +170,7 @@ func main() {
 		for {
 			select {
 			case <-c.Request().Context().Done():
+				e.Logger.Printf("SSE client disconnected, ip: %v", c.RealIP())
 				filter.unSubChan <- subscription
 				subscription.ShouldClose.Store(true)
 				return nil
