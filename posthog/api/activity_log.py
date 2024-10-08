@@ -86,7 +86,7 @@ class ActivityLogViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, mixins
         if params.get("scope"):
             queryset = queryset.filter(scope=params.get("scope"))
         if params.get("scopes", None):
-            scopes = params.get("scopes").split(",")
+            scopes = str(params.get("scopes", "")).split(",")
             queryset = queryset.filter(scope__in=scopes)
         if params.get("item_id"):
             queryset = queryset.filter(item_id=params.get("item_id"))

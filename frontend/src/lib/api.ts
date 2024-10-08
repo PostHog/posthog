@@ -364,13 +364,6 @@ class ApiRequest {
         return this.hogFunctions(teamId).addPathComponent(id)
     }
 
-    public hogFunctionActivity(id?: HogFunctionType['id'], teamId?: TeamType['id']): ApiRequest {
-        if (id) {
-            return this.hogFunction(id, teamId).addPathComponent('activity')
-        }
-        return this.hogFunctions(teamId).addPathComponent('activity')
-    }
-
     public hogFunctionTemplates(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('hog_function_templates')
     }
