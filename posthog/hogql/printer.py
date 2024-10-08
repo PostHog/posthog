@@ -1306,13 +1306,14 @@ class _Printer(Visitor):
                 raise QueryError(f"Can't resolve field {field_type.name} on table {table_name}")
             field_name = cast(Union[Literal["properties"], Literal["person_properties"]], field.name)
 
-            match self._get_materialized_column_info(table_name, property_name, field_name):
-                case (column_name, is_nullable):
-                    yield PrintableMaterializedColumn(
-                        self.visit(field_type.table_type),
-                        self._print_identifier(column_name),
-                        is_nullable,
-                    )
+            materialized_column_info = self._get_materialized_column_info(table_name, property_name, field_name)
+            if materialized_column_info is not None:
+                (materialized_column_name, materialized_column_is_nullable) = materialized_column_info
+                yield PrintableMaterializedColumn(
+                    self.visit(field_type.table_type),
+                    self._print_identifier(materialized_column_name),
+                    materialized_column_is_nullable,
+                )
 
             if self.context.modifiers.propertyGroupsMode in (
                 PropertyGroupsMode.ENABLED,
@@ -1341,9 +1342,12 @@ class _Printer(Visitor):
                 )
             else:
                 materialized_column_info = self._get_materialized_column_info("person", property_name, "properties")
-            match materialized_column_info:
-                case (column_name, is_nullable):
-                    yield PrintableMaterializedColumn(None, self._print_identifier(column_name), is_nullable)
+
+            if materialized_column_info is not None:
+                (materialized_column_name, materialized_column_is_nullable) = materialized_column_info
+                yield PrintableMaterializedColumn(
+                    None, self._print_identifier(materialized_column_name), materialized_column_is_nullable
+                )
 
     def visit_property_type(self, type: ast.PropertyType):
         if type.joined_subquery is not None and type.joined_subquery_field_name is not None:
