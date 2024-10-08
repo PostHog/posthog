@@ -3,5 +3,5 @@ pub mod config;
 pub mod error;
 pub mod langs;
 pub mod resolver;
-pub mod traits;
+pub mod symbol_store;
 pub mod types;

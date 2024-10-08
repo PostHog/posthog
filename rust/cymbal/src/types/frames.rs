@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use sourcemap::Token;
 
-use crate::{langs::js::RawJSFrame, traits::SymbolSetRef};
+use crate::{error::Error, langs::js::RawJSFrame, symbol_store::SymbolSetRef};
 
 // We consume a huge variety of differently shaped stack frames, which we have special-case
 // transformation for, to produce a single, unified representation of a frame.
@@ -12,10 +12,10 @@ pub enum RawFrame {
 }
 
 impl RawFrame {
-    pub fn source_ref(&self, team_id: i32) -> SymbolSetRef {
+    pub fn source_ref(&self) -> Result<SymbolSetRef, Error> {
         let RawFrame::JavaScript(raw) = self;
         let id = raw.source_ref();
-        SymbolSetRef { team_id, id }
+        id.map(SymbolSetRef::Js)
     }
 }
 

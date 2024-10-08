@@ -16,11 +16,16 @@ common-metrics = { path = "../common/metrics" }
 common-alloc = { path = "../common/alloc" }
 common-kafka = { path = "../common/kafka" }
 common-types = { path = "../common/types" }
+common-dns = { path = "../common/dns" }
 thiserror = { workspace = true }
 sqlx = { workspace = true }
 serde_json = { workspace = true }
 serde = { workspace = true }
 sourcemap = "9.0.0"
+reqwest = { workspace = true }
+
+[dev-dependencies]
+httpmock = { workspace = true }
 
 [lints]
 workspace = true
