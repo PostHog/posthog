@@ -130,11 +130,7 @@ export const LongLoading: StoryFn = () => {
             ],
         },
         post: {
-            '/api/projects/:team_id/insights/trend/': (_, __, ctx) => [
-                ctx.delay(86400000),
-                ctx.status(200),
-                ctx.json({ result: insight.result }),
-            ],
+            '/api/projects/:team_id/query/': (_, __, ctx) => [ctx.delay('infinite')],
         },
     })
     useEffect(() => {

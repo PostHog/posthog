@@ -2,9 +2,11 @@ import { IconGear, IconPlus } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonSnack } from 'lib/lemon-ui/LemonSnack/LemonSnack'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { removeFlagIdIfPresent, removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { useMemo } from 'react'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -14,6 +16,7 @@ import { urls } from 'scenes/urls'
 import { AvailableFeature, TeamBasicType } from '~/types'
 
 import { globalModalsLogic } from '../GlobalModals'
+import { EnvironmentSwitcherOverlay } from './EnvironmentSwitcher'
 
 export function ProjectName({ team }: { team: TeamBasicType }): JSX.Element {
     return (
@@ -29,6 +32,11 @@ export function ProjectSwitcherOverlay({ onClickInside }: { onClickInside?: () =
     const { currentTeam } = useValues(teamLogic)
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
     const { showCreateProjectModal } = useActions(globalModalsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    if (featureFlags[FEATURE_FLAGS.ENVIRONMENTS]) {
+        return <EnvironmentSwitcherOverlay />
+    }
 
     return (
         <div className="project-switcher-container">

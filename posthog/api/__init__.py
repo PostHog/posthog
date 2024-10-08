@@ -87,6 +87,7 @@ router.register(r"feature_flag", feature_flag.LegacyFeatureFlagViewSet)  # Used 
 
 # Nested endpoints shared
 projects_router = router.register(r"projects", project.RootProjectViewSet, "projects")
+projects_router.register(r"environments", team.TeamViewSet, "project_environments", ["project_id"])
 environments_router = router.register(r"environments", team.RootTeamViewSet, "environments")
 
 
@@ -448,13 +449,6 @@ project_insights_router.register(
     "thresholds",
     alert.ThresholdViewSet,
     "project_insight_thresholds",
-    ["team_id", "insight_id"],
-)
-
-project_insights_router.register(
-    "alerts",
-    alert.AlertViewSet,
-    "project_insight_alerts",
     ["team_id", "insight_id"],
 )
 

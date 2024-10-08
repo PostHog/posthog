@@ -3,6 +3,7 @@ import {
     IMAGE_WEB_EXTENSIONS,
     InspectorListBrowserVisibility,
     InspectorListItem,
+    InspectorListItemComment,
     InspectorListItemConsole,
     InspectorListItemDoctor,
     InspectorListItemEvent,
@@ -85,6 +86,10 @@ function isDoctorEvent(item: InspectorListItem): item is InspectorListItemDoctor
     return item.type === 'doctor'
 }
 
+function isComment(item: InspectorListItem): item is InspectorListItemComment {
+    return item.type === 'comment'
+}
+
 export function filterInspectorListItems({
     allItems,
     tab,
@@ -112,15 +117,16 @@ export function filterInspectorListItems({
             // even in everything mode we don't show doctor events
             const isAllEverything = miniFiltersByKey['all-everything']?.enabled === true && !isDoctorEvent(item)
             const isAllAutomatic =
-                !!miniFiltersByKey['all-automatic']?.enabled &&
-                (isOfflineStatusChange(item) ||
-                    isBrowserVisibilityEvent(item) ||
-                    isNavigationEvent(item) ||
-                    isNetworkError(item) ||
-                    isSlowNetwork(item) ||
-                    isPostHogMobileEvent(item) ||
-                    isPageviewOrScreen(item) ||
-                    isAutocapture(item))
+                (!!miniFiltersByKey['all-automatic']?.enabled &&
+                    (isOfflineStatusChange(item) ||
+                        isBrowserVisibilityEvent(item) ||
+                        isNavigationEvent(item) ||
+                        isNetworkError(item) ||
+                        isSlowNetwork(item) ||
+                        isPostHogMobileEvent(item) ||
+                        isPageviewOrScreen(item) ||
+                        isAutocapture(item))) ||
+                isComment(item)
             const isAllErrors =
                 (!!miniFiltersByKey['all-errors']?.enabled && isNetworkError(item)) ||
                 isConsoleError(item) ||

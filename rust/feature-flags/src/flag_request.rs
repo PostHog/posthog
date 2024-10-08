@@ -173,7 +173,7 @@ impl FlagRequest {
                         FeatureFlagList::update_flags_in_redis(redis_client, team_id, &flags).await
                     {
                         tracing::warn!("Failed to update Redis cache: {}", e);
-                        // TODO add metrics for this
+                        // TODO add new metric category for this
                     }
                     Ok(flags)
                 }
