@@ -100,11 +100,19 @@ export default defineConfig({
                         .on('error', (err) => console.log('Redis client error', err))
                         .connect()
                     // Clear cache
-                    for await (const key of redisClient.scanIterator({ TYPE: 'string', MATCH: '*cache*', COUNT: 500 })) {
+                    for await (const key of redisClient.scanIterator({
+                        TYPE: 'string',
+                        MATCH: '*cache*',
+                        COUNT: 500,
+                    })) {
                         await redisClient.del(key)
                     }
                     // Also clear the more ephemeral async query statuses
-                    for await (const key of redisClient.scanIterator({ TYPE: 'string', MATCH: 'query_async*', COUNT: 500 })) {
+                    for await (const key of redisClient.scanIterator({
+                        TYPE: 'string',
+                        MATCH: 'query_async*',
+                        COUNT: 500,
+                    })) {
                         await redisClient.del(key)
                     }
                     await redisClient.quit()
@@ -116,5 +124,6 @@ export default defineConfig({
         },
         baseUrl: 'http://localhost:8000',
         specPattern: 'cypress/e2e/**/*.{js,jsx,ts,tsx}',
+        chromeWebSecurity: false,
     },
 })
