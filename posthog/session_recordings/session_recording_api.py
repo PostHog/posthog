@@ -4,6 +4,8 @@ import time
 from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
+
+from prometheus_client import Histogram
 from typing import Any, cast
 
 import posthoganalytics
@@ -13,7 +15,7 @@ from django.contrib.auth.models import AnonymousUser
 from django.core.cache import cache
 from django.http import HttpResponse, JsonResponse
 from drf_spectacular.utils import extend_schema
-from prometheus_client import Counter, Histogram
+from prometheus_client import Counter
 from rest_framework import exceptions, request, serializers, viewsets
 from rest_framework.mixins import UpdateModelMixin
 from rest_framework.renderers import JSONRenderer

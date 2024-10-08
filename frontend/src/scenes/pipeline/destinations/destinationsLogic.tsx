@@ -210,6 +210,15 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
             (hogFunctions, filters) =>
                 filters.showHidden ? hogFunctions : hogFunctions.filter((hf) => !hf.name.includes('[CDP-TEST-HIDDEN]')),
         ],
+        paidHogFunctions: [
+            (s) => [s.hogFunctions],
+            (hogFunctions) => {
+                // Hide disabled functions and free functions. Shown in the "unsubscribe from data pipelines" modal.
+                return hogFunctions.filter(
+                    (hogFunction) => hogFunction.enabled && hogFunction.template?.status !== 'free'
+                )
+            },
+        ],
         loading: [
             (s) => [s.pluginsLoading, s.pluginConfigsLoading, s.batchExportConfigsLoading, s._hogFunctionsLoading],
             (pluginsLoading, pluginConfigsLoading, batchExportConfigsLoading, hogFunctionsLoading) =>

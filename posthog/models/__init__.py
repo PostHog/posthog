@@ -35,7 +35,6 @@ from .event_buffer import EventBuffer
 from .event_definition import EventDefinition
 from .event_property import EventProperty
 from .experiment import Experiment
-from .web_experiment import WebExperiment
 from .exported_asset import ExportedAsset
 from .feature_flag import FeatureFlag
 from .feedback.survey import Survey
@@ -62,6 +61,7 @@ from .plugin import (
     PluginLogEntry,
     PluginSourceFile,
 )
+from .product_intent import ProductIntent
 from .project import Project
 from .property import Property
 from .property_definition import PropertyDefinition
@@ -75,6 +75,7 @@ from .team import Team
 from .uploaded_media import UploadedMedia
 from .user import User, UserManager
 from .user_scene_personalisation import UserScenePersonalisation
+from .web_experiment import WebExperiment
 
 __all__ = [
     "AlertConfiguration",
@@ -134,6 +135,7 @@ __all__ = [
     "PluginConfig",
     "PluginLogEntry",
     "PluginSourceFile",
+    "ProductIntent",
     "Project",
     "Property",
     "PropertyDefinition",

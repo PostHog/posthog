@@ -9,7 +9,7 @@ import { identifierToHuman, isUserLoggedIn, resolveWebhookService } from 'lib/ut
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { getAppContext } from 'lib/utils/getAppContext'
 
-import { CorrelationConfigType, ProjectType, TeamPublicType, TeamType } from '~/types'
+import { CorrelationConfigType, ProductKey, ProjectType, TeamPublicType, TeamType } from '~/types'
 
 import { organizationLogic } from './organizationLogic'
 import { projectLogic } from './projectLogic'
@@ -143,6 +143,20 @@ export const teamLogic = kea<teamLogicType>([
                     return await api.create(`api/projects/${values.currentProject.id}/environments/`, { name, is_demo })
                 },
                 resetToken: async () => await api.update(`api/environments/${values.currentTeamId}/reset_token`, {}),
+                addProductIntent: async ({
+                    product_type,
+                }: {
+                    product_type: ProductKey
+                    intent_context?: string | null
+                }) =>
+                    await api.update(`api/environments/${values.currentTeamId}/add_product_intent`, {
+                        product_type,
+                        intent_context: null,
+                    }),
+                recordProductIntentOnboardingComplete: async ({ product_type }: { product_type: ProductKey }) =>
+                    await api.update(`api/environments/${values.currentTeamId}/complete_product_onboarding`, {
+                        product_type,
+                    }),
             },
         ],
     })),

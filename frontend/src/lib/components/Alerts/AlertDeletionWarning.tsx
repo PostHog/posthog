@@ -14,7 +14,6 @@ export function AlertDeletionWarning(): JSX.Element | null {
     // eslint-disable-next-line react-hooks/rules-of-hooks
     const { shouldShowAlertDeletionWarning } = useValues(
         insightAlertsLogic({
-            insightShortId: insight.short_id,
             insightId: insight.id as number,
             insightLogicProps: insightProps,
         })
