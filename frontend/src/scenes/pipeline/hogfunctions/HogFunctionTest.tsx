@@ -94,7 +94,7 @@ export function HogFunctionTest(props: HogFunctionTestLogicProps): JSX.Element {
                                         type="secondary"
                                         onClick={loadSampleGlobals}
                                         loading={sampleGlobalsLoading}
-                                        tooltip="Find the last event matching filteres, and use it to populate the globals below."
+                                        tooltip="Find the last event matching filters, and use it to populate the globals below."
                                     >
                                         Refresh globals
                                     </LemonButton>
