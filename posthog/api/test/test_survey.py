@@ -12,9 +12,10 @@ from rest_framework import status
 
 from posthog.api.survey import nh3_clean_with_allow_list
 from posthog.constants import AvailableFeature
-from posthog.models import Action, FeatureFlag
+from posthog.models import Action, FeatureFlag, Team
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.feedback.survey import Survey
+from posthog.models.feedback.survey_settings import SurveySettings
 from posthog.test.base import (
     APIBaseTest,
     BaseTest,
@@ -988,6 +989,7 @@ class TestSurvey(APIBaseTest):
             "count": 1,
             "next": None,
             "previous": None,
+            "team_survey_settings": None,
             "results": [
                 {
                     "id": ANY,
@@ -2495,6 +2497,23 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
             HTTP_ORIGIN=origin,
             REMOTE_ADDR=ip,
         )
+
+    def test_can_get_team_survey_settings(self):
+        survey_appearance = {
+            "thankYouMessageHeader": "Thanks for your feedback!",
+            "thankYouMessageDescription": "We'll use it to make notebooks better",
+        }
+        SurveySettings.objects.create(appearance=survey_appearance, team=self.team)
+
+        self.team = Team.objects.get(id=self.team.id)
+
+        self.client.logout()
+        response = self._get_surveys()
+        response_data = response.json()
+        assert response.status_code == status.HTTP_200_OK, response_data
+        assert response.status_code == status.HTTP_200_OK, response_data
+        assert response_data["team_survey_settings"] is not None
+        assert response_data["team_survey_settings"]["appearance"] == survey_appearance
 
     def test_list_surveys_with_actions(self):
         action = Action.objects.create(
