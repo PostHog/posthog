@@ -86,6 +86,12 @@ class TestEventTaxonomyQueryRunner(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
         )
         _create_event(
+            event="event1",
+            distinct_id="person1",
+            properties={"$browser": "Chrome", "$country": "UK"},
+            team=self.team,
+        )
+        _create_event(
             event="event2",
             distinct_id="person1",
             properties={"$browser": "Safari", "$country": "UK"},
@@ -95,8 +101,8 @@ class TestEventTaxonomyQueryRunner(ClickhouseTestMixin, APIBaseTest):
         response = EventTaxonomyQueryRunner(team=self.team, query=EventTaxonomyQuery(event="event1")).calculate()
         self.assertEqual(len(response.results), 2)
         self.assertEqual(response.results[0].property, "$country")
-        self.assertEqual(response.results[0].sample_values, ["US"])
-        self.assertEqual(response.results[0].sample_count, 1)
+        self.assertEqual(response.results[0].sample_values, ["UK", "US"])
+        self.assertEqual(response.results[0].sample_count, 2)
         self.assertEqual(response.results[1].property, "$browser")
         self.assertEqual(response.results[1].sample_values, ["Chrome"])
         self.assertEqual(response.results[1].sample_count, 1)
@@ -151,13 +157,14 @@ class TestEventTaxonomyQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
         response = EventTaxonomyQueryRunner(team=self.team, query=EventTaxonomyQuery(event="event1")).calculate()
-        self.assertEqual(len(response.results), 3)
-        self.assertEqual(response.results[0].property, "$country")
-        self.assertEqual(response.results[0].sample_values, ["US"])
-        self.assertEqual(response.results[0].sample_count, 1)
-        self.assertEqual(response.results[1].property, "$screen")
-        self.assertEqual(response.results[1].sample_values, ["1024x768"])
-        self.assertEqual(response.results[1].sample_count, 1)
-        self.assertEqual(response.results[2].property, "$browser")
-        self.assertEqual(response.results[2].sample_values, ["Chrome"])
-        self.assertEqual(response.results[2].sample_count, 1)
+        results = sorted(response.results, key=lambda x: x.property)
+        self.assertEqual(len(results), 3)
+        self.assertEqual(results[0].property, "$browser")
+        self.assertEqual(results[0].sample_values, ["Chrome"])
+        self.assertEqual(results[0].sample_count, 1)
+        self.assertEqual(results[1].property, "$country")
+        self.assertEqual(results[1].sample_values, ["US"])
+        self.assertEqual(results[1].sample_count, 1)
+        self.assertEqual(results[2].property, "$screen")
+        self.assertEqual(results[2].sample_values, ["1024x768"])
+        self.assertEqual(results[2].sample_count, 1)
