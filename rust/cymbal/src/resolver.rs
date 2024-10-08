@@ -106,7 +106,6 @@ mod test {
             // When I first wrote this test, I forgot to do this, and it took me a while to figure out
             // why the test was passing before I'd even set up the mockserver - which was pretty cool, tbh
             frame.script_url = Some(server.url(CHUNK_PATH).to_string());
-            println!("{:?}", frame.script_url);
         }
 
         let mut config = Config::init_with_defaults().unwrap();
@@ -121,7 +120,6 @@ mod test {
         let mut resolved_frames = Vec::new();
         for frame in test_stack {
             let resolved = resolver.resolve(frame, 1).await.unwrap();
-            println!("{:?}", resolved);
             resolved_frames.push(resolved);
         }
 

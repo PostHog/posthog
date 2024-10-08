@@ -44,9 +44,7 @@ mod test {
 
         let props: ErrProps = serde_json::from_str(&raw.properties.unwrap()).unwrap();
 
-        let stack_trace: Vec<RawFrame> =
+        let _stack_trace: Vec<RawFrame> =
             serde_json::from_str(props.exception_stack_trace_raw.as_ref().unwrap()).unwrap();
-
-        println!("{:?}", stack_trace);
     }
 }
