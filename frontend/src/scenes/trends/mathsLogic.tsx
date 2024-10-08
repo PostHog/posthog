@@ -57,7 +57,7 @@ export const FUNNEL_MATH_DEFINITIONS: Record<FunnelMathType, MathDefinition> = {
                 <i>
                     Example: If the we are looking for pageview events to posthog.com/about, and the user's first
                     pageview was on posthog.com but then they navigated to posthog.com/about, it will match the pageview
-                    event from pagehog.com/about
+                    event from posthog.com/about
                 </i>
             </>
         ),
