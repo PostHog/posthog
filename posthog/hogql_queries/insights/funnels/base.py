@@ -698,7 +698,7 @@ class FunnelBase(ABC):
             filters.append(filter_expr)
 
         if entity.math == BaseMathType.FIRST_TIME_FOR_USER:
-            subquery = FirstTimeForUserAggregationQuery(self.context, filter_expr, event_expr).to_query()
+            subquery = FirstTimeForUserAggregationQuery(self.context, ast.Constant(value=1), filter_expr).to_query()
             first_time_filter = parse_expr("e.uuid IN {subquery}", placeholders={"subquery": subquery})
             return ast.And(exprs=[*filters, first_time_filter])
         elif len(filters) > 1:
