@@ -259,7 +259,7 @@ class ApiRequest {
 
     public mergeQueryString(queryString?: string | Record<string, any>): ApiRequest {
         const qs = typeof queryString === 'object' ? toParams(queryString) : queryString ?? ''
-        if (this.queryString && this.queryString.length > 0) {
+        if (this.queryString) {
             this.queryString += '&' + (qs.startsWith('&') || qs.startsWith('?') ? qs.substring(1) : qs)
         } else {
             this.queryString = qs
@@ -1083,24 +1083,24 @@ const api = {
         },
 
         listLegacy(
-            activityLogProps: ActivityLogProps,
+            props: ActivityLogProps,
             page: number = 1,
             teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()
         ): Promise<ActivityLogPaginatedResponse<ActivityLogItem>> {
             // TODO: Can we replace all these endpoint specific implementations with the generic REST endpoint above?
-            const requestForScope: { [key in ActivityScope]?: (props: ActivityLogProps) => ApiRequest | null } = {
-                [ActivityScope.FEATURE_FLAG]: (props) => {
+            const requestForScope: { [key in ActivityScope]?: () => ApiRequest | null } = {
+                [ActivityScope.FEATURE_FLAG]: () => {
                     return new ApiRequest().featureFlagsActivity((props.id ?? null) as number | null, teamId)
                 },
-                [ActivityScope.PERSON]: (props) => {
+                [ActivityScope.PERSON]: () => {
                     return new ApiRequest().personActivity(props.id)
                 },
                 [ActivityScope.INSIGHT]: () => {
                     return new ApiRequest().insightsActivity(teamId)
                 },
                 [ActivityScope.PLUGIN_CONFIG]: () => {
-                    return activityLogProps.id
-                        ? new ApiRequest().pluginConfig(activityLogProps.id as number, teamId).withAction('activity')
+                    return props.id
+                        ? new ApiRequest().pluginConfig(props.id as number, teamId).withAction('activity')
                         : new ApiRequest().plugins().withAction('activity')
                 },
                 [ActivityScope.DATA_MANAGEMENT]: () => {
@@ -1115,41 +1115,44 @@ const api = {
                     return new ApiRequest().dataManagementActivity()
                 },
                 [ActivityScope.NOTEBOOK]: () => {
-                    return activityLogProps.id
-                        ? new ApiRequest().notebook(`${activityLogProps.id}`).withAction('activity')
+                    return props.id
+                        ? new ApiRequest().notebook(`${props.id}`).withAction('activity')
                         : new ApiRequest().notebooks().withAction('activity')
                 },
                 [ActivityScope.TEAM]: () => {
                     return new ApiRequest().projectsDetail().withAction('activity')
                 },
-                [ActivityScope.SURVEY]: (props) => {
+                [ActivityScope.SURVEY]: () => {
                     return new ApiRequest().surveyActivity((props.id ?? null) as string, teamId)
                 },
-                [ActivityScope.PLUGIN]: () => {
-                    return activityLogProps.id
+                [ActivityScope.PLUGIN]: () =>
+                    props.id
                         ? api.activity.listRequest({
                               scope: ActivityScope.PLUGIN_CONFIG,
-                              item_id: String(activityLogProps.id),
+                              item_id: String(props.id),
                           })
                         : api.activity.listRequest({
                               scopes: [ActivityScope.PLUGIN, ActivityScope.PLUGIN_CONFIG].join(','),
-                          })
-                },
-                [ActivityScope.HOG_FUNCTION]: (props) => {
+                          }),
+                [ActivityScope.HOG_FUNCTION]: () => {
                     return props.id
-                        ? api.activity.listRequest({ scope: ActivityScope.HOG_FUNCTION, item_id: String(props.id) })
+                        ? api.activity.listRequest({
+                              scope: ActivityScope.HOG_FUNCTION,
+                              item_id: String(props.id),
+                          })
                         : api.activity.listRequest({ scope: ActivityScope.HOG_FUNCTION })
                 },
             }
 
             const pagingParameters = { page: page || 1, limit: ACTIVITY_PAGE_SIZE }
-            const scopes = activityLogProps.scope.split(',')
+            const scopes = props.scope.split(',')
 
             const request =
-                scopes.length > 1 && !activityLogProps.id
+                scopes.length > 1 && !props.id
                     ? api.activity.listRequest({ scopes: scopes.join(',') })
-                    : requestForScope[scopes[0]]?.(activityLogProps)
-            return request && request !== null
+                    : requestForScope[scopes[0]]?.()
+
+            return request
                 ? request.mergeQueryString(toParams(pagingParameters)).get()
                 : Promise.resolve({ results: [], count: 0 })
         },
