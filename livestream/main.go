@@ -111,8 +111,6 @@ func main() {
 	e.GET("/stats", statsHandler(stats))
 
 	e.GET("/events", func(c echo.Context) error {
-		e.Logger.Printf("SSE client connected, ip: %v", c.RealIP())
-
 		var teamId string
 		eventType := c.QueryParam("eventType")
 		distinctId := c.QueryParam("distinctId")
@@ -127,13 +125,11 @@ func main() {
 		} else {
 			teamId = ""
 
-			log.Println("~~~~ Looking for auth header")
 			authHeader := c.Request().Header.Get("Authorization")
 			if authHeader == "" {
 				return errors.New("authorization header is required")
 			}
 
-			log.Println("~~~~ decoding auth header")
 			claims, err := decodeAuthToken(authHeader)
 			if err != nil {
 				return err
@@ -141,7 +137,6 @@ func main() {
 			teamId = strconv.Itoa(int(claims["team_id"].(float64)))
 			token = fmt.Sprint(claims["api_token"])
 
-			log.Printf("~~~~ team found %s", teamId)
 			if teamId == "" {
 				return errors.New("teamId is required unless geo=true")
 			}
@@ -173,7 +168,6 @@ func main() {
 		for {
 			select {
 			case <-c.Request().Context().Done():
-				e.Logger.Printf("SSE client disconnected, ip: %v", c.RealIP())
 				filter.unSubChan <- subscription
 				subscription.ShouldClose.Store(true)
 				return nil
