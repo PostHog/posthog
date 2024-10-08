@@ -458,7 +458,7 @@ class EventOddsRatioSerialized(BaseModel):
     success_count: int
 
 
-class EventTaxonomyResponse(BaseModel):
+class EventTaxonomyItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1281,7 +1281,7 @@ class TaxonomicFilterGroupType(StrEnum):
     REPLAY = "replay"
 
 
-class TeamTaxonomyResponse(BaseModel):
+class TeamTaxonomyItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1801,7 +1801,7 @@ class CachedEventTaxonomyQueryResponse(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
-    results: list[EventTaxonomyResponse]
+    results: list[EventTaxonomyItem]
     timezone: str
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
@@ -2128,7 +2128,7 @@ class CachedTeamTaxonomyQueryResponse(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
-    results: list[TeamTaxonomyResponse]
+    results: list[TeamTaxonomyItem]
     timezone: str
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
@@ -2722,7 +2722,7 @@ class EventTaxonomyQueryResponse(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
-    results: list[EventTaxonomyResponse]
+    results: list[EventTaxonomyItem]
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
@@ -3882,7 +3882,7 @@ class TeamTaxonomyQueryResponse(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
-    results: list[TeamTaxonomyResponse]
+    results: list[TeamTaxonomyItem]
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )

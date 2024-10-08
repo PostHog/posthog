@@ -9,9 +9,9 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.schema import (
     CachedEventTaxonomyQueryResponse,
+    EventTaxonomyItem,
     EventTaxonomyQuery,
     EventTaxonomyQueryResponse,
-    EventTaxonomyResponse,
 )
 
 
@@ -33,10 +33,10 @@ class EventTaxonomyQueryRunner(QueryRunner):
             limit_context=self.limit_context,
         )
 
-        results: list[EventTaxonomyResponse] = []
+        results: list[EventTaxonomyItem] = []
         for prop, sample_values, sample_count in response.results:
             results.append(
-                EventTaxonomyResponse(
+                EventTaxonomyItem(
                     property=prop,
                     sample_values=sample_values,
                     sample_count=sample_count,

@@ -987,10 +987,7 @@
                     "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
                 "results": {
-                    "items": {
-                        "$ref": "#/definitions/EventTaxonomyResponse"
-                    },
-                    "type": "array"
+                    "$ref": "#/definitions/EventTaxonomyResponse"
                 },
                 "timezone": {
                     "type": "string"
@@ -2083,10 +2080,7 @@
                     "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
                 "results": {
-                    "items": {
-                        "$ref": "#/definitions/TeamTaxonomyResponse"
-                    },
-                    "type": "array"
+                    "$ref": "#/definitions/TeamTaxonomyResponse"
                 },
                 "timezone": {
                     "type": "string"
@@ -4447,6 +4441,25 @@
             "required": ["key", "operator", "type"],
             "type": "object"
         },
+        "EventTaxonomyItem": {
+            "additionalProperties": false,
+            "properties": {
+                "property": {
+                    "type": "string"
+                },
+                "sample_count": {
+                    "type": "integer"
+                },
+                "sample_values": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["property", "sample_values", "sample_count"],
+            "type": "object"
+        },
         "EventTaxonomyQuery": {
             "additionalProperties": false,
             "properties": {
@@ -4489,10 +4502,7 @@
                     "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
                 "results": {
-                    "items": {
-                        "$ref": "#/definitions/EventTaxonomyResponse"
-                    },
-                    "type": "array"
+                    "$ref": "#/definitions/EventTaxonomyResponse"
                 },
                 "timings": {
                     "description": "Measured timings for different parts of the query generation process",
@@ -4506,23 +4516,10 @@
             "type": "object"
         },
         "EventTaxonomyResponse": {
-            "additionalProperties": false,
-            "properties": {
-                "property": {
-                    "type": "string"
-                },
-                "sample_count": {
-                    "type": "integer"
-                },
-                "sample_values": {
-                    "items": {
-                        "type": "string"
-                    },
-                    "type": "array"
-                }
+            "items": {
+                "$ref": "#/definitions/EventTaxonomyItem"
             },
-            "required": ["property", "sample_values", "sample_count"],
-            "type": "object"
+            "type": "array"
         },
         "EventType": {
             "additionalProperties": false,
@@ -10629,6 +10626,19 @@
             ],
             "type": "string"
         },
+        "TeamTaxonomyItem": {
+            "additionalProperties": false,
+            "properties": {
+                "count": {
+                    "type": "integer"
+                },
+                "event": {
+                    "type": "string"
+                }
+            },
+            "required": ["event", "count"],
+            "type": "object"
+        },
         "TeamTaxonomyQuery": {
             "additionalProperties": false,
             "properties": {
@@ -10668,10 +10678,7 @@
                     "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
                 "results": {
-                    "items": {
-                        "$ref": "#/definitions/TeamTaxonomyResponse"
-                    },
-                    "type": "array"
+                    "$ref": "#/definitions/TeamTaxonomyResponse"
                 },
                 "timings": {
                     "description": "Measured timings for different parts of the query generation process",
@@ -10685,17 +10692,10 @@
             "type": "object"
         },
         "TeamTaxonomyResponse": {
-            "additionalProperties": false,
-            "properties": {
-                "count": {
-                    "type": "integer"
-                },
-                "event": {
-                    "type": "string"
-                }
+            "items": {
+                "$ref": "#/definitions/TeamTaxonomyItem"
             },
-            "required": ["event", "count"],
-            "type": "object"
+            "type": "array"
         },
         "TestBasicQueryResponse": {
             "additionalProperties": false,

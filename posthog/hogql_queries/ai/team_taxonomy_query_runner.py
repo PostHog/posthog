@@ -9,9 +9,9 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.schema import (
     CachedTeamTaxonomyQueryResponse,
+    TeamTaxonomyItem,
     TeamTaxonomyQuery,
     TeamTaxonomyQueryResponse,
-    TeamTaxonomyResponse,
 )
 
 
@@ -38,9 +38,9 @@ class TeamTaxonomyQueryRunner(QueryRunner):
             limit_context=self.limit_context,
         )
 
-        results: list[TeamTaxonomyResponse] = []
+        results: list[TeamTaxonomyItem] = []
         for event, count in response.results:
-            results.append(TeamTaxonomyResponse(event=event, count=count))
+            results.append(TeamTaxonomyItem(event=event, count=count))
 
         return TeamTaxonomyQueryResponse(
             results=results, timings=response.timings, hogql=hogql, modifiers=self.modifiers

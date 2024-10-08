@@ -1984,30 +1984,34 @@ export interface HogCompileResponse {
     bytecode: any[]
 }
 
-export interface TeamTaxonomyResponse {
+export interface TeamTaxonomyItem {
     event: string
     count: integer
 }
+
+export type TeamTaxonomyResponse = TeamTaxonomyItem[]
 
 export interface TeamTaxonomyQuery extends DataNode<TeamTaxonomyQueryResponse> {
     kind: NodeKind.TeamTaxonomyQuery
 }
 
-export type TeamTaxonomyQueryResponse = AnalyticsQueryResponseBase<TeamTaxonomyResponse[]>
+export type TeamTaxonomyQueryResponse = AnalyticsQueryResponseBase<TeamTaxonomyResponse>
 
 export type CachedTeamTaxonomyQueryResponse = CachedQueryResponse<TeamTaxonomyQueryResponse>
 
-export interface EventTaxonomyResponse {
+export interface EventTaxonomyItem {
     property: string
     sample_values: string[]
     sample_count: integer
 }
+
+export type EventTaxonomyResponse = EventTaxonomyItem[]
 
 export interface EventTaxonomyQuery extends DataNode<EventTaxonomyQueryResponse> {
     kind: NodeKind.EventTaxonomyQuery
     event: string
 }
 
-export type EventTaxonomyQueryResponse = AnalyticsQueryResponseBase<EventTaxonomyResponse[]>
+export type EventTaxonomyQueryResponse = AnalyticsQueryResponseBase<EventTaxonomyResponse>
 
 export type CachedEventTaxonomyQueryResponse = CachedQueryResponse<EventTaxonomyQueryResponse>
