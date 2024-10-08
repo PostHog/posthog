@@ -41,7 +41,7 @@ class ActivityLogSerializer(serializers.ModelSerializer):
             return bookmark_date < obj.created_at.replace(microsecond=obj.created_at.microsecond // 1000 * 1000)
 
 
-class ActivityLogPagination(pagination.CursorPagination):
+class ActivityLogPagination(pagination.PageNumberPagination):
     ordering = "-created_at"
     page_size = 100
 
