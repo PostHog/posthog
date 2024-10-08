@@ -4,7 +4,7 @@ import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { groupsModel } from '~/models/groupsModel'
-import { BaseMathType, CountPerActorMathType, HogQLMathType, PropertyMathType } from '~/types'
+import { BaseMathType, CountPerActorMathType, FunnelMathType, HogQLMathType, PropertyMathType } from '~/types'
 
 import type { mathsLogicType } from './mathsLogicType'
 
@@ -23,6 +23,30 @@ export interface MathDefinition {
     shortName: string
     description: string | JSX.Element
     category: MathCategory
+}
+
+export const FUNNEL_MATH_DEFINITIONS: Record<FunnelMathType, MathDefinition> = {
+    [FunnelMathType.AnyMatch]: {
+        name: 'Any events match',
+        shortName: 'any event',
+        description: <>Any event of this type that matches the filter will count towards the funnel</>,
+        category: MathCategory.EventCount,
+    },
+    [FunnelMathType.FirstTimeForUser]: {
+        name: 'First event for user',
+        shortName: 'first event',
+        description: (
+            <>
+                This only matches if it is first time the user performed the event and the filters match.
+                <br />
+                <i>
+                    Example: If the we are looking for pageview events to posthog.com, but the user's first impression
+                    was on posthog.com/about, it will not match
+                </i>
+            </>
+        ),
+        category: MathCategory.EventCount,
+    },
 }
 
 export const BASE_MATH_DEFINITIONS: Record<BaseMathType, MathDefinition> = {
@@ -318,6 +342,15 @@ export const mathsLogic = kea<mathsLogicType>([
                     ...HOGQL_MATH_DEFINITIONS,
                 }
                 return filterMathTypesUnderFeatureFlags(allMathDefinitions, featureFlags)
+            },
+        ],
+        funnelMathDefinitions: [
+            (s) => [s.featureFlags],
+            (featureFlags): Record<string, MathDefinition> => {
+                const funnelMathDefinitions: Record<string, MathDefinition> = {
+                    ...FUNNEL_MATH_DEFINITIONS,
+                }
+                return filterMathTypesUnderFeatureFlags(funnelMathDefinitions, featureFlags)
             },
         ],
         // Static means the options do not have nested selectors (like math function)
