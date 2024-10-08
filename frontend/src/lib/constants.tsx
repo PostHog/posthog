@@ -188,7 +188,6 @@ export const FEATURE_FLAGS = {
     HEATMAPS_UI: 'heatmaps-ui', // owner: @benjackwhite
     THEME: 'theme', // owner: @aprilfools
     PROXY_AS_A_SERVICE: 'proxy-as-a-service', // owner: #team-infrastructure
-    LIVE_EVENTS: 'live-events', // owner: @zach or @jams
     SETTINGS_PERSONS_JOIN_MODE: 'settings-persons-join-mode', // owner: @robbie-c
     SETTINGS_PERSONS_ON_EVENTS_HIDDEN: 'settings-persons-on-events-hidden', // owner: @Twixes
     HOG: 'hog', // owner: @mariusandra
@@ -220,6 +219,7 @@ export const FEATURE_FLAGS = {
     BIGQUERY_DWH: 'bigquery-dwh', // owner: @Gilbert09 #team-data-warehouse
     REPLAY_DEFAULT_SORT_ORDER_EXPERIMENT: 'replay-order-by-experiment', // owner: #team-replay
     ENVIRONMENTS: 'environments', // owner: @Twixes #team-product-analytics
+    LEGACY_ACTION_WEBHOOKS: 'legacy-action-webhooks', // owner: @mariusandra #team-cdp
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 
