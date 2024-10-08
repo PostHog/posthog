@@ -32,7 +32,7 @@ FROZEN_TIME = dateutil.parser.parse("2024-06-02T08:55:00.000Z")
 @freeze_time("2024-06-02T08:55:00.000Z")
 @patch("posthog.tasks.alerts.checks.send_notifications_for_errors")
 @patch("posthog.tasks.alerts.checks.send_notifications_for_breaches")
-class TestTimeSeriesTrendsAlerts(APIBaseTest, ClickhouseDestroyTablesMixin):
+class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMixin):
     def setUp(self) -> None:
         super().setUp()
 

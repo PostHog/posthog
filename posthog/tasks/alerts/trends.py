@@ -59,7 +59,7 @@ def check_trends_alert(alert: AlertConfiguration, insight: Insight, query: Trend
             # want value for current interval (last hour, last day, last week, last month)
             # depending on the alert calculation interval
             if _is_non_time_series_trend(query):
-                filters_override = _date_range_override_for_alert(query, interval_negative_offset=0)
+                filters_override = _date_range_override_for_intervals(query)
             else:
                 # for non time series, it's an aggregated value for full interval
                 # so we need to compute full insight
@@ -75,7 +75,7 @@ def check_trends_alert(alert: AlertConfiguration, insight: Insight, query: Trend
             if not calculation_result.result:
                 raise RuntimeError(f"No results found for insight with alert id = {alert.id}")
 
-            current_interval_value = _aggregate_trend_result_value(config, query, calculation_result)
+            current_interval_value = _pick_interval_value_from_trend_result(config, query, calculation_result)
             breaches = _validate_bounds(threshold.bounds, current_interval_value)
 
             return AlertEvaluationResult(value=current_interval_value, breaches=breaches)
@@ -84,77 +84,67 @@ def check_trends_alert(alert: AlertConfiguration, insight: Insight, query: Trend
             if _is_non_time_series_trend(query):
                 raise ValueError(f"Relative alerts not supported for non time series trends")
 
-            # to measure relative increase, we need to compute the trend value for the current interval
-            # and check if it's currently already 'increased' above the trend for the previous interval
+            # to measure relative increase, we can't alert until current interval has completed
+            # as to check increase less than X, we need interval to complete
+            # so we need to compute the trend values for last 3 intervals
+            # and then compare the previous interval with value for the interval before previous
+            filters_overrides = _date_range_override_for_intervals(query, last_x_intervals=3)
 
-            filters_override_current_interval = _date_range_override_for_alert(query, interval_negative_offset=0)
             calculation_result = calculate_for_query_based_insight(
                 insight,
                 execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
                 user=None,
-                filters_override=filters_override_current_interval,
+                filters_override=filters_overrides,
             )
-            current_interval_value = _aggregate_trend_result_value(config, query, calculation_result)
 
-            filters_override_prev_interval = _date_range_override_for_alert(query, interval_negative_offset=1)
-            calculation_result = calculate_for_query_based_insight(
-                insight,
-                execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
-                user=None,
-                filters_override=filters_override_prev_interval,
-            )
-            prev_interval_value = _aggregate_trend_result_value(config, query, calculation_result)
+            prev_interval_value = _pick_interval_value_from_trend_result(config, query, calculation_result, -1)
+            prev_prev_interval_value = _pick_interval_value_from_trend_result(config, query, calculation_result, -2)
 
             if threshold.type == InsightThresholdType.ABSOLUTE:
-                value = current_interval_value - prev_interval_value
-                breaches = _validate_bounds(threshold.bounds, current_interval_value)
+                increase = prev_interval_value - prev_prev_interval_value
+                breaches = _validate_bounds(threshold.bounds, increase)
             elif threshold.type == InsightThresholdType.PERCENTAGE:
-                value = (current_interval_value - prev_interval_value) / prev_interval_value
-                breaches = _validate_bounds(threshold.bounds, current_interval_value, is_percentage=True)
+                increase = (prev_interval_value - prev_prev_interval_value) / prev_prev_interval_value
+                breaches = _validate_bounds(threshold.bounds, increase, is_percentage=True)
             else:
                 raise ValueError(
                     f"Neither relative nor absolute threshold configured for alert condition RELATIVE_INCREASE"
                 )
 
-            return AlertEvaluationResult(value=value, breaches=breaches)
+            return AlertEvaluationResult(value=increase, breaches=breaches)
 
         case AlertConditionType.RELATIVE_DECREASE:
             if _is_non_time_series_trend(query):
                 raise ValueError(f"Relative alerts not supported for non time series trends")
 
             # to measure relative decrease, we can't alert until current interval has completed
-            # so we need to compute the trend value for the previous interval
-            # and compare it with value for the interval before previous
-            filters_override_prev_interval = _date_range_override_for_alert(query, interval_negative_offset=1)
-            calculation_result = calculate_for_query_based_insight(
-                insight,
-                execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
-                user=None,
-                filters_override=filters_override_prev_interval,
-            )
-            prev_interval_value = _aggregate_trend_result_value(config, query, calculation_result)
+            # as to check decrease more than X, we need interval to complete
+            # so we need to compute the trend values for last 3 intervals
+            # and then compare the previous interval with value for the interval before previous
+            filters_overrides = _date_range_override_for_intervals(query, last_x_intervals=3)
 
-            filters_override_prev_prev_interval = _date_range_override_for_alert(query, interval_negative_offset=2)
             calculation_result = calculate_for_query_based_insight(
                 insight,
                 execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
                 user=None,
-                filters_override=filters_override_prev_prev_interval,
+                filters_override=filters_overrides,
             )
-            prev_prev_interval_value = _aggregate_trend_result_value(config, query, calculation_result)
+
+            prev_interval_value = _pick_interval_value_from_trend_result(config, query, calculation_result, -1)
+            prev_prev_interval_value = _pick_interval_value_from_trend_result(config, query, calculation_result, -2)
 
             if threshold.type == InsightThresholdType.ABSOLUTE:
-                value = prev_interval_value - prev_prev_interval_value
-                breaches = _validate_bounds(threshold.bounds, current_interval_value)
+                decrease = prev_prev_interval_value - prev_interval_value
+                breaches = _validate_bounds(threshold.bounds, decrease)
             elif threshold.type == InsightThresholdType.PERCENTAGE:
-                value = (prev_interval_value - prev_prev_interval_value) / prev_prev_interval_value
-                breaches = _validate_bounds(threshold.bounds, current_interval_value, is_percentage=True)
+                decrease = (prev_prev_interval_value - prev_interval_value) / prev_prev_interval_value
+                breaches = _validate_bounds(threshold.bounds, decrease, is_percentage=True)
             else:
                 raise ValueError(
-                    f"Neither relative nor absolute threshold configured for alert condition RELATIVE_DECREASE"
+                    f"Neither relative nor absolute threshold configured for alert condition RELATIVE_INCREASE"
                 )
 
-            return AlertEvaluationResult(value=value, breaches=breaches)
+            return AlertEvaluationResult(value=decrease, breaches=breaches)
 
         case _:
             raise NotImplementedError(f"Unsupported alert condition type: {condition.type}")
@@ -164,40 +154,45 @@ def _is_non_time_series_trend(query: str) -> bool:
     return query.trendsFilter and query.trendsFilter.display in NON_TIME_SERIES_DISPLAY_TYPES
 
 
-def _date_range_override_for_alert(query: TrendsQuery, interval_negative_offset: int) -> Optional[dict]:
+def _date_range_override_for_intervals(query: TrendsQuery, last_x_intervals: int = 1) -> Optional[dict]:
     """
-    interval_negative_offset = 0, return filters override for the current interval
-    interval_negative_offset = -1, return filters override for the previous interval
-    interval_negative_offset = -2, return filters override for the interval before previous 2
-    ...
+    Resulting filter overrides don't set 'date_to' so we always get value for current interval.
+    last_x_intervals controls how many intervals to look back to
     """
-    from_offset = interval_negative_offset or 1
+    assert last_x_intervals > 0
 
     match query.interval:
         case IntervalType.DAY:
-            date_from = f"-{from_offset}d"
-            date_to = None if from_offset == 1 else f"-{from_offset - 1}d"
+            date_from = f"-{last_x_intervals}d"
         case IntervalType.WEEK:
-            date_from = f"-{from_offset}w"
-            date_to = None if from_offset == 1 else f"-{from_offset - 1}w"
+            date_from = f"-{last_x_intervals}w"
         case IntervalType.MONTH:
-            date_from = f"-{from_offset}m"
-            date_to = None if from_offset == 1 else f"-{from_offset - 1}m"
+            date_from = f"-{last_x_intervals}m"
         case _:
-            date_from = f"-{from_offset}h"
-            date_to = None if from_offset == 1 else f"-{from_offset - 1}h"
+            date_from = f"-{last_x_intervals}h"
 
-    return {"date_from": date_from, "date_to": date_to}
+    return {"date_from": date_from}
 
 
-def _aggregate_trend_result_value(config: TrendsAlertConfig, query: TrendsQuery, results: InsightResult) -> float:
+def _pick_interval_value_from_trend_result(
+    config: TrendsAlertConfig, query: TrendsQuery, results: InsightResult, interval_to_pick: int = 0
+) -> float:
+    """
+    interval_to_pick to controls whether to pick value for current (0), last (-1), one before last (-2)...
+    """
+    assert interval_to_pick <= 0
+
     series_index = config.series_index
     result = cast(list[TrendResult], results.result)[series_index]
 
     if _is_non_time_series_trend(query):
+        # only one value in result
         return result["aggregated_value"]
 
-    return result["data"][-1]
+    data = result["data"]
+    # data is pre sorted in ascending order of timestamps
+    index_from_back = len(data) - 1 + interval_to_pick
+    return data[index_from_back]
 
 
 def _validate_bounds(
