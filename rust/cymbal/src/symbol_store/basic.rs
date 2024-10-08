@@ -64,6 +64,10 @@ impl SymbolStore for BasicStore {
 async fn find_sourcemap_url(client: &reqwest::Client, start: Url) -> Result<Option<Url>, Error> {
     info!("Fetching sourcemap from {}", start);
     let res = client.get(start).send().await?;
+
+    // we use the final URL of the response in the relative case, to account for any redirects
+    let mut final_url = res.url().clone();
+
     // First, we check for the sourcemap headers: SourceMap, or X-SourceMap
     let headers = res.headers();
     let header_url = headers
@@ -76,16 +80,18 @@ async fn find_sourcemap_url(client: &reqwest::Client, start: Url) -> Result<Opti
         let url = header_url.to_str().map_err(|_| {
             Error::InvalidSourceRef(format!("Failed to parse url from header of {}", res.url()))
         })?;
-        let url: Url = url
-            .parse()
-            .map_err(|_| Error::InvalidSourceRef(format!("Failed to parse {} to a url", url)))?;
+
+        let url = if url.starts_with("http") {
+            url.parse()
+                .map_err(|_| Error::InvalidSourceRef(format!("Failed to parse {} to a url", url)))?
+        } else {
+            final_url.set_path(url);
+            final_url
+        };
         return Ok(Some(url));
     }
 
     // If we didn't find a header, we have to check the body
-
-    // we use the final URL of the response in the relative case, to account for any redirects
-    let mut final_url = res.url().clone();
 
     // Grab the body as text, and split it into lines
     metrics::counter!(SOURCE_REF_BODY_FETCHES).increment(1);
