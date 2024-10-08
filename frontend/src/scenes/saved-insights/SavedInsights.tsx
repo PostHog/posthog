@@ -350,6 +350,18 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconFlask,
         inMenu: false,
     },
+    [NodeKind.TeamTaxonomyQuery]: {
+        name: 'Team Taxonomy',
+        description: 'View the event taxonomy of the team',
+        icon: IconHogQL,
+        inMenu: false,
+    },
+    [NodeKind.EventTaxonomyQuery]: {
+        name: 'Event Taxonomy',
+        description: 'View the event’s taxonomy',
+        icon: IconHogQL,
+        inMenu: false,
+    },
 }
 
 export const INSIGHT_TYPE_OPTIONS: LemonSelectOptions<string> = [
