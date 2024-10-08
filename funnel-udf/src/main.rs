@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::io::{self, BufRead, Write};
 use std::iter::repeat;
-use itertools::Itertools;
+use itertools::{Itertools};
 use uuid::Uuid;
 
 #[derive(Clone, PartialEq, Deserialize, Serialize)]
@@ -128,8 +128,8 @@ impl AggregateFunnelRow {
                 }
             } else {
                 // Handle permutations for different events with the same timestamp
-                // The behavior here is a little undefined. We choose to run exclusions before
-                // events. Strict funnels are disabled for this segment.
+                // We ignore strict steps and exclusions in this case
+                // The behavior here is mostly dictated by how it was handled in the old style
 
                 let sorted_events = events_with_same_timestamp
                     .iter()
@@ -140,12 +140,8 @@ impl AggregateFunnelRow {
                             .map(|&step| Event { steps: vec![step], ..event.clone() })
                     }).sorted_by_key(|event| event.steps[0]);
 
-                let exclusions = events_with_same_timestamp
-                    .into_iter()
-                    .filter(|&event| !event.steps.is_empty() && event.steps[0] < 0);
-
                 // Run exclusions, if they exist, then run matching events.
-                for event in exclusions.chain(sorted_events.as_slice()) {
+                for event in sorted_events {
                     if !self.process_event(
                         args,
                         &mut vars,
