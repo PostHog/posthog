@@ -40,6 +40,7 @@ export const FUNNEL_MATH_DEFINITIONS: Record<FunnelMathType, MathDefinition> = {
                 Only the first time the user performed this event will count towards the funnel, and only if it matches
                 the event filters.
                 <br />
+                <br />
                 <i>
                     Example: If the we are looking for pageview events to posthog.com/about, but the user's first
                     pageview was on posthog.com, it will not match, even if they went to posthog.com/about afterwards.
@@ -55,6 +56,7 @@ export const FUNNEL_MATH_DEFINITIONS: Record<FunnelMathType, MathDefinition> = {
             <>
                 The first time the user performed this event that matches the event filters will count towards the
                 funnel.
+                <br />
                 <br />
                 <i>
                     Example: If the we are looking for pageview events to posthog.com/about, and the user's first
