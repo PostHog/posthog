@@ -136,7 +136,7 @@ const formatPercentage = (x: number, options?: { precise?: boolean }): string =>
     } else if (x >= 1000) {
         return humanFriendlyLargeNumber(x) + '%'
     }
-    return (x / 100).toLocaleString(undefined, { style: 'percent', maximumFractionDigits: 0 })
+    return (x / 100).toLocaleString(undefined, { style: 'percent', maximumSignificantDigits: 2 })
 }
 
 const formatUnit = (x: number, options?: { precise?: boolean }): string => {

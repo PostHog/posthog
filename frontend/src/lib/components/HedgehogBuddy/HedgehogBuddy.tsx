@@ -838,9 +838,11 @@ export class HedgehogActor {
                         ))}
                         {this.overlayAnimation ? (
                             <div
-                                className={`absolute top-0 left-0 w-[${SPRITE_SIZE}px] h-[${SPRITE_SIZE}px] rendering-pixelated`}
+                                className="absolute top-0 left-0 rendering-pixelated"
                                 // eslint-disable-next-line react/forbid-dom-props
                                 style={{
+                                    width: SPRITE_SIZE,
+                                    height: SPRITE_SIZE,
                                     backgroundImage: `url(${spriteOverlayUrl(this.overlayAnimation.spriteInfo.img)})`,
                                     backgroundPosition: `-${
                                         (this.overlayAnimation.frame % X_FRAMES) * SPRITE_SIZE
