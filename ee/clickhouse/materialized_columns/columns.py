@@ -79,7 +79,8 @@ def get_materialized_column_info(
         {"database": CLICKHOUSE_DATABASE, "table": table},
     )
     if rows and get_instance_setting("MATERIALIZED_COLUMNS_ENABLED"):
-        # XXX: behavior is undefined if the source column + property is materialized into multiple destination columns
+        # NOTE: The behavior here is undefined if the source column/property pair is materialized into multiple
+        # destination columns (such as into both a non-nullable and a nullable column during a transition period.)
         return {
             _extract_property(comment): MaterializedColumnInfo(column_name, bool(is_nullable))
             for comment, column_name, is_nullable in rows
