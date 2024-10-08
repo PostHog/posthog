@@ -88,10 +88,13 @@ def get_materialized_column_info(
         return {}
 
 
+# XXX: This uses `str` instead of `TableColumn` to preserve backwards compatibility with existing calls to this
+# function: many of them provide the column as a `str`, and this function was previously wrapped in `cache_for` which
+# uses `no_type_check`, permitting these calls.
 def get_materialized_columns(
     table: TablesWithMaterializedColumns,
     use_cache: bool | None = None,
-) -> dict[tuple[PropertyName, TableColumn], ColumnName]:
+) -> dict[tuple[PropertyName, str], ColumnName]:
     extra_kwargs = {}
     if use_cache is not None:
         extra_kwargs = {"use_cache": use_cache}
