@@ -1577,6 +1577,7 @@ export type CachedErrorTrackingQueryResponse = CachedQueryResponse<ErrorTracking
 
 export type InsightQueryNode =
     | TrendsQuery
+    | ExperimentalAITrendsQuery
     | FunnelsQuery
     | RetentionQuery
     | PathsQuery

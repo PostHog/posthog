@@ -1,11 +1,12 @@
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useValues } from 'kea'
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import React from 'react'
+import { urls } from 'scenes/urls'
 
-import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { Query } from '~/queries/Query/Query'
-import { NodeKind } from '~/queries/schema'
+import { InsightVizNode, NodeKind } from '~/queries/schema'
 
 import { maxLogic } from './maxLogic'
 
@@ -51,12 +52,14 @@ export function Thread(): JSX.Element | null {
                                 <LemonButton
                                     className="mt-4 w-fit"
                                     type="primary"
-                                    to={`/insights/new#filters=${JSON.stringify(
-                                        queryNodeToFilter(message.content.answer)
-                                    )}`}
+                                    to={urls.insightNew(undefined, undefined, {
+                                        kind: NodeKind.InsightVizNode,
+                                        source: message.content.answer,
+                                    } as InsightVizNode)}
+                                    sideIcon={<IconOpenInNew />}
                                     targetBlank
                                 >
-                                    Edit Query
+                                    Open as new insight
                                 </LemonButton>
                             </Message>
                         )}
