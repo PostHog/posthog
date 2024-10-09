@@ -166,7 +166,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             "linkedFlag": None,
             "minimumDurationMilliseconds": None,
             "networkPayloadCapture": None,
-            "urlTriggerPatterns": [],
+            "urlTriggers": [],
         }
         self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js"])
 
@@ -186,7 +186,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             "linkedFlag": None,
             "minimumDurationMilliseconds": None,
             "networkPayloadCapture": None,
-            "urlTriggerPatterns": [],
+            "urlTriggers": [],
         }
 
     def test_user_performance_opt_in(self, *args):
@@ -325,7 +325,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             "linkedFlag": None,
             "minimumDurationMilliseconds": None,
             "networkPayloadCapture": None,
-            "urlTriggerPatterns": [
+            "urlTriggers": [
                 {
                     "url": "/replay-examples/",
                     "matching": "regex"
@@ -461,7 +461,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             "linkedFlag": None,
             "minimumDurationMilliseconds": None,
             "networkPayloadCapture": None,
-            "urlTriggerPatterns": [],
+            "urlTriggers": [],
         }
         self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js"])
 
@@ -489,7 +489,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             "linkedFlag": None,
             "minimumDurationMilliseconds": None,
             "networkPayloadCapture": None,
-            "urlTriggerPatterns": [],
+            "urlTriggers": [],
         }
 
     def test_user_autocapture_opt_out(self, *args):
@@ -524,7 +524,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             "linkedFlag": None,
             "minimumDurationMilliseconds": None,
             "networkPayloadCapture": None,
-            "urlTriggerPatterns": [],
+            "urlTriggers": [],
         }
 
     def test_user_session_recording_allowed_for_android(self, *args) -> None:
@@ -539,7 +539,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             "linkedFlag": None,
             "minimumDurationMilliseconds": None,
             "networkPayloadCapture": None,
-            "urlTriggerPatterns": [],
+            "urlTriggers": [],
         }
 
     def test_user_session_recording_allowed_for_ios(self, *args) -> None:
@@ -554,7 +554,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             "linkedFlag": None,
             "minimumDurationMilliseconds": None,
             "networkPayloadCapture": None,
-            "urlTriggerPatterns": [],
+            "urlTriggers": [],
         }
 
     def test_user_session_recording_allowed_when_permitted_domains_are_not_http_based(self, *args):
@@ -2937,7 +2937,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
                 "linkedFlag": None,
                 "minimumDurationMilliseconds": None,
                 "networkPayloadCapture": None,
-                "urlTriggerPatterns": [],
+                "urlTriggers": [],
             },
         )
         self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js"])
@@ -2966,7 +2966,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
                     "linkedFlag": None,
                     "minimumDurationMilliseconds": None,
                     "networkPayloadCapture": None,
-                    "urlTriggerPatterns": [],
+                    "urlTriggers": [],
                 },
             )
             self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js"])
@@ -3762,7 +3762,7 @@ class TestDatabaseCheckForDecide(BaseTest, QueryMatchingTest):
                     "linkedFlag": None,
                     "minimumDurationMilliseconds": None,
                     "networkPayloadCapture": None,
-                    "urlTriggerPatterns": [],
+                    "urlTriggers": [],
                 },
             )
             self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js"])
