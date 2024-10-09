@@ -157,7 +157,7 @@ export const actionEditLogic = kea<actionEditLogicType>([
                             hogFunctionListLogic.actions.addHogFunction(hogFunction)
                         }
                         if (actionLogic({ id: props.id }).isMounted()) {
-                            actionLogic({ id: props.id }).actions.loadAction()
+                            actionLogic({ id: props.id }).actions.updateAction({ post_to_slack: false })
                         }
                         lemonToast.success('Action migrated to a destination!')
                     }
@@ -226,11 +226,11 @@ export const actionEditLogic = kea<actionEditLogicType>([
         },
     })),
 
-    beforeUnload(({ actions, values }) => ({
-        enabled: () => values.actionChanged,
+    beforeUnload((logic) => ({
+        enabled: () => (logic.isMounted() ? logic.values.actionChanged : false),
         message: 'Leave action?\nChanges you made will be discarded.',
         onConfirm: () => {
-            actions.resetAction()
+            logic.actions.resetAction()
         },
     })),
 ])

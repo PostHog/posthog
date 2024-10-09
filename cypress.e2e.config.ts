@@ -34,7 +34,7 @@ export default defineConfig({
     // cypress default is 'top' this means sometimes the element is underneath the top navbar
     // not what a human would do... so, set it to center to avoid this weird behavior
     scrollBehavior: 'center',
-    retries: {runMode: 2},
+    retries: { runMode: 2 },
     e2e: {
         // We've imported your old cypress plugins here.
         // You may want to clean this up later by importing these.
@@ -101,11 +101,19 @@ export default defineConfig({
                         .on('error', (err) => console.log('Redis client error', err))
                         .connect()
                     // Clear cache
-                    for await (const key of redisClient.scanIterator({ TYPE: 'string', MATCH: '*cache*', COUNT: 500 })) {
+                    for await (const key of redisClient.scanIterator({
+                        TYPE: 'string',
+                        MATCH: '*cache*',
+                        COUNT: 500,
+                    })) {
                         await redisClient.del(key)
                     }
                     // Also clear the more ephemeral async query statuses
-                    for await (const key of redisClient.scanIterator({ TYPE: 'string', MATCH: 'query_async*', COUNT: 500 })) {
+                    for await (const key of redisClient.scanIterator({
+                        TYPE: 'string',
+                        MATCH: 'query_async*',
+                        COUNT: 500,
+                    })) {
                         await redisClient.del(key)
                     }
                     await redisClient.quit()
@@ -117,5 +125,6 @@ export default defineConfig({
         },
         baseUrl: 'http://localhost:8000',
         specPattern: 'cypress/e2e/**/*.{js,jsx,ts,tsx}',
+        chromeWebSecurity: false,
     },
 })
