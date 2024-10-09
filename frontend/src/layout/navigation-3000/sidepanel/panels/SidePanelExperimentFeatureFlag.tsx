@@ -84,7 +84,7 @@ export const SidePanelExperimentFeatureFlag = (): JSX.Element => {
                 </div>
             </LemonBanner>
             <div>
-                <h3>Experiment variants</h3>
+                <h3 className="l3">Experiment variants</h3>
                 <LemonTable
                     dataSource={variants}
                     columns={[

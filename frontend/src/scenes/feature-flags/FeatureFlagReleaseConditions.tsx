@@ -445,13 +445,13 @@ export function FeatureFlagReleaseConditions({
                 <div data-attr="feature-flag-release-conditions" className="w-full">
                     {readOnly ? (
                         excludeTitle ? null : (
-                            <h3>{isSuper ? 'Super Release Conditions' : 'Release conditions'}</h3>
+                            <h3 className="l3">{isSuper ? 'Super Release Conditions' : 'Release conditions'}</h3>
                         )
                     ) : (
                         <>
                             {!excludeTitle && (
                                 <>
-                                    <h3>Release conditions</h3>
+                                    <h3 className="l3">Release conditions</h3>
                                     <div className="text-muted mb-4">
                                         Specify the {aggregationTargetName} to which you want to release this flag. Note
                                         that condition sets are rolled out independently of each other.
