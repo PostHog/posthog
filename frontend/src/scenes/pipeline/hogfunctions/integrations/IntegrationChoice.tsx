@@ -41,6 +41,8 @@ export function IntegrationChoice({
             ? 'Google Cloud Pub/Sub'
             : kind == 'google-cloud-storage'
             ? 'Google Cloud Storage'
+            : kind == 'google-ads'
+            ? 'Google Ads'
             : capitalizeFirstLetter(kind)
 
     function uploadKey(kind: string): void {
