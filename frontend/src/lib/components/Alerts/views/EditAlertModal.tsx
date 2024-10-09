@@ -85,7 +85,7 @@ export function EditAlertModal({
     const { setAlertFormValue } = useActions(formLogic)
 
     const trendsLogic = trendsDataLogic({ dashboardItemId: insightShortId })
-    const { alertSeries } = useValues(trendsLogic)
+    const { alertSeries, isNonTimeSeriesDisplay } = useValues(trendsLogic)
 
     const creatingNewAlert = alertForm.id === undefined
 
@@ -166,10 +166,16 @@ export function EditAlertModal({
                                                         {
                                                             label: 'increases by',
                                                             value: AlertConditionType.RELATIVE_INCREASE,
+                                                            disabledReason:
+                                                                isNonTimeSeriesDisplay &&
+                                                                'This condition is only supported for time series trends',
                                                         },
                                                         {
                                                             label: 'decreases by',
                                                             value: AlertConditionType.RELATIVE_DECREASE,
+                                                            disabledReason:
+                                                                isNonTimeSeriesDisplay &&
+                                                                'This condition is only supported for time series trends',
                                                         },
                                                     ]}
                                                 />
