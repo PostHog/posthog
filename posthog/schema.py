@@ -458,6 +458,15 @@ class EventOddsRatioSerialized(BaseModel):
     success_count: int
 
 
+class EventTaxonomyItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    property: str
+    sample_count: int
+    sample_values: list[str]
+
+
 class Person(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -696,6 +705,7 @@ class HogQLQueryModifiers(BaseModel):
     propertyGroupsMode: Optional[PropertyGroupsMode] = None
     s3TableUseInvalidColumns: Optional[bool] = None
     sessionTableVersion: Optional[SessionTableVersion] = None
+    useMaterializedViews: Optional[bool] = None
 
 
 class HogQLVariable(BaseModel):
@@ -839,6 +849,8 @@ class NodeKind(StrEnum):
     EXPERIMENT_FUNNEL_QUERY = "ExperimentFunnelQuery"
     EXPERIMENT_TREND_QUERY = "ExperimentTrendQuery"
     DATABASE_SCHEMA_QUERY = "DatabaseSchemaQuery"
+    TEAM_TAXONOMY_QUERY = "TeamTaxonomyQuery"
+    EVENT_TAXONOMY_QUERY = "EventTaxonomyQuery"
 
 
 class PathCleaningFilter(BaseModel):
@@ -1267,6 +1279,14 @@ class TaxonomicFilterGroupType(StrEnum):
     NOTEBOOKS = "notebooks"
     LOG_ENTRIES = "log_entries"
     REPLAY = "replay"
+
+
+class TeamTaxonomyItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    count: int
+    event: str
 
 
 class TestBasicQueryResponse(BaseModel):
@@ -1758,6 +1778,36 @@ class CachedErrorTrackingQueryResponse(BaseModel):
     )
 
 
+class CachedEventTaxonomyQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cache_key: str
+    cache_target_age: Optional[AwareDatetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    is_cached: bool
+    last_refresh: AwareDatetime
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    next_allowed_client_refresh: AwareDatetime
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    results: list[EventTaxonomyItem]
+    timezone: str
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
 class CachedEventsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2049,6 +2099,36 @@ class CachedStickinessQueryResponse(BaseModel):
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
     results: list[dict[str, Any]]
+    timezone: str
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
+class CachedTeamTaxonomyQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cache_key: str
+    cache_target_age: Optional[AwareDatetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    is_cached: bool
+    last_refresh: AwareDatetime
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    next_allowed_client_refresh: AwareDatetime
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    results: list[TeamTaxonomyItem]
     timezone: str
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
@@ -2625,6 +2705,27 @@ class EventPropertyFilter(BaseModel):
     operator: Optional[PropertyOperator] = PropertyOperator.EXACT
     type: Literal["event"] = Field(default="event", description="Event properties")
     value: Optional[Union[str, float, list[Union[str, float]]]] = None
+
+
+class EventTaxonomyQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    results: list[EventTaxonomyItem]
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
 
 
 class EventsQueryResponse(BaseModel):
@@ -3766,6 +3867,27 @@ class TableSettings(BaseModel):
     conditionalFormatting: Optional[list[ConditionalFormattingRule]] = None
 
 
+class TeamTaxonomyQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    results: list[TeamTaxonomyItem]
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
 class WebExternalClicksTableQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4179,6 +4301,18 @@ class EntityNode(BaseModel):
     response: Optional[dict[str, Any]] = None
 
 
+class EventTaxonomyQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    event: str
+    kind: Literal["EventTaxonomyQuery"] = "EventTaxonomyQuery"
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    response: Optional[EventTaxonomyQueryResponse] = None
+
+
 class EventsNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4571,6 +4705,17 @@ class SessionsTimelineQuery(BaseModel):
     )
     personId: Optional[str] = Field(default=None, description="Fetch sessions only for a given person")
     response: Optional[SessionsTimelineQueryResponse] = None
+
+
+class TeamTaxonomyQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["TeamTaxonomyQuery"] = "TeamTaxonomyQuery"
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    response: Optional[TeamTaxonomyQueryResponse] = None
 
 
 class AIActionsNode(BaseModel):

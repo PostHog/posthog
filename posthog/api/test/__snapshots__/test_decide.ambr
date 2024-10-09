@@ -272,6 +272,15 @@
 # ---
 # name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.14
   '''
+  SELECT "posthog_productintent"."product_type",
+         "posthog_productintent"."created_at",
+         "posthog_productintent"."onboarding_completed_at"
+  FROM "posthog_productintent"
+  WHERE "posthog_productintent"."team_id" = 2
+  '''
+# ---
+# name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.15
+  '''
   SELECT "posthog_user"."id",
          "posthog_user"."password",
          "posthog_user"."last_login",
@@ -302,7 +311,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.15
+# name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.16
   '''
   SELECT "posthog_featureflag"."id",
          "posthog_featureflag"."key",
@@ -325,7 +334,7 @@
          AND "posthog_featureflag"."team_id" = 2)
   '''
 # ---
-# name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.16
+# name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.17
   '''
   SELECT "posthog_pluginconfig"."id",
          "posthog_pluginconfig"."web_token",
