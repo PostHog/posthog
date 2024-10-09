@@ -418,7 +418,7 @@ def default_materialised_columns():
 
     default_columns = []
     for prop in EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS:
-        column_name = get_materialized_columns("events")[(prop, "properties")]
+        column_name = get_materialized_columns("events")[(prop, "properties")].column_name
         default_columns.append(column_name)
 
     return default_columns

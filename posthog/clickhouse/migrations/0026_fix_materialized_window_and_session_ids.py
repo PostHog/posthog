@@ -69,9 +69,12 @@ def materialize_session_and_window_id(database):
         # materialized the column or renamed the column, and then ran the 0004_...  async migration
         # before this migration runs.
         possible_old_column_names = {"mat_" + property_name}
-        current_materialized_column_name = materialized_columns.get((property_name, "properties"), None)
-        if current_materialized_column_name is not None and current_materialized_column_name != property_name:
-            possible_old_column_names.add(current_materialized_column_name)
+        current_materialized_column_info = materialized_columns.get((property_name, "properties"), None)
+        if (
+            current_materialized_column_info is not None
+            and current_materialized_column_info.column_name != property_name
+        ):
+            possible_old_column_names.add(current_materialized_column_info.column_name)
 
         for possible_old_column_name in possible_old_column_names:
             ensure_only_new_column_exists(database, "sharded_events", possible_old_column_name, property_name)

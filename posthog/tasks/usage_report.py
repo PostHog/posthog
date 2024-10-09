@@ -459,10 +459,15 @@ def get_teams_with_event_count_with_groups_in_period(begin: datetime, end: datet
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str, list[tuple[int, int]]]:
-    materialized_columns = get_materialized_columns("events")
+    materialized_columns = get_materialized_columns("events", exclude_nullable_columns=True)
 
     # Check if $lib is materialized
-    lib_expression = materialized_columns.get(("$lib", "properties"), "JSONExtractString(properties, '$lib')")
+    lib_materialized_column_info = materialized_columns.get(("$lib", "properties"))
+    lib_expression = (
+        lib_materialized_column_info.column_name
+        if lib_materialized_column_info is not None
+        else "JSONExtractString(properties, '$lib')"
+    )
 
     results = sync_execute(
         f"""

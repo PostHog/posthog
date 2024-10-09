@@ -711,7 +711,9 @@ def get_property_string_expr(
         (optional) alias of the table being queried
     :return:
     """
-    materialized_columns = get_materialized_columns(table) if allow_denormalized_props else {}
+    materialized_columns = (
+        get_materialized_columns(table, exclude_nullable_columns=True) if allow_denormalized_props else {}
+    )
 
     table_string = f"{table_alias}." if table_alias is not None and table_alias != "" else ""
 
@@ -721,7 +723,7 @@ def get_property_string_expr(
         and "group" not in materialised_table_column
     ):
         return (
-            f'{table_string}"{materialized_columns[(property_name, materialised_table_column)]}"',
+            f'{table_string}"{materialized_columns[(property_name, materialised_table_column)].column_name}"',
             True,
         )
 

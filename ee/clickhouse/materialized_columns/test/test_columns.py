@@ -9,6 +9,7 @@ from ee.clickhouse.materialized_columns.columns import (
     get_materialized_columns,
     materialize,
 )
+from posthog.clickhouse.materialized_columns import MaterializedColumnInfo
 from posthog.client import sync_execute
 from posthog.conftest import create_clickhouse_tables
 from posthog.constants import GROUP_TYPES_LIMIT
@@ -82,16 +83,16 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
 
         self.assertDictContainsSubset(
             {
-                ("$foO();--sqlinject", "properties"): "mat_$foO_____sqlinject",
-                ("$foO();ääsqlinject", "properties"): "mat_$foO_____sqlinject_YYYY",
-                ("$foO_____sqlinject", "properties"): "mat_$foO_____sqlinject_ZZZZ",
+                ("$foO();--sqlinject", "properties"): MaterializedColumnInfo("mat_$foO_____sqlinject", False),
+                ("$foO();ääsqlinject", "properties"): MaterializedColumnInfo("mat_$foO_____sqlinject_YYYY", False),
+                ("$foO_____sqlinject", "properties"): MaterializedColumnInfo("mat_$foO_____sqlinject_ZZZZ", False),
             },
             get_materialized_columns("events"),
         )
 
         self.assertEqual(
             get_materialized_columns("person"),
-            {("SoMePrOp", "properties"): "pmat_SoMePrOp"},
+            {("SoMePrOp", "properties"): MaterializedColumnInfo("pmat_SoMePrOp", False)},
         )
 
     def test_backfilling_data(self):
