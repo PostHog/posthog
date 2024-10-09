@@ -17,7 +17,7 @@ pub struct RawJSFrame {
     #[serde(rename = "colno")]
     pub column: u32,
     #[serde(rename = "filename")]
-    pub script_url: Option<String>,
+    pub source_url: Option<String>, // The url the the script the frame was in was fetched from
     pub in_app: bool,
     #[serde(rename = "function")]
     pub fn_name: String,
@@ -27,13 +27,13 @@ impl RawJSFrame {
     pub fn source_ref(&self) -> Result<Url, JsResolveErr> {
         // We can't resolve a frame without a source ref, and are forced
         // to assume this frame is not minified
-        let Some(script_url) = &self.script_url else {
+        let Some(source_url) = &self.source_url else {
             return Err(JsResolveErr::NoSourceUrl);
         };
 
         // We outright reject relative URLs, or ones that are not HTTP
-        if !script_url.starts_with("http://") && !script_url.starts_with("https://") {
-            return Err(JsResolveErr::InvalidSourceUrl(script_url.clone()));
+        if !source_url.starts_with("http://") && !source_url.starts_with("https://") {
+            return Err(JsResolveErr::InvalidSourceUrl(source_url.clone()));
         }
 
         // TODO - we assume these are always absolute urls, and maybe should handle cases where
@@ -44,24 +44,24 @@ impl RawJSFrame {
         // If the last colon is after the last slash, remove it, under the assumption that it's a column number.
         // If there is no colon, or it's before the last slash, we assume the whole thing is a url,
         // with no trailing line and column numbers
-        let last_colon = script_url.rfind(':');
-        let last_slash = script_url.rfind('/');
+        let last_colon = source_url.rfind(':');
+        let last_slash = source_url.rfind('/');
         let useful = match (last_colon, last_slash) {
             (Some(colon), Some(slash)) if colon > slash => colon,
-            _ => script_url.len(),
+            _ => source_url.len(),
         };
 
         // We do this check one more time, to account for possible line number
-        let script_url = &script_url[..useful];
-        let last_colon = script_url.rfind(':');
-        let last_slash = script_url.rfind('/');
+        let source_url = &source_url[..useful];
+        let last_colon = source_url.rfind(':');
+        let last_slash = source_url.rfind('/');
         let useful = match (last_colon, last_slash) {
             (Some(colon), Some(slash)) if colon > slash => colon,
-            _ => script_url.len(),
+            _ => source_url.len(),
         };
 
-        Url::parse(&script_url[..useful])
-            .map_err(|_| JsResolveErr::InvalidSourceUrl(script_url.to_string()))
+        Url::parse(&source_url[..useful])
+            .map_err(|_| JsResolveErr::InvalidSourceUrl(source_url.to_string()))
     }
 
     // JS frames can only handle JS resolution errors - errors at the network level
@@ -94,7 +94,7 @@ impl RawJSFrame {
             mangled_name: self.fn_name.clone(),
             line: Some(self.line),
             column: Some(self.column),
-            source: self.script_url.clone(), // Maybe we have one?
+            source: self.source_url.clone(), // Maybe we have one?
             in_app: self.in_app,
             resolved_name: Some(self.fn_name.clone()), // This is the bit we'd want to check
             lang: "javascript".to_string(),
@@ -125,7 +125,7 @@ mod test {
         let frame = super::RawJSFrame {
             line: 1,
             column: 2,
-            script_url: Some("http://example.com/path/to/file.js:1:2".to_string()),
+            source_url: Some("http://example.com/path/to/file.js:1:2".to_string()),
             in_app: true,
             fn_name: "main".to_string(),
         };
@@ -138,7 +138,7 @@ mod test {
         let frame = super::RawJSFrame {
             line: 1,
             column: 2,
-            script_url: Some("http://example.com/path/to/file.js".to_string()),
+            source_url: Some("http://example.com/path/to/file.js".to_string()),
             in_app: true,
             fn_name: "main".to_string(),
         };

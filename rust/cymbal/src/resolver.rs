@@ -98,7 +98,7 @@ mod test {
         // we have locally
         test_stack.retain(|s| {
             let RawFrame::JavaScript(s) = s;
-            s.script_url.as_ref().unwrap().contains(CHUNK_PATH)
+            s.source_url.as_ref().unwrap().contains(CHUNK_PATH)
         });
 
         for frame in &mut test_stack {
@@ -106,7 +106,7 @@ mod test {
             // Our test data contains our /actual/ source urls - we need to swap that to localhost
             // When I first wrote this test, I forgot to do this, and it took me a while to figure out
             // why the test was passing before I'd even set up the mockserver - which was pretty cool, tbh
-            frame.script_url = Some(server.url(CHUNK_PATH).to_string());
+            frame.source_url = Some(server.url(CHUNK_PATH).to_string());
         }
 
         let mut config = Config::init_with_defaults().unwrap();
