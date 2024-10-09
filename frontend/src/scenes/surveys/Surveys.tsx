@@ -32,11 +32,20 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { ActivityScope, ProductKey, ProgressStatus, PropertyFilterType, PropertyOperator, Survey } from '~/types'
+import {
+    ActivityScope,
+    ProductKey,
+    ProgressStatus,
+    PropertyFilterType,
+    PropertyOperator,
+    Survey,
+} from '~/types'
 
-import { SurveyQuestionLabel } from './constants'
+import {defaultSurveyAppearance, SurveyQuestionLabel} from './constants'
 import { openSurveysSettingsDialog } from './SurveySettings'
 import { getSurveyStatus, surveysLogic, SurveysTabs } from './surveysLogic'
+import { Customization } from "scenes/surveys/SurveyCustomization";
+// import {teamLogic} from "scenes/teamLogic";
 
 export const scene: SceneExport = {
     component: Surveys,
@@ -58,8 +67,10 @@ export function Surveys(): JSX.Element {
 
     const { deleteSurvey, updateSurvey, setSearchTerm, setSurveysFilters, setTab } = useActions(surveysLogic)
     const { user } = useValues(userLogic)
+    // const { updateCurrentTeam } = useActions(teamLogic)
+    // const { currentTeam } = useValues(teamLogic)
     const shouldShowEmptyState = !surveysLoading && surveys.length === 0
-    const showLinkedHogFunctions = useFeatureFlag('HOG_FUNCTIONS_LINKED')
+    const showLinkedHogFunctions = useFeatureFlag('HOG_FUNCTIONS_LINKED') || true
 
     return (
         <div>
@@ -115,19 +126,23 @@ export function Surveys(): JSX.Element {
                 ]}
             />
             {tab === SurveysTabs.Settings && (
-                <LemonBanner
-                    type="warning"
-                    action={{
-                        type: 'secondary',
-                        icon: <IconGear />,
-                        onClick: () => openSurveysSettingsDialog(),
-                        children: 'Configure',
-                    }}
-                    className="mb-2"
-                >
-                    Survey popovers are currently disabled for this project but there are active surveys running.
-                    Re-enable them in the settings.
-                </LemonBanner>
+                <>
+                  <Customization
+                      appearance={defaultSurveyAppearance}
+                      customizeRatingButtons = {true}
+                      customizePlaceholderText = {true}
+                      onAppearanceChange={(_) => {
+                          // if (currentTeam) {
+                          //     updateCurrentTeam({
+                          //         survey_settings: {
+                          //             ...currentTeam.survey_settings,
+                          //             appearance
+                          //         }
+                          //     })
+                          // }
+                      }}
+                  />
+                </>
             )}
             {tab === SurveysTabs.Notifications && (
                 <>
@@ -140,14 +155,6 @@ export function Surveys(): JSX.Element {
                                     id: 'survey sent',
                                     type: 'events',
                                     order: 0,
-                                    properties: [
-                                        {
-                                            key: '$survey_response',
-                                            type: PropertyFilterType.Event,
-                                            value: 'is_set',
-                                            operator: PropertyOperator.IsSet,
-                                        },
-                                    ],
                                 },
                             ],
                         }}

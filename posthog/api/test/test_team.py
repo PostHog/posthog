@@ -974,6 +974,7 @@ def team_api_test_factory():
             survey_appearance = {
                 "thankYouMessageHeader": "Thanks for your feedback!",
                 "thankYouMessageDescription": "We'll use it to make notebooks better",
+                "backgroundColor": "#ffcc99",
             }
 
             self._patch_config("survey_config", {"appearance": survey_appearance})

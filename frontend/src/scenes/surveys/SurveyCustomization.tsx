@@ -7,11 +7,7 @@ import { surveyLogic } from 'scenes/surveys/surveyLogic'
 
 import {
     AvailableFeature,
-    MultipleSurveyQuestion,
-    RatingSurveyQuestion,
     SurveyAppearance as SurveyAppearanceType,
-    SurveyQuestion,
-    SurveyQuestionType,
 } from '~/types'
 
 import { defaultSurveyAppearance } from './constants'
@@ -19,17 +15,19 @@ import { surveysLogic } from './surveysLogic'
 
 interface CustomizationProps {
     appearance: SurveyAppearanceType
-    surveyQuestionItem: RatingSurveyQuestion | SurveyQuestion | MultipleSurveyQuestion
+    customizeRatingButtons: boolean,
+    customizePlaceholderText: boolean,
     onAppearanceChange: (appearance: SurveyAppearanceType) => void
 }
 
 interface WidgetCustomizationProps extends Omit<CustomizationProps, 'surveyQuestionItem'> {}
 
-export function Customization({ appearance, surveyQuestionItem, onAppearanceChange }: CustomizationProps): JSX.Element {
+export function Customization({ appearance, customizeRatingButtons, customizePlaceholderText, onAppearanceChange }: CustomizationProps): JSX.Element {
     const { surveysStylingAvailable } = useValues(surveysLogic)
     const { surveyShufflingQuestionsAvailable, hasBranchingLogic } = useValues(surveyLogic)
     const { deleteBranchingLogic } = useActions(surveyLogic)
     const surveyShufflingQuestionsDisabledReason = surveyShufflingQuestionsAvailable
+
         ? ''
         : 'Please add more than one question to the survey to enable shuffling questions'
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
@@ -75,7 +73,7 @@ export function Customization({ appearance, surveyQuestionItem, onAppearanceChan
                         })}
                     </div>
                 </>
-                {surveyQuestionItem.type === SurveyQuestionType.Rating && (
+                {customizeRatingButtons && (
                     <>
                         <div className="mt-2">Rating button color</div>
                         <LemonInput
@@ -105,7 +103,7 @@ export function Customization({ appearance, surveyQuestionItem, onAppearanceChan
                     onChange={(submitButtonTextColor) => onAppearanceChange({ ...appearance, submitButtonTextColor })}
                     disabled={!surveysStylingAvailable}
                 />
-                {surveyQuestionItem.type === SurveyQuestionType.Open && (
+                {customizePlaceholderText && (
                     <>
                         <div className="mt-2">Placeholder text</div>
                         <LemonInput

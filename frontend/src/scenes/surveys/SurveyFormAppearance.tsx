@@ -2,9 +2,11 @@ import { LemonSelect } from '@posthog/lemon-ui'
 
 import { Survey, SurveyType } from '~/types'
 
-import { NewSurvey } from './constants'
+import {defaultSurveyAppearance, NewSurvey} from './constants'
 import { SurveyAPIEditor } from './SurveyAPIEditor'
 import { SurveyAppearancePreview } from './SurveyAppearancePreview'
+import {useValues} from "kea";
+import {teamLogic} from "scenes/teamLogic";
 
 interface SurveyFormAppearanceProps {
     previewPageIndex: number
@@ -18,9 +20,14 @@ export function SurveyFormAppearance({
     survey,
     handleSetSelectedPageIndex,
 }: SurveyFormAppearanceProps): JSX.Element {
+    const { currentTeam } = useValues(teamLogic)
+    const surveyAppearance = {
+            ...currentTeam?.survey_config?.appearance,
+    }
+
     return survey.type !== SurveyType.API ? (
         <div className="survey-view max-w-72">
-            <SurveyAppearancePreview survey={survey as Survey} previewPageIndex={previewPageIndex} />
+            <SurveyAppearancePreview surveyAppearance={surveyAppearance} survey={survey as Survey} previewPageIndex={previewPageIndex} />
             <LemonSelect
                 onChange={(pageIndex) => handleSetSelectedPageIndex(pageIndex)}
                 className="mt-4 whitespace-nowrap"

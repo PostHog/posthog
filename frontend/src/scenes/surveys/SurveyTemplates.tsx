@@ -1,7 +1,7 @@
 import './SurveyTemplates.scss'
 
 import { LemonButton } from '@posthog/lemon-ui'
-import { useActions } from 'kea'
+import {useActions, useValues} from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -12,6 +12,7 @@ import { Survey } from '~/types'
 import { defaultSurveyAppearance, defaultSurveyTemplates } from './constants'
 import { SurveyAppearancePreview } from './SurveyAppearancePreview'
 import { surveyLogic } from './surveyLogic'
+import {teamLogic} from "scenes/teamLogic";
 
 export const scene: SceneExport = {
     component: SurveyTemplates,
@@ -20,6 +21,12 @@ export const scene: SceneExport = {
 export function SurveyTemplates(): JSX.Element {
     const { setSurveyTemplateValues } = useActions(surveyLogic({ id: 'new' }))
     const { reportSurveyTemplateClicked } = useActions(eventUsageLogic)
+    const { currentTeam } = useValues(teamLogic)
+    const surveyAppearance = {
+        ...currentTeam?.survey_config?.appearance
+    }
+
+    console.log(`surveyAppearance is `, surveyAppearance , ` team is `, currentTeam, ' end')
 
     return (
         <>
@@ -61,6 +68,7 @@ export function SurveyTemplates(): JSX.Element {
                                 <div className="SurveyTemplate">
                                     <SurveyAppearancePreview
                                         key={idx}
+                                        surveyAppearance={surveyAppearance}
                                         survey={
                                             {
                                                 id: `templateMock-${idx}`,

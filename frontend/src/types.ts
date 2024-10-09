@@ -497,10 +497,12 @@ export interface TeamType extends TeamBasicType {
         | undefined
         | null
     session_replay_config: { record_canvas?: boolean; ai_config?: SessionRecordingAIConfig } | undefined | null
+    survey_config?: { appearance?: SurveyAppearance }
     autocapture_exceptions_opt_in: boolean
     autocapture_web_vitals_opt_in?: boolean
     autocapture_web_vitals_allowed_metrics?: SupportedWebVitalsMetrics[]
     surveys_opt_in?: boolean
+    survey_settings: SurveyTeamSettings
     heatmaps_opt_in?: boolean
     autocapture_exceptions_errors_to_ignore: string[]
     test_account_filters: AnyPropertyFilter[]
@@ -2711,6 +2713,10 @@ export enum SurveyType {
 }
 
 export type SurveyQuestionDescriptionContentType = 'html' | 'text'
+
+export interface SurveyTeamSettings {
+    appearance?: SurveyAppearance
+}
 
 export interface SurveyAppearance {
     backgroundColor?: string
