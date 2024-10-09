@@ -181,6 +181,7 @@ class LifecycleQueryRunner(QueryRunner):
             action_object = {}
             label = "{} - {}".format("", val[2])
             if isinstance(self.query.series[0], ActionsNode):
+                assert self.team.project_id is not None
                 action = Action.objects.get(pk=int(self.query.series[0].id), team__project_id=self.team.project_id)
                 label = "{} - {}".format(action.name, val[2])
                 action_object = {
@@ -248,6 +249,7 @@ class LifecycleQueryRunner(QueryRunner):
         with self.timings.measure("series_filters"):
             for serie in self.query.series or []:
                 if isinstance(serie, ActionsNode):
+                    assert self.team.project_id is not None
                     action = Action.objects.get(pk=int(serie.id), team__project_id=self.team.project_id)
                     event_filters.append(action_to_expr(action))
                 elif isinstance(serie, EventsNode):

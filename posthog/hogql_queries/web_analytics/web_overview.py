@@ -100,6 +100,7 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner):
     @cached_property
     def conversion_goal_expr(self) -> ast.Expr:
         if isinstance(self.query.conversionGoal, ActionConversionGoal):
+            assert self.team.project_id is not None
             action = Action.objects.get(pk=self.query.conversionGoal.actionId, team__project_id=self.team.project_id)
             return action_to_expr(action)
         elif isinstance(self.query.conversionGoal, CustomEventConversionGoal):
