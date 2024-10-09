@@ -56,12 +56,25 @@ else
 fi
 
 [[ -f ".env" ]] && export $(cat .env | xargs) || ( echo "No .env file found. Please create it with POSTHOG_SECRET and DOMAIN set." && exit 1)
+
 # we introduced ENCRYPTION_SALT_KEYS and so if there isn't one, need to add it
 # check for it in the .env file
-if ! grep -q "ENCRYPTION_SALT_KEYS" .env
-then
-    ENCRYPTION_SALT_KEYS=$(head -c 28 /dev/urandom | sha224sum -b | head -c 56)
-    echo "ENCRYPTION_SALT_KEYS=$ENCRYPTION_SALT_KEYS" >> .env
+if ! grep -q "ENCRYPTION_SALT_KEYS" .env; then
+    NEW_KEY=$(generate_fernet_key)
+    echo "ENCRYPTION_SALT_KEYS=$NEW_KEY" >> .env
+    echo "Added missing ENCRYPTION_SALT_KEYS to .env file"
+else
+    # Read the existing key
+    EXISTING_KEY=$(grep "ENCRYPTION_SALT_KEYS" .env | cut -d '=' -f2)
+    
+    # Check if the existing key is in the correct format (32 bytes base64url)
+    if [[ ! $EXISTING_KEY =~ ^[A-Za-z0-9_-]{43}$ ]]; then
+        NEW_KEY=$(generate_fernet_key)
+        sed -i "s/ENCRYPTION_SALT_KEYS=.*/ENCRYPTION_SALT_KEYS=$NEW_KEY/" .env
+        echo "Replaced ENCRYPTION_SALT_KEYS in .env file with a new, correctly formatted key"
+    else
+        echo "Existing ENCRYPTION_SALT_KEYS is correctly formatted"
+    fi
 fi
 
 
