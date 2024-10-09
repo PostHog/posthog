@@ -25,6 +25,7 @@ export const FilterGroup = (): JSX.Element => {
                     value={searchQuery}
                     onChange={setSearchQuery}
                     className="flex-grow max-w-none"
+                    size="small"
                 />
                 <UniversalFilters
                     rootKey="error-tracking"
