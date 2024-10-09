@@ -166,6 +166,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             "linkedFlag": None,
             "minimumDurationMilliseconds": None,
             "networkPayloadCapture": None,
+            "urlTriggers": [],
         }
         self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js"])
 
@@ -185,6 +186,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             "linkedFlag": None,
             "minimumDurationMilliseconds": None,
             "networkPayloadCapture": None,
+            "urlTriggers": [],
         }
 
     def test_user_performance_opt_in(self, *args):
@@ -301,6 +303,35 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
         response = self._post_decide().json()
         self.assertEqual(response["sessionRecording"]["linkedFlag"], {"flag": "my-flag", "variant": "test"})
+
+    def test_session_recording_url_trigger_patterns(self, *args):
+        self._update_team(
+            {
+                "session_recording_url_trigger_config": [
+                    {
+                        "url": "/replay-examples/",
+                        "matching": "regex"
+                    }
+                ],
+            }
+        )
+
+        response = self._post_decide(origin="capacitor://localhost:8000/home").json()
+        assert response["sessionRecording"] == {
+            "endpoint": "/s/",
+            "recorderVersion": "v2",
+            "consoleLogRecordingEnabled": True,
+            "sampleRate": None,
+            "linkedFlag": None,
+            "minimumDurationMilliseconds": None,
+            "networkPayloadCapture": None,
+            "urlTriggers": [
+                {
+                    "url": "/replay-examples/",
+                    "matching": "regex"
+                }
+            ]
+        }
 
     def test_session_recording_network_payload_capture_config(self, *args):
         # :TRICKY: Test for regression around caching
@@ -430,6 +461,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             "linkedFlag": None,
             "minimumDurationMilliseconds": None,
             "networkPayloadCapture": None,
+            "urlTriggers": [],
         }
         self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js"])
 
@@ -457,6 +489,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             "linkedFlag": None,
             "minimumDurationMilliseconds": None,
             "networkPayloadCapture": None,
+            "urlTriggers": [],
         }
 
     def test_user_autocapture_opt_out(self, *args):
@@ -491,6 +524,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             "linkedFlag": None,
             "minimumDurationMilliseconds": None,
             "networkPayloadCapture": None,
+            "urlTriggers": [],
         }
 
     def test_user_session_recording_allowed_for_android(self, *args) -> None:
@@ -505,6 +539,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             "linkedFlag": None,
             "minimumDurationMilliseconds": None,
             "networkPayloadCapture": None,
+            "urlTriggers": [],
         }
 
     def test_user_session_recording_allowed_for_ios(self, *args) -> None:
@@ -519,6 +554,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             "linkedFlag": None,
             "minimumDurationMilliseconds": None,
             "networkPayloadCapture": None,
+            "urlTriggers": [],
         }
 
     def test_user_session_recording_allowed_when_permitted_domains_are_not_http_based(self, *args):
@@ -2901,6 +2937,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
                 "linkedFlag": None,
                 "minimumDurationMilliseconds": None,
                 "networkPayloadCapture": None,
+                "urlTriggers": [],
             },
         )
         self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js"])
@@ -2929,6 +2966,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
                     "linkedFlag": None,
                     "minimumDurationMilliseconds": None,
                     "networkPayloadCapture": None,
+                    "urlTriggers": [],
                 },
             )
             self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js"])
@@ -3724,6 +3762,7 @@ class TestDatabaseCheckForDecide(BaseTest, QueryMatchingTest):
                     "linkedFlag": None,
                     "minimumDurationMilliseconds": None,
                     "networkPayloadCapture": None,
+                    "urlTriggers": [],
                 },
             )
             self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js"])

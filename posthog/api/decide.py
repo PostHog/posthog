@@ -351,6 +351,7 @@ def _session_recording_config_response(request: HttpRequest, team: Team, token: 
                 "minimumDurationMilliseconds": minimum_duration,
                 "linkedFlag": linked_flag,
                 "networkPayloadCapture": team.session_recording_network_payload_capture_config or None,
+                "urlTriggers": team.session_recording_url_trigger_config,
             }
 
             if isinstance(team.session_replay_config, dict):
