@@ -124,7 +124,7 @@ describe('the authorized urls list logic', () => {
 
             expectLogic(logic, () => logic.actions.addUrl('http://*.example.com')).toFinishAllListeners()
 
-            expect(api.update).toHaveBeenCalledWith(`api/projects/${MOCK_TEAM_ID}`, {
+            expect(api.update).toHaveBeenCalledWith(`api/environments/${MOCK_TEAM_ID}`, {
                 recording_domains: ['https://recordings.posthog.com/', 'http://*.example.com'],
             })
         })

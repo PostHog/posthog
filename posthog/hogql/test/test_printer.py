@@ -455,6 +455,9 @@ class TestPrinter(BaseTest):
             expected_skip_indexes_used={"properties_group_custom_keys_bf", "properties_group_custom_values_bf"},
         )
 
+        # Don't optimize comparisons to types that require non-trivial type conversions.
+        self._test_property_group_comparison("properties.key = 1", None)
+
         # TODO: We'll want to eventually support this type of expression where the right hand side is a non-``Nullable``
         # value, since this would allow expressions that only reference constant values to also use the appropriate
         # index, but for right now we only want to optimize comparisons to constant values directly for simplicity.
@@ -619,6 +622,12 @@ class TestPrinter(BaseTest):
             {"hogql_val_0": "key", "hogql_val_1": ""},
             expected_skip_indexes_used={"properties_group_custom_keys_bf"},
         )
+
+        # Don't optimize comparisons to types that require additional type conversions.
+        self._test_property_group_comparison("properties.key in true", None)
+        self._test_property_group_comparison("properties.key in (true, false)", None)
+        self._test_property_group_comparison("properties.key in 1", None)
+        self._test_property_group_comparison("properties.key in (1, 2, 3)", None)
 
         # Only direct constant comparison is supported for now -- see above.
         self._test_property_group_comparison("properties.key in lower('value')", None)
@@ -1952,10 +1961,7 @@ class TestPrinter(BaseTest):
             dialect="clickhouse",
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
-        assert (
-            f"AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), ifNull(in(id, tuple(1, 2, 3)), 0))"
-            in printed
-        )
+        assert f"AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), in(id, tuple(1, 2, 3)))" in printed
 
     def test_dont_inline_persons(self):
         query = parse_select(
@@ -1982,10 +1988,7 @@ class TestPrinter(BaseTest):
             dialect="clickhouse",
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
-        assert (
-            f"AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), ifNull(in(id, tuple(1, 2, 3)), 0))"
-            in printed
-        )
+        assert f"AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), in(id, tuple(1, 2, 3)))" in printed
 
     def test_two_joins(self):
         query = parse_select(
@@ -2001,14 +2004,8 @@ class TestPrinter(BaseTest):
             dialect="clickhouse",
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
-        assert (
-            f"AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), ifNull(in(id, tuple(1, 2, 3)), 0))"
-            in printed
-        )
-        assert (
-            f"AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), ifNull(in(id, tuple(4, 5, 6)), 0))"
-            in printed
-        )
+        assert f"AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), in(id, tuple(1, 2, 3)))" in printed
+        assert f"AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), in(id, tuple(4, 5, 6)))" in printed
 
     def test_two_clauses(self):
         query = parse_select(
@@ -2025,10 +2022,7 @@ class TestPrinter(BaseTest):
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
         assert (
-            f"AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), ifNull(in(id, tuple(7, 8, 9)), 0), ifNull(in(id, tuple(1, 2, 3)), 0))"
+            f"AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), in(id, tuple(7, 8, 9)), in(id, tuple(1, 2, 3)))"
             in printed
         )
-        assert (
-            f"AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), ifNull(in(id, tuple(4, 5, 6)), 0))"
-            in printed
-        )
+        assert f"AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), in(id, tuple(4, 5, 6)))" in printed

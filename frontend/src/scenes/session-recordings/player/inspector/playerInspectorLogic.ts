@@ -6,7 +6,7 @@ import api from 'lib/api'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { getCoreFilterDefinition } from 'lib/taxonomy'
-import { eventToDescription, objectsEqual, toParams } from 'lib/utils'
+import { eventToDescription, humanizeBytes, objectsEqual, toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import {
     InspectorListItemPerformance,
@@ -67,6 +67,19 @@ export type InspectorListItemEvent = InspectorListItemBase & {
     data: RecordingEventType
 }
 
+export type RecordingComment = {
+    id: string
+    notebookShortId: string
+    notebookTitle: string
+    comment: string
+    timeInRecording: number
+}
+
+export type InspectorListItemComment = InspectorListItemBase & {
+    type: 'comment'
+    data: RecordingComment
+}
+
 export type InspectorListItemConsole = InspectorListItemBase & {
     type: SessionRecordingPlayerTab.CONSOLE
     data: RecordingConsoleLogV2
@@ -96,6 +109,7 @@ export type InspectorListItem =
     | InspectorListOfflineStatusChange
     | InspectorListItemDoctor
     | InspectorListBrowserVisibility
+    | InspectorListItemComment
 
 export interface PlayerInspectorLogicProps extends SessionRecordingPlayerLogicProps {
     matchingEventsMatchType?: MatchingEventsMatchType
@@ -137,6 +151,40 @@ function timeRelativeToStart(
     return { timestamp, timeInRecording }
 }
 
+function niceify(tag: string): string {
+    return tag.replace(/\$/g, '').replace(/_/g, ' ')
+}
+
+function estimateSize(snapshot: unknown): number {
+    return new Blob([JSON.stringify(snapshot || '')]).size
+}
+
+function getPayloadFor(customEvent: customEvent, tag: string): Record<string, any> {
+    if (tag === '$posthog_config') {
+        return (customEvent.data.payload as any)?.config as Record<string, any>
+    }
+
+    if (tag === '$session_options') {
+        return {
+            ...((customEvent.data.payload as any)?.sessionRecordingOptions as Record<string, any>),
+            activePlugins: (customEvent.data.payload as any)?.activePlugins,
+        }
+    }
+
+    return customEvent.data.payload as Record<string, any>
+}
+
+function commentTimestamp(
+    comment: RecordingComment,
+    start: Dayjs | null
+): {
+    timeInRecording: number
+    timestamp: dayjs.Dayjs | undefined
+} {
+    const timestamp = start?.add(comment.timeInRecording, 'ms')
+    return { timestamp, timeInRecording: comment.timeInRecording }
+}
+
 export const playerInspectorLogic = kea<playerInspectorLogicType>([
     path((key) => ['scenes', 'session-recordings', 'player', 'playerInspectorLogic', key]),
     props({} as PlayerInspectorLogicProps),
@@ -152,7 +200,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         ],
         values: [
             playerSettingsLogic,
-            ['showOnlyMatching', 'showSeekbarTicks', 'tab', 'miniFiltersByKey', 'searchQuery'],
+            ['showOnlyMatching', 'tab', 'miniFiltersByKey', 'searchQuery'],
             sessionRecordingDataLogic(props),
             [
                 'sessionPlayerData',
@@ -164,6 +212,8 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 'start',
                 'end',
                 'durationMs',
+                'sessionComments',
+                'windowIdForTimestamp',
             ],
             sessionRecordingPlayerLogic(props),
             ['currentPlayerTime'],
@@ -336,7 +386,15 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                             const customEvent = snapshot as customEvent
                             const tag = customEvent.data.tag
 
-                            if (['$pageview', 'window hidden', 'browser offline', 'browser online'].includes(tag)) {
+                            if (
+                                [
+                                    '$pageview',
+                                    'window hidden',
+                                    'browser offline',
+                                    'browser online',
+                                    'window visible',
+                                ].includes(tag)
+                            ) {
                                 return
                             }
 
@@ -346,10 +404,10 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                                 type: SessionRecordingPlayerTab.DOCTOR,
                                 timestamp,
                                 timeInRecording,
-                                tag,
-                                search: tag,
+                                tag: niceify(tag),
+                                search: niceify(tag),
                                 window_id: windowId,
-                                data: customEvent.data.payload as Record<string, any>,
+                                data: getPayloadFor(customEvent, tag),
                             })
                         }
                         if (isFullSnapshotEvent(snapshot)) {
@@ -359,10 +417,10 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                                 type: SessionRecordingPlayerTab.DOCTOR,
                                 timestamp,
                                 timeInRecording,
-                                tag: 'fullSnapshotEvent',
-                                search: 'fullSnapshotEvent',
+                                tag: 'full snapshot event',
+                                search: 'full snapshot event',
                                 window_id: windowId,
-                                data: {},
+                                data: { snapshotSize: humanizeBytes(estimateSize(snapshot)) },
                             })
                         }
                     })
@@ -438,6 +496,8 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 s.offlineStatusChanges,
                 s.doctorEvents,
                 s.browserVisibilityChanges,
+                s.sessionComments,
+                s.windowIdForTimestamp,
             ],
             (
                 start,
@@ -447,7 +507,9 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 matchingEventUUIDs,
                 offlineStatusChanges,
                 doctorEvents,
-                browserVisibilityChanges
+                browserVisibilityChanges,
+                sessionComments,
+                windowIdForTimestamp
             ): InspectorListItem[] => {
                 // NOTE: Possible perf improvement here would be to have a selector to parse the items
                 // and then do the filtering of what items are shown, elsewhere
@@ -539,6 +601,21 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     })
                 }
 
+                for (const comment of sessionComments || []) {
+                    const { timestamp, timeInRecording } = commentTimestamp(comment, start)
+                    if (timestamp) {
+                        items.push({
+                            highlightColor: 'primary',
+                            type: 'comment',
+                            timeInRecording: timeInRecording,
+                            timestamp: timestamp,
+                            search: comment.comment,
+                            data: comment,
+                            windowId: windowIdForTimestamp(timestamp.valueOf()),
+                        })
+                    }
+                }
+
                 // NOTE: Native JS sorting is relatively slow here - be careful changing this
                 items.sort((a, b) => (a.timestamp.valueOf() > b.timestamp.valueOf() ? 1 : -1))
 
@@ -575,23 +652,33 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         ],
 
         seekbarItems: [
-            (s) => [s.allItems, s.showOnlyMatching, s.showSeekbarTicks, s.showMatchingEventsFilter],
-            (allItems, showOnlyMatching, showSeekbarTicks, showMatchingEventsFilter): InspectorListItemEvent[] => {
-                let items = allItems.filter((item) => {
-                    if (item.type !== SessionRecordingPlayerTab.EVENTS) {
+            (s) => [s.filteredItems, s.showOnlyMatching, s.showMatchingEventsFilter],
+            (
+                filteredItems,
+                showOnlyMatching,
+                showMatchingEventsFilter
+            ): (InspectorListItemEvent | InspectorListItemComment)[] => {
+                let items: (InspectorListItemEvent | InspectorListItemComment)[] = filteredItems.filter(
+                    (item): item is InspectorListItemEvent | InspectorListItemComment => {
+                        if (item.type === SessionRecordingPlayerTab.EVENTS) {
+                            return !(showMatchingEventsFilter && showOnlyMatching && item.highlightColor !== 'primary')
+                        }
+
+                        if (item.type === 'comment') {
+                            return !showMatchingEventsFilter
+                        }
+
                         return false
                     }
-
-                    if (!showSeekbarTicks && ['$pageview', '$screen'].includes(item.data.event)) {
-                        return false
-                    }
-
-                    return !(showMatchingEventsFilter && showOnlyMatching && item.highlightColor !== 'primary')
-                }) as InspectorListItemEvent[]
+                )
 
                 if (items.length > MAX_SEEKBAR_ITEMS) {
                     items = items.filter((item) => {
-                        return item.highlightColor === 'primary' || item.data.event === '$pageview'
+                        const isPrimary = item.highlightColor === 'primary'
+                        const isPageView =
+                            item.type === SessionRecordingPlayerTab.EVENTS && item.data.event === '$pageview'
+                        const isComment = item.type === 'comment'
+                        return isPrimary || isPageView || isComment
                     })
 
                     items = items.filter((_, i) => {

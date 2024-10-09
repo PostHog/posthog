@@ -26,6 +26,14 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
     "metadata": {},
     "name": "MockHog",
     "plugins_access_level": 9,
+    "projects": [
+      {
+        "created_at": "2020-06-30T09:53:35.932534Z",
+        "id": 997,
+        "name": "MockHog App + Marketing",
+        "organization_id": "ABCD",
+      },
+    ],
     "slug": "mockhog-fstn",
     "teams": [
       {
@@ -80,6 +88,7 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
         ],
         "person_on_events_querying_enabled": true,
         "primary_dashboard": 1,
+        "project_id": 997,
         "recording_domains": [
           "https://recordings.posthog.com/",
         ],

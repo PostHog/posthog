@@ -14,9 +14,8 @@ import {
 } from 'lib/components/UniversalFilters/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { objectClean } from 'lib/utils'
+import { objectClean, objectsEqual } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import posthog from 'posthog-js'
 
 import { NodeKind, RecordingsQuery, RecordingsQueryResponse } from '~/queries/schema'
 import {
@@ -67,7 +66,6 @@ interface BackendEventsMatching {
 }
 
 export type MatchingEventsMatchType = NoEventsToMatch | EventNamesMatching | EventUUIDsMatching | BackendEventsMatching
-export type SimpleFiltersType = Pick<LegacyRecordingFilters, 'events' | 'properties'>
 
 export const RECORDINGS_LIMIT = 20
 export const PINNED_RECORDINGS_LIMIT = 100 // NOTE: This is high but avoids the need for pagination for now...
@@ -94,19 +92,6 @@ const DEFAULT_PERSON_RECORDING_FILTERS: RecordingUniversalFilters = {
 
 export const getDefaultFilters = (personUUID?: PersonUUID): RecordingUniversalFilters => {
     return personUUID ? DEFAULT_PERSON_RECORDING_FILTERS : DEFAULT_RECORDING_FILTERS
-}
-
-const capturePartialFilters = (filters: Partial<RecordingUniversalFilters>): void => {
-    // capture only the partial filters applied (not the full filters object)
-    // take each key from the filter and change it to `partial_filter_chosen_${key}`
-    const partialFilters = Object.keys(filters).reduce((acc, key) => {
-        acc[`partial_filter_chosen_${key}`] = filters[key]
-        return acc
-    }, {})
-
-    posthog.capture('recording list filters changed', {
-        ...partialFilters,
-    })
 }
 
 export function convertUniversalFiltersToRecordingsQuery(universalFilters: RecordingUniversalFilters): RecordingsQuery {
@@ -265,11 +250,6 @@ export interface SessionRecordingPlaylistLogicProps {
     onPinnedChange?: (recording: SessionRecordingType, pinned: boolean) => void
 }
 
-export interface SessionSummaryResponse {
-    id: SessionRecordingType['id']
-    content: string
-}
-
 export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogicType>([
     path((key) => ['scenes', 'session-recordings', 'playlist', 'sessionRecordingsPlaylistLogic', key]),
     props({} as SessionRecordingPlaylistLogicProps),
@@ -304,33 +284,26 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         }),
         loadAllRecordings: true,
         loadPinnedRecordings: true,
-        loadSessionRecordings: (direction?: 'newer' | 'older') => ({ direction }),
+        loadSessionRecordings: (direction?: 'newer' | 'older', userModifiedFilters?: Record<string, any>) => ({
+            direction,
+            userModifiedFilters,
+        }),
         maybeLoadSessionRecordings: (direction?: 'newer' | 'older') => ({ direction }),
-        summarizeSession: (id: SessionRecordingType['id']) => ({ id }),
         loadNext: true,
         loadPrev: true,
         setShowOtherRecordings: (show: boolean) => ({ show }),
     }),
     propsChanged(({ actions, props }, oldProps) => {
         // If the defined list changes, we need to call the loader to either load the new items or change the list
-        if (props.pinnedRecordings !== oldProps.pinnedRecordings) {
+        if (!objectsEqual(props.pinnedRecordings, oldProps.pinnedRecordings)) {
             actions.loadPinnedRecordings()
         }
-        if (props.filters && props.filters !== oldProps.filters) {
+        if (props.filters && !objectsEqual(props.filters, oldProps.filters)) {
             actions.setFilters(props.filters)
         }
     }),
 
     loaders(({ props, values, actions }) => ({
-        sessionSummary: {
-            summarizeSession: async ({ id }): Promise<SessionSummaryResponse | null> => {
-                if (!id) {
-                    return null
-                }
-                const response = await api.recordings.summarize(id)
-                return { content: response.content, id: id }
-            },
-        },
         eventsHaveSessionId: [
             {} as Record<string, boolean>,
             {
@@ -356,12 +329,16 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 order: 'start_time',
             } as RecordingsQueryResponse & { order: RecordingsQuery['order'] },
             {
-                loadSessionRecordings: async ({ direction }, breakpoint) => {
+                loadSessionRecordings: async ({ direction, userModifiedFilters }, breakpoint) => {
                     const params: RecordingsQuery = {
                         ...convertUniversalFiltersToRecordingsQuery(values.filters),
                         person_uuid: props.personUUID ?? '',
                         order: values.orderBy,
                         limit: RECORDINGS_LIMIT,
+                    }
+
+                    if (userModifiedFilters) {
+                        params.user_modified_filters = userModifiedFilters
                     }
 
                     if (direction === 'older') {
@@ -430,13 +407,6 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             { persist: true, prefix: 'orderByExperiment' },
             {
                 setOrderBy: (_, { orderBy }) => orderBy,
-            },
-        ],
-        sessionBeingSummarized: [
-            null as null | SessionRecordingType['id'],
-            {
-                summarizeSession: (_, { id }) => id,
-                sessionSummarySuccess: () => null,
             },
         ],
         // If we initialise with pinned recordings then we don't show others by default
@@ -521,20 +491,6 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                         }
                         return { ...s }
                     }),
-
-                summarizeSessionSuccess: (state, { sessionSummary }) => {
-                    return sessionSummary
-                        ? state.map((s) => {
-                              if (s.id === sessionSummary.id) {
-                                  return {
-                                      ...s,
-                                      summary: sessionSummary.content,
-                                  }
-                              }
-                              return s
-                          })
-                        : state
-                },
             },
         ],
         selectedRecordingId: [
@@ -561,9 +517,8 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             actions.loadPinnedRecordings()
         },
         setFilters: ({ filters }) => {
-            actions.loadSessionRecordings()
+            actions.loadSessionRecordings(undefined, filters)
             props.onFiltersChange?.(values.filters)
-            capturePartialFilters(filters)
             actions.loadEventsHaveSessionId()
         },
 

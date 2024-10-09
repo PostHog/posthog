@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::io::prelude::*;
 
 use bytes::{Buf, Bytes};
+use common_types::CapturedEvent;
 use flate2::read::GzDecoder;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
@@ -281,6 +282,28 @@ pub struct ProcessingContext {
     pub now: String,
     pub client_ip: String,
     pub historical_migration: bool,
+}
+
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub enum DataType {
+    AnalyticsMain,
+    AnalyticsHistorical,
+    ClientIngestionWarning,
+    HeatmapMain,
+    ExceptionMain,
+    SnapshotMain,
+}
+
+#[derive(Debug, Clone)]
+pub struct ProcessedEvent {
+    pub metadata: ProcessedEventMetadata,
+    pub event: CapturedEvent,
+}
+
+#[derive(Debug, Clone)]
+pub struct ProcessedEventMetadata {
+    pub data_type: DataType,
+    pub session_id: Option<String>,
 }
 
 #[cfg(test)]
