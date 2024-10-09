@@ -12,18 +12,26 @@ import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import { ErrorTrackingGroup } from '~/queries/schema'
 import { ActivityScope } from '~/types'
 
+function nameAndLink(logItem?: ActivityLogItem): JSX.Element {
+    const name = logItem?.detail?.name || 'this one'
+    // TODO link needs to be calculated based on the logItem
+    return <i>{name}</i>
+}
 const errorTrackingGroupActionsMapping: Record<
     keyof ErrorTrackingGroup,
     (change?: ActivityChange, logItem?: ActivityLogItem) => ChangeMapping | null
 > = {
     assignee: () => null,
-    merged_fingerprints(change: ActivityChange | undefined): ChangeMapping | null {
+    merged_fingerprints(change: ActivityChange | undefined, logItem?: ActivityLogItem): ChangeMapping | null {
         const lenBefore = Array.isArray(change?.before) ? change?.before.length || 0 : 0
         const lenAfter = Array.isArray(change?.after) ? change?.after.length || 0 : 0
         const mergeCountChange = lenAfter - lenBefore
         return {
-            // TODO need to be able to name the group here?
-            description: [<>merged {mergeCountChange} groups into this one.</>],
+            description: [
+                <>
+                    merged {mergeCountChange} groups into {nameAndLink(logItem)}.
+                </>,
+            ],
         }
     },
     status: () => null,
