@@ -1,12 +1,10 @@
 from datetime import timedelta
-from typing import Union
 
 from posthog.cache_utils import cache_for
+from posthog.clickhouse.materialized_columns import TablesWithMaterializedColumns
 from posthog.models.property import PropertyName, TableColumn, TableWithProperties
 
 ColumnName = str
-
-TablesWithMaterializedColumns = Union[TableWithProperties]
 
 
 @cache_for(timedelta(minutes=15))

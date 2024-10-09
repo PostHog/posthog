@@ -1,6 +1,10 @@
 from posthog.clickhouse.kafka_engine import trim_quotes_expr
+from posthog.models.property import TableWithProperties
 from posthog.settings import EE_AVAILABLE
 from typing import Any, NamedTuple
+
+
+TablesWithMaterializedColumns = TableWithProperties
 
 
 class MaterializedColumnInfo(NamedTuple):

@@ -1,12 +1,12 @@
 import re
 from datetime import timedelta
-from typing import Literal, Union, cast
+from typing import Literal, cast
 
 from clickhouse_driver.errors import ServerException
 from django.utils.timezone import now
 
 from posthog.cache_utils import cache_for
-from posthog.clickhouse.materialized_columns import MaterializedColumnInfo
+from posthog.clickhouse.materialized_columns import MaterializedColumnInfo, TablesWithMaterializedColumns
 from posthog.client import sync_execute
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.property import PropertyName, TableColumn, TableWithProperties
@@ -15,9 +15,6 @@ from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE, TEST
 
 ColumnName = str
 DEFAULT_TABLE_COLUMN: Literal["properties"] = "properties"
-
-
-TablesWithMaterializedColumns = Union[TableWithProperties]
 
 SHORT_TABLE_COLUMN_NAME = {
     "properties": "p",
