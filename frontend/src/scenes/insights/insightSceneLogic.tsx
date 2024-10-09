@@ -165,17 +165,26 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 mathDefinitions
             ): Breadcrumb[] => {
                 return [
-                    dashboardId !== null && dashboardName
-                        ? {
-                              key: Scene.Dashboard,
-                              name: dashboardName,
-                              path: urls.dashboard(dashboardId),
-                          }
-                        : {
-                              key: Scene.SavedInsights,
-                              name: 'Product analytics',
-                              path: urls.savedInsights(),
-                          },
+                    ...(dashboardId !== null && dashboardName
+                        ? [
+                              {
+                                  key: Scene.Dashboards,
+                                  name: 'Dashboards',
+                                  path: urls.dashboards(),
+                              },
+                              {
+                                  key: Scene.Dashboard,
+                                  name: dashboardName,
+                                  path: urls.dashboard(dashboardId),
+                              },
+                          ]
+                        : [
+                              {
+                                  key: Scene.SavedInsights,
+                                  name: 'Product analytics',
+                                  path: urls.savedInsights(),
+                              },
+                          ]),
                     {
                         key: [Scene.Insight, insight?.short_id || 'new'],
                         name:
