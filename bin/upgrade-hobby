@@ -60,8 +60,8 @@ fi
 # we introduced ENCRYPTION_SALT_KEYS and so if there isn't one, need to add it
 # check for it in the .env file
 if ! grep -q "ENCRYPTION_SALT_KEYS" .env; then
-    NEW_KEY=$(generate_fernet_key)
-    echo "ENCRYPTION_SALT_KEYS=$NEW_KEY" >> .env
+    ENCRYPTION_KEY=$(head -c 32 /dev/urandom | base64 | tr +/ -_ | tr -d =)
+    echo "ENCRYPTION_SALT_KEYS=$ENCRYPTION_KEY" >> .env
     echo "Added missing ENCRYPTION_SALT_KEYS to .env file"
 else
     # Read the existing key
@@ -69,11 +69,10 @@ else
     
     # Check if the existing key is in the correct format (32 bytes base64url)
     if [[ ! $EXISTING_KEY =~ ^[A-Za-z0-9_-]{43}$ ]]; then
-        NEW_KEY=$(generate_fernet_key)
-        sed -i "s/ENCRYPTION_SALT_KEYS=.*/ENCRYPTION_SALT_KEYS=$NEW_KEY/" .env
-        echo "Replaced ENCRYPTION_SALT_KEYS in .env file with a new, correctly formatted key"
-    else
-        echo "Existing ENCRYPTION_SALT_KEYS is correctly formatted"
+        echo "ENCRYPTION_SALT_KEYS is not in the correct fernet format and will not work"
+        echo "🛑 Stop this script and do not proceed"
+        echo "remove ENCRYPTION_SALT_KEYS from .env and try again"
+        exit 1
     fi
 fi
 
