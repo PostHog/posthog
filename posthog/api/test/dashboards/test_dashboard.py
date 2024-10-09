@@ -583,7 +583,9 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         mock_view.action = "retrieve"
         mock_request = MagicMock()
         mock_request.query_params.get.return_value = None
-        dashboard_data = DashboardSerializer(dashboard, context={"view": mock_view, "request": mock_request}).data
+        dashboard_data = DashboardSerializer(
+            dashboard, context={"view": mock_view, "request": mock_request, "get_team": lambda: self.team}
+        ).data
         assert len(dashboard_data["tiles"]) == 1
 
     def test_dashboard_insight_tiles_can_be_loaded_correct_context(self):
