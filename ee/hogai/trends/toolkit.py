@@ -1,6 +1,8 @@
 import xml.etree.ElementTree as ET
 from functools import cached_property
-from typing import TypedDict, cast
+from typing import Literal, TypedDict, cast
+
+from pydantic import BaseModel
 
 from posthog.hogql_queries.ai.event_taxonomy_query_runner import EventTaxonomyQueryRunner
 from posthog.models.group_type_mapping import GroupTypeMapping
@@ -11,7 +13,18 @@ from posthog.schema import CachedEventTaxonomyQueryResponse, EventTaxonomyQuery
 
 class ToolkitTool(TypedDict):
     name: str
+    signature: str
     description: str
+
+
+class TrendsAgentToolModel(BaseModel):
+    name: Literal[
+        "retrieve_entity_properties_tool",
+        "retrieve_event_properties_tool",
+        "retrieve_property_values_tool",
+        "final_answer",
+    ]
+    argument: str
 
 
 class TrendsAgentToolkit:
@@ -46,7 +59,8 @@ class TrendsAgentToolkit:
 
         return [
             {
-                "name": f"retrieve_entity_properties_tool(entity: Literal[{stringified_entities}])",
+                "name": f"retrieve_entity_properties_tool",
+                "signature": f"(entity: Literal[{stringified_entities}])",
                 "description": """
                     Use this tool to retrieve property names for a property group (entity) that the user has in their taxonomy. You will receive a list of properties and their value types or a message that properties have not been found.
 
@@ -60,7 +74,8 @@ class TrendsAgentToolkit:
                 """,
             },
             {
-                "name": "retrieve_event_properties_tool(event_name: str)",
+                "name": "retrieve_event_properties_tool",
+                "signature": "(event_name: str)",
                 "description": """
                     Use this tool to retrieve property names of an event that the user has in their taxonomy. You will receive a list of properties, their value types and example values or a message that properties have not been found.
 
@@ -73,7 +88,8 @@ class TrendsAgentToolkit:
                 """,
             },
             {
-                "name": "retrieve_property_values_tool(property_name: str)",
+                "name": "retrieve_property_values_tool",
+                "signature": "(property_name: str)",
                 "description": """
                     Use this tool to retrieve property values for a property name that the user has in their taxonomy. Adjust filters to these values. You will receive a list of property values or a message that property values have not been found. Some properties can have many values, so the output will be truncated. Use your judgement to find a proper value.
 
@@ -82,7 +98,8 @@ class TrendsAgentToolkit:
                 """,
             },
             {
-                "name": "final_answer(final_response: str)",
+                "name": "final_answer",
+                "signature": "(final_response: str)",
                 "description": """
                     Use this tool to provide the final answer to the user's question.
 
@@ -126,6 +143,26 @@ class TrendsAgentToolkit:
                 """,
             },
         ]
+
+    def render_text_description(self) -> str:
+        """
+        Render the tool name and description in plain text.
+
+        Returns:
+            The rendered text.
+
+        Output will be in the format of:
+
+        .. code-block:: markdown
+
+            search: This tool is used for search
+            calculator: This tool is used for math
+        """
+        descriptions = []
+        for tool in self.tools:
+            description = f"{tool['name']}{tool['signature']} - {tool['description']}"
+            descriptions.append(description)
+        return "\n".join(descriptions)
 
     def _generate_properties_xml(self, children: list[tuple[str, str | None]]):
         root = ET.Element("properties")

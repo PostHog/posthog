@@ -1,19 +1,13 @@
-from typing import Literal, Optional, Union, cast
+from typing import Literal, Union, cast
 
 from langchain.agents.output_parsers import ReActJsonSingleInputOutputParser
-from langchain.callbacks.manager import (
-    AsyncCallbackManagerForToolRun,
-    CallbackManagerForToolRun,
-)
 from langchain_core.agents import AgentAction, AgentFinish
 from langchain_core.messages import merge_message_runs
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.tools import BaseTool
-from langchain_core.tools.render import render_text_description
-from pydantic import BaseModel, Field
 
 from ee.hogai.hardcoded_definitions import hardcoded_prop_defs
 from ee.hogai.trends.prompts import react_definitions_prompt, react_scratchpad_prompt, react_system_prompt
+from ee.hogai.trends.toolkit import TrendsAgentToolkit, TrendsAgentToolModel
 from ee.hogai.utils import (
     AssistantNode,
     AssistantNodeName,
@@ -24,34 +18,6 @@ from ee.hogai.utils import (
 )
 from posthog.models.event_definition import EventDefinition
 from posthog.models.team.team import Team
-
-
-class RetrieveEntityTaxonomyArgs(BaseModel):
-    entity: Literal["person", "session", "cohort", "organization", "instance", "project"] = Field(
-        ..., description="The type of the entity that you want to retrieve properties for."
-    )
-
-
-class RetrieveEntityTaxonomyTool(BaseTool):
-    name: str = "retrieve_entity_properties_tool"
-    description: str = """
-    Use this tool to retrieve property names for a property group (entity) that the user has in their taxonomy. You will receive a list of properties and their value types or a message that properties have not been found.
-
-    - **Infer the property groups from the user's request.**
-    - **Try other entities** if the tool doesn't return any properties.
-    - **Prioritize properties that are directly related to the context or objective of the user's query.**
-    - **Avoid using ambiguous properties** unless their relevance is explicitly confirmed.
-    """
-    args_schema: type[BaseModel] = RetrieveEntityTaxonomyArgs
-
-    def _run(self, entity: str, run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
-        return "LangChain"
-
-    async def _arun(self, entity: str, run_manager: Optional[AsyncCallbackManagerForToolRun] = None) -> str:
-        raise NotImplementedError("custom_search does not support async")
-
-
-tools: list[BaseTool] = [RetrieveEntityTaxonomyTool()]
 
 
 class CreateTrendsPlanNode(AssistantNode):
@@ -128,6 +94,7 @@ class CreateTrendsPlanNode(AssistantNode):
             events=cls._generate_events_prompt(team),
         )
 
+        toolkit = TrendsAgentToolkit(team)
         output_parser = ReActJsonSingleInputOutputParser()
         merger = merge_message_runs()
 
@@ -137,8 +104,8 @@ class CreateTrendsPlanNode(AssistantNode):
             Union[AgentAction, AgentFinish],
             agent.invoke(
                 {
-                    "tools": render_text_description(tools),
-                    "tool_names": ", ".join([t.name for t in tools]),
+                    "tools": toolkit.render_text_description(),
+                    "tool_names": ", ".join([t["name"] for t in toolkit.tools]),
                     "agent_scratchpad": "",
                 }
             ),
@@ -151,10 +118,45 @@ class CreateTrendsPlanNode(AssistantNode):
                 "last_thought": result.output,
             }
 
+        try:
+            TrendsAgentToolModel(name=result.tool, argument=result.tool_input)
+        except Exception:
+            # validate
+            raise ValueError("Invalid tool call.")
+
         return {
             **state,
             "agent_state": {
                 "intermediate_steps": [*intermediate_steps, (result, None)],
+            },
+        }
+
+
+class CreateTrendsPlanToolsNode(AssistantNode):
+    name = AssistantNodeName.CREATE_TRENDS_PLAN_TOOLS
+
+    @classmethod
+    def run(cls, state: AssistantState) -> AssistantState:
+        team = state["team"]
+        if "agent_state" not in state or state["agent_state"] is None:
+            raise ValueError("Invalid state.")
+
+        toolkit = TrendsAgentToolkit(team)
+        intermediate_steps = state["agent_state"]["intermediate_steps"]
+        action, _ = intermediate_steps[-1]
+
+        output = ""
+        if action.tool == "retrieve_entity_properties_tool":
+            output = toolkit.retrieve_entity_properties(action.tool_input)
+        elif action.tool == "retrieve_event_properties_tool":
+            output = toolkit.retrieve_event_properties(action.tool_input)
+        else:
+            output = toolkit.retrieve_event_properties(action.tool_input)
+
+        return {
+            **state,
+            "agent_state": {
+                "intermediate_steps": [*state["agent_state"]["intermediate_steps"], (action, output)],
             },
         }
 
