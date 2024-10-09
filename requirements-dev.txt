@@ -23,10 +23,6 @@ asgiref==3.7.2
     #   django-stubs
 asttokens==2.4.1
     # via inline-snapshot
-async-timeout==4.0.2
-    # via
-    #   -c requirements.txt
-    #   redis
 attrs==23.2.0
     # via
     #   -c requirements.txt
@@ -111,6 +107,14 @@ frozenlist==1.4.1
     #   aiosignal
 genson==1.2.2
     # via datamodel-code-generator
+gitdb==4.0.11
+    # via
+    #   -c requirements.txt
+    #   gitpython
+gitpython==3.1.40
+    # via
+    #   -c requirements.txt
+    #   tach
 icdiff==2.0.5
     # via pytest-icdiff
 idna==2.8
@@ -167,6 +171,8 @@ mypy-extensions==1.0.0
     #   -r requirements-dev.in
     #   black
     #   mypy
+networkx==3.3
+    # via tach
 openapi-schema-validator==0.6.2
     # via openapi-spec-validator
 openapi-spec-validator==0.7.1
@@ -195,6 +201,10 @@ pprintpp==0.4.0
     # via pytest-icdiff
 prance==23.6.21.0
     # via -r requirements-dev.in
+prompt-toolkit==3.0.39
+    # via
+    #   -c requirements.txt
+    #   tach
 pycparser==2.20
     # via
     #   -c requirements.txt
@@ -207,8 +217,12 @@ pydantic-core==2.14.6
     # via
     #   -c requirements.txt
     #   pydantic
+pydot==3.0.2
+    # via tach
 pygments==2.18.0
     # via rich
+pyparsing==3.1.4
+    # via pydot
 pytest==7.4.4
     # via
     #   -r requirements-dev.in
@@ -252,6 +266,7 @@ pyyaml==6.0.1
     #   datamodel-code-generator
     #   jsonschema-path
     #   responses
+    #   tach
 redis==4.5.4
     # via
     #   -c requirements.txt
@@ -274,7 +289,9 @@ responses==0.23.1
 rfc3339-validator==0.1.4
     # via openapi-schema-validator
 rich==13.7.1
-    # via inline-snapshot
+    # via
+    #   inline-snapshot
+    #   tach
 rpds-py==0.16.2
     # via
     #   -c requirements.txt
@@ -293,6 +310,10 @@ six==1.16.0
     #   prance
     #   python-dateutil
     #   rfc3339-validator
+smmap==5.0.1
+    # via
+    #   -c requirements.txt
+    #   gitdb
 sortedcontainers==2.4.0
     # via
     #   -c requirements.txt
@@ -303,10 +324,16 @@ sqlparse==0.4.4
     #   django
 syrupy==4.6.0
     # via -r requirements-dev.in
+tach==0.13.1
+    # via -r requirements-dev.in
 toml==0.10.2
     # via
     #   coverage
     #   inline-snapshot
+tomli==2.0.2
+    # via tach
+tomli-w==1.1.0
+    # via tach
 types-awscrt==0.20.9
     # via botocore-stubs
 types-freezegun==1.1.10
@@ -346,13 +373,11 @@ types-tzlocal==5.1.0.1
 typing-extensions==4.12.2
     # via
     #   -c requirements.txt
-    #   boto3-stubs
     #   django-stubs
     #   django-stubs-ext
     #   djangorestframework-stubs
     #   inline-snapshot
     #   mypy
-    #   mypy-boto3-s3
     #   pydantic
     #   pydantic-core
 urllib3==1.26.18
@@ -364,6 +389,10 @@ watchdog==2.1.8
     # via
     #   -r requirements-dev.in
     #   pytest-watch
+wcwidth==0.2.6
+    # via
+    #   -c requirements.txt
+    #   prompt-toolkit
 yarl==1.9.4
     # via
     #   -c requirements.txt
