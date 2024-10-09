@@ -13,6 +13,7 @@ import {
     DashboardFilter,
     DataTableNode,
     DataVisualizationNode,
+    HogQLVariable,
     InsightVizNode,
     Node,
 } from '~/queries/schema'
@@ -50,10 +51,20 @@ export interface QueryProps<Q extends Node> {
     inSharedMode?: boolean
     /** Dashboard filters to override the ones in the query */
     filtersOverride?: DashboardFilter | null
+    /** Dashboard variables to override the ones in the query */
+    variablesOverride?: Record<string, HogQLVariable> | null
 }
 
 export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null {
-    const { query: propsQuery, setQuery: propsSetQuery, readOnly, embedded, filtersOverride, inSharedMode } = props
+    const {
+        query: propsQuery,
+        setQuery: propsSetQuery,
+        readOnly,
+        embedded,
+        filtersOverride,
+        variablesOverride,
+        inSharedMode,
+    } = props
 
     const [localQuery, localSetQuery] = useState(propsQuery)
     useEffect(() => {
@@ -117,6 +128,7 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
                 embedded={embedded}
                 inSharedMode={inSharedMode}
                 filtersOverride={filtersOverride}
+                variablesOverride={variablesOverride}
             />
         )
     } else if (isWebOverviewQuery(query)) {

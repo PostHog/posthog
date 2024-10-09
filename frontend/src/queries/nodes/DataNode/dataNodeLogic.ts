@@ -28,7 +28,7 @@ import { userLogic } from 'scenes/userLogic'
 import { dataNodeCollectionLogic, DataNodeCollectionProps } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { removeExpressionComment } from '~/queries/nodes/DataTable/utils'
 import { performQuery } from '~/queries/query'
-import { DashboardFilter, QueryStatus } from '~/queries/schema'
+import { DashboardFilter, HogQLVariable, QueryStatus } from '~/queries/schema'
 import {
     ActorsQuery,
     ActorsQueryResponse,
@@ -66,6 +66,8 @@ export interface DataNodeLogicProps {
 
     /** Dashboard filters to override the ones in the query */
     filtersOverride?: DashboardFilter | null
+    /** Dashboard variables to override the ones in the query */
+    variablesOverride?: Record<string, HogQLVariable> | null
 }
 
 export const AUTOLOAD_INTERVAL = 30000
@@ -214,6 +216,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                                             queryId,
                                             actions.setPollResponse,
                                             props.filtersOverride,
+                                            props.variablesOverride,
                                             pollOnly
                                         )) ?? null
                                     const duration = performance.now() - now

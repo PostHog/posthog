@@ -15,6 +15,7 @@ import {
     DatabaseSerializedFieldType,
     ErrorTrackingGroup,
     HogCompileResponse,
+    HogQLVariable,
     QuerySchema,
     QueryStatusResponse,
     RecordingsQuery,
@@ -934,7 +935,8 @@ const api = {
             shortId: InsightModel['short_id'],
             basic?: boolean,
             refresh?: RefreshType,
-            filtersOverride?: DashboardFilter | null
+            filtersOverride?: DashboardFilter | null,
+            variablesOverride?: Record<string, HogQLVariable> | null
         ): Promise<PaginatedResponse<Partial<InsightModel>>> {
             return new ApiRequest()
                 .insights()
@@ -944,6 +946,7 @@ const api = {
                         basic,
                         refresh,
                         filters_override: filtersOverride,
+                        variables_override: variablesOverride,
                     })
                 )
                 .get()
@@ -2368,7 +2371,8 @@ const api = {
         queryId?: string,
         refresh?: boolean,
         async?: boolean,
-        filtersOverride?: DashboardFilter | null
+        filtersOverride?: DashboardFilter | null,
+        variablesOverride?: Record<string, HogQLVariable> | null
     ): Promise<
         T extends { [response: string]: any }
             ? T['response'] extends infer P | undefined
@@ -2379,7 +2383,13 @@ const api = {
         const refreshParam: RefreshType | undefined = refresh && async ? 'force_async' : async ? 'async' : refresh
         return await new ApiRequest().query().create({
             ...options,
-            data: { query, client_query_id: queryId, refresh: refreshParam, filters_override: filtersOverride },
+            data: {
+                query,
+                client_query_id: queryId,
+                refresh: refreshParam,
+                filters_override: filtersOverride,
+                variables_override: variablesOverride,
+            },
         })
     },
 

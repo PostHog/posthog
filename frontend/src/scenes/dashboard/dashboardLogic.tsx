@@ -206,7 +206,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
             date_to,
         }),
         setProperties: (properties: AnyPropertyFilter[] | null) => ({ properties }),
-        setFiltersAndLayouts: (filters: DashboardFilter) => ({ filters }),
+        setFiltersAndLayoutsAndVariables: (filters: DashboardFilter, variables: Record<string, HogQLVariable>) => ({
+            filters,
+            variables,
+        }),
         setAutoRefresh: (enabled: boolean, interval: number) => ({ enabled, interval }),
         setRefreshStatus: (shortId: InsightShortId, loading = false, queued = false) => ({ shortId, loading, queued }),
         setRefreshStatuses: (shortIds: InsightShortId[], loading = false, queued = false) => ({
@@ -238,7 +241,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         setInitialLoadResponseBytes: (responseBytes: number) => ({ responseBytes }),
         abortQuery: (payload: { dashboardQueryId: string; queryId: string; queryStartTime: number }) => payload,
         abortAnyRunningQuery: true,
-        updateFiltersAndLayouts: true,
+        updateFiltersAndLayoutsAndVariables: true,
         overrideVariableValue: (variableId: string, value: any) => ({
             variableId,
             value,
@@ -293,7 +296,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         throw error
                     }
                 },
-                updateFiltersAndLayouts: async (_, breakpoint) => {
+                updateFiltersAndLayoutsAndVariables: async (_, breakpoint) => {
                     actions.abortAnyRunningQuery()
 
                     try {
@@ -308,6 +311,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             `api/projects/${values.currentTeamId}/dashboards/${props.id}`,
                             {
                                 filters: values.filters,
+                                variables: values.variableOverrides,
                                 tiles: layoutsToUpdate,
                             }
                         )
@@ -425,6 +429,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
                     return state
                 },
+                loadDashboardSuccess: (state, { dashboard, payload }) =>
+                    dashboard
+                        ? {
+                              ...state,
+                              // don't update filters if we're previewing
+                              ...(payload?.action === 'preview' ? {} : dashboard.variables ?? {}),
+                          }
+                        : state,
             },
         ],
         _dashboardLoading: [
@@ -500,7 +512,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 properties: null,
             } as DashboardFilter,
             {
-                setFiltersAndLayouts: (state, { filters }) => ({
+                setFiltersAndLayoutsAndVariables: (state, { filters }) => ({
                     ...state,
                     ...filters,
                 }),
@@ -1024,7 +1036,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         },
     })),
     listeners(({ actions, values, cache, props, sharedListeners }) => ({
-        updateFiltersAndLayoutsSuccess: () => {
+        updateFiltersAndLayoutsAndVariablesSuccess: () => {
             actions.loadDashboard({ action: 'update' })
         },
         setRefreshError: sharedListeners.reportRefreshTiming,
@@ -1268,8 +1280,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
             eventUsageLogic.actions.reportDashboardRefreshed(dashboardId, values.newestRefreshed)
         },
-        setFiltersAndLayouts: ({ filters: { date_from, date_to } }) => {
-            actions.updateFiltersAndLayouts()
+        setFiltersAndLayoutsAndVariables: ({ filters: { date_from, date_to } }) => {
+            actions.updateFiltersAndLayoutsAndVariables()
             eventUsageLogic.actions.reportDashboardDateRangeChanged(date_from, date_to)
             eventUsageLogic.actions.reportDashboardPropertiesChanged()
         },
@@ -1289,7 +1301,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     // this is done in the reducer for dashboard
                 } else if (source === DashboardEventSource.DashboardHeaderSaveDashboard) {
                     // save edit mode changes
-                    actions.setFiltersAndLayouts(values.temporaryFilters)
+                    actions.setFiltersAndLayoutsAndVariables(values.temporaryFilters, values.variableOverrides)
                 }
             }
 

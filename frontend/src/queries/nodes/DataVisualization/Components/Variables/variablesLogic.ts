@@ -21,7 +21,12 @@ export const variablesLogic = kea<variablesLogicType>([
     key((props) => props.key),
     connect({
         actions: [dataVisualizationLogic, ['setQuery', 'loadData'], variableDataLogic, ['getVariables']],
-        values: [dataVisualizationLogic, ['query', 'insightLogicProps'], variableDataLogic, ['variables']],
+        values: [
+            dataVisualizationLogic,
+            ['query', 'insightLogicProps'],
+            variableDataLogic,
+            ['variables', 'variablesLoading'],
+        ],
     }),
     actions({
         addVariable: (variable: HogQLVariable) => ({ variable }),
@@ -58,9 +63,9 @@ export const variablesLogic = kea<variablesLogicType>([
     }),
     selectors({
         variablesForInsight: [
-            (s) => [s.variables, s.internalSelectedVariables],
-            (variables, internalSelectedVariables): Variable[] => {
-                if (!variables.length || !internalSelectedVariables.length) {
+            (s) => [s.variables, s.internalSelectedVariables, s.variablesLoading],
+            (variables, internalSelectedVariables, variablesLoading): Variable[] => {
+                if (!variables.length || !internalSelectedVariables.length || variablesLoading) {
                     return []
                 }
 
@@ -85,6 +90,10 @@ export const variablesLogic = kea<variablesLogicType>([
     }),
     subscriptions(({ props, actions, values }) => ({
         variablesForInsight: (variables: Variable[]) => {
+            if (values.variablesLoading || variables.length < Object.keys(values.query.source.variables ?? {}).length) {
+                return
+            }
+
             const query: DataVisualizationNode = {
                 ...values.query,
                 source: {
@@ -132,10 +141,10 @@ export const variablesLogic = kea<variablesLogicType>([
         },
     })),
     afterMount(({ actions, values }) => {
+        actions.getVariables()
+
         Object.values(values.query.source.variables ?? {}).forEach((variable) => {
             actions.addVariable(variable)
         })
-
-        actions.getVariables()
     }),
 ])

@@ -144,7 +144,13 @@ def calculate_for_query_based_insight(
         dashboard_filters_json=(
             filters_override if filters_override is not None else dashboard.filters if dashboard is not None else None
         ),
-        variables_override_json=variables_override,
+        variables_override_json=(
+            variables_override
+            if variables_override is not None
+            else dashboard.variables
+            if dashboard is not None
+            else None
+        ),
         execution_mode=execution_mode,
         user=user,
         insight_id=insight.pk,
