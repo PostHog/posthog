@@ -48,6 +48,7 @@ export function SessionPlayerModal(): JSX.Element | null {
             width={1600}
             fullScreen={isFullScreen}
             closable={!isFullScreen}
+            zIndex="1061"
         >
             <header>
                 {activeSessionRecording ? (
