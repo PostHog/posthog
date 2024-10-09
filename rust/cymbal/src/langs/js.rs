@@ -47,7 +47,7 @@ impl RawJSFrame {
         let last_colon = script_url.rfind(':');
         let last_slash = script_url.rfind('/');
         let useful = match (last_colon, last_slash) {
-            (Some(colon), Some(slash)) if colon > slash => slash,
+            (Some(colon), Some(slash)) if colon > slash => colon,
             _ => script_url.len(),
         };
 
@@ -56,7 +56,7 @@ impl RawJSFrame {
         let last_colon = script_url.rfind(':');
         let last_slash = script_url.rfind('/');
         let useful = match (last_colon, last_slash) {
-            (Some(colon), Some(slash)) if colon > slash => slash,
+            (Some(colon), Some(slash)) if colon > slash => colon,
             _ => script_url.len(),
         };
 
