@@ -1,12 +1,12 @@
 import re
 from datetime import timedelta
-from typing import Any, Literal, NamedTuple, Union, cast
+from typing import Literal, Union, cast
 
 from clickhouse_driver.errors import ServerException
 from django.utils.timezone import now
 
 from posthog.cache_utils import cache_for
-from posthog.clickhouse.kafka_engine import trim_quotes_expr
+from posthog.clickhouse.materialized_columns import MaterializedColumnInfo
 from posthog.client import sync_execute
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.property import PropertyName, TableColumn, TableWithProperties
@@ -29,35 +29,6 @@ SHORT_TABLE_COLUMN_NAME = {
     "group3_properties": "gp3",
     "group4_properties": "gp4",
 }
-
-
-class MaterializedColumnInfo(NamedTuple):
-    column_name: str
-    is_nullable: bool
-
-    @property
-    def column_type(self) -> str:
-        type_name = "String"
-        if self.is_nullable:
-            type_name = f"Nullable({type_name})"
-        return type_name
-
-    def get_expression_template(self, source_column: str, property_name: str) -> tuple[str, dict[str, Any]]:
-        """
-        Returns an expression and query parameter mapping that can be used to extract the property value from the source
-        column.
-        """
-        property_parameter_name = "property_name"
-        if self.is_nullable:
-            extract_type_parameter_name = "column_type"
-            return (
-                f"JSONExtract({source_column}, %({property_parameter_name})s, %({extract_type_parameter_name})s)",
-                {property_parameter_name: property_name, extract_type_parameter_name: self.column_type},
-            )
-        else:
-            return trim_quotes_expr(f"JSONExtractRaw({source_column}, %({property_parameter_name})s)"), {
-                property_parameter_name: property_name,
-            }
 
 
 @cache_for(timedelta(minutes=15))

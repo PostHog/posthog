@@ -6,6 +6,7 @@ from difflib import get_close_matches
 from typing import Literal, Optional, Union, cast
 from uuid import UUID
 
+from posthog.clickhouse.materialized_columns import MaterializedColumnInfo
 from posthog.clickhouse.property_groups import property_groups
 from posthog.hogql import ast
 from posthog.hogql.base import AST
@@ -1308,11 +1309,10 @@ class _Printer(Visitor):
 
             materialized_column_info = self._get_materialized_column_info(table_name, property_name, field_name)
             if materialized_column_info is not None:
-                (materialized_column_name, materialized_column_is_nullable) = materialized_column_info
                 yield PrintableMaterializedColumn(
                     self.visit(field_type.table_type),
-                    self._print_identifier(materialized_column_name),
-                    materialized_column_is_nullable,
+                    self._print_identifier(materialized_column_info.column_name),
+                    materialized_column_info.is_nullable,
                 )
 
             if self.context.modifiers.propertyGroupsMode in (
@@ -1344,9 +1344,10 @@ class _Printer(Visitor):
                 materialized_column_info = self._get_materialized_column_info("person", property_name, "properties")
 
             if materialized_column_info is not None:
-                (materialized_column_name, materialized_column_is_nullable) = materialized_column_info
                 yield PrintableMaterializedColumn(
-                    None, self._print_identifier(materialized_column_name), materialized_column_is_nullable
+                    None,
+                    self._print_identifier(materialized_column_info.column_name),
+                    materialized_column_info.is_nullable,
                 )
 
     def visit_property_type(self, type: ast.PropertyType):
@@ -1506,19 +1507,16 @@ class _Printer(Visitor):
 
     def _get_materialized_column_info(
         self, table_name: str, property_name: PropertyName, field_name: TableColumn
-    ) -> Optional[tuple[str, bool]]:
+    ) -> Optional[MaterializedColumnInfo]:
         try:
             from ee.clickhouse.materialized_columns.columns import (
                 TablesWithMaterializedColumns,
                 get_materialized_column_info,
             )
 
-            materialized_columns = get_materialized_column_info(cast(TablesWithMaterializedColumns, table_name))
-            column_info = materialized_columns.get((property_name, field_name), None)
-            if column_info is not None:
-                # XXX: can't return ``MaterializedColumnInfo`` directly here and preserve type annotations as the module
-                # may not be available
-                return (column_info.column_name, column_info.is_nullable)
+            return get_materialized_column_info(cast(TablesWithMaterializedColumns, table_name)).get(
+                (property_name, field_name), None
+            )
         except ModuleNotFoundError:
             pass
         return None
