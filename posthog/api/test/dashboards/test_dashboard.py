@@ -14,6 +14,7 @@ from posthog.constants import AvailableFeature
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 from posthog.models import Dashboard, DashboardTile, Filter, Insight, Team, User
 from posthog.models.organization import Organization
+from posthog.models.project import Project
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.signals import mute_selected_signals
 from posthog.test.base import (
@@ -80,6 +81,33 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(
             [dashboard["name"] for dashboard in response_data["results"]],
             dashboard_names,
+        )
+
+    def test_retrieve_dashboard_list_includes_other_environments(self):
+        other_team_in_project = Team.objects.create(organization=self.organization, project=self.project)
+        _, team_in_other_project = Project.objects.create_with_team(
+            organization=self.organization, initiating_user=self.user
+        )
+
+        dashboard_a_id, _ = self.dashboard_api.create_dashboard({"name": "A"}, team_id=self.team.id)
+        dashboard_b_id, _ = self.dashboard_api.create_dashboard({"name": "B"}, team_id=other_team_in_project.id)
+        self.dashboard_api.create_dashboard({"name": "C"}, team_id=team_in_other_project.id)
+
+        response_project_data = self.dashboard_api.list_dashboards(self.project.id)
+        response_env_current_data = self.dashboard_api.list_dashboards(self.team.id, parent="environment")
+        response_env_other_data = self.dashboard_api.list_dashboards(other_team_in_project.id, parent="environment")
+
+        self.assertEqual(
+            {dashboard["id"] for dashboard in response_project_data["results"]},
+            {dashboard_a_id, dashboard_b_id},
+        )
+        self.assertEqual(
+            {dashboard["id"] for dashboard in response_env_current_data["results"]},
+            {dashboard_a_id, dashboard_b_id},
+        )
+        self.assertEqual(
+            {dashboard["id"] for dashboard in response_env_other_data["results"]},
+            {dashboard_a_id, dashboard_b_id},
         )
 
     @snapshot_postgres_queries
