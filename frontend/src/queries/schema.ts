@@ -1978,6 +1978,7 @@ export enum AlertState {
     FIRING = 'Firing',
     NOT_FIRING = 'Not firing',
     ERRORED = 'Errored',
+    SNOOZED = 'Snoozed',
 }
 
 export enum AlertCalculationInterval {

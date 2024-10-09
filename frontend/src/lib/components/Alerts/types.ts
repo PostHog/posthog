@@ -21,6 +21,7 @@ export interface AlertTypeBase {
 export interface AlertTypeWrite extends Omit<AlertTypeBase, 'insight'> {
     subscribed_users: number[]
     insight: number
+    snoozed_until?: string | null
 }
 
 export interface AlertCheck {
@@ -42,4 +43,5 @@ export interface AlertType extends AlertTypeBase {
     last_checked_at: string
     checks: AlertCheck[]
     calculation_interval: AlertCalculationInterval
+    snoozed_until?: string
 }

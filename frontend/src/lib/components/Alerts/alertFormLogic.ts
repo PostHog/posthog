@@ -31,6 +31,8 @@ export const alertFormLogic = kea<alertFormLogicType>([
 
     actions({
         deleteAlert: true,
+        snoozeAlert: (snoozeUntil: string) => ({ snoozeUntil }),
+        clearSnooze: true,
     }),
 
     forms(({ props }) => ({
@@ -103,6 +105,22 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 throw new Error("Cannot delete alert that doesn't exist")
             }
             await api.alerts.delete(values.alertForm.id)
+            props.onEditSuccess()
+        },
+        snoozeAlert: async ({ snoozeUntil }) => {
+            // resolution only allowed on created alert (which will have alertId)
+            if (!values.alertForm.id) {
+                throw new Error("Cannot resolve alert that doesn't exist")
+            }
+            await api.alerts.update(values.alertForm.id, { snoozed_until: snoozeUntil })
+            props.onEditSuccess()
+        },
+        clearSnooze: async () => {
+            // resolution only allowed on created alert (which will have alertId)
+            if (!values.alertForm.id) {
+                throw new Error("Cannot resolve alert that doesn't exist")
+            }
+            await api.alerts.update(values.alertForm.id, { snoozed_until: null })
             props.onEditSuccess()
         },
     })),

@@ -15,13 +15,13 @@ import { insightAlertsLogic, InsightAlertsLogicProps } from '../insightAlertsLog
 import { AlertType } from '../types'
 
 export function AlertStateIndicator({ alert }: { alert: AlertType }): JSX.Element {
-    return alert.state === AlertState.NOT_FIRING ? (
-        <span className="text-success-dark">
-            <IconCheck />
-        </span>
-    ) : (
+    return alert.state === AlertState.FIRING ? (
         <span className="text-danger-dark">
             <IconX />
+        </span>
+    ) : (
+        <span className="text-success-dark">
+            <IconCheck />
         </span>
     )
 }

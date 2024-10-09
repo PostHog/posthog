@@ -340,7 +340,7 @@
             "type": "string"
         },
         "AlertState": {
-            "enum": ["Firing", "Not firing", "Errored"],
+            "enum": ["Firing", "Not firing", "Errored", "Snoozed"],
             "type": "string"
         },
         "AnyDataNode": {

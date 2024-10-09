@@ -15,6 +15,7 @@ ALERT_STATE_CHOICES = [
     (AlertState.FIRING, AlertState.FIRING),
     (AlertState.NOT_FIRING, AlertState.NOT_FIRING),
     (AlertState.ERRORED, AlertState.ERRORED),
+    (AlertState.SNOOZED, AlertState.SNOOZED),
 ]
 
 
@@ -109,6 +110,7 @@ class AlertConfiguration(CreatedMetaFields, UUIDModel):
     last_notified_at = models.DateTimeField(null=True, blank=True)
     last_checked_at = models.DateTimeField(null=True, blank=True)
     next_check_at = models.DateTimeField(null=True, blank=True)
+    snoozed_until = models.DateTimeField(null=True, blank=True)
 
     def __str__(self):
         return f"{self.name} (Team: {self.team})"

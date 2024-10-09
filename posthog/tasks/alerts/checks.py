@@ -116,16 +116,13 @@ def check_alerts_task() -> None:
     expire_after = now + timedelta(minutes=30)
 
     # find all alerts with the provided interval that are due to be calculated
-    # (next_check_at is null or less than now)
+    # (next_check_at is null or less than now) and it's not snoozed
     alerts = (
         AlertConfiguration.objects.filter(
             Q(enabled=True, is_calculating=False, next_check_at__lte=now)
-            | Q(
-                enabled=True,
-                is_calculating=False,
-                next_check_at__isnull=True,
-            )
+            | Q(enabled=True, is_calculating=False, next_check_at__isnull=True)
         )
+        .filter(Q(snoozed_until__isnull=True) | Q(snoozed_until__lt=now))
         .order_by(F("next_check_at").asc(nulls_first=True))
         .only("id", "team", "calculation_interval")
     )
@@ -182,6 +179,18 @@ def check_alert(alert_id: str) -> None:
             alert=alert,
         )
         return
+
+    if alert.snoozed_until:
+        if alert.snoozed_until > now:
+            logger.warning(
+                "Alert has been snoozed so skipping checking it now",
+                alert=alert,
+            )
+            return
+        else:
+            # not snoozed (anymore) so clear snoozed_until
+            alert.snoozed_until = None
+            alert.state = AlertState.NOT_FIRING
 
     alert.is_calculating = True
     alert.save()
@@ -287,15 +296,11 @@ def add_alert_check(
     targets_notified = {}
 
     if error:
-        # If the alert is not already errored, notify user
-        if alert.state != AlertState.ERRORED:
-            alert.state = AlertState.ERRORED
-            notify = True
+        alert.state = AlertState.ERRORED
+        notify = True
     elif breaches:
-        # If the alert is not already firing, notify user
-        if alert.state != AlertState.FIRING:
-            alert.state = AlertState.FIRING
-            notify = True
+        alert.state = AlertState.FIRING
+        notify = True
     else:
         alert.state = AlertState.NOT_FIRING  # Set the Alert to not firing if the threshold is no longer met
         # TODO: Optionally send a resolved notification when alert goes from firing to not_firing?

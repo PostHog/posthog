@@ -5,18 +5,20 @@ import { AlertStateIndicator } from 'lib/components/Alerts/views/ManageAlertsMod
 import { MemberSelectMultiple } from 'lib/components/MemberSelectMultiple'
 import { TZLabel } from 'lib/components/TZLabel'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
+import { dayjs } from 'lib/dayjs'
 import { IconChevronLeft } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
-import { alphabet } from 'lib/utils'
+import { alphabet, formatDate } from 'lib/utils'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 
-import { AlertCalculationInterval, AlertConditionType, InsightThresholdType } from '~/queries/schema'
+import { AlertCalculationInterval, AlertConditionType, AlertState, InsightThresholdType } from '~/queries/schema'
 import { InsightShortId, QueryBasedInsightModel } from '~/types'
 
 import { alertFormLogic } from '../alertFormLogic'
 import { alertLogic } from '../alertLogic'
+import { SnoozeButton } from '../SnoozeButton'
 import { AlertType } from '../types'
 
 export function AlertStateTable({ alert }: { alert: AlertType }): JSX.Element | null {
@@ -27,7 +29,8 @@ export function AlertStateTable({ alert }: { alert: AlertType }): JSX.Element | 
     return (
         <div className="bg-bg-3000 p-4 mt-10 rounded-lg">
             <h3>
-                Current status {alert.state}
+                Current status - {alert.state}
+                {alert.snoozed_until && ` until ${formatDate(dayjs(alert?.snoozed_until), 'MMM D, HH:mm')}`}{' '}
                 <AlertStateIndicator alert={alert} />
             </h3>
             <table className="w-full table-auto border-spacing-2 border-collapse">
@@ -78,7 +81,7 @@ export function EditAlertModal({
     const formLogicProps = { alert, insightId, onEditSuccess }
     const formLogic = alertFormLogic(formLogicProps)
     const { alertForm, isAlertFormSubmitting, alertFormChanged } = useValues(formLogic)
-    const { deleteAlert } = useActions(formLogic)
+    const { deleteAlert, snoozeAlert, clearSnooze } = useActions(formLogic)
     const { setAlertFormValue } = useActions(formLogic)
 
     const trendsLogic = trendsDataLogic({ dashboardItemId: insightShortId })
@@ -291,15 +294,30 @@ export function EditAlertModal({
 
                     <LemonModal.Footer>
                         <div className="flex-1">
-                            {!creatingNewAlert ? (
-                                <LemonButton type="secondary" status="danger" onClick={deleteAlert}>
-                                    Delete alert
-                                </LemonButton>
-                            ) : null}
+                            <div className="flex gap-2">
+                                {!creatingNewAlert ? (
+                                    <LemonButton type="secondary" status="danger" onClick={deleteAlert}>
+                                        Delete alert
+                                    </LemonButton>
+                                ) : null}
+                                {!creatingNewAlert && alert?.state === AlertState.FIRING ? (
+                                    <SnoozeButton onChange={snoozeAlert} value={alert?.snoozed_until} />
+                                ) : null}
+                                {!creatingNewAlert && alert?.state === AlertState.SNOOZED ? (
+                                    <LemonButton
+                                        type="secondary"
+                                        status="default"
+                                        onClick={clearSnooze}
+                                        tooltip={`Currently snoozed until ${formatDate(
+                                            dayjs(alert?.snoozed_until),
+                                            'MMM D, HH:mm'
+                                        )}`}
+                                    >
+                                        Clear snooze
+                                    </LemonButton>
+                                ) : null}
+                            </div>
                         </div>
-                        <LemonButton type="secondary" onClick={onClose}>
-                            Cancel
-                        </LemonButton>
                         <LemonButton
                             type="primary"
                             htmlType="submit"
