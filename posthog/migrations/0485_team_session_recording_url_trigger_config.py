@@ -14,7 +14,7 @@ class Migration(migrations.Migration):
             model_name="team",
             name="session_recording_url_trigger_config",
             field=django.contrib.postgres.fields.ArrayField(
-                base_field=models.JSONField(blank=True, null=True), blank=True, default=list, size=None
+                base_field=models.JSONField(blank=True, null=True), blank=True, default=list, size=None, null=True
             ),
         ),
     ]
