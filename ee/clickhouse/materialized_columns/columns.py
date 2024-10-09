@@ -57,11 +57,11 @@ def _get_all_materialized_columns(
         return {}
 
 
-# XXX: This uses `str` instead of `TableColumn` to preserve backwards compatibility with existing calls to this
-# function: many of them provide the column as a `str`, and this function was previously wrapped in `cache_for` which
-# uses `no_type_check`, permitting these calls.
+# XXX: This uses `str` instead of `TableColumn` and `TableWithMaterializedColumn` to preserve backwards compatibility
+# with existing calls to this function as many of them provide them as such. (This function was previously wrapped in
+# `cache_for` which uses `no_type_check`, permitting these calls.)
 def get_materialized_columns(
-    table: TablesWithMaterializedColumns,
+    table: str,
     exclude_nullable_columns: bool = False,
     use_cache: bool | None = None,
 ) -> dict[tuple[PropertyName, str], MaterializedColumnInfo]:
