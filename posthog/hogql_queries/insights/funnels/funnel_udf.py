@@ -45,7 +45,7 @@ class FunnelUDF(FunnelBase):
         if self.context.funnelsFilter.funnelOrderType == "strict":
             return f"""
                     arrayFilter(
-                        (x, x2) -> not (empty(x.4) and empty(x2.4) and x.1 > x2.1)),
+                        (x, x2) -> not (empty(x.4) and empty(x2.4) and x.1 > x2.1),
                         events_array,
                         arrayRotateRight(events_array, 1))
                 """
