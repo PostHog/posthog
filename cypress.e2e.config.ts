@@ -124,6 +124,6 @@ export default defineConfig({
         },
         baseUrl: 'http://localhost:8000',
         specPattern: 'cypress/e2e/**/*.{js,jsx,ts,tsx}',
-        chromeWebSecurity: false,
+        // chromeWebSecurity: false,
     },
 })
