@@ -77,7 +77,7 @@ export const actionLogic = kea<actionLogicType>([
             (action, inProgressName): Breadcrumb[] => [
                 {
                     key: Scene.DataManagement,
-                    name: `Data Management`,
+                    name: `Data management`,
                     path: urls.eventDefinitions(),
                 },
                 {
