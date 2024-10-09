@@ -6,7 +6,11 @@ from difflib import get_close_matches
 from typing import Literal, Optional, Union, cast
 from uuid import UUID
 
-from posthog.clickhouse.materialized_columns import MaterializedColumnInfo
+from posthog.clickhouse.materialized_columns import (
+    MaterializedColumnInfo,
+    get_materialized_columns,
+    TablesWithMaterializedColumns,
+)
 from posthog.clickhouse.property_groups import property_groups
 from posthog.hogql import ast
 from posthog.hogql.base import AST
@@ -1508,18 +1512,9 @@ class _Printer(Visitor):
     def _get_materialized_column_info(
         self, table_name: str, property_name: PropertyName, field_name: TableColumn
     ) -> Optional[MaterializedColumnInfo]:
-        try:
-            from ee.clickhouse.materialized_columns.columns import (
-                TablesWithMaterializedColumns,
-                get_materialized_columns,
-            )
-
-            return get_materialized_columns(cast(TablesWithMaterializedColumns, table_name)).get(
-                (property_name, field_name), None
-            )
-        except ModuleNotFoundError:
-            pass
-        return None
+        return get_materialized_columns(cast(TablesWithMaterializedColumns, table_name)).get(
+            (property_name, field_name), None
+        )
 
     def _get_timezone(self) -> str:
         return self.context.database.get_timezone() if self.context.database else "UTC"
