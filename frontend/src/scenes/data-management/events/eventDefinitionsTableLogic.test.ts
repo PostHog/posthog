@@ -98,7 +98,7 @@ describe('eventDefinitionsTableLogic', () => {
                         ]
                     }
                 },
-                '/api/projects/:team/events': (req) => {
+                '/api/environments/:team_id/events': (req) => {
                     if (
                         req.url.searchParams.get('limit') === '1' &&
                         req.url.searchParams.get('event') === 'event_with_example'

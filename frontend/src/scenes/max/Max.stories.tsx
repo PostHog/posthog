@@ -13,7 +13,7 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             post: {
-                '/api/projects/:team_id/query/chat/': chatResponse,
+                '/api/environments/:team_id/query/chat/': chatResponse,
             },
         }),
     ],
@@ -54,7 +54,7 @@ export const Thread: StoryFn = () => {
 export const EmptyThreadLoading: StoryFn = () => {
     useStorybookMocks({
         post: {
-            '/api/projects/:team_id/query/chat/': (_req, _res, ctx) => [ctx.delay('infinite')],
+            '/api/environments/:team_id/query/chat/': (_req, _res, ctx) => [ctx.delay('infinite')],
         },
     })
 
