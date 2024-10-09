@@ -10,10 +10,11 @@ import {
     IconTrash,
 } from '@posthog/icons'
 import { LemonButton, LemonButtonProps, LemonDialog, LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { IconComment } from 'lib/lemon-ui/icons'
+import { IconComment, IconFullScreen } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { Fragment } from 'react'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
@@ -78,8 +79,9 @@ function PinToPlaylistButton({
 }
 
 export function PlayerMetaLinks({ iconsOnly }: { iconsOnly: boolean }): JSX.Element {
-    const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
+    const { sessionRecordingId, logicProps, isFullScreen } = useValues(sessionRecordingPlayerLogic)
     const { setPause, setIsFullScreen } = useActions(sessionRecordingPlayerLogic)
+
     const nodeLogic = useNotebookNode()
     const { closeSessionPlayer } = useActions(sessionPlayerModalLogic())
 
@@ -112,6 +114,11 @@ export function PlayerMetaLinks({ iconsOnly }: { iconsOnly: boolean }): JSX.Elem
         <div className="flex">
             {![SessionRecordingPlayerMode.Sharing].includes(mode) ? (
                 <>
+                    {sessionRecordingId && (
+                        <div className="flex items-center gap-0.5">
+                            {mode === SessionRecordingPlayerMode.Standard && <MenuActions />}
+                        </div>
+                    )}
                     <NotebookSelectButton
                         {...commonProps}
                         icon={<IconComment />}
@@ -159,11 +166,13 @@ export function PlayerMetaLinks({ iconsOnly }: { iconsOnly: boolean }): JSX.Elem
 
                     <PinToPlaylistButton buttonContent={buttonContent} {...commonProps} />
 
-                    {sessionRecordingId && (
-                        <div className="flex items-center gap-0.5">
-                            {mode === SessionRecordingPlayerMode.Standard && <MenuActions />}
-                        </div>
-                    )}
+                    <LemonButton
+                        size="small"
+                        onClick={() => setIsFullScreen(!isFullScreen)}
+                        tooltip={`${!isFullScreen ? 'Go' : 'Exit'} full screen (F)`}
+                    >
+                        <IconFullScreen className={clsx('text-2xl', isFullScreen ? 'text-link' : 'text-primary-alt')} />
+                    </LemonButton>
                 </>
             ) : null}
         </div>
@@ -176,7 +185,8 @@ const MenuActions = (): JSX.Element => {
         useActions(sessionRecordingPlayerLogic)
     const { fetchSimilarRecordings } = useActions(sessionRecordingDataLogic(logicProps))
 
-    const hasMobileExport = window.IMPERSONATED_SESSION || useFeatureFlag('SESSION_REPLAY_EXPORT_MOBILE_DATA')
+    const hasMobileExportFlag = useFeatureFlag('SESSION_REPLAY_EXPORT_MOBILE_DATA')
+    const hasMobileExport = window.IMPERSONATED_SESSION || hasMobileExportFlag
     const hasSimilarRecordings = useFeatureFlag('REPLAY_SIMILAR_RECORDINGS')
 
     const onDelete = (): void => {

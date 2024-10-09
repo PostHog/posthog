@@ -23,6 +23,59 @@ Cypress.on('window:before:load', (win) => {
     win._cypress_posthog_captures = []
 })
 
+Cypress.on('window:load', (win) => {
+    // This is an absolutely mad fix for the Cypress renderer process crashing in CI:
+    // https://github.com/cypress-io/cypress/issues/27415#issuecomment-2169155274
+    // Hopefully one day #27415 is solved and this becomes unnecessary
+    const RealResizeObserver = win.ResizeObserver
+
+    let queueFlushTimeout: number | null = null
+    let queue: { cb: ResizeObserverCallback; args: Parameters<ResizeObserverCallback>[0] }[] = []
+
+    /** ResizeObserver wrapper with "enforced batches" */
+    class ResizeObserverPolyfill {
+        observer: ResizeObserver
+        callback: ResizeObserverCallback
+
+        constructor(callback) {
+            this.callback = callback
+            this.observer = new RealResizeObserver(this.check.bind(this))
+        }
+
+        observe(element): void {
+            this.observer.observe(element)
+        }
+
+        unobserve(element): void {
+            this.observer.unobserve(element)
+        }
+
+        disconnect(): void {
+            this.observer.disconnect()
+        }
+
+        check(entries): void {
+            // remove previous invocations of "self"
+            queue = queue.filter((x) => x.cb !== this.callback)
+            // put a new one
+            queue.push({ cb: this.callback, args: entries })
+            // trigger update
+            if (!queueFlushTimeout) {
+                queueFlushTimeout = requestAnimationFrame(() => {
+                    queueFlushTimeout = null
+                    const queueBeingFlushed = queue
+                    queue = []
+                    for (const q of queueBeingFlushed) {
+                        q.cb(q.args, this)
+                    }
+                })
+            }
+        }
+    }
+
+    win.ResizeObserver = ResizeObserverPolyfill
+})
+
 before(() => {
     cy.task('resetInsightCache') // Reset insight cache before each suite
 })

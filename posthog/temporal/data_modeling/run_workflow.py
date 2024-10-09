@@ -31,6 +31,8 @@ from posthog.temporal.batch_exports.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.warehouse.models import DataWarehouseModelPath, DataWarehouseSavedQuery
 from posthog.warehouse.util import database_sync_to_async
+from posthog.warehouse.data_load.create_table import create_table_from_saved_query
+from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
 
 logger = structlog.get_logger()
 
@@ -285,7 +287,9 @@ async def materialize_model(model_label: str, team: Team) -> tuple[str, DeltaTab
         model_name = model_label
         filter_params["name"] = model_name
 
-    saved_query = await database_sync_to_async(DataWarehouseSavedQuery.objects.filter(team=team, **filter_params).get)()
+    saved_query = await database_sync_to_async(
+        DataWarehouseSavedQuery.objects.prefetch_related("team").filter(team=team, **filter_params).get
+    )()
 
     query_columns = saved_query.columns
     if not query_columns:
@@ -320,6 +324,15 @@ async def materialize_model(model_label: str, team: Team) -> tuple[str, DeltaTab
     _ = await asyncio.to_thread(pipeline.run, hogql_table(hogql_query, team, saved_query.name, table_columns))
 
     tables = get_delta_tables(pipeline)
+
+    for table in tables.values():
+        table.optimize.compact()
+        table.vacuum(retention_hours=24, enforce_retention_duration=False, dry_run=False)
+
+        file_uris = table.file_uris()
+
+        prepare_s3_files_for_querying(saved_query.folder_path, saved_query.name, file_uris)
+
     key, delta_table = tables.popitem()
     return (key, delta_table)
 
@@ -568,6 +581,19 @@ async def finish_run_activity(inputs: FinishRunActivityInputs) -> None:
         raise
 
 
+@dataclasses.dataclass
+class CreateTableActivityInputs:
+    models: list[str]
+    team_id: int
+
+
+@temporalio.activity.defn
+async def create_table_activity(inputs: CreateTableActivityInputs) -> None:
+    """Activity that creates tables for a list of saved queries."""
+    for model in inputs.models:
+        await create_table_from_saved_query(model, inputs.team_id)
+
+
 async def update_saved_query_status(
     label: str, status: DataWarehouseSavedQuery.Status, run_at: dt.datetime, team_id: int
 ):
@@ -623,7 +649,7 @@ class RunWorkflow(PostHogWorkflow):
             retry_policy=temporalio.common.RetryPolicy(
                 initial_interval=dt.timedelta(seconds=10),
                 maximum_interval=dt.timedelta(seconds=60),
-                maximum_attempts=0,
+                maximum_attempts=1,
             ),
         )
 
@@ -637,7 +663,7 @@ class RunWorkflow(PostHogWorkflow):
             retry_policy=temporalio.common.RetryPolicy(
                 initial_interval=dt.timedelta(seconds=10),
                 maximum_interval=dt.timedelta(seconds=60),
-                maximum_attempts=0,
+                maximum_attempts=1,
             ),
         )
 
@@ -647,10 +673,25 @@ class RunWorkflow(PostHogWorkflow):
             run_model_activity_inputs,
             start_to_close_timeout=dt.timedelta(hours=1),
             retry_policy=temporalio.common.RetryPolicy(
-                maximum_attempts=0,
+                maximum_attempts=1,
             ),
         )
         completed, failed, ancestor_failed = results
+
+        selected_labels = [selector.label for selector in inputs.select]
+        create_table_activity_inputs = CreateTableActivityInputs(
+            models=[label for label in completed if label in selected_labels], team_id=inputs.team_id
+        )
+        await temporalio.workflow.execute_activity(
+            create_table_activity,
+            create_table_activity_inputs,
+            start_to_close_timeout=dt.timedelta(minutes=5),
+            retry_policy=temporalio.common.RetryPolicy(
+                initial_interval=dt.timedelta(seconds=10),
+                maximum_interval=dt.timedelta(seconds=60),
+                maximum_attempts=1,
+            ),
+        )
 
         finish_run_activity_inputs = FinishRunActivityInputs(
             completed=[label for label in completed if dag[label].selected is True],
@@ -665,7 +706,7 @@ class RunWorkflow(PostHogWorkflow):
             retry_policy=temporalio.common.RetryPolicy(
                 initial_interval=dt.timedelta(seconds=10),
                 maximum_interval=dt.timedelta(seconds=60),
-                maximum_attempts=0,
+                maximum_attempts=1,
             ),
         )
 

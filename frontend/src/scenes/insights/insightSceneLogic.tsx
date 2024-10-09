@@ -2,13 +2,14 @@ import { actions, BuiltLogic, connect, kea, listeners, path, reducers, selectors
 import { actionToUrl, beforeUnload, router, urlToAction } from 'kea-router'
 import { CombinedLocation } from 'kea-router/lib/utils'
 import { objectsEqual } from 'kea-test-utils'
+import { AlertType } from 'lib/components/Alerts/types'
 import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
 import { createEmptyInsight, insightLogic } from 'scenes/insights/insightLogic'
 import { insightLogicType } from 'scenes/insights/insightLogicType'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
-import { filterTestAccountsDefaultsLogic } from 'scenes/settings/project/filterTestAccountDefaultsLogic'
+import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
 import { urls } from 'scenes/urls'
@@ -47,11 +48,13 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             insightId: InsightShortId,
             insightMode: ItemMode,
             itemId: string | undefined,
+            alertId: AlertType['id'] | undefined,
             filtersOverride: DashboardFilter | undefined
         ) => ({
             insightId,
             insightMode,
             itemId,
+            alertId,
             filtersOverride,
         }),
         setInsightLogicRef: (logic: BuiltLogic<insightLogicType> | null, unmount: null | (() => void)) => ({
@@ -88,6 +91,12 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                             ? parseInt(itemId, 10)
                             : itemId
                         : null,
+            },
+        ],
+        alertId: [
+            null as null | AlertType['id'],
+            {
+                setSceneState: (_, { alertId }) => (alertId !== undefined ? alertId : null),
             },
         ],
         filtersOverride: [
@@ -202,7 +211,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
     urlToAction(({ actions, values }) => ({
         '/insights/:shortId(/:mode)(/:itemId)': (
             { shortId, mode, itemId }, // url params
-            { dashboard, ...searchParams }, // search params
+            { dashboard, alert_id, ...searchParams }, // search params
             { insight: insightType, q }, // hash params
             { method, initial }, // "location changed" event payload
             { searchParams: previousSearchParams } // previous location
@@ -239,9 +248,10 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 insightId !== values.insightId ||
                 insightMode !== values.insightMode ||
                 itemId !== values.itemId ||
+                alert_id !== values.alertId ||
                 !objectsEqual(searchParams['filters_override'], values.filtersOverride)
             ) {
-                actions.setSceneState(insightId, insightMode, itemId, searchParams['filters_override'])
+                actions.setSceneState(insightId, insightMode, itemId, alert_id, searchParams['filters_override'])
             }
 
             let queryFromUrl: Node | null = null

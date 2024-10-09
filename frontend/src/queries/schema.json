@@ -321,144 +321,17 @@
             "enum": ["numeric", "duration", "duration_ms", "percentage", "percentage_scaled"],
             "type": "string"
         },
-        "AlertCheck": {
-            "additionalProperties": false,
-            "properties": {
-                "calculated_value": {
-                    "type": "number"
-                },
-                "created_at": {
-                    "type": "string"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "state": {
-                    "type": "string"
-                },
-                "targets_notified": {
-                    "type": "boolean"
-                }
-            },
-            "required": ["id", "created_at", "calculated_value", "state", "targets_notified"],
-            "type": "object"
+        "AlertCalculationInterval": {
+            "enum": ["hourly", "daily", "weekly", "monthly"],
+            "type": "string"
         },
         "AlertCondition": {
             "additionalProperties": false,
             "type": "object"
         },
-        "AlertType": {
-            "additionalProperties": false,
-            "properties": {
-                "checks": {
-                    "items": {
-                        "$ref": "#/definitions/AlertCheck"
-                    },
-                    "type": "array"
-                },
-                "condition": {
-                    "$ref": "#/definitions/AlertCondition"
-                },
-                "created_at": {
-                    "type": "string"
-                },
-                "created_by": {
-                    "$ref": "#/definitions/UserBasicType"
-                },
-                "enabled": {
-                    "type": "boolean"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "insight": {
-                    "type": "number"
-                },
-                "last_notified_at": {
-                    "type": "string"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "state": {
-                    "type": "string"
-                },
-                "subscribed_users": {
-                    "items": {
-                        "$ref": "#/definitions/UserBasicType"
-                    },
-                    "type": "array"
-                },
-                "threshold": {
-                    "additionalProperties": false,
-                    "properties": {
-                        "configuration": {
-                            "$ref": "#/definitions/InsightThreshold"
-                        }
-                    },
-                    "required": ["configuration"],
-                    "type": "object"
-                }
-            },
-            "required": [
-                "checks",
-                "condition",
-                "created_at",
-                "created_by",
-                "enabled",
-                "id",
-                "insight",
-                "last_notified_at",
-                "name",
-                "state",
-                "subscribed_users",
-                "threshold"
-            ],
-            "type": "object"
-        },
-        "AlertTypeBase": {
-            "additionalProperties": false,
-            "properties": {
-                "condition": {
-                    "$ref": "#/definitions/AlertCondition"
-                },
-                "enabled": {
-                    "type": "boolean"
-                },
-                "insight": {
-                    "type": "number"
-                },
-                "name": {
-                    "type": "string"
-                }
-            },
-            "required": ["name", "condition", "enabled", "insight"],
-            "type": "object"
-        },
-        "AlertTypeWrite": {
-            "additionalProperties": false,
-            "properties": {
-                "condition": {
-                    "$ref": "#/definitions/AlertCondition"
-                },
-                "enabled": {
-                    "type": "boolean"
-                },
-                "insight": {
-                    "type": "number"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "subscribed_users": {
-                    "items": {
-                        "type": "integer"
-                    },
-                    "type": "array"
-                }
-            },
-            "required": ["condition", "enabled", "insight", "name", "subscribed_users"],
-            "type": "object"
+        "AlertState": {
+            "enum": ["Firing", "Not firing", "Errored"],
+            "type": "string"
         },
         "AnyDataNode": {
             "anyOf": [
@@ -1160,6 +1033,114 @@
                 "results",
                 "timezone",
                 "types"
+            ],
+            "type": "object"
+        },
+        "CachedExperimentFunnelQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "cache_key": {
+                    "type": "string"
+                },
+                "cache_target_age": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "calculation_trigger": {
+                    "description": "What triggered the calculation of the query, leave empty if user/immediate",
+                    "type": "string"
+                },
+                "insight": {
+                    "const": "FUNNELS",
+                    "type": "string"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "next_allowed_client_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "results": {
+                    "additionalProperties": {
+                        "$ref": "#/definitions/ExperimentVariantFunnelResult"
+                    },
+                    "type": "object"
+                },
+                "timezone": {
+                    "type": "string"
+                }
+            },
+            "required": [
+                "cache_key",
+                "insight",
+                "is_cached",
+                "last_refresh",
+                "next_allowed_client_refresh",
+                "results",
+                "timezone"
+            ],
+            "type": "object"
+        },
+        "CachedExperimentTrendQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "cache_key": {
+                    "type": "string"
+                },
+                "cache_target_age": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "calculation_trigger": {
+                    "description": "What triggered the calculation of the query, leave empty if user/immediate",
+                    "type": "string"
+                },
+                "insight": {
+                    "const": "TRENDS",
+                    "type": "string"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "next_allowed_client_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "results": {
+                    "additionalProperties": {
+                        "$ref": "#/definitions/ExperimentVariantTrendResult"
+                    },
+                    "type": "object"
+                },
+                "timezone": {
+                    "type": "string"
+                }
+            },
+            "required": [
+                "cache_key",
+                "insight",
+                "is_cached",
+                "last_refresh",
+                "next_allowed_client_refresh",
+                "results",
+                "timezone"
             ],
             "type": "object"
         },
@@ -3722,6 +3703,38 @@
             "required": ["name", "hogql_value", "type", "schema_valid"],
             "type": "object"
         },
+        "DatabaseSchemaMaterializedViewTable": {
+            "additionalProperties": false,
+            "properties": {
+                "fields": {
+                    "additionalProperties": {
+                        "$ref": "#/definitions/DatabaseSchemaField"
+                    },
+                    "type": "object"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "last_run_at": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "query": {
+                    "$ref": "#/definitions/HogQLQuery"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "type": {
+                    "const": "materialized_view",
+                    "type": "string"
+                }
+            },
+            "required": ["fields", "id", "name", "query", "type"],
+            "type": "object"
+        },
         "DatabaseSchemaPostHogTable": {
             "additionalProperties": false,
             "properties": {
@@ -3836,6 +3849,9 @@
                 },
                 {
                     "$ref": "#/definitions/DatabaseSchemaBatchExportTable"
+                },
+                {
+                    "$ref": "#/definitions/DatabaseSchemaMaterializedViewTable"
                 }
             ]
         },
@@ -3855,7 +3871,7 @@
                     "type": "string"
                 },
                 "type": {
-                    "enum": ["posthog", "data_warehouse", "view", "batch_export"],
+                    "enum": ["posthog", "data_warehouse", "view", "batch_export", "materialized_view"],
                     "type": "string"
                 }
             },
@@ -3902,7 +3918,8 @@
                 "virtual_table",
                 "field_traverser",
                 "expression",
-                "view"
+                "view",
+                "materialized_view"
             ],
             "type": "string"
         },
@@ -4163,6 +4180,9 @@
                 },
                 "response": {
                     "$ref": "#/definitions/ErrorTrackingQueryResponse"
+                },
+                "searchQuery": {
+                    "type": "string"
                 },
                 "select": {
                     "items": {
@@ -4618,13 +4638,13 @@
         "ExperimentTrendQuery": {
             "additionalProperties": false,
             "properties": {
-                "count_source": {
+                "count_query": {
                     "$ref": "#/definitions/TrendsQuery"
                 },
                 "experiment_id": {
                     "type": "integer"
                 },
-                "exposure_source": {
+                "exposure_query": {
                     "$ref": "#/definitions/TrendsQuery"
                 },
                 "kind": {
@@ -4639,7 +4659,7 @@
                     "$ref": "#/definitions/ExperimentTrendQueryResponse"
                 }
             },
-            "required": ["count_source", "experiment_id", "exposure_source", "kind"],
+            "required": ["count_query", "experiment_id", "kind"],
             "type": "object"
         },
         "ExperimentTrendQueryResponse": {
@@ -4665,11 +4685,14 @@
                 "failure_count": {
                     "type": "number"
                 },
+                "key": {
+                    "type": "string"
+                },
                 "success_count": {
                     "type": "number"
                 }
             },
-            "required": ["success_count", "failure_count"],
+            "required": ["key", "success_count", "failure_count"],
             "type": "object"
         },
         "ExperimentVariantTrendResult": {
@@ -5599,10 +5622,6 @@
                 }
             ]
         },
-        "HedgehogColorOptions": {
-            "enum": ["green", "red", "blue", "purple", "dark", "light", "sepia", "invert", "invert-hue", "greyscale"],
-            "type": "string"
-        },
         "HogCompileResponse": {
             "additionalProperties": false,
             "properties": {
@@ -5751,6 +5770,13 @@
                 "sourceQuery": {
                     "$ref": "#/definitions/AnyDataNode",
                     "description": "Query within which \"expr\" and \"template\" are validated. Defaults to \"select * from events\""
+                },
+                "variables": {
+                    "additionalProperties": {
+                        "$ref": "#/definitions/HogQLVariable"
+                    },
+                    "description": "Variables to be subsituted into the query",
+                    "type": "object"
                 }
             },
             "required": ["kind", "language", "query"],
@@ -5856,6 +5882,13 @@
                 "values": {
                     "description": "Constant values that can be referenced with the {placeholder} syntax in the query",
                     "type": "object"
+                },
+                "variables": {
+                    "additionalProperties": {
+                        "$ref": "#/definitions/HogQLVariable"
+                    },
+                    "description": "Variables to be subsituted into the query",
+                    "type": "object"
                 }
             },
             "required": ["kind", "query"],
@@ -5916,6 +5949,9 @@
                 "sessionTableVersion": {
                     "enum": ["auto", "v1", "v2"],
                     "type": "string"
+                },
+                "useMaterializedViews": {
+                    "type": "boolean"
                 }
             },
             "type": "object"
@@ -5990,6 +6026,20 @@
                 }
             },
             "required": ["results"],
+            "type": "object"
+        },
+        "HogQLVariable": {
+            "additionalProperties": false,
+            "properties": {
+                "code_name": {
+                    "type": "string"
+                },
+                "value": {},
+                "variableId": {
+                    "type": "string"
+                }
+            },
+            "required": ["variableId", "code_name"],
             "type": "object"
         },
         "HogQuery": {
@@ -6886,32 +6936,6 @@
                 }
             ]
         },
-        "MinimalHedgehogConfig": {
-            "additionalProperties": false,
-            "properties": {
-                "accessories": {
-                    "items": {
-                        "type": "string"
-                    },
-                    "type": "array"
-                },
-                "color": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/HedgehogColorOptions"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ]
-                },
-                "use_as_profile": {
-                    "type": "boolean"
-                }
-            },
-            "required": ["use_as_profile", "color", "accessories"],
-            "type": "object"
-        },
         "MultipleBreakdownOptions": {
             "additionalProperties": false,
             "properties": {
@@ -7430,8 +7454,6 @@
             "properties": {
                 "async": {
                     "deprecated": "Use `refresh` instead.",
-                    "description": "(Experimental) Whether to run the query asynchronously. Defaults to False. If True, the `id` of the query can be used to check the status and to cancel it.",
-                    "examples": [true],
                     "type": "boolean"
                 },
                 "client_query_id": {
@@ -7446,7 +7468,9 @@
                     "description": "Submit a JSON string representing a query for PostHog data analysis, for example a HogQL query.\n\nExample payload:\n\n```\n\n{\"query\": {\"kind\": \"HogQLQuery\", \"query\": \"select * from events limit 100\"}}\n\n```\n\nFor more details on HogQL queries, see the [PostHog HogQL documentation](/docs/hogql#api-access)."
                 },
                 "refresh": {
-                    "$ref": "#/definitions/RefreshType"
+                    "$ref": "#/definitions/RefreshType",
+                    "default": "blocking",
+                    "description": "Whether results should be calculated sync or async, and how much to rely on the cache:\n- `'blocking'` - calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in the cache\n- `'async'` - kick off background calculation (returning immediately with a query status), UNLESS there are very fresh results in the cache\n- `'lazy_async'` - kick off background calculation, UNLESS there are somewhat fresh results in the cache\n- `'force_blocking'` - calculate synchronously, even if fresh results are already cached\n- `'force_async'` - kick off background calculation, even if fresh results are already cached\n- `'force_cache'` - return cached data or a cache miss; always completes immediately as it never calculates Background calculation can be tracked using the `query_status` response field."
                 }
             },
             "required": ["query"],
@@ -9473,6 +9497,9 @@
                         "type": "string"
                     },
                     "type": "array"
+                },
+                "user_modified_filters": {
+                    "type": "object"
                 }
             },
             "required": ["kind", "order"],
@@ -10510,6 +10537,20 @@
             "required": ["events"],
             "type": "object"
         },
+        "TrendsAlertConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "series_index": {
+                    "type": "integer"
+                },
+                "type": {
+                    "const": "TrendsAlertConfig",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "series_index"],
+            "type": "object"
+        },
         "TrendsFilter": {
             "additionalProperties": false,
             "properties": {
@@ -10746,35 +10787,6 @@
                 }
             },
             "required": ["results"],
-            "type": "object"
-        },
-        "UserBasicType": {
-            "additionalProperties": false,
-            "properties": {
-                "distinct_id": {
-                    "type": "string"
-                },
-                "email": {
-                    "type": "string"
-                },
-                "first_name": {
-                    "type": "string"
-                },
-                "hedgehog_config": {
-                    "$ref": "#/definitions/MinimalHedgehogConfig"
-                },
-                "id": {
-                    "type": "number"
-                },
-                "is_email_verified": {},
-                "last_name": {
-                    "type": "string"
-                },
-                "uuid": {
-                    "type": "string"
-                }
-            },
-            "required": ["distinct_id", "email", "first_name", "id", "uuid"],
             "type": "object"
         },
         "VizSpecificOptions": {
@@ -11109,6 +11121,9 @@
                     "$ref": "#/definitions/DateRange"
                 },
                 "filterTestAccounts": {
+                    "type": "boolean"
+                },
+                "includeLCPScore": {
                     "type": "boolean"
                 },
                 "kind": {

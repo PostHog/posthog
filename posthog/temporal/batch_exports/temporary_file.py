@@ -14,6 +14,9 @@ import brotli
 import orjson
 import pyarrow as pa
 import pyarrow.parquet as pq
+import structlog
+
+logger = structlog.get_logger()
 
 
 def replace_broken_unicode(obj):
@@ -33,6 +36,7 @@ def json_dumps_bytes(d) -> bytes:
     except orjson.JSONEncodeError:
         # orjson is very strict about invalid unicode. This slow path protects us against
         # things we've observed in practice, like single surrogate codes, e.g. "\ud83d"
+        logger.exception("Failed to encode with orjson: %s", d)
         cleaned_d = replace_broken_unicode(d)
         return orjson.dumps(cleaned_d, default=str)
 
@@ -454,10 +458,15 @@ class JSONLBatchExportWriter(BatchExportWriter):
         try:
             n = self.batch_export_file.write(orjson.dumps(d, default=str) + b"\n")
         except orjson.JSONEncodeError:
+            logger.exception("Failed to encode with orjson: %s", d)
             # orjson is very strict about invalid unicode. This slow path protects us against
             # things we've observed in practice, like single surrogate codes, e.g. "\ud83d"
             cleaned_content = replace_broken_unicode(d)
             n = self.batch_export_file.write(orjson.dumps(cleaned_content, default=str) + b"\n")
+        except TypeError:
+            logger.exception("Orjson detected a deeply nested dict: %s", d)
+            raise
+
         return n
 
     def _write_record_batch(self, record_batch: pa.RecordBatch) -> None:

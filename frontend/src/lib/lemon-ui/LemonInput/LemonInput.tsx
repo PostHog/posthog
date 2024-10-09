@@ -7,11 +7,14 @@ import { IconEyeHidden } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import React, { useRef, useState } from 'react'
 
+import { RawInputAutosize } from './RawInputAutosize'
+
 interface LemonInputPropsBase
     extends Pick<
         // NOTE: We explicitly pick rather than omit to ensure these components aren't used incorrectly
         React.InputHTMLAttributes<HTMLInputElement>,
         | 'className'
+        | 'onClick'
         | 'onFocus'
         | 'onBlur'
         | 'autoFocus'
@@ -39,8 +42,10 @@ interface LemonInputPropsBase
     suffix?: React.ReactElement | null
     /** Whether input field is disabled */
     disabled?: boolean
-    /** Whether input field is full width */
+    /** Whether input field is full width. Cannot be used in conjuction with `autoWidth`. */
     fullWidth?: boolean
+    /** Whether input field should be as wide as its content. Cannot be used in conjuction with `fullWidth`. */
+    autoWidth?: boolean
     /** Special case - show a transparent background rather than white */
     transparentBackground?: boolean
     /** Size of the element. Default: `'medium'`. */
@@ -80,6 +85,7 @@ export const LemonInput = React.forwardRef<HTMLDivElement, LemonInputProps>(func
         status = 'default',
         allowClear, // Default handled inside the component
         fullWidth,
+        autoWidth,
         prefix,
         suffix,
         type,
@@ -97,6 +103,10 @@ export const LemonInput = React.forwardRef<HTMLDivElement, LemonInputProps>(func
 
     const [focused, setFocused] = useState<boolean>(Boolean(props.autoFocus))
     const [passwordVisible, setPasswordVisible] = useState<boolean>(false)
+
+    if (autoWidth && fullWidth) {
+        throw new Error('Cannot use `autoWidth` and `fullWidth` props together')
+    }
 
     const focus = (): void => {
         internalInputRef.current?.focus()
@@ -142,6 +152,8 @@ export const LemonInput = React.forwardRef<HTMLDivElement, LemonInputProps>(func
         )
     }
 
+    const InputComponent = autoWidth ? RawInputAutosize : 'input'
+
     return (
         <span
             className={clsx(
@@ -160,7 +172,7 @@ export const LemonInput = React.forwardRef<HTMLDivElement, LemonInputProps>(func
             ref={ref}
         >
             {prefix}
-            <input
+            <InputComponent
                 className="LemonInput__input"
                 ref={mergedInputRef}
                 type={(type === 'password' && passwordVisible ? 'text' : type) || 'text'}

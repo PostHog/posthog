@@ -162,7 +162,15 @@ class BytecodeCompiler(Visitor):
     def visit_compare_operation(self, node: ast.CompareOperation):
         operation = COMPARE_OPERATIONS[node.op]
         if operation in [Operation.IN_COHORT, Operation.NOT_IN_COHORT]:
-            raise QueryError("Cohort operations are not supported")
+            cohort_name = ""
+            if isinstance(node.right, ast.Constant):
+                if isinstance(node.right.value, int):
+                    cohort_name = f" (cohort id={node.right.value})"
+                else:
+                    cohort_name = f" (cohort: {str(node.right.value)})"
+            raise QueryError(
+                f"Can't use cohorts in real-time filters. Please inline the relevant expressions{cohort_name}."
+            )
         return [*self.visit(node.right), *self.visit(node.left), operation]
 
     def visit_arithmetic_operation(self, node: ast.ArithmeticOperation):
@@ -718,7 +726,11 @@ class BytecodeCompiler(Visitor):
     def visit_function(self, node: ast.Function):
         # add an implicit return if none at the end of the function
         body = node.body
-        if isinstance(node.body, ast.Block):
+
+        # Sometimes blocks like `fn x() {foo}` get parsed as placeholders
+        if isinstance(body, ast.Placeholder):
+            body = ast.Block(declarations=[ast.ExprStatement(expr=body.expr), ast.ReturnStatement(expr=None)])
+        elif isinstance(node.body, ast.Block):
             if len(node.body.declarations) == 0 or not isinstance(node.body.declarations[-1], ast.ReturnStatement):
                 body = ast.Block(declarations=[*node.body.declarations, ast.ReturnStatement(expr=None)])
         elif not isinstance(node.body, ast.ReturnStatement):
@@ -745,7 +757,11 @@ class BytecodeCompiler(Visitor):
     def visit_lambda(self, node: ast.Lambda):
         # add an implicit return if none at the end of the function
         expr: ast.Expr | ast.Statement = node.expr
-        if isinstance(expr, ast.Block):
+
+        # Sometimes blocks like `x -> {foo}` get parsed as placeholders
+        if isinstance(expr, ast.Placeholder):
+            expr = ast.Block(declarations=[ast.ExprStatement(expr=expr.expr), ast.ReturnStatement(expr=None)])
+        elif isinstance(expr, ast.Block):
             if len(expr.declarations) == 0 or not isinstance(expr.declarations[-1], ast.ReturnStatement):
                 expr = ast.Block(declarations=[*expr.declarations, ast.ReturnStatement(expr=None)])
         elif not isinstance(expr, ast.ReturnStatement):

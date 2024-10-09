@@ -278,6 +278,17 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
         if not isinstance(payloads, dict):
             raise serializers.ValidationError("Payloads must be passed as a dictionary")
 
+        for value in payloads.values():
+            try:
+                if isinstance(value, str):
+                    json_value = json.loads(value)
+                else:
+                    json_value = value
+                json.dumps(json_value)
+
+            except json.JSONDecodeError:
+                raise serializers.ValidationError("Payload value is not valid JSON")
+
         if filters.get("multivariate"):
             if not all(key in variants for key in payloads):
                 raise serializers.ValidationError("Payload keys must match a variant key for multivariate flags")

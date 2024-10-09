@@ -2930,7 +2930,7 @@
                               groups.group_type_index AS index,
                               groups.group_key AS key
                        FROM groups
-                       WHERE and(equals(groups.team_id, 2), ifNull(equals(index, 0), 0))
+                       WHERE and(equals(groups.team_id, 2), equals(index, 0))
                        GROUP BY groups.group_type_index,
                                 groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
                     WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'finance'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
@@ -3000,7 +3000,7 @@
                               groups.group_type_index AS index,
                               groups.group_key AS key
                        FROM groups
-                       WHERE and(equals(groups.team_id, 2), ifNull(equals(index, 0), 0))
+                       WHERE and(equals(groups.team_id, 2), equals(index, 0))
                        GROUP BY groups.group_type_index,
                                 groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
                     WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'finance'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
@@ -3900,7 +3900,7 @@
                               groups.group_type_index AS index,
                               groups.group_key AS key
                        FROM groups
-                       WHERE and(equals(groups.team_id, 2), ifNull(equals(index, 0), 0))
+                       WHERE and(equals(groups.team_id, 2), equals(index, 0))
                        GROUP BY groups.group_type_index,
                                 groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
                     WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'finance'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
@@ -3970,7 +3970,7 @@
                               groups.group_type_index AS index,
                               groups.group_key AS key
                        FROM groups
-                       WHERE and(equals(groups.team_id, 2), ifNull(equals(index, 0), 0))
+                       WHERE and(equals(groups.team_id, 2), equals(index, 0))
                        GROUP BY groups.group_type_index,
                                 groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
                     WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'finance'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
@@ -4457,7 +4457,7 @@
                                  groups.group_type_index AS index,
                                  groups.group_key AS key
                           FROM groups
-                          WHERE and(equals(groups.team_id, 2), ifNull(equals(index, 0), 0))
+                          WHERE and(equals(groups.team_id, 2), equals(index, 0))
                           GROUP BY groups.group_type_index,
                                    groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
                        WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'positive'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
@@ -4579,7 +4579,7 @@
                                  groups.group_type_index AS index,
                                  groups.group_key AS key
                           FROM groups
-                          WHERE and(equals(groups.team_id, 2), ifNull(equals(index, 0), 0))
+                          WHERE and(equals(groups.team_id, 2), equals(index, 0))
                           GROUP BY groups.group_type_index,
                                    groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
                        WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'positive'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
@@ -4701,7 +4701,7 @@
                                  groups.group_type_index AS index,
                                  groups.group_key AS key
                           FROM groups
-                          WHERE and(equals(groups.team_id, 2), ifNull(equals(index, 0), 0))
+                          WHERE and(equals(groups.team_id, 2), equals(index, 0))
                           GROUP BY groups.group_type_index,
                                    groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
                        WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'negative'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
@@ -4823,7 +4823,7 @@
                                  groups.group_type_index AS index,
                                  groups.group_key AS key
                           FROM groups
-                          WHERE and(equals(groups.team_id, 2), ifNull(equals(index, 0), 0))
+                          WHERE and(equals(groups.team_id, 2), equals(index, 0))
                           GROUP BY groups.group_type_index,
                                    groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
                        WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'negative'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
@@ -5239,7 +5239,7 @@
                                  groups.group_type_index AS index,
                                  groups.group_key AS key
                           FROM groups
-                          WHERE and(equals(groups.team_id, 2), ifNull(equals(index, 0), 0))
+                          WHERE and(equals(groups.team_id, 2), equals(index, 0))
                           GROUP BY groups.group_type_index,
                                    groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
                        WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'positive'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
@@ -5361,7 +5361,7 @@
                                  groups.group_type_index AS index,
                                  groups.group_key AS key
                           FROM groups
-                          WHERE and(equals(groups.team_id, 2), ifNull(equals(index, 0), 0))
+                          WHERE and(equals(groups.team_id, 2), equals(index, 0))
                           GROUP BY groups.group_type_index,
                                    groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
                        WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'positive'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
@@ -5483,7 +5483,7 @@
                                  groups.group_type_index AS index,
                                  groups.group_key AS key
                           FROM groups
-                          WHERE and(equals(groups.team_id, 2), ifNull(equals(index, 0), 0))
+                          WHERE and(equals(groups.team_id, 2), equals(index, 0))
                           GROUP BY groups.group_type_index,
                                    groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
                        WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'negative'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
@@ -5605,7 +5605,7 @@
                                  groups.group_type_index AS index,
                                  groups.group_key AS key
                           FROM groups
-                          WHERE and(equals(groups.team_id, 2), ifNull(equals(index, 0), 0))
+                          WHERE and(equals(groups.team_id, 2), equals(index, 0))
                           GROUP BY groups.group_type_index,
                                    groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
                        WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'negative'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
@@ -6021,7 +6021,7 @@
                                  groups.group_type_index AS index,
                                  groups.group_key AS key
                           FROM groups
-                          WHERE and(equals(groups.team_id, 2), ifNull(equals(index, 0), 0))
+                          WHERE and(equals(groups.team_id, 2), equals(index, 0))
                           GROUP BY groups.group_type_index,
                                    groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
                        WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'positive'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
@@ -6143,7 +6143,7 @@
                                  groups.group_type_index AS index,
                                  groups.group_key AS key
                           FROM groups
-                          WHERE and(equals(groups.team_id, 2), ifNull(equals(index, 0), 0))
+                          WHERE and(equals(groups.team_id, 2), equals(index, 0))
                           GROUP BY groups.group_type_index,
                                    groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
                        WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'positive'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
@@ -6265,7 +6265,7 @@
                                  groups.group_type_index AS index,
                                  groups.group_key AS key
                           FROM groups
-                          WHERE and(equals(groups.team_id, 2), ifNull(equals(index, 0), 0))
+                          WHERE and(equals(groups.team_id, 2), equals(index, 0))
                           GROUP BY groups.group_type_index,
                                    groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
                        WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'negative'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
@@ -6387,7 +6387,7 @@
                                  groups.group_type_index AS index,
                                  groups.group_key AS key
                           FROM groups
-                          WHERE and(equals(groups.team_id, 2), ifNull(equals(index, 0), 0))
+                          WHERE and(equals(groups.team_id, 2), equals(index, 0))
                           GROUP BY groups.group_type_index,
                                    groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
                        WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'negative'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
@@ -6803,7 +6803,7 @@
                                  groups.group_type_index AS index,
                                  groups.group_key AS key
                           FROM groups
-                          WHERE and(equals(groups.team_id, 2), ifNull(equals(index, 0), 0))
+                          WHERE and(equals(groups.team_id, 2), equals(index, 0))
                           GROUP BY groups.group_type_index,
                                    groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
                        WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'positive'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
@@ -6925,7 +6925,7 @@
                                  groups.group_type_index AS index,
                                  groups.group_key AS key
                           FROM groups
-                          WHERE and(equals(groups.team_id, 2), ifNull(equals(index, 0), 0))
+                          WHERE and(equals(groups.team_id, 2), equals(index, 0))
                           GROUP BY groups.group_type_index,
                                    groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
                        WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'positive'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
@@ -7047,7 +7047,7 @@
                                  groups.group_type_index AS index,
                                  groups.group_key AS key
                           FROM groups
-                          WHERE and(equals(groups.team_id, 2), ifNull(equals(index, 0), 0))
+                          WHERE and(equals(groups.team_id, 2), equals(index, 0))
                           GROUP BY groups.group_type_index,
                                    groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
                        WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'negative'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
@@ -7169,7 +7169,7 @@
                                  groups.group_type_index AS index,
                                  groups.group_key AS key
                           FROM groups
-                          WHERE and(equals(groups.team_id, 2), ifNull(equals(index, 0), 0))
+                          WHERE and(equals(groups.team_id, 2), equals(index, 0))
                           GROUP BY groups.group_type_index,
                                    groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
                        WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'negative'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
@@ -7585,7 +7585,7 @@
                                  groups.group_type_index AS index,
                                  groups.group_key AS key
                           FROM groups
-                          WHERE and(equals(groups.team_id, 2), ifNull(equals(index, 0), 0))
+                          WHERE and(equals(groups.team_id, 2), equals(index, 0))
                           GROUP BY groups.group_type_index,
                                    groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
                        WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'positive'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
@@ -7707,7 +7707,7 @@
                                  groups.group_type_index AS index,
                                  groups.group_key AS key
                           FROM groups
-                          WHERE and(equals(groups.team_id, 2), ifNull(equals(index, 0), 0))
+                          WHERE and(equals(groups.team_id, 2), equals(index, 0))
                           GROUP BY groups.group_type_index,
                                    groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
                        WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'positive'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
@@ -7829,7 +7829,7 @@
                                  groups.group_type_index AS index,
                                  groups.group_key AS key
                           FROM groups
-                          WHERE and(equals(groups.team_id, 2), ifNull(equals(index, 0), 0))
+                          WHERE and(equals(groups.team_id, 2), equals(index, 0))
                           GROUP BY groups.group_type_index,
                                    groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
                        WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'negative'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
@@ -7951,7 +7951,7 @@
                                  groups.group_type_index AS index,
                                  groups.group_key AS key
                           FROM groups
-                          WHERE and(equals(groups.team_id, 2), ifNull(equals(index, 0), 0))
+                          WHERE and(equals(groups.team_id, 2), equals(index, 0))
                           GROUP BY groups.group_type_index,
                                    groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
                        WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'negative'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))

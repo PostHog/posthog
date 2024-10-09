@@ -47,6 +47,13 @@ export const availableOnboardingProducts: AvailableOnboardingProducts = {
         url: urls.insights(),
         scene: Scene.SavedInsights,
     },
+    [ProductKey.WEB_ANALYTICS]: {
+        name: 'Web Analytics',
+        icon: 'IconPieChart',
+        iconColor: 'var(--warning)',
+        url: urls.webAnalytics(),
+        scene: Scene.WebAnalytics,
+    },
     [ProductKey.DATA_WAREHOUSE]: {
         name: 'Data Warehouse',
         icon: 'IconDatabase',
@@ -73,7 +80,7 @@ export const availableOnboardingProducts: AvailableOnboardingProducts = {
     [ProductKey.SURVEYS]: {
         name: 'Surveys',
         icon: 'IconMessage',
-        iconColor: 'salmon',
+        iconColor: 'blue',
         url: urls.surveys(),
         scene: Scene.Surveys,
     },
@@ -126,7 +133,12 @@ export const onboardingLogic = kea<onboardingLogicType>([
             preflightLogic,
             ['isCloudOrDev'],
         ],
-        actions: [billingLogic, ['loadBillingSuccess'], teamLogic, ['updateCurrentTeam', 'updateCurrentTeamSuccess']],
+        actions: [
+            billingLogic,
+            ['loadBillingSuccess'],
+            teamLogic,
+            ['updateCurrentTeam', 'updateCurrentTeamSuccess', 'recordProductIntentOnboardingComplete'],
+        ],
     }),
     actions({
         setProduct: (product: OnboardingProduct | null) => ({ product }),
@@ -339,18 +351,18 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 actions.setOnCompleteOnboardingRedirectUrl(redirectUrlOverride)
             }
             if (values.productKey) {
-                const product = values.productKey
-                eventUsageLogic.actions.reportOnboardingCompleted(product)
+                const productKey = values.productKey
+                actions.recordProductIntentOnboardingComplete({ product_type: productKey as ProductKey })
+                teamLogic.actions.updateCurrentTeam({
+                    has_completed_onboarding_for: {
+                        ...values.currentTeam?.has_completed_onboarding_for,
+                        [productKey]: true,
+                    },
+                })
                 if (nextProductKey) {
                     actions.setProductKey(nextProductKey)
                     router.actions.push(urls.onboarding(nextProductKey))
                 }
-                teamLogic.actions.updateCurrentTeam({
-                    has_completed_onboarding_for: {
-                        ...values.currentTeam?.has_completed_onboarding_for,
-                        [product]: true,
-                    },
-                })
             }
         },
         setAllOnboardingSteps: () => {

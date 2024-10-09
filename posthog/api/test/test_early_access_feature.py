@@ -142,7 +142,7 @@ class TestEarlyAccessFeature(APIBaseTest):
                         "rollout_percentage": None,
                     }
                 ],
-                "payloads": {"true": "Hick bondoogling? ????"},
+                "payloads": {"true": '"Hick bondoogling? ????"'},
             },
             key="hick-bondoogling",
             created_by=self.user,
@@ -174,7 +174,7 @@ class TestEarlyAccessFeature(APIBaseTest):
                         "rollout_percentage": None,
                     }
                 ],
-                "payloads": {"true": "Hick bondoogling? ????"},
+                "payloads": {"true": '"Hick bondoogling? ????"'},
                 "super_groups": [
                     {
                         "properties": [

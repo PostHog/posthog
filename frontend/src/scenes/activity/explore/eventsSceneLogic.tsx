@@ -2,7 +2,6 @@ import equal from 'fast-deep-equal'
 import { actions, connect, kea, path, reducers, selectors } from 'kea'
 import { actionToUrl, urlToAction } from 'kea-router'
 import { UrlToActionPayload } from 'kea-router/lib/types'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils'
@@ -35,7 +34,7 @@ export const eventsSceneLogic = kea<eventsSceneLogicType>([
     }),
     actionToUrl(({ values }) => ({
         setQuery: () => [
-            values.featureFlags[FEATURE_FLAGS.LIVE_EVENTS] ? urls.activity(ActivityTab.ExploreEvents) : urls.events(),
+            urls.activity(ActivityTab.ExploreEvents),
             {},
             objectsEqual(values.query, values.defaultQuery) ? {} : { q: values.query },
             { replace: true },
@@ -62,7 +61,6 @@ export const eventsSceneLogic = kea<eventsSceneLogicType>([
             }
         }
         return {
-            [urls.events()]: eventsQueryHandler,
             [urls.activity(ActivityTab.ExploreEvents)]: eventsQueryHandler,
         }
     }),

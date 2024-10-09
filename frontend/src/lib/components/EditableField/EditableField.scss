@@ -60,22 +60,6 @@
         }
     }
 
-    .EditableField__autosize {
-        align-self: center;
-        min-width: 0;
-        padding: 1px 0;
-    }
-
-    .EditableField__autosize__sizer {
-        position: absolute;
-        top: 0;
-        left: 0;
-        height: 0;
-        overflow: scroll;
-        white-space: pre;
-        visibility: hidden;
-    }
-
     .EditableField__actions {
         display: flex;
         flex-shrink: 0;

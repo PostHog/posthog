@@ -26,7 +26,6 @@ import {
 } from '../types'
 import { createKafkaProducerWrapper } from '../utils/db/hub'
 import { KafkaProducerWrapper } from '../utils/db/kafka-producer-wrapper'
-import { captureTeamEvent } from '../utils/posthog'
 import { status } from '../utils/status'
 import { castTimestampOrNow } from '../utils/utils'
 import { RustyHook } from '../worker/rusty-hook'
@@ -44,7 +43,6 @@ import {
     HogFunctionInvocationSerialized,
     HogFunctionInvocationSerializedCompressed,
     HogFunctionMessageToProduce,
-    HogFunctionType,
     HogHooksFetchResponse,
 } from './types'
 import {
@@ -117,9 +115,7 @@ abstract class CdpConsumerBase {
     constructor(protected hub: Hub) {
         this.redis = createCdpRedisPool(hub)
         this.hogFunctionManager = new HogFunctionManager(hub)
-        this.hogWatcher = new HogWatcher(hub, this.redis, (id, state) => {
-            void this.captureInternalPostHogEvent(id, 'hog function state changed', { state })
-        })
+        this.hogWatcher = new HogWatcher(hub, this.redis)
         this.hogMasker = new HogMasker(this.redis)
         this.hogExecutor = new HogExecutor(this.hub, this.hogFunctionManager)
         const rustyHook = this.hub?.rustyHook ?? new RustyHook(this.hub)
@@ -134,28 +130,6 @@ abstract class CdpConsumerBase {
             healthcheck: () => this.isHealthy() ?? false,
             batchConsumer: this.batchConsumer,
         }
-    }
-
-    private async captureInternalPostHogEvent(
-        hogFunctionId: HogFunctionType['id'],
-        event: string,
-        properties: any = {}
-    ) {
-        const hogFunction = this.hogFunctionManager.getHogFunction(hogFunctionId)
-        if (!hogFunction) {
-            return
-        }
-        const team = await this.hub.teamManager.fetchTeam(hogFunction.team_id)
-
-        if (!team) {
-            return
-        }
-
-        captureTeamEvent(team, event, {
-            ...properties,
-            hog_function_id: hogFunctionId,
-            hog_function_url: `${this.hub.SITE_URL}/project/${team.id}/pipeline/destinations/hog-${hogFunctionId}`,
-        })
     }
 
     protected async runWithHeartbeat<T>(func: () => Promise<T> | T): Promise<T> {
@@ -238,6 +212,17 @@ abstract class CdpConsumerBase {
         const serializedInvocation: HogFunctionInvocationSerialized = {
             ...invocation,
             hogFunctionId: invocation.hogFunction.id,
+        }
+
+        if (invocation.queue === 'fetch') {
+            // Track a metric purely to say a fetch was attempted (this may be what we bill on in the future)
+            this.produceAppMetric({
+                team_id: invocation.teamId,
+                app_source_id: invocation.hogFunction.id,
+                metric_kind: 'other',
+                metric_name: 'fetch',
+                count: 1,
+            })
         }
 
         delete (serializedInvocation as any).hogFunction
@@ -772,6 +757,17 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
     private async updateJobs(invocations: HogFunctionInvocationResult[]) {
         await Promise.all(
             invocations.map((item) => {
+                if (item.invocation.queue === 'fetch') {
+                    // Track a metric purely to say a fetch was attempted (this may be what we bill on in the future)
+                    this.produceAppMetric({
+                        team_id: item.invocation.teamId,
+                        app_source_id: item.invocation.hogFunction.id,
+                        metric_kind: 'other',
+                        metric_name: 'fetch',
+                        count: 1,
+                    })
+                }
+
                 const id = item.invocation.id
                 if (item.error) {
                     status.debug('⚡️', 'Updating job to failed', id)

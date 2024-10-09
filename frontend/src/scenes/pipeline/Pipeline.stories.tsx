@@ -69,7 +69,7 @@ export default {
                 '/api/projects/:team_id/pipeline_frontend_apps_configs/:id': pluginConfigRetrieveMock,
                 '/api/organizations/:organization_id/pipeline_import_apps/': empty,
                 '/api/projects/:team_id/pipeline_import_apps_configs/': empty,
-
+                '/api/projects/:team_id/integrations/': empty,
                 '/api/projects/:team_id/app_metrics/:plugin_config_id?date_from=-7d': require('./__mocks__/pluginMetrics.json'),
                 '/api/projects/:team_id/app_metrics/:plugin_config_id/error_details?error_type=Error': require('./__mocks__/pluginErrorDetails.json'),
             },
@@ -215,6 +215,13 @@ export function PipelineNodeNewBigQuery(): JSX.Element {
 export function PipelineNodeNewBigQueryWithoutPipelines(): JSX.Element {
     useEffect(() => {
         router.actions.push(urls.pipelineNodeNew(PipelineStage.Destination, 'BigQuery'))
+    }, [])
+    return <App />
+}
+
+export function PipelineNodeNewHogFunction(): JSX.Element {
+    useEffect(() => {
+        router.actions.push(urls.pipelineNodeNew(PipelineStage.Destination, 'hog-template-slack'))
     }, [])
     return <App />
 }
