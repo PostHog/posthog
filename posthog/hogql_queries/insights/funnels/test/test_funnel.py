@@ -47,6 +47,7 @@ from posthog.schema import (
     InsightDateRange,
     PersonsOnEventsMode,
     PropertyOperator,
+    FunnelMathType,
 )
 from posthog.test.base import (
     APIBaseTest,
@@ -4188,6 +4189,66 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             self.assertEqual(results[0]["count"], 3)
             self.assertEqual(results[1]["count"], 1)
+
+        def test_first_time_for_user_funnel_person_properties(self):
+            _create_person(distinct_ids=["user_1"], team=self.team, properties={"email": "test@test.com"})
+            _create_person(
+                distinct_ids=["user_2"],
+                properties={"email": "bonjonjovi@gmail.com"},
+                team=self.team,
+            )
+
+            _create_event(
+                team=self.team,
+                event="event1",
+                distinct_id="user_1",
+                timestamp="2024-03-20T13:00:00Z",
+            )
+            _create_event(
+                team=self.team,
+                event="event1",
+                distinct_id="user_1",
+                properties={"property": "woah"},
+                timestamp="2024-03-21T13:00:00Z",
+            )
+            _create_event(
+                team=self.team,
+                event="event1",
+                distinct_id="user_2",
+                timestamp="2024-03-22T14:00:00Z",
+            )
+            _create_event(
+                team=self.team,
+                event="event2",
+                distinct_id="user_1",
+                timestamp="2024-03-23T13:00:00Z",
+            )
+
+            query = FunnelsQuery(
+                series=[
+                    EventsNode(
+                        event="event1",
+                        math=FunnelMathType.FIRST_TIME_FOR_USER_WITH_FILTERS,
+                        properties=[
+                            EventPropertyFilter(key="property", value="woah", operator=PropertyOperator.EXACT),
+                        ],
+                    ),
+                    EventsNode(event="event2"),
+                ],
+                dateRange=InsightDateRange(
+                    date_from="2024-03-20",
+                    date_to="2024-03-24",
+                ),
+            )
+            results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+
+            self.assertEqual(results[0]["count"], 1)
+            self.assertEqual(results[1]["count"], 1)
+
+            query.series[0].math = FunnelMathType.FIRST_TIME_FOR_USER
+            results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+            # classic and udf funnels handle no events differently
+            assert len(results) == 0 or results[0]["count"] == 0
 
         def test_funnel_personless_events_are_supported(self):
             user_id = uuid.uuid4()

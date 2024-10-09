@@ -3514,6 +3514,12 @@ export interface InstanceSetting {
     is_secret: boolean
 }
 
+export enum FunnelMathType {
+    AnyMatch = 'total',
+    FirstTimeForUser = 'first_time_for_user',
+    FirstTimeForUserWithFilters = 'first_time_for_user_with_filters',
+}
+
 export enum BaseMathType {
     TotalCount = 'total',
     UniqueUsers = 'dau',
