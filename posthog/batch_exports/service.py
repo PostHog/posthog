@@ -357,7 +357,14 @@ def disable_and_delete_export(instance: BatchExport):
     instance.deleted = True
 
     for backfill in running_backfills_for_batch_export(instance.id):
-        async_to_sync(cancel_running_batch_export_backfill)(temporal, backfill)
+        try:
+            async_to_sync(cancel_running_batch_export_backfill)(temporal, backfill)
+        except Exception:
+            logger.exception(
+                "Failed to delete backfill %s for batch export %s, but will continue on with delete",
+                backfill.id,
+                instance.id,
+            )
 
     try:
         batch_export_delete_schedule(temporal, str(instance.pk))
@@ -449,14 +456,22 @@ def backfill_export(
         start_at=start_at.isoformat(),
         end_at=end_at.isoformat() if end_at else None,
     )
-    workflow_id = start_backfill_batch_export_workflow(temporal, inputs=inputs)
+    start_at_utc_str = start_at.astimezone(tz=dt.UTC).isoformat()
+    # TODO: Should we use another signal besides "None"? i.e. "Inf" or "END".
+    # Keeping it like this for now for backwards compatibility.
+    end_at_utc_str = end_at.astimezone(tz=dt.UTC).isoformat() if end_at else "None"
+
+    workflow_id = f"{inputs.batch_export_id}-Backfill-{start_at_utc_str}-{end_at_utc_str}"
+
+    workflow_id = start_backfill_batch_export_workflow(temporal, workflow_id, inputs=inputs)
     return workflow_id
 
 
 @async_to_sync
-async def start_backfill_batch_export_workflow(temporal: Client, inputs: BackfillBatchExportInputs) -> str:
+async def start_backfill_batch_export_workflow(
+    temporal: Client, workflow_id: str, inputs: BackfillBatchExportInputs
+) -> str:
     """Async call to start a BackfillBatchExportWorkflow."""
-    workflow_id = f"{inputs.batch_export_id}-Backfill-{inputs.start_at}-{inputs.end_at}"
     await temporal.start_workflow(
         "backfill-batch-export",
         inputs,

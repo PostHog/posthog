@@ -56,6 +56,15 @@ else
 fi
 
 [[ -f ".env" ]] && export $(cat .env | xargs) || ( echo "No .env file found. Please create it with POSTHOG_SECRET and DOMAIN set." && exit 1)
+# we introduced ENCRYPTION_SALT_KEYS and so if there isn't one, need to add it
+# check for it in the .env file
+if ! grep -q "ENCRYPTION_SALT_KEYS" .env
+then
+    ENCRYPTION_SALT_KEYS=$(head -c 28 /dev/urandom | sha224sum -b | head -c 56)
+    echo "ENCRYPTION_SALT_KEYS=$ENCRYPTION_SALT_KEYS" >> .env
+fi
+
+
 export POSTHOG_APP_TAG="${POSTHOG_APP_TAG:-latest-release}"
 
 cd posthog
