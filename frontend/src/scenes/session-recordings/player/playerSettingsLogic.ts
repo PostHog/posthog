@@ -198,7 +198,6 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
         setPlaybackMode: (mode: PlaybackMode) => ({ mode }),
         setSidebarOpen: (open: boolean) => ({ open }),
         setShowMouseTail: (showMouseTail: boolean) => ({ showMouseTail }),
-        setShowSeekbarTicks: (show: boolean) => ({ show }),
     }),
     connect({
         values: [teamLogic, ['currentTeam']],
@@ -278,13 +277,6 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
                 setShowMouseTail: (_, { showMouseTail }) => showMouseTail,
             },
         ],
-        showSeekbarTicks: [
-            true,
-            { persist: true },
-            {
-                setShowSeekbarTicks: (_, { show }) => show,
-            },
-        ],
 
         // Inspector
         tab: [
@@ -349,6 +341,10 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
     })),
 
     selectors({
+        isVerticallyStacked: [
+            (s) => [s.preferredSidebarStacking],
+            (preferredSidebarStacking) => preferredSidebarStacking === SessionRecordingSidebarStacking.Vertical,
+        ],
         miniFilters: [
             (s) => [s.tab, s.selectedMiniFilters],
             (tab, selectedMiniFilters): SharedListMiniFilter[] => {

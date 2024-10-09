@@ -9,7 +9,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { useRef } from 'react'
 
-import { SessionRecordingSidebarTab } from '~/types'
+import { SessionRecordingSidebarStacking, SessionRecordingSidebarTab } from '~/types'
 
 import { TabToIcon } from './inspector/PlayerInspectorControls'
 import { PlayerPersonMeta } from './PlayerPersonMeta'
@@ -17,20 +17,14 @@ import { playerSettingsLogic } from './playerSettingsLogic'
 import { playerSidebarLogic } from './sidebar/playerSidebarLogic'
 import { PlayerSidebarTab } from './sidebar/PlayerSidebarTab'
 
-export function PlayerSidebar({
-    isVerticallyStacked,
-    toggleLayoutStacking,
-}: {
-    isVerticallyStacked: boolean
-    toggleLayoutStacking?: () => void
-}): JSX.Element {
+export function PlayerSidebar(): JSX.Element {
     const ref = useRef<HTMLDivElement>(null)
 
     const { featureFlags } = useValues(featureFlagLogic)
     const { activeTab } = useValues(playerSidebarLogic)
     const { setTab } = useActions(playerSidebarLogic)
-    const { sidebarOpen } = useValues(playerSettingsLogic)
-    const { setSidebarOpen } = useActions(playerSettingsLogic)
+    const { sidebarOpen, preferredSidebarStacking, isVerticallyStacked } = useValues(playerSettingsLogic)
+    const { setSidebarOpen, setPreferredSidebarStacking } = useActions(playerSettingsLogic)
 
     const logicKey = `player-sidebar-${isVerticallyStacked ? 'vertical' : 'horizontal'}`
 
@@ -87,15 +81,19 @@ export function PlayerSidebar({
                             barClassName="mb-0"
                         />
                         <div className="flex flex-1 border-b shrink-0" />
-                        <div className="flex gap-1 border-b px-1 items-center">
-                            {toggleLayoutStacking && (
-                                <LemonButton
-                                    size="small"
-                                    icon={isVerticallyStacked ? <IconSidePanel /> : <IconBottomPanel />}
-                                    onClick={toggleLayoutStacking}
-                                    tooltip={`Dock to ${isVerticallyStacked ? 'right' : 'bottom'}`}
-                                />
-                            )}
+                        <div className="flex gap-1 border-b end">
+                            <LemonButton
+                                size="small"
+                                icon={isVerticallyStacked ? <IconSidePanel /> : <IconBottomPanel />}
+                                onClick={() =>
+                                    setPreferredSidebarStacking(
+                                        preferredSidebarStacking === SessionRecordingSidebarStacking.Vertical
+                                            ? SessionRecordingSidebarStacking.Horizontal
+                                            : SessionRecordingSidebarStacking.Vertical
+                                    )
+                                }
+                                tooltip={`Dock to ${isVerticallyStacked ? 'right' : 'bottom'}`}
+                            />
                             <LemonButton
                                 size="small"
                                 icon={<IconX />}

@@ -571,15 +571,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportSurveyTemplateClicked: (template: SurveyTemplateType) => ({ template }),
         reportSurveyCycleDetected: (survey: Survey | NewSurvey) => ({ survey }),
         reportProductUnsubscribed: (product: string) => ({ product }),
-        // onboarding
-        reportOnboardingProductSelected: (
-            productKey: string,
-            includeFirstOnboardingProductOnUserProperties: boolean
-        ) => ({
-            productKey,
-            includeFirstOnboardingProductOnUserProperties,
-        }),
-        reportOnboardingCompleted: (productKey: string) => ({ productKey }),
         reportSubscribedDuringOnboarding: (productKey: string) => ({ productKey }),
         // command bar
         reportCommandBarStatusChanged: (status: BarStatus) => ({ status }),
@@ -1300,21 +1291,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             })
         },
         // onboarding
-        reportOnboardingProductSelected: ({ productKey, includeFirstOnboardingProductOnUserProperties }) => {
-            posthog.capture('onboarding product selected', {
-                product_key: productKey,
-                $set_once: {
-                    first_onboarding_product_selected: includeFirstOnboardingProductOnUserProperties
-                        ? productKey
-                        : undefined,
-                },
-            })
-        },
-        reportOnboardingCompleted: ({ productKey }) => {
-            posthog.capture('onboarding completed', {
-                product_key: productKey,
-            })
-        },
         reportSubscribedDuringOnboarding: ({ productKey }) => {
             posthog.capture('subscribed during onboarding', {
                 product_key: productKey,

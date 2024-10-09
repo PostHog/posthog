@@ -1,6 +1,7 @@
 import clsx from 'clsx'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { autoCaptureEventToDescription, capitalizeFirstLetter } from 'lib/utils'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { autoCaptureEventToDescription } from 'lib/utils'
 import { memo } from 'react'
 import {
     InspectorListItemComment,
@@ -25,16 +26,22 @@ function PlayerSeekbarTick({
     endTimeMs: number
     zIndex: number
     onClick: (e: React.MouseEvent) => void
-}): JSX.Element {
+}): JSX.Element | null {
     const data = item.data
     const isEventItem = 'event' in data
+    const position = (item.timeInRecording / endTimeMs) * 100
+
+    if (position < 0 || position > 100) {
+        return null
+    }
+
     return (
         <div
             className={clsx('PlayerSeekbarTick', item.highlightColor && `PlayerSeekbarTick--${item.highlightColor}`)}
             title={isEventItem ? data.event : data.comment}
             // eslint-disable-next-line react/forbid-dom-props
             style={{
-                left: `${(item.timeInRecording / endTimeMs) * 100}%`,
+                left: `${position}%`,
                 zIndex: zIndex,
             }}
             onClick={onClick}
@@ -42,15 +49,19 @@ function PlayerSeekbarTick({
             <div className="PlayerSeekbarTick__info">
                 {isEventItem ? (
                     <>
-                        <PropertyKeyInfo
-                            className="font-medium"
-                            disableIcon
-                            disablePopover
-                            ellipsis={true}
-                            value={capitalizeFirstLetter(autoCaptureEventToDescription(data))}
-                        />
-                        {data.event === '$autocapture' ? <span className="opacity-75 ml-2">(Autocapture)</span> : null}
-                        {data.event === '$pageview' ? (
+                        {data.event === '$autocapture' ? (
+                            <>{autoCaptureEventToDescription(data)}</>
+                        ) : (
+                            <PropertyKeyInfo
+                                className="font-medium"
+                                disableIcon
+                                disablePopover
+                                ellipsis={true}
+                                type={TaxonomicFilterGroupType.Events}
+                                value={data.event}
+                            />
+                        )}
+                        {data.event === '$pageview' && (data.properties.$pathname || data.properties.$current_url) ? (
                             <span className="ml-2 opacity-75">
                                 {data.properties.$pathname || data.properties.$current_url}
                             </span>
