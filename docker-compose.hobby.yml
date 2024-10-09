@@ -83,6 +83,7 @@ services:
             OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password'
             OBJECT_STORAGE_ENDPOINT: http://objectstorage:19000
             OBJECT_STORAGE_ENABLED: true
+            ENCRYPTION_SALT_KEYS: $ENCRYPTION_SALT_KEYS
         image: $REGISTRY_URL:$POSTHOG_APP_TAG
     web:
         extends:
