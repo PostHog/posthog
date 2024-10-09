@@ -110,6 +110,7 @@ export type Setting = {
      */
     flag?: FeatureFlagKey | `!${FeatureFlagKey}`
     features?: AvailableFeature[]
+    hidden?: 'cloud'
 }
 
 export type SettingSection = {

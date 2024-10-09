@@ -2,6 +2,7 @@ import { actions, connect, kea, key, listeners, path, props, reducers, selectors
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -14,7 +15,7 @@ export const settingsLogic = kea<settingsLogicType>([
     key((props) => props.logicKey ?? 'global'),
     path((key) => ['scenes', 'settings', 'settingsLogic', key]),
     connect({
-        values: [featureFlagLogic, ['featureFlags'], userLogic, ['hasAvailableFeature']],
+        values: [featureFlagLogic, ['featureFlags'], userLogic, ['hasAvailableFeature'], preflightLogic, ['preflight']],
     }),
 
     actions({
@@ -112,8 +113,17 @@ export const settingsLogic = kea<settingsLogicType>([
                 s.settingId,
                 s.featureFlags,
                 s.hasAvailableFeature,
+                s.preflight,
             ],
-            (selectedLevel, selectedSectionId, sections, settingId, featureFlags, hasAvailableFeature): Setting[] => {
+            (
+                selectedLevel,
+                selectedSectionId,
+                sections,
+                settingId,
+                featureFlags,
+                hasAvailableFeature,
+                preflight
+            ): Setting[] => {
                 let settings: Setting[] = []
 
                 if (selectedSectionId) {
@@ -128,22 +138,29 @@ export const settingsLogic = kea<settingsLogicType>([
                     return settings.filter((x) => x.id === settingId)
                 }
 
-                return settings.filter((x) => {
-                    const isFlagConditionMet = !x.flag
-                        ? true // No flag condition
-                        : x.flag.startsWith('!')
-                        ? !featureFlags[FEATURE_FLAGS[x.flag.slice(1)]] // Negated flag condition (!-prefixed)
-                        : featureFlags[FEATURE_FLAGS[x.flag]] // Regular flag condition
-                    if (x.flag && x.features) {
-                        return x.features.some((feat) => hasAvailableFeature(feat)) || isFlagConditionMet
-                    } else if (x.features) {
-                        return x.features.some((feat) => hasAvailableFeature(feat))
-                    } else if (x.flag) {
-                        return isFlagConditionMet
-                    }
+                return settings
+                    .filter((x) => {
+                        const isFlagConditionMet = !x.flag
+                            ? true // No flag condition
+                            : x.flag.startsWith('!')
+                            ? !featureFlags[FEATURE_FLAGS[x.flag.slice(1)]] // Negated flag condition (!-prefixed)
+                            : featureFlags[FEATURE_FLAGS[x.flag]] // Regular flag condition
+                        if (x.flag && x.features) {
+                            return x.features.some((feat) => hasAvailableFeature(feat)) || isFlagConditionMet
+                        } else if (x.features) {
+                            return x.features.some((feat) => hasAvailableFeature(feat))
+                        } else if (x.flag) {
+                            return isFlagConditionMet
+                        }
 
-                    return true
-                })
+                        return true
+                    })
+                    .filter((x) => {
+                        if (x.hidden === 'cloud' && preflight?.cloud) {
+                            return false
+                        }
+                        return true
+                    })
             },
         ],
     }),
