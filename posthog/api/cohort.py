@@ -75,7 +75,7 @@ from posthog.queries.stickiness import StickinessActors
 from posthog.queries.trends.trends_actors import TrendsActors
 from posthog.queries.trends.lifecycle_actors import LifecycleActors
 from posthog.queries.util import get_earliest_timestamp
-from posthog.schema import ActorsQuery
+from posthog.schema import ActorsQuery, HogQLQuery
 from posthog.tasks.calculate_cohort import (
     calculate_cohort_from_list,
     insert_cohort_from_feature_flag,
@@ -181,9 +181,12 @@ class CohortSerializer(serializers.ModelSerializer):
             return None
         if not isinstance(query, dict):
             raise ValidationError("Query must be a dictionary.")
-        if query.get("kind") != "ActorsQuery":
-            raise ValidationError(f"Query must be a ActorsQuery. Got: {query.get('kind')}")
-        ActorsQuery.model_validate(query)
+        if query.get("kind") == "ActorsQuery":
+            ActorsQuery.model_validate(query)
+        elif query.get("kind") == "HogQLQuery":
+            HogQLQuery.model_validate(query)
+        else:
+            raise ValidationError(f"Query must be an ActorsQuery or HogQLQuery. Got: {query.get('kind')}")
         return query
 
     def validate_filters(self, request_filters: dict):
@@ -268,6 +271,8 @@ class CohortSerializer(serializers.ModelSerializer):
                 # You can't update a static cohort using the trend/stickiness thing
                 if request.FILES.get("csv"):
                     self._calculate_static_by_csv(request.FILES["csv"], cohort)
+                else:
+                    update_cohort(cohort, initiating_user=request.user)
             else:
                 update_cohort(cohort, initiating_user=request.user)
 

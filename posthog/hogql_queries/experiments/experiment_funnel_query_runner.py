@@ -3,6 +3,7 @@ from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.models.experiment import Experiment
 from ..insights.funnels.funnels_query_runner import FunnelsQueryRunner
 from posthog.schema import (
+    CachedExperimentFunnelQueryResponse,
     ExperimentFunnelQuery,
     ExperimentFunnelQueryResponse,
     ExperimentVariantFunnelResult,
@@ -16,6 +17,8 @@ from zoneinfo import ZoneInfo
 
 class ExperimentFunnelQueryRunner(QueryRunner):
     query: ExperimentFunnelQuery
+    response: ExperimentFunnelQueryResponse
+    cached_response: CachedExperimentFunnelQueryResponse
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

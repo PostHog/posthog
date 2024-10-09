@@ -73,7 +73,7 @@ export function OperatorValueSelect({
 }: OperatorValueSelectProps): JSX.Element {
     const propertyDefinition = propertyDefinitions.find((pd) => pd.name === propertyKey)
 
-    const isCohortProperty = propertyKey === 'id'
+    const isCohortProperty = propertyKey === 'id' && type === PropertyFilterType.Cohort
 
     // DateTime properties should not default to Exact
     const isDateTimeProperty = propertyDefinition?.property_type == PropertyType.DateTime

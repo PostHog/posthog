@@ -26,6 +26,7 @@ import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFi
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
@@ -91,6 +92,8 @@ export function InsightLoadingState({
     const { suggestedSamplingPercentage, samplingPercentage } = useValues(samplingFilterLogic(insightProps))
     const { insightPollResponse } = useValues(insightDataLogic(insightProps))
 
+    const { currentTeam } = useValues(teamLogic)
+
     const [rowsRead, setRowsRead] = useState(0)
     const [bytesRead, setBytesRead] = useState(0)
     const [secondsElapsed, setSecondsElapsed] = useState(0)
@@ -124,6 +127,7 @@ export function InsightLoadingState({
         (insightPollResponse?.status?.query_progress?.time_elapsed || 1) /
         10000
 
+    currentTeam?.modifiers?.personsOnEventsMode ?? currentTeam?.default_modifiers?.personsOnEventsMode ?? 'disabled'
     return (
         <div className="insight-empty-state warning">
             <div className="empty-state-inner">
@@ -145,23 +149,35 @@ export function InsightLoadingState({
                     )}
                 </p>
                 <div className="flex items-center p-4 rounded bg-bg-3000 gap-x-3 max-w-120">
-                    <IconInfo className="text-xl shrink-0" />
-                    <p className="text-xs m-0">
-                        {suggestedSamplingPercentage && !samplingPercentage ? (
-                            <span data-attr="insight-loading-waiting-message">
-                                Need to speed things up? Try reducing the date range, removing breakdowns, or turning on{' '}
-                                <SamplingLink insightProps={insightProps} />.
-                            </span>
-                        ) : suggestedSamplingPercentage && samplingPercentage ? (
-                            <>
-                                Still waiting around? You must have lots of data! Kick it up a notch with{' '}
-                                <SamplingLink insightProps={insightProps} />. Or try reducing the date range and
-                                removing breakdowns.
-                            </>
-                        ) : (
-                            <>Need to speed things up? Try reducing the date range or removing breakdowns.</>
-                        )}
-                    </p>
+                    {currentTeam?.modifiers?.personsOnEventsMode === 'person_id_override_properties_joined' ? (
+                        <>
+                            <IconWarning className="text-xl shrink-0 text-warning" />
+                            <p className="text-xs m-0">
+                                You can speed this query up by changing the{' '}
+                                <Link to="/settings/project#persons-on-events">person properties mode</Link> setting.
+                            </p>
+                        </>
+                    ) : (
+                        <>
+                            <IconInfo className="text-xl shrink-0" />
+                            <p className="text-xs m-0">
+                                {suggestedSamplingPercentage && !samplingPercentage ? (
+                                    <span data-attr="insight-loading-waiting-message">
+                                        Need to speed things up? Try reducing the date range, removing breakdowns, or
+                                        turning on <SamplingLink insightProps={insightProps} />.
+                                    </span>
+                                ) : suggestedSamplingPercentage && samplingPercentage ? (
+                                    <>
+                                        Still waiting around? You must have lots of data! Kick it up a notch with{' '}
+                                        <SamplingLink insightProps={insightProps} />. Or try reducing the date range and
+                                        removing breakdowns.
+                                    </>
+                                ) : (
+                                    <>Need to speed things up? Try reducing the date range or removing breakdowns.</>
+                                )}
+                            </p>
+                        </>
+                    )}
                 </div>
                 {queryId ? (
                     <div className="text-muted text-xs mx-auto text-center mt-5">

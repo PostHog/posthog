@@ -1,8 +1,6 @@
 import json
-import os
 import re
-import subprocess
-from typing import Any, Optional, cast, Literal
+from typing import Any, Optional, cast
 
 import requests
 from dateutil.relativedelta import relativedelta
@@ -42,6 +40,7 @@ from posthog.models.plugin import (
     PluginSourceFile,
     update_validated_data_from_url,
     validate_plugin_job_payload,
+    transpile,
 )
 from posthog.models.utils import UUIDT, generate_random_token
 from posthog.permissions import APIScopePermission
@@ -200,24 +199,6 @@ def _fix_formdata_config_json(request: request.Request, validated_data: dict):
         validated_data["config"] = json.loads(request.POST["config"])
 
 
-def transpile(input_string: str, type: Literal["site", "frontend"] = "site") -> Optional[str]:
-    from posthog.settings.base_variables import BASE_DIR
-
-    transpiler_path = os.path.join(BASE_DIR, "plugin-transpiler/dist/index.js")
-    if type not in ["site", "frontend"]:
-        raise Exception('Invalid type. Must be "site" or "frontend".')
-
-    process = subprocess.Popen(
-        ["node", transpiler_path, "--type", type], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE
-    )
-    stdout, stderr = process.communicate(input=input_string.encode())
-
-    if process.returncode != 0:
-        error = stderr.decode()
-        raise Exception(error)
-    return stdout.decode()
-
-
 class PlainRenderer(renderers.BaseRenderer):
     format = "txt"
 
@@ -311,6 +292,17 @@ class PluginSerializer(serializers.ModelSerializer):
 
         plugin = Plugin.objects.install(**validated_data)
 
+        for source_file in PluginSourceFile.objects.filter(plugin=plugin):
+            if source_file.filename in ("site.tsx", "frontend.tsx"):
+                try:
+                    source_file.transpiled = transpile(source_file.source, type=source_file.filename.split(".")[0])
+                    source_file.status = PluginSourceFile.Status.TRANSPILED
+                    source_file.save()
+                except Exception as e:
+                    source_file.status = PluginSourceFile.Status.ERROR
+                    source_file.error = str(e)
+                    source_file.save()
+
         return plugin
 
     def update(self, plugin: Plugin, validated_data: dict, *args: Any, **kwargs: Any) -> Plugin:  # type: ignore
@@ -399,8 +391,10 @@ class PluginViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         allowed_plugins_q = Q(plugin__is_global=True) & (
             Q(plugin__capabilities__methods__contains=["processEvent"]) | Q(plugin__capabilities={})
         )
+        # also allow local site apps
+        allowed_local_plugins_q = Q(plugin__is_global=False) & Q(plugin__capabilities={})
         plugin_configs = PluginConfig.objects.filter(
-            Q(team__organization_id=self.organization_id, enabled=True) & ~allowed_plugins_q
+            Q(team__organization_id=self.organization_id, enabled=True) & ~allowed_plugins_q & ~allowed_local_plugins_q
         )
         return Response(
             PluginConfigSerializer(plugin_configs, many=True, context=super().get_serializer_context()).data

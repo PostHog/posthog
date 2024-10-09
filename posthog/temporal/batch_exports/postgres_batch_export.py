@@ -672,6 +672,10 @@ class PostgresBatchExportWorkflow(PostHogWorkflow):
                 "UniqueViolation",
                 # Something changed in the target table's schema that we were not expecting.
                 "UndefinedColumn",
+                # A VARCHAR column is too small.
+                "StringDataRightTruncation",
+                # Raised by PostgreSQL client. Self explanatory.
+                "DiskFull",
             ],
             finish_inputs=finish_inputs,
         )

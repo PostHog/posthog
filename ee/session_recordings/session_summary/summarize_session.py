@@ -12,7 +12,6 @@ from posthog.utils import get_instance_region
 
 from ee.session_recordings.ai.utils import (
     SessionSummaryPromptData,
-    reduce_elements_chain,
     simplify_window_id,
     deduplicate_urls,
     format_dates,
@@ -81,11 +80,7 @@ def summarize_recording(recording: SessionRecording, user: User, team: Team):
         prompt_data = deduplicate_urls(
             collapse_sequence_of_events(
                 format_dates(
-                    reduce_elements_chain(
-                        simplify_window_id(
-                            SessionSummaryPromptData(columns=session_events[0], results=session_events[1])
-                        )
-                    ),
+                    simplify_window_id(SessionSummaryPromptData(columns=session_events[0], results=session_events[1])),
                     start=start_time,
                 )
             )
@@ -95,9 +90,7 @@ def summarize_recording(recording: SessionRecording, user: User, team: Team):
 
     with timer("openai_completion"):
         result = openai.chat.completions.create(
-            # model="gpt-4-1106-preview",  # allows 128k tokens
-            # model="gpt-4",  # allows 8k tokens
-            model="gpt-4o",  # allows 128k tokens
+            model="gpt-4o-mini",  # allows 128k tokens
             temperature=0.7,
             messages=[
                 {
@@ -107,6 +100,7 @@ def summarize_recording(recording: SessionRecording, user: User, team: Team):
             We also gather events that occur like mouse clicks and key presses.
             You write two or three sentence concise and simple summaries of those sessions based on a prompt.
             You are more likely to mention errors or things that look like business success such as checkout events.
+            You always try to make the summary actionable. E.g. mentioning what someone clicked on, or summarizing errors they experienced.
             You don't help with other knowledge.""",
                 },
                 {
@@ -117,7 +111,7 @@ def summarize_recording(recording: SessionRecording, user: User, team: Team):
                 {
                     "role": "user",
                     "content": f"""
-            URLs associated with the events can be found in this mapping {prompt_data.url_mapping}.
+            URLs associated with the events can be found in this mapping {prompt_data.url_mapping}. You never refer to URLs by their placeholder. Always refer to the URL with the simplest version e.g. posthog.com or posthog.com/replay
             """,
                 },
                 {
@@ -125,14 +119,16 @@ def summarize_recording(recording: SessionRecording, user: User, team: Team):
                     "content": f"""the session events I have are {prompt_data.results}.
             with columns {prompt_data.columns}.
             they give an idea of what happened and when,
-            if present the elements_chain extracted from the html can aid in understanding
+            if present the elements_chain_texts, elements_chain_elements, and elements_chain_href extracted from the html can aid in understanding what a user interacted with
             but should not be directly used in your response""",
                 },
                 {
                     "role": "user",
                     "content": """
             generate a two or three sentence summary of the session.
+            only summarize, don't offer advice.
             use as concise and simple language as is possible.
+            Dont' refer to the session length unless it is notable for some reason.
             assume a reading age of around 12 years old.
             generate no text other than the summary.""",
                 },

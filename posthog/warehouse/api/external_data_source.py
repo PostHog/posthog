@@ -1,3 +1,4 @@
+import re
 from dateutil import parser
 import uuid
 from typing import Any
@@ -763,6 +764,14 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             subdomain = request.data.get("subdomain", "")
             api_key = request.data.get("api_key", "")
             email_address = request.data.get("email_address", "")
+
+            subdomain_regex = re.compile("^[a-zA-Z-]+$")
+            if not subdomain_regex.match(subdomain):
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": "Invalid credentials: Zendesk subdomain is incorrect"},
+                )
+
             if not validate_zendesk_credentials(subdomain=subdomain, api_key=api_key, email_address=email_address):
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
@@ -772,10 +781,18 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             secret_token = request.data.get("secret_token", "")
             region = request.data.get("region", "")
             subdomain = request.data.get("subdomain", "")
+
+            subdomain_regex = re.compile("^[a-zA-Z-]+$")
+            if not subdomain_regex.match(subdomain):
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": "Invalid credentials: Vitally subdomain is incorrect"},
+                )
+
             if not validate_vitally_credentials(subdomain=subdomain, secret_token=secret_token, region=region):
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
-                    data={"message": "Invalid credentials: Zendesk credentials are incorrect"},
+                    data={"message": "Invalid credentials: Vitally credentials are incorrect"},
                 )
         elif source_type == ExternalDataSource.Type.BIGQUERY:
             dataset_id = request.data.get("dataset_id", "")

@@ -1,4 +1,5 @@
 import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
+import { EXPERIMENT_TARGET_SELECTOR } from 'lib/actionUtils'
 import { debounce } from 'lib/utils'
 import { collectAllElementsDeep } from 'query-selector-shadow-dom'
 
@@ -141,7 +142,16 @@ export const elementsLogic = kea<elementsLogicType>([
 
         allInspectElements: [
             (s) => [s.inspectEnabled, s.href],
-            (inspectEnabled) => (inspectEnabled ? getAllClickTargets() : []),
+            (inspectEnabled) => {
+                if (!inspectEnabled) {
+                    return []
+                }
+                const inspectForExperiment =
+                    experimentsTabLogic.values.buttonExperimentsVisible &&
+                    experimentsTabLogic.values.inspectingElement !== null
+
+                return getAllClickTargets(undefined, inspectForExperiment ? EXPERIMENT_TARGET_SELECTOR : undefined)
+            },
         ],
 
         inspectElements: [

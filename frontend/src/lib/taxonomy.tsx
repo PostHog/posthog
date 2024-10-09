@@ -1133,6 +1133,16 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             description: <span>The last external URL clicked in this session</span>,
             examples: ['https://example.com/interesting-article?parameter=true'],
         },
+        $vitals_lcp: {
+            label: 'Web vitals LCP',
+            description: (
+                <span>
+                    The time it took for the Largest Contentful Paint on the page. This captures the perceived load time
+                    of the page, and measure how long it took for the main content of the page to be visible to users.
+                </span>
+            ),
+            examples: ['2.2'],
+        },
     },
     groups: {
         $group_key: {
@@ -1234,10 +1244,7 @@ export const PROPERTY_KEYS = Object.keys(CORE_FILTER_DEFINITIONS_BY_GROUP.event_
 
 /** Return whether a given filter key is part of PostHog's core (marked by the PostHog logo). */
 export function isCoreFilter(key: string): boolean {
-    if (Object.values(CORE_FILTER_DEFINITIONS_BY_GROUP).some((mapping) => Object.keys(mapping).includes(key))) {
-        return true
-    }
-    return false
+    return Object.values(CORE_FILTER_DEFINITIONS_BY_GROUP).some((mapping) => Object.keys(mapping).includes(key))
 }
 
 export type PropertyKey = string | null | undefined

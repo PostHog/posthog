@@ -84,3 +84,20 @@ export function SDKInstallIOSInstructions(props: iOSSetupProps): JSX.Element {
         </>
     )
 }
+
+export function SDKInstallIOSTrackScreenInstructions(): JSX.Element {
+    return (
+        <>
+            <p>
+                With <code>configuration.captureScreenViews</code> set as <code>true</code>, PostHog will try to record
+                all screen changes automatically.
+            </p>
+            <p>
+                If you want to manually send a new screen capture event, use the <code>screen</code> function.
+            </p>
+            <CodeSnippet
+                language={Language.Swift}
+            >{`PostHogSDK.shared.screen("Dashboard", properties: ["fromIcon": "bottom"])`}</CodeSnippet>
+        </>
+    )
+}
