@@ -412,12 +412,6 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                                               order: 0,
                                                               properties: [
                                                                   {
-                                                                      key: '$survey_response',
-                                                                      type: PropertyFilterType.Event,
-                                                                      value: 'is_set',
-                                                                      operator: PropertyOperator.IsSet,
-                                                                  },
-                                                                  {
                                                                       key: '$survey_id',
                                                                       type: PropertyFilterType.Event,
                                                                       value: id,
