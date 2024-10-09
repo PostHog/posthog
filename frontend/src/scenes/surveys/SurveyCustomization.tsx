@@ -24,8 +24,10 @@ interface WidgetCustomizationProps extends Omit<CustomizationProps, 'surveyQuest
 
 export function Customization({ appearance, customizeRatingButtons, customizePlaceholderText, onAppearanceChange }: CustomizationProps): JSX.Element {
     const { surveysStylingAvailable } = useValues(surveysLogic)
-    const { surveyShufflingQuestionsAvailable, hasBranchingLogic } = useValues(surveyLogic)
-    const { deleteBranchingLogic } = useActions(surveyLogic)
+    const surveyShufflingQuestionsAvailable = true
+    const hasBranchingLogic  = true
+        // useValues(surveyLogic)
+    // const { deleteBranchingLogic } = useActions(surveyLogic)
     const surveyShufflingQuestionsDisabledReason = surveyShufflingQuestionsAvailable
 
         ? ''
@@ -152,7 +154,7 @@ export function Customization({ appearance, customizeRatingButtons, customizePla
                                         children: 'Continue',
                                         status: 'danger',
                                         onClick: () => {
-                                            deleteBranchingLogic()
+                                            // deleteBranchingLogic()
                                             onAppearanceChange({ ...appearance, shuffleQuestions: true })
                                         },
                                     },

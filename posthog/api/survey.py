@@ -700,17 +700,17 @@ def surveys(request: Request):
         many=True,
     ).data
 
-    survey_settings = None
+    survey_settings = {}
     # survey_settings =
     if team.survey_config is not None:
-        survey_settings = SurveyConfigSerializer(team.survey_config).data
+        survey_settings = SurveyConfigSerializer(team).data
 
     return cors_response(
         request,
         JsonResponse(
             {
                 "surveys": surveys,
-                "survey_config": survey_settings,
+                "survey_config": survey_settings.get("survey_config", None),
                 "settings": {
                     "appearance": {
                         "maxWidth": "300px",

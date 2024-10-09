@@ -88,6 +88,7 @@ class ProjectSerializer(ProjectBasicSerializer, UserPermissionsSerializerMixin):
             "session_recording_linked_flag",  # Compat with TeamSerializer
             "session_recording_network_payload_capture_config",  # Compat with TeamSerializer
             "session_replay_config",  # Compat with TeamSerializer
+            "survey_config",
             "access_control",  # Compat with TeamSerializer
             "week_start_day",  # Compat with TeamSerializer
             "primary_dashboard",  # Compat with TeamSerializer
@@ -147,6 +148,7 @@ class ProjectSerializer(ProjectBasicSerializer, UserPermissionsSerializerMixin):
             "session_recording_linked_flag",
             "session_recording_network_payload_capture_config",
             "session_replay_config",
+            "survey_config",
             "access_control",
             "week_start_day",
             "primary_dashboard",
@@ -251,6 +253,17 @@ class ProjectSerializer(ProjectBasicSerializer, UserPermissionsSerializerMixin):
         team = instance.passthrough_team
         team_before_update = team.__dict__.copy()
         project_before_update = instance.__dict__.copy()
+
+        if "survey_config" in validated_data:
+            if team.survey_config is not None and validated_data.get("survey_config") is not None:
+                validated_data["survey_config"] = {
+                    **team.survey_config,
+                    **validated_data["survey_config"],
+                }
+
+            if validated_data.get("survey_config") is None:
+                del team_before_update["survey_config"]
+
 
         if (
             "session_replay_config" in validated_data
