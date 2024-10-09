@@ -127,13 +127,11 @@ func main() {
 		} else {
 			teamId = ""
 
-			log.Println("~~~~ Looking for auth header")
 			authHeader := c.Request().Header.Get("Authorization")
 			if authHeader == "" {
 				return errors.New("authorization header is required")
 			}
 
-			log.Println("~~~~ decoding auth header")
 			claims, err := decodeAuthToken(authHeader)
 			if err != nil {
 				return err
@@ -141,7 +139,6 @@ func main() {
 			teamId = strconv.Itoa(int(claims["team_id"].(float64)))
 			token = fmt.Sprint(claims["api_token"])
 
-			log.Printf("~~~~ team found %s", teamId)
 			if teamId == "" {
 				return errors.New("teamId is required unless geo=true")
 			}
