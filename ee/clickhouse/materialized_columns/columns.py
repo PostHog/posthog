@@ -29,7 +29,7 @@ SHORT_TABLE_COLUMN_NAME = {
 
 
 @cache_for(timedelta(minutes=15))
-def get_materialized_column_info(
+def _get_all_materialized_columns(
     table: TablesWithMaterializedColumns,
 ) -> dict[tuple[PropertyName, TableColumn], MaterializedColumnInfo]:
     rows = sync_execute(
@@ -62,16 +62,17 @@ def get_materialized_column_info(
 # uses `no_type_check`, permitting these calls.
 def get_materialized_columns(
     table: TablesWithMaterializedColumns,
+    exclude_nullable_columns: bool = False,
     use_cache: bool | None = None,
-) -> dict[tuple[PropertyName, str], ColumnName]:
+) -> dict[tuple[PropertyName, str], MaterializedColumnInfo]:
     extra_kwargs = {}
     if use_cache is not None:
         extra_kwargs = {"use_cache": use_cache}
-    return {
-        key: value.column_name
-        for key, value in get_materialized_column_info(table, **extra_kwargs).items()
-        if not value.is_nullable
-    }
+
+    columns = _get_all_materialized_columns(table, **extra_kwargs)
+    if exclude_nullable_columns:
+        columns = {k: v for k, v in columns.items() if not v.is_nullable}
+    return columns
 
 
 def materialize(
@@ -82,7 +83,7 @@ def materialize(
     create_minmax_index=not TEST,
     is_nullable: bool = False,
 ) -> None:
-    if (property, table_column) in get_materialized_column_info(table, use_cache=False):
+    if (property, table_column) in get_materialized_columns(table, use_cache=False):
         if TEST:
             return
 
@@ -187,7 +188,7 @@ def backfill_materialized_columns(
     # :TRICKY: On cloud, we ON CLUSTER updates to events/sharded_events but not to persons. Why? ¯\_(ツ)_/¯
     execute_on_cluster = f"ON CLUSTER '{CLICKHOUSE_CLUSTER}'" if table == "events" else ""
 
-    materialized_columns = get_materialized_column_info(table, use_cache=False)
+    materialized_columns = get_materialized_columns(table, use_cache=False)
 
     # Hack from https://github.com/ClickHouse/ClickHouse/issues/19785
     # Note that for this to work all inserts should list columns explicitly
@@ -235,7 +236,7 @@ def _materialized_column_name(
     property_str = re.sub("[^0-9a-zA-Z$]", "_", property)
 
     existing_materialized_columns = {
-        column_info.column_name for column_info in get_materialized_column_info(table, use_cache=False).values()
+        column_info.column_name for column_info in _get_all_materialized_columns(table, use_cache=False).values()
     }
     suffix = ""
 

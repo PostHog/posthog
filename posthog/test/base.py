@@ -426,7 +426,7 @@ def default_materialised_columns():
 
 def cleanup_materialized_columns():
     try:
-        from ee.clickhouse.materialized_columns.columns import get_materialized_column_info
+        from ee.clickhouse.materialized_columns.columns import get_materialized_columns
     except:
         # EE not available? Skip
         return
@@ -435,9 +435,7 @@ def cleanup_materialized_columns():
         drops = ",".join(
             [
                 f"DROP COLUMN {column_name}"
-                for column_name in [
-                    column_info.column_name for column_info in get_materialized_column_info(table).values()
-                ]
+                for column_name in [column_info.column_name for column_info in get_materialized_columns(table).values()]
                 if filter is None or filter(column_name)
             ]
         )

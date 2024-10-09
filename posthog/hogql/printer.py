@@ -1511,10 +1511,10 @@ class _Printer(Visitor):
         try:
             from ee.clickhouse.materialized_columns.columns import (
                 TablesWithMaterializedColumns,
-                get_materialized_column_info,
+                get_materialized_columns,
             )
 
-            return get_materialized_column_info(cast(TablesWithMaterializedColumns, table_name)).get(
+            return get_materialized_columns(cast(TablesWithMaterializedColumns, table_name)).get(
                 (property_name, field_name), None
             )
         except ModuleNotFoundError:

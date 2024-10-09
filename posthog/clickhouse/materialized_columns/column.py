@@ -1,7 +1,7 @@
 from datetime import timedelta
 
 from posthog.cache_utils import cache_for
-from posthog.clickhouse.materialized_columns import TablesWithMaterializedColumns
+from posthog.clickhouse.materialized_columns import MaterializedColumnInfo, TablesWithMaterializedColumns
 from posthog.models.property import PropertyName, TableColumn, TableWithProperties
 
 ColumnName = str
@@ -10,7 +10,8 @@ ColumnName = str
 @cache_for(timedelta(minutes=15))
 def get_materialized_columns(
     table: TablesWithMaterializedColumns,
-) -> dict[tuple[PropertyName, TableColumn], ColumnName]:
+    exclude_nullable_columns: bool = False,
+) -> dict[tuple[PropertyName, TableColumn], MaterializedColumnInfo]:
     return {}
 
 
