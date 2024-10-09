@@ -1,6 +1,7 @@
 import { IconGear } from '@posthog/icons'
 import {
-    LemonButton, LemonCollapse,
+    LemonButton,
+    LemonCollapse,
     LemonDialog,
     LemonDivider,
     LemonInput,
@@ -27,26 +28,19 @@ import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/column
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import stringWithWBR from 'lib/utils/stringWithWBR'
+import { useState } from 'react'
 import { LinkedHogFunctions } from 'scenes/pipeline/hogfunctions/list/LinkedHogFunctions'
 import { SceneExport } from 'scenes/sceneTypes'
+import { Customization } from 'scenes/surveys/SurveyCustomization'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import {
-    ActivityScope,
-    ProductKey,
-    ProgressStatus,
-    PropertyFilterType,
-    PropertyOperator,
-    Survey,
-} from '~/types'
+import { ActivityScope, ProductKey, ProgressStatus, Survey } from '~/types'
 
-import {defaultSurveyAppearance, SurveyQuestionLabel} from './constants'
+import { defaultSurveyAppearance, SurveyQuestionLabel } from './constants'
 import { openSurveysSettingsDialog } from './SurveySettings'
 import { getSurveyStatus, surveysLogic, SurveysTabs } from './surveysLogic'
-import { Customization } from "scenes/surveys/SurveyCustomization";
-import {teamLogic} from "scenes/teamLogic";
-import {useState} from "react";
 // import {teamLogic} from "scenes/teamLogic";
 
 export const scene: SceneExport = {
@@ -71,8 +65,10 @@ export function Surveys(): JSX.Element {
 
     const { user } = useValues(userLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
-    const { currentTeam,  } = useValues(teamLogic)
-    const [editableSurveyConfig, setEditableSurveyConfig] = useState(currentTeam?.survey_config?.appearance || defaultSurveyAppearance)
+    const { currentTeam } = useValues(teamLogic)
+    const [editableSurveyConfig, setEditableSurveyConfig] = useState(
+        currentTeam?.survey_config?.appearance || defaultSurveyAppearance
+    )
     const shouldShowEmptyState = !surveysLoading && surveys.length === 0
     const showLinkedHogFunctions = useFeatureFlag('HOG_FUNCTIONS_LINKED') || true
 
@@ -131,48 +127,49 @@ export function Surveys(): JSX.Element {
             />
             {tab === SurveysTabs.Settings && (
                 <>
+                    <div className="flex items-center mb-2 gap-2">
+                        <div className="flex-1" />
+                        <LemonButton
+                            type="primary"
+                            onClick={() => {
+                                updateCurrentTeam({
+                                    survey_config: {
+                                        ...currentTeam?.survey_config,
+                                        appearance: {
+                                            ...currentTeam?.survey_config?.appearance,
+                                            ...editableSurveyConfig,
+                                        },
+                                    },
+                                })
+                            }}
+                        >
+                            Save settings
+                        </LemonButton>
+                    </div>
                     <div className="flex flex-col overflow-hidden flex-1">
                         <LemonCollapse
-                            panels = {[{
-                            key: "Appearance",
-                                header:"Appearance",
-                            content: <Customization
-                      key='survey-settings-customization'
-                      appearance={editableSurveyConfig}
-                      customizeRatingButtons = {true}
-                      customizePlaceholderText = {true}
-                      onAppearanceChange={(appearance) => {
-                        setEditableSurveyConfig({
-                              ...editableSurveyConfig,
-                              ...appearance
-                          })
-                      }
-                    }
-                  />
-                        }
+                            panels={[
+                                {
+                                    key: 'Appearance',
+                                    header: 'Appearance',
+                                    content: (
+                                        <Customization
+                                            key="survey-settings-customization"
+                                            appearance={editableSurveyConfig}
+                                            customizeRatingButtons={true}
+                                            customizePlaceholderText={true}
+                                            onAppearanceChange={(appearance) => {
+                                                setEditableSurveyConfig({
+                                                    ...editableSurveyConfig,
+                                                    ...appearance,
+                                                })
+                                            }}
+                                        />
+                                    ),
+                                },
                             ]}
-                        /></div>
-                    <div>
-                    <LemonButton
-                        type='primary'
-                        onClick={() => {
-
-                            updateCurrentTeam({
-                                survey_config: {
-                                    ...currentTeam?.survey_config,
-                                    appearance: {
-                                        ...currentTeam?.survey_config?.appearance,
-                                        ...editableSurveyConfig
-                                    }
-                                }
-                            })
-                        }
-                        }
-                    >
-                        Save
-                    </LemonButton>
-                    
-                  </div>
+                        />
+                    </div>
                 </>
             )}
             {tab === SurveysTabs.Notifications && (
