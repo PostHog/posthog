@@ -783,7 +783,6 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                 })
                             }}
                             label="Enabled"
-                            disabled={!featureFlag.can_edit}
                             disabledReason={
                                 !featureFlag.can_edit
                                     ? "You have only 'View' access for this feature flag. To make changes, please contact the flag's creator."
