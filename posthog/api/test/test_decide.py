@@ -304,6 +304,35 @@ class TestDecide(BaseTest, QueryMatchingTest):
         response = self._post_decide().json()
         self.assertEqual(response["sessionRecording"]["linkedFlag"], {"flag": "my-flag", "variant": "test"})
 
+    def test_session_recording_url_trigger_patterns(self, *args):
+        self._update_team(
+            {
+                "session_recording_url_trigger_config": [
+                    {
+                        "url": "/replay-examples/",
+                        "matching": "regex"
+                    }
+                ],
+            }
+        )
+
+        response = self._post_decide(origin="capacitor://localhost:8000/home").json()
+        assert response["sessionRecording"] == {
+            "endpoint": "/s/",
+            "recorderVersion": "v2",
+            "consoleLogRecordingEnabled": True,
+            "sampleRate": None,
+            "linkedFlag": None,
+            "minimumDurationMilliseconds": None,
+            "networkPayloadCapture": None,
+            "urlTriggerPatterns": [
+                {
+                    "url": "/replay-examples/",
+                    "matching": "regex"
+                }
+            ]
+        }
+
     def test_session_recording_network_payload_capture_config(self, *args):
         # :TRICKY: Test for regression around caching
 
