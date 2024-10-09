@@ -1,6 +1,6 @@
 <functions>
     <function>
-        <type>executable</type>
+        <type>executable_pool</type>
         <name>aggregate_funnel</name>
         <return_type>Array(Tuple(Int8, Nullable(String), Array(Float64), Array(Array(UUID))))</return_type>
         <return_name>result</return_name>
@@ -34,7 +34,7 @@
     </function>
 
     <function>
-        <type>executable</type>
+        <type>executable_pool</type>
         <name>aggregate_funnel_cohort</name>
         <return_type>Array(Tuple(Int8, UInt64, Array(Float64), Array(Array(UUID))))</return_type>
         <return_name>result</return_name>
@@ -68,7 +68,7 @@
     </function>
 
     <function>
-        <type>executable</type>
+        <type>executable_pool</type>
         <name>aggregate_funnel_array</name>
         <return_type>Array(Tuple(Int8, Array(String), Array(Float64), Array(Array(UUID))))</return_type>
         <return_name>result</return_name>
@@ -102,7 +102,7 @@
     </function>
 
     <function>
-        <type>executable</type>
+        <type>executable_pool</type>
         <name>aggregate_funnel_test</name>
         <return_type>String</return_type>
         <return_name>result</return_name>
@@ -136,7 +136,7 @@
     </function>
 
     <function>
-        <type>executable</type>
+        <type>executable_pool</type>
         <name>aggregate_funnel_trends</name>
         <return_type>Array(Tuple(DateTime, Int8, Nullable(String)))</return_type>
         <return_name>result</return_name>
@@ -178,7 +178,7 @@
     </function>
 
     <function>
-        <type>executable</type>
+        <type>executable_pool</type>
         <name>aggregate_funnel_array_trends</name>
         <!-- Return type for trends is a start interval time, a success flag (1 or -1), and a breakdown value -->
         <return_type>Array(Tuple(DateTime, Int8, Array(String)))</return_type>
@@ -217,7 +217,7 @@
     </function>
 
     <function>
-        <type>executable</type>
+        <type>executable_pool</type>
         <name>aggregate_funnel_cohort_trends</name>
         <!-- Return type for trends is a start interval time, a success flag (1 or -1), and a breakdown value -->
         <return_type>Array(Tuple(DateTime, Int8, UInt64))</return_type>
@@ -256,7 +256,7 @@
     </function>
 
     <function>
-        <type>executable</type>
+        <type>executable_pool</type>
         <name>aggregate_funnel_array_trends_test</name>
         <return_type>String</return_type>
         <return_name>result</return_name>
