@@ -12,6 +12,7 @@ from rest_framework.response import Response
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.models.activity_logging.activity_log import log_activity, Detail, Change, load_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
@@ -31,6 +32,57 @@ class ErrorTrackingGroupSerializer(serializers.ModelSerializer):
     class Meta:
         model = ErrorTrackingGroup
         fields = ["assignee", "status"]
+
+    def update(self, instance, validated_data):
+        status_updated = "status" in validated_data and validated_data.get("status") != instance.status
+        status_before = instance.status
+        assignee_updated = "assignee" in validated_data and validated_data.get("assignee") != instance.assignee
+        assignee_before = instance.assignee
+
+        updated_instance = super().update(instance, validated_data)
+
+        if status_updated or assignee_updated:
+            changes: list[Change] = []
+            if status_updated:
+                changes.append(
+                    Change(
+                        type="ErrorTrackingGroup",
+                        field="status",
+                        before=status_before,
+                        after=validated_data.get("status"),
+                        action="changed",
+                    )
+                )
+
+            if assignee_updated:
+                serialized_before = UserBasicSerializer(assignee_before).data
+                serialized_after = UserBasicSerializer(validated_data.get("assignee")).data
+                changes.append(
+                    Change(
+                        type="ErrorTrackingGroup",
+                        field="assignee",
+                        before=serialized_before,
+                        after=serialized_after,
+                        action="changed",
+                    )
+                )
+
+            organization = self.context["get_organization"]()
+
+            log_activity(
+                organization_id=organization.id,
+                team_id=self.context["team_id"],
+                user=self.context["request"].user,
+                was_impersonated=is_impersonated_session(self.context["request"]),
+                item_id=str(updated_instance.id),
+                scope="ErrorTrackingGroup",
+                activity="updated",
+                detail=Detail(
+                    changes=changes,
+                ),
+            )
+
+        return updated_instance
 
 
 class ErrorTrackingGroupViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):

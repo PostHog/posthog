@@ -213,7 +213,9 @@ class ErrorTrackingQueryRunner(QueryRunner):
 
     @cached_property
     def properties(self):
-        return self.query.filterGroup.values[0].values if self.query.filterGroup else None
+        if self.query.filterGroup and len(self.query.filterGroup.values) > 0:
+            return self.query.filterGroup.values[0].values
+        return None
 
     def group_or_default(self, fingerprint):
         return self.error_tracking_groups.get(
