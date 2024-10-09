@@ -1,8 +1,9 @@
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from enum import StrEnum
-from typing import Annotated, TypedDict
+from typing import Annotated, Optional, TypedDict
 
+from langchain_core.agents import AgentAction
 from langchain_core.messages import BaseMessage
 from langchain_openai import ChatOpenAI
 from langgraph.graph import END, START
@@ -13,9 +14,14 @@ from posthog.models.team.team import Team
 llm_gpt_4o = ChatOpenAI(model="gpt-4o", temperature=0.7)
 
 
+class AgentState(TypedDict):
+    intermediate_steps: list[tuple[AgentAction, Optional[str]]]
+
+
 class AssistantState(TypedDict):
-    messages: Annotated[Sequence[BaseMessage], add_messages]
     team: Team
+    messages: Annotated[Sequence[BaseMessage], add_messages]
+    agent_state: Optional[AgentState]
 
 
 class AssistantNodeName(StrEnum):

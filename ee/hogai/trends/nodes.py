@@ -1,19 +1,15 @@
-from collections.abc import Sequence
-from typing import Literal, Optional, Union
+from typing import Literal, Optional, Union, cast
 
-from langchain.agents import AgentOutputParser
-from langchain.agents.format_scratchpad import format_log_to_str
-from langchain.agents.output_parsers import ReActJsonSingleInputOutputParser, ReActSingleInputOutputParser
+from langchain.agents.output_parsers import ReActJsonSingleInputOutputParser
 from langchain.callbacks.manager import (
     AsyncCallbackManagerForToolRun,
     CallbackManagerForToolRun,
 )
-from langchain_core.language_models import BaseLanguageModel
+from langchain_core.agents import AgentAction, AgentFinish
 from langchain_core.messages import merge_message_runs
-from langchain_core.prompts import BasePromptTemplate, ChatPromptTemplate
-from langchain_core.runnables import Runnable, RunnablePassthrough
+from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.tools import BaseTool
-from langchain_core.tools.render import ToolsRenderer, render_text_description
+from langchain_core.tools.render import render_text_description
 from pydantic import BaseModel, Field
 
 from ee.hogai.hardcoded_definitions import hardcoded_prop_defs
@@ -28,44 +24,6 @@ from ee.hogai.utils import (
 )
 from posthog.models.event_definition import EventDefinition
 from posthog.models.team.team import Team
-
-
-def create_react_agent(
-    llm: BaseLanguageModel,
-    tools: Sequence[BaseTool],
-    prompt: BasePromptTemplate,
-    output_parser: Optional[AgentOutputParser] = None,
-    tools_renderer: ToolsRenderer = render_text_description,
-    *,
-    stop_sequence: Union[bool, list[str]] = True,
-) -> Runnable:
-    missing_vars = {"tools", "tool_names", "agent_scratchpad"}.difference(
-        prompt.input_variables + list(prompt.partial_variables)
-    )
-    if missing_vars:
-        raise ValueError(f"Prompt missing required variables: {missing_vars}")
-
-    prompt = prompt.partial(
-        tools=tools_renderer(list(tools)),
-        tool_names=", ".join([t.name for t in tools]),
-    )
-    if stop_sequence:
-        stop = ["\nObservation"] if stop_sequence is True else stop_sequence
-        llm_with_stop = llm.bind(stop=stop)
-    else:
-        llm_with_stop = llm
-    output_parser = output_parser or ReActSingleInputOutputParser()
-    merger = merge_message_runs()
-    agent = (
-        RunnablePassthrough.assign(
-            agent_scratchpad=lambda x: format_log_to_str(x["intermediate_steps"]),
-        )
-        | prompt
-        | merger
-        | llm_with_stop
-        | output_parser
-    )
-    return agent
 
 
 class RetrieveEntityTaxonomyArgs(BaseModel):
@@ -126,9 +84,30 @@ class CreateTrendsPlanNode(AssistantNode):
         return generate_xml_tag(tag_name, "\n".join(tags)).strip()
 
     @classmethod
+    def router(
+        cls,
+        state: AssistantState,
+    ) -> Literal[AssistantNodeName.CREATE_TRENDS_PLAN_TOOLS, AssistantNodeName.GENERATE_TRENDS]:
+        # The plan was generated.
+        if not state["agent_state"]:
+            return AssistantNodeName.GENERATE_TRENDS
+
+        # Invalid state
+        if (
+            state["agent_state"] is None
+            or "intermediate_steps" not in state["agent_state"]
+            or len(state["agent_state"]["intermediate_steps"]) == 0
+            or state["agent_state"]["intermediate_steps"][-1][1] is not None
+        ):
+            raise ValueError("Invalid state.")
+
+        return AssistantNodeName.CREATE_TRENDS_PLAN_TOOLS
+
+    @classmethod
     def run(cls, state: AssistantState) -> AssistantState:
         team = state["team"]
         messages = state["messages"]
+        intermediate_steps = state["agent_state"]["intermediate_steps"] if state.get("agent_state") is not None else []
 
         prompt = (
             ChatPromptTemplate.from_messages(
@@ -152,34 +131,32 @@ class CreateTrendsPlanNode(AssistantNode):
         output_parser = ReActJsonSingleInputOutputParser()
         merger = merge_message_runs()
 
-        agent = (
-            # RunnablePassthrough.assign(
-            #     agent_scratchpad=lambda x: format_log_to_str(x["intermediate_steps"]),
-            # )
-            # |
-            prompt | merger | llm_gpt_4o | output_parser
+        agent = prompt | merger | llm_gpt_4o | output_parser
+
+        result = cast(
+            Union[AgentAction, AgentFinish],
+            agent.invoke(
+                {
+                    "tools": render_text_description(tools),
+                    "tool_names": ", ".join([t.name for t in tools]),
+                    "agent_scratchpad": "",
+                }
+            ),
         )
 
-        result = agent.invoke(
-            {
-                "tools": render_text_description(tools),
-                "tool_names": ", ".join([t.name for t in tools]),
-                "agent_scratchpad": "",
+        if isinstance(result, AgentFinish):
+            # Exceptional case
+            return {
+                **state,
+                "last_thought": result.output,
             }
-        )
 
         return {
             **state,
-            "messages": [result["output"]],
+            "agent_state": {
+                "intermediate_steps": [*intermediate_steps, (result, None)],
+            },
         }
-
-
-class CreateTrendsPlanToolsNode(AssistantNode):
-    name = AssistantNodeName.CREATE_TRENDS_PLAN_TOOLS
-
-    @classmethod
-    def run(cls, state: AssistantState) -> AssistantState:
-        return state
 
 
 class GenerateTrendsNode(AssistantNode):
