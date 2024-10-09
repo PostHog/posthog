@@ -33,8 +33,8 @@ pub enum JsResolveErr {
     #[error("Invalid source map: {0}")]
     InvalidSourceMap(#[from] sourcemap::Error),
     // We found and parsed the source map, but couldn't find our frames token in it
-    #[error("Token not found for frame: {0}")]
-    TokenNotFound(String),
+    #[error("Token not found for frame: {0}:{1}:{2}")]
+    TokenNotFound(String, u32, u32),
     // We couldn't parse the source url of the frame
     #[error("Invalid source url: {0}")]
     InvalidSourceUrl(String),

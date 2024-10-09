@@ -36,9 +36,10 @@ impl ResolverImpl {
         // is js specific
         let RawFrame::JavaScript(raw) = raw;
         let sm = SourceMap::from_reader(source.as_slice()).map_err(JsResolveErr::from)?;
-        let token = sm
-            .lookup_token(raw.line, raw.column)
-            .ok_or_else(|| JsResolveErr::TokenNotFound(String::from("Token not found")))?;
+        let token = sm.lookup_token(raw.line, raw.column).ok_or_else(|| {
+            // Unwrap is safe because, if this frame couldn't give us a source ref, we'd know already
+            JsResolveErr::TokenNotFound(raw.source_ref().unwrap().to_string(), raw.line, raw.column)
+        })?;
 
         Ok((raw, token).into())
     }

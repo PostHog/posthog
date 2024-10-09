@@ -78,7 +78,7 @@ impl RawJSFrame {
             NoSourceUrl => self.try_assume_unminified().ok_or(NoSourceUrl), // We assume we're not minified
             NoSourcemap(u) => self.try_assume_unminified().ok_or(NoSourcemap(u)),
             InvalidSourceMap(e) => Err(JsResolveErr::from(e)),
-            TokenNotFound(s) => Err(TokenNotFound(s)),
+            TokenNotFound(s, l, c) => Err(TokenNotFound(s, l, c)),
             InvalidSourceUrl(u) => Err(InvalidSourceUrl(u)),
             InvalidSourceMapHeader(u) => Err(InvalidSourceMapHeader(u)),
             InvalidSourceMapUrl(u) => Err(InvalidSourceMapUrl(u)),
