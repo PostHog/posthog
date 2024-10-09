@@ -94,6 +94,7 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
             try:
                 view.columns = view.get_columns()
                 view.external_tables = view.s3_tables
+                view.status = DataWarehouseSavedQuery.Status.MODIFIED
             except RecursionError:
                 raise serializers.ValidationError("Model contains a cycle")
 
