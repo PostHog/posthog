@@ -1,0 +1,22 @@
+exclude = [
+    ".*__pycache__",
+    ".*egg-info",
+    ".*migrations",
+    ".*test",
+    "docs",
+]
+source_roots = [
+    ".",
+]
+
+[[modules]]
+path = "<root>"
+depends_on = [
+    { path = "posthog.warehouse" },
+]
+
+[[modules]]
+path = "posthog.warehouse"
+depends_on = [
+    { path = "<root>" },
+]
