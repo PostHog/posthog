@@ -381,7 +381,7 @@ natsort==8.4.0
     # via -r requirements.in
 nh3==0.2.14
     # via -r requirements.in
-numpy==1.23.3
+numpy==1.26.0
     # via
     #   -r requirements.in
     #   langchain
