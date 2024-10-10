@@ -81,7 +81,7 @@ impl<'a> InvalidSurrogatesPass<'a> {
         }
     }
 
-    pub fn step(&mut self) -> Option<char> {
+    fn step(&mut self) -> Option<char> {
         if let Some(c) = self.pop() {
             return Some(c);
         }
