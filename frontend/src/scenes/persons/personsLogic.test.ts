@@ -104,7 +104,7 @@ describe('personsLogic', () => {
                 logic.actions.loadPerson('+')
                 // has encoded from + in the action to %2B in the API call
                 expect(api.get).toHaveBeenCalledWith(
-                    `api/environments/${MOCK_TEAM_ID}/events?distinct_id=%2B`,
+                    `api/environments/${MOCK_TEAM_ID}/persons?distinct_id=%2B`,
                     undefined
                 )
             })

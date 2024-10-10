@@ -10,7 +10,7 @@ describe('the activity log logic', () => {
     describe('humanizing persons', () => {
         const personTestSetup = makeTestSetup(
             ActivityScope.PERSON,
-            `/api/environments/${MOCK_TEAM_ID}/events/7/activity/`
+            `/api/environments/${MOCK_TEAM_ID}/persons/7/activity/`
         )
         it('can handle addition of a property', async () => {
             const logic = await personTestSetup('test person', 'updated', [
