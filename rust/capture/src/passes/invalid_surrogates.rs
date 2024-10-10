@@ -120,35 +120,47 @@ impl<'a> InvalidSurrogatesPass<'a> {
                         }
                     };
 
+                // If we got a hex escape, but it's not in a surrogate range, we just push it
+                if !HIGH_SURROGATE_RANGE.contains(&first_code_point)
+                    && !LOW_SURROGATE_RANGE.contains(&first_code_point)
+                {
+                    // This is ugly, but in session replays case, this is common
+                    // enough to be worth making fast
+                    let mut chars = self.escape_seq_buf.chars();
+                    // We know we have 4 chars because we just got a u16 from them.
+                    let chars: [char; 4] = [
+                        chars.next().unwrap(),
+                        chars.next().unwrap(),
+                        chars.next().unwrap(),
+                        chars.next().unwrap(),
+                    ];
+                    self.queue('u');
+                    self.queue(chars[0]);
+                    self.queue(chars[1]);
+                    self.queue(chars[2]);
+                    self.queue(chars[3]);
+                    return self.pop();
+                }
+
                 // Now, we try to get the second member of the surrogate pair, since we require surrogates to be paired
                 match self.input.next() {
-                    Some('\\') => {
-                        // We don't push a backslash here because we're already in an escape sequence,
-                        // and it would cause us to exit it - but the specific characters we're going
-                        // to emit isn't known yet, so we can't push those and then a backslash either
-                    }
-                    Some(c) => {
+                    Some('\\') => {}
+                    o => {
                         self.queue_str(REPLACEMENT);
-                        self.queue(c);
-                        return self.pop();
-                    }
-                    None => {
-                        // We didn't get a second escape sequence, so we just drop the first one
-                        self.queue_str(REPLACEMENT);
+                        if let Some(c) = o {
+                            self.queue(c);
+                        }
                         return self.pop();
                     }
                 }
                 match self.input.next() {
                     Some('u') => {}
-                    Some(c) => {
+                    o => {
                         self.queue_str(REPLACEMENT);
                         self.queue('\\'); // We have to handle that we've already consumed a backslash
-                        self.queue(c);
-                        return self.pop();
-                    }
-                    None => {
-                        self.queue_str(REPLACEMENT);
-                        self.queue('\\'); // As above
+                        if let Some(c) = o {
+                            self.queue(c);
+                        }
                         return self.pop();
                     }
                 }
@@ -333,9 +345,9 @@ mod test {
     fn it_handles_actual_session_data() {
         let data = include_str!("../../tests/session-example-event.json");
         let data = InvalidSurrogatesPass::new(data.chars()).collect::<String>();
+        assert!(!data.contains("\\uFFFD"));
         let event: RawEvent = serde_json::from_str(&data).unwrap();
         let out = serde_json::to_string(&event).unwrap();
-        // Assert that the output does not contain and replacement characters
         assert!(!out.contains('�'));
     }
 }
