@@ -50,7 +50,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
     const { deleteSurvey } = useActions(surveysLogic)
 
     const [tabKey, setTabKey] = useState(survey.start_date ? 'results' : 'overview')
-    const showLinkedHogFunctions = useFeatureFlag('HOG_FUNCTIONS_LINKED') || true
+    const showLinkedHogFunctions = useFeatureFlag('HOG_FUNCTIONS_LINKED')
 
     useEffect(() => {
         if (survey.start_date) {
