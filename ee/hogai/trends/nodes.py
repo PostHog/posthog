@@ -20,8 +20,10 @@ from ee.hogai.utils import (
     llm_gpt_4o,
     remove_line_breaks,
 )
-from posthog.models.event_definition import EventDefinition
+from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
+from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.team.team import Team
+from posthog.schema import CachedTeamTaxonomyQueryResponse
 
 
 class CreateTrendsPlanNode(AssistantNode):
@@ -33,7 +35,13 @@ class CreateTrendsPlanNode(AssistantNode):
             "$identify": "Identifies an anonymous user. This event doesn't show how many users you have but rather how many users used an account."
         }
 
-        events = EventDefinition.objects.filter(team_id=team.pk).values_list("name", flat=True)
+        response = TeamTaxonomyQueryRunner(ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE, team).run()
+
+        if "results" not in response:
+            raise ValueError("Failed to generate events prompt.")
+
+        response = cast(CachedTeamTaxonomyQueryResponse, response)
+        events = [item.event for item in response.results]
 
         # default for null in the schema
         tags: list[str] = ["all events"]
@@ -165,7 +173,7 @@ class CreateTrendsPlanToolsNode(AssistantNode):
             return {
                 **state,
                 "agent_state": {
-                    "intermediate_steps": [*state["agent_state"]["intermediate_steps"], (action, feedback)],
+                    "intermediate_steps": [*intermediate_steps, (action, feedback)],
                 },
             }
 
@@ -180,7 +188,7 @@ class CreateTrendsPlanToolsNode(AssistantNode):
         return {
             **state,
             "agent_state": {
-                "intermediate_steps": [*state["agent_state"]["intermediate_steps"], (action, output)],
+                "intermediate_steps": [*intermediate_steps, (action, output)],
             },
         }
 
