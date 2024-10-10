@@ -34,10 +34,10 @@ if (res.status >= 400) {
 """.strip(),
     inputs_schema=[
         {
-            "key": "auth",
+            "key": "oauth",
             "type": "integration",
             "integration": "google-ads",
-            "label": "Google Cloud service account",
+            "label": "Google Ads account",
             "secret": False,
             "required": True,
         },

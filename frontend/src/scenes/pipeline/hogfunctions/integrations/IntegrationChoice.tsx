@@ -74,7 +74,7 @@ export function IntegrationChoice({
                           ],
                       }
                     : null,
-                kind.startsWith('google-')
+                ['google-pubsub', 'google-cloud-storage'].includes(kind)
                     ? {
                           items: [
                               {
