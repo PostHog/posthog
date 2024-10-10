@@ -1,7 +1,7 @@
 import json
 import xml.etree.ElementTree as ET
 from functools import cached_property
-from typing import Literal, Union, cast
+from typing import Literal, Optional, Union, cast
 
 from langchain.agents.format_scratchpad import format_log_to_str
 from langchain.agents.output_parsers import ReActJsonSingleInputOutputParser
@@ -40,7 +40,21 @@ from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.schema import CachedTeamTaxonomyQueryResponse, TeamTaxonomyQuery
 
 
-class CreateTrendsPlanNode(AssistantNode):
+class AssistantTrendsPlanAgentState(AssistantState):
+    intermediate_steps: list[tuple[AgentAction, Optional[str]]]
+
+
+class AssistantTrendsGeneratorState(AssistantState):
+    plan: str
+    tool_argument: Optional[str]
+
+
+class CreateTrendsPlanNode(
+    AssistantNode[
+        Union[AssistantState, AssistantTrendsPlanAgentState],
+        Union[AssistantTrendsPlanAgentState, AssistantTrendsGeneratorState],
+    ]
+):
     name = AssistantNodeName.CREATE_TRENDS_PLAN
 
     @cached_property
@@ -86,27 +100,21 @@ class CreateTrendsPlanNode(AssistantNode):
         )
 
     def router(
-        self, state: AssistantState
+        self, state: Union[AssistantState, AssistantTrendsPlanAgentState, AssistantTrendsGeneratorState]
     ) -> Literal[AssistantNodeName.CREATE_TRENDS_PLAN_TOOLS, AssistantNodeName.GENERATE_TRENDS]:
-        # Invalid state
-        if (
-            state["agent_state"] is None
-            or "intermediate_steps" not in state["agent_state"]
-            or len(state["agent_state"]["intermediate_steps"]) == 0
-        ):
-            raise ValueError("Invalid state.")
-
-        # The plan was generated.
-        action, _ = state["agent_state"]["intermediate_steps"][-1]
-        if action.tool == "final_answer":
+        # Exceptional case. TODO: decide how to handle this.
+        if isinstance(state, AssistantTrendsGeneratorState):
             return AssistantNodeName.GENERATE_TRENDS
 
-        return AssistantNodeName.CREATE_TRENDS_PLAN_TOOLS
+        if isinstance(state, AssistantTrendsPlanAgentState):
+            return AssistantNodeName.CREATE_TRENDS_PLAN_TOOLS
 
-    def run(self, state: AssistantState) -> AssistantState:
-        messages = state["messages"]
-        agent_state = state.get("agent_state")
-        intermediate_steps = agent_state["intermediate_steps"] if agent_state is not None else []
+        raise ValueError("Invalid state.")
+
+    def run(
+        self, state: Union[AssistantState, AssistantTrendsPlanAgentState]
+    ) -> Union[AssistantTrendsPlanAgentState, AssistantTrendsGeneratorState]:
+        intermediate_steps = state.intermediate_steps if isinstance(state, AssistantTrendsPlanAgentState) else []
 
         prompt = (
             ChatPromptTemplate.from_messages(
@@ -116,7 +124,7 @@ class CreateTrendsPlanNode(AssistantNode):
                 ],
                 template_format="mustache",
             )
-            + messages
+            + state.messages
             + ChatPromptTemplate.from_messages(
                 [
                     ("user", react_scratchpad_prompt),
@@ -159,42 +167,56 @@ class CreateTrendsPlanNode(AssistantNode):
                 observation = str(e.observation)
                 text = str(e.llm_output)
             else:
-                observation = "Invalid or incomplete response. You must use the provided tools and output JSON to answer the user's question. Use the exception message to correct the response."
+                observation = "Invalid or incomplete response. You must use the provided tools and output JSON to answer the user's question."
             result = AgentAction("handle_incorrect_response", observation, text)
 
         if isinstance(result, AgentFinish):
             # Exceptional case
-            return state
+            return AssistantTrendsGeneratorState(
+                **state.model_dump(),
+                plan=result.log,
+            )
 
-        return {
-            **state,
-            "agent_state": {
-                "intermediate_steps": [*intermediate_steps, (result, None)],
-            },
-        }
+        return AssistantTrendsPlanAgentState(
+            **state.model_dump(),
+            intermediate_steps=[*intermediate_steps, (result, None)],
+        )
 
 
-class CreateTrendsPlanToolsNode(AssistantNode):
+class CreateTrendsPlanToolsNode(
+    AssistantNode[AssistantTrendsPlanAgentState, Union[AssistantTrendsGeneratorState, AssistantTrendsPlanAgentState]]
+):
     name = AssistantNodeName.CREATE_TRENDS_PLAN_TOOLS
 
-    def run(self, state: AssistantState) -> AssistantState:
-        if "agent_state" not in state or state["agent_state"] is None:
-            raise ValueError("Invalid state.")
+    def router(
+        self, state: Union[AssistantTrendsGeneratorState, AssistantTrendsPlanAgentState]
+    ) -> Literal[AssistantNodeName.GENERATE_TRENDS, AssistantNodeName.CREATE_TRENDS_PLAN]:
+        if isinstance(state, AssistantTrendsGeneratorState):
+            return AssistantNodeName.GENERATE_TRENDS
+        return AssistantNodeName.CREATE_TRENDS_PLAN
 
+    def run(
+        self, state: AssistantTrendsPlanAgentState
+    ) -> Union[AssistantTrendsGeneratorState, AssistantTrendsPlanAgentState]:
         toolkit = TrendsAgentToolkit(self._team)
-        intermediate_steps = state["agent_state"]["intermediate_steps"]
+        intermediate_steps = state.intermediate_steps
         action, _ = intermediate_steps[-1]
 
         try:
             input = TrendsAgentToolModel(name=action.tool, argument=action.tool_input)
         except ValidationError as e:
             feedback = f"Invalid tool call. Pydantic exception: {e.errors(include_url=False)}"
-            return {
-                **state,
-                "agent_state": {
-                    "intermediate_steps": [*intermediate_steps, (action, feedback)],
-                },
-            }
+            return AssistantTrendsPlanAgentState(
+                **state.model_dump(),
+                intermediate_steps=[*intermediate_steps, (action, feedback)],
+            )
+
+        # The plan has been found. Move to the generation.
+        if input.name == "final_answer":
+            return AssistantTrendsGeneratorState(
+                **state.model_dump(),
+                plan=input.argument,
+            )
 
         output = ""
         if input.name == "retrieve_entity_properties_tool":
@@ -206,15 +228,15 @@ class CreateTrendsPlanToolsNode(AssistantNode):
         else:
             output = toolkit.handle_incorrect_response(input.argument)
 
-        return {
-            **state,
-            "agent_state": {
-                "intermediate_steps": [*intermediate_steps[:-1], (action, output)],
-            },
-        }
+        return AssistantTrendsPlanAgentState(
+            **state.model_dump(),
+            intermediate_steps=[*intermediate_steps, (action, output)],
+        )
 
 
-class GenerateTrendsNode(AssistantNode):
+class GenerateTrendsNode(
+    AssistantNode[AssistantTrendsGeneratorState, Union[AssistantTrendsGeneratorState, AssistantState]]
+):
     name = AssistantNodeName.GENERATE_TRENDS
 
     @cached_property
@@ -229,13 +251,15 @@ class GenerateTrendsNode(AssistantNode):
         )
         return ET.tostring(root, encoding="unicode")
 
-    def run(self, state: AssistantState) -> AssistantState:
-        messages = state["messages"]
-        user_message = messages[-1]
+    def router(
+        self, state: Union[AssistantTrendsGeneratorState, AssistantState]
+    ) -> Literal[AssistantNodeName.END, AssistantNodeName.GENERATE_TRENDS_TOOLS]:
+        if isinstance(state, AssistantTrendsGeneratorState) and state.tool_argument is not None:
+            return AssistantNodeName.GENERATE_TRENDS_TOOLS
+        return AssistantNodeName.END
 
-        agent_state = state["agent_state"]
-        assert agent_state is not None
-        action, _ = agent_state["intermediate_steps"][-1]
+    def run(self, state: AssistantTrendsGeneratorState) -> AssistantState:
+        user_message = state.messages[-1]
 
         llm = llm_gpt_4o.with_structured_output(
             GenerateTrendTool().schema,
@@ -250,23 +274,39 @@ class GenerateTrendsNode(AssistantNode):
             ],
             template_format="mustache",
         ).partial(
-            plan=action.tool_input,
+            plan=state.plan,
             question=user_message.content,
         )
 
-        parser = PydanticOutputParser(pydantic_object=GenerateTrendOutputModel)
         chain = (
             trends_generation_prompt
             | llm
             | RunnableLambda(lambda x: json.dumps(x))
-            | parser
+            | PydanticOutputParser[GenerateTrendOutputModel](pydantic_object=GenerateTrendOutputModel)
             | RunnableLambda(lambda x: x.model_dump_json())
         )
 
-        message = chain.invoke({"group_mapping": self._group_mapping_prompt})
+        try:
+            message = chain.invoke({"group_mapping": self._group_mapping_prompt})
+        except OutputParserException as e:
+            if e.send_to_llm:
+                observation = str(e.observation)
+            else:
+                observation = "Invalid or incomplete response. You must use the provided tools and output JSON to answer the user's question."
+            return AssistantTrendsGeneratorState(**state.model_dump(), tool_argument=observation)
 
-        return {
-            **state,
-            "messages": [AIMessage(content=message)],
-            "agent_state": None,
-        }
+        return AssistantState(
+            **state.model_dump(),
+            messages=[AIMessage(content=message)],
+        )
+
+
+class GenerateTrendsToolsNode(AssistantNode[AssistantTrendsGeneratorState, AssistantTrendsGeneratorState]):
+    """
+    Used for failover from generation errors.
+    """
+
+    name = AssistantNodeName.GENERATE_TRENDS_TOOLS
+
+    def run(self, state: AssistantState) -> AssistantState:
+        return state
