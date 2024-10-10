@@ -21,7 +21,6 @@ export interface Fuse extends FuseClass<HogFunctionType> {}
 export type HogFunctionListFilters = {
     search?: string
     showPaused?: boolean
-    showHidden?: boolean
     filters?: Record<string, any>
 }
 
@@ -52,6 +51,7 @@ export const hogFunctionListLogic = kea<hogFunctionListLogicType>([
         deleteHogFunction: (hogFunction: HogFunctionType) => ({ hogFunction }),
         setFilters: (filters: Partial<HogFunctionListFilters>) => ({ filters }),
         resetFilters: true,
+        addHogFunction: (hogFunction: HogFunctionType) => ({ hogFunction }),
     }),
     reducers(({ props }) => ({
         filters: [
@@ -69,7 +69,7 @@ export const hogFunctionListLogic = kea<hogFunctionListLogicType>([
         ],
     })),
     loaders(({ values, actions }) => ({
-        _hogFunctions: [
+        hogFunctions: [
             [] as HogFunctionType[],
             {
                 loadHogFunctions: async () => {
@@ -112,16 +112,14 @@ export const hogFunctionListLogic = kea<hogFunctionListLogicType>([
                         ...hogFunctions.slice(hogFunctionIndex + 1),
                     ]
                 },
+                addHogFunction: ({ hogFunction }) => {
+                    return [hogFunction, ...values.hogFunctions]
+                },
             },
         ],
     })),
     selectors({
-        loading: [(s) => [s._hogFunctionsLoading], (hogFunctionsLoading) => hogFunctionsLoading],
-        hogFunctions: [
-            (s) => [s._hogFunctions, s.filters],
-            (hogFunctions, filters) =>
-                filters.showHidden ? hogFunctions : hogFunctions.filter((hf) => !hf.name.includes('[CDP-TEST-HIDDEN]')),
-        ],
+        loading: [(s) => [s.hogFunctionsLoading], (hogFunctionsLoading) => hogFunctionsLoading],
         sortedHogFunctions: [
             (s) => [s.hogFunctions],
             (hogFunctions): HogFunctionType[] => {

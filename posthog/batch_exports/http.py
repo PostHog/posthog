@@ -6,7 +6,6 @@ import structlog
 from django.db import transaction
 from django.utils.timezone import now
 from rest_framework import filters, request, response, serializers, viewsets
-from posthog.api.utils import action
 from rest_framework.exceptions import (
     NotAuthenticated,
     NotFound,
@@ -17,6 +16,7 @@ from rest_framework.pagination import CursorPagination
 
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.utils import action
 from posthog.batch_exports.models import BATCH_EXPORT_INTERVALS
 from posthog.batch_exports.service import (
     BatchExportIdError,
@@ -25,6 +25,7 @@ from posthog.batch_exports.service import (
     BatchExportServiceRPCError,
     BatchExportWithNoEndNotAllowedError,
     backfill_export,
+    cancel_running_batch_export_run,
     disable_and_delete_export,
     pause_batch_export,
     sync_batch_export,
@@ -147,6 +148,18 @@ class BatchExportRunViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.Read
         )
 
         return response.Response({"backfill_id": backfill_id})
+
+    @action(methods=["POST"], detail=True, required_scopes=["batch_export:write"])
+    def cancel(self, *args, **kwargs) -> response.Response:
+        """Cancel a batch export run."""
+
+        batch_export_run: BatchExportRun = self.get_object()
+
+        temporal = sync_connect()
+        # TODO: check status of run beforehand
+        cancel_running_batch_export_run(temporal, batch_export_run)
+
+        return response.Response({"cancelled": True})
 
 
 class BatchExportDestinationSerializer(serializers.ModelSerializer):

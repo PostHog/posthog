@@ -186,6 +186,10 @@ urlpatterns = [
         "api/reset/<str:user_uuid>/",
         authentication.PasswordResetCompleteViewSet.as_view({"get": "retrieve", "post": "create"}),
     ),
+    opt_slash_path(
+        "api/public_hog_function_templates",
+        hog_function_template.PublicHogFunctionTemplateViewSet.as_view({"get": "list"}),
+    ),
     re_path(r"^api.+", api_not_found),
     path("authorize_and_redirect/", login_required(authorize_and_redirect)),
     path(
@@ -229,10 +233,6 @@ urlpatterns = [
     path("year_in_posthog/2022/<str:user_uuid>/", year_in_posthog.render_2022),
     path("year_in_posthog/2023/<str:user_uuid>", year_in_posthog.render_2023),
     path("year_in_posthog/2023/<str:user_uuid>/", year_in_posthog.render_2023),
-    opt_slash_path(
-        "api/public_hog_function_templates",
-        hog_function_template.PublicHogFunctionTemplateViewSet.as_view({"get": "list"}),
-    ),
 ]
 
 if settings.DEBUG:

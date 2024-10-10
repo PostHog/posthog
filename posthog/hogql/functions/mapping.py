@@ -1,6 +1,9 @@
 from dataclasses import dataclass
 from itertools import chain
 from typing import Optional
+
+
+from posthog.cloud_utils import is_cloud, is_ci
 from posthog.hogql import ast
 from posthog.hogql.ast import (
     ArrayType,
@@ -78,16 +81,13 @@ class HogQLFunctionMeta:
 
 
 def compare_types(arg_types: list[ConstantType], sig_arg_types: tuple[ConstantType, ...]):
-    _sig_arg_types = list(sig_arg_types)
     if len(arg_types) != len(sig_arg_types):
         return False
 
-    for index, arg_type in enumerate(arg_types):
-        _sig_arg_type = _sig_arg_types[index]
-        if not isinstance(arg_type, _sig_arg_type.__class__):
-            return False
-
-    return True
+    return all(
+        isinstance(sig_arg_type, UnknownType) or isinstance(arg_type, sig_arg_type.__class__)
+        for arg_type, sig_arg_type in zip(arg_types, sig_arg_types)
+    )
 
 
 HOGQL_COMPARISON_MAPPING: dict[str, ast.CompareOperationOp] = {
@@ -340,6 +340,7 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "arraySplit": HogQLFunctionMeta("arraySplit", 2, None),
     "arrayReverseFill": HogQLFunctionMeta("arrayReverseFill", 2, None),
     "arrayReverseSplit": HogQLFunctionMeta("arrayReverseSplit", 2, None),
+    "arrayRotateRight": HogQLFunctionMeta("arrayRotateRight", 2, 2),
     "arrayExists": HogQLFunctionMeta("arrayExists", 1, None),
     "arrayAll": HogQLFunctionMeta("arrayAll", 1, None),
     "arrayFirst": HogQLFunctionMeta("arrayFirst", 2, None),
@@ -426,6 +427,7 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "parseDateTime": HogQLFunctionMeta("parseDateTimeOrNull", 2, 3, tz_aware=True),
     "parseDateTimeBestEffort": HogQLFunctionMeta("parseDateTime64BestEffortOrNull", 1, 2, tz_aware=True),
     "toTypeName": HogQLFunctionMeta("toTypeName", 1, 1),
+    "cityHash64": HogQLFunctionMeta("cityHash64", 1, 1),
     # dates and times
     "toTimeZone": HogQLFunctionMeta("toTimeZone", 2, 2),
     "timeZoneOf": HogQLFunctionMeta("timeZoneOf", 1, 1),
@@ -444,15 +446,59 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "toStartOfYear": HogQLFunctionMeta("toStartOfYear", 1, 1),
     "toStartOfISOYear": HogQLFunctionMeta("toStartOfISOYear", 1, 1),
     "toStartOfQuarter": HogQLFunctionMeta("toStartOfQuarter", 1, 1),
-    "toStartOfMonth": HogQLFunctionMeta("toStartOfMonth", 1, 1),
+    "toStartOfMonth": HogQLFunctionMeta(
+        "toStartOfMonth",
+        1,
+        1,
+        signatures=[
+            ((UnknownType(),), DateType()),
+        ],
+    ),
     "toLastDayOfMonth": HogQLFunctionMeta("toLastDayOfMonth", 1, 1),
     "toMonday": HogQLFunctionMeta("toMonday", 1, 1),
-    "toStartOfWeek": HogQLFunctionMeta("toStartOfWeek", 1, 2),
-    "toStartOfDay": HogQLFunctionMeta("toStartOfDay", 1, 2),
+    "toStartOfWeek": HogQLFunctionMeta(
+        "toStartOfWeek",
+        1,
+        2,
+        signatures=[
+            ((UnknownType(),), DateType()),
+            ((UnknownType(), UnknownType()), DateType()),
+        ],
+    ),
+    "toStartOfDay": HogQLFunctionMeta(
+        "toStartOfDay",
+        1,
+        2,
+        signatures=[
+            ((UnknownType(),), DateTimeType()),
+            ((UnknownType(), UnknownType()), DateTimeType()),
+        ],
+    ),
     "toLastDayOfWeek": HogQLFunctionMeta("toLastDayOfWeek", 1, 2),
-    "toStartOfHour": HogQLFunctionMeta("toStartOfHour", 1, 1),
-    "toStartOfMinute": HogQLFunctionMeta("toStartOfMinute", 1, 1),
-    "toStartOfSecond": HogQLFunctionMeta("toStartOfSecond", 1, 1),
+    "toStartOfHour": HogQLFunctionMeta(
+        "toStartOfHour",
+        1,
+        1,
+        signatures=[
+            ((UnknownType(),), DateTimeType()),
+        ],
+    ),
+    "toStartOfMinute": HogQLFunctionMeta(
+        "toStartOfMinute",
+        1,
+        1,
+        signatures=[
+            ((UnknownType(),), DateTimeType()),
+        ],
+    ),
+    "toStartOfSecond": HogQLFunctionMeta(
+        "toStartOfSecond",
+        1,
+        1,
+        signatures=[
+            ((UnknownType(),), DateTimeType()),
+        ],
+    ),
     "toStartOfFiveMinutes": HogQLFunctionMeta("toStartOfFiveMinutes", 1, 1),
     "toStartOfTenMinutes": HogQLFunctionMeta("toStartOfTenMinutes", 1, 1),
     "toStartOfFifteenMinutes": HogQLFunctionMeta("toStartOfFifteenMinutes", 1, 1),
@@ -468,7 +514,17 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "dateSub": HogQLFunctionMeta("dateSub", 3, 3),
     "timeStampAdd": HogQLFunctionMeta("timeStampAdd", 2, 2),
     "timeStampSub": HogQLFunctionMeta("timeStampSub", 2, 2),
-    "now": HogQLFunctionMeta("now64", 0, 1, tz_aware=True, case_sensitive=False),
+    "now": HogQLFunctionMeta(
+        "now64",
+        0,
+        1,
+        tz_aware=True,
+        case_sensitive=False,
+        signatures=[
+            ((), DateTimeType()),
+            ((UnknownType(),), DateTimeType()),
+        ],
+    ),
     "nowInBlock": HogQLFunctionMeta("nowInBlock", 1, 1),
     "rowNumberInBlock": HogQLFunctionMeta("rowNumberInBlock", 0, 0),
     "rowNumberInAllBlocks": HogQLFunctionMeta("rowNumberInAllBlocks", 0, 0),
@@ -834,15 +890,8 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "leadInFrame": HogQLFunctionMeta("leadInFrame", 1, 1),
     # table functions
     "generateSeries": HogQLFunctionMeta("generate_series", 3, 3),
-    ## UDFS
-    "aggregate_funnel": HogQLFunctionMeta("aggregate_funnel", 6, 6, aggregate=False),
-    "aggregate_funnel_array": HogQLFunctionMeta("aggregate_funnel_array", 6, 6, aggregate=False),
-    "aggregate_funnel_cohort": HogQLFunctionMeta("aggregate_funnel_cohort", 6, 6, aggregate=False),
-    "aggregate_funnel_trends": HogQLFunctionMeta("aggregate_funnel_trends", 7, 7, aggregate=False),
-    "aggregate_funnel_array_trends": HogQLFunctionMeta("aggregate_funnel_array_trends", 7, 7, aggregate=False),
-    "aggregate_funnel_cohort_trends": HogQLFunctionMeta("aggregate_funnel_cohort_trends", 7, 7, aggregate=False),
-    "aggregate_funnel_test": HogQLFunctionMeta("aggregate_funnel_test", 6, 6, aggregate=False),
 }
+
 # Permitted HogQL aggregations
 HOGQL_AGGREGATIONS: dict[str, HogQLFunctionMeta] = {
     # Standard aggregate functions
@@ -1026,12 +1075,33 @@ HOGQL_AGGREGATIONS: dict[str, HogQLFunctionMeta] = {
 HOGQL_POSTHOG_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "matchesAction": HogQLFunctionMeta("matchesAction", 1, 1),
     "sparkline": HogQLFunctionMeta("sparkline", 1, 1),
+    "recording_button": HogQLFunctionMeta("recording_button", 1, 1),
     "hogql_lookupDomainType": HogQLFunctionMeta("hogql_lookupDomainType", 1, 1),
     "hogql_lookupPaidSourceType": HogQLFunctionMeta("hogql_lookupPaidSourceType", 1, 1),
     "hogql_lookupPaidMediumType": HogQLFunctionMeta("hogql_lookupPaidMediumType", 1, 1),
     "hogql_lookupOrganicSourceType": HogQLFunctionMeta("hogql_lookupOrganicSourceType", 1, 1),
     "hogql_lookupOrganicMediumType": HogQLFunctionMeta("hogql_lookupOrganicMediumType", 1, 1),
 }
+
+
+UDFS: dict[str, HogQLFunctionMeta] = {
+    "aggregate_funnel": HogQLFunctionMeta("aggregate_funnel", 6, 6, aggregate=False),
+    "aggregate_funnel_array": HogQLFunctionMeta("aggregate_funnel_array", 6, 6, aggregate=False),
+    "aggregate_funnel_cohort": HogQLFunctionMeta("aggregate_funnel_cohort", 6, 6, aggregate=False),
+    "aggregate_funnel_trends": HogQLFunctionMeta("aggregate_funnel_trends", 7, 7, aggregate=False),
+    "aggregate_funnel_array_trends": HogQLFunctionMeta("aggregate_funnel_array_trends", 7, 7, aggregate=False),
+    "aggregate_funnel_cohort_trends": HogQLFunctionMeta("aggregate_funnel_cohort_trends", 7, 7, aggregate=False),
+    "aggregate_funnel_test": HogQLFunctionMeta("aggregate_funnel_test", 6, 6, aggregate=False),
+}
+# We want CI to fail if there is a breaking change and the version hasn't been incremented
+if is_cloud() or is_ci():
+    from posthog.udf_versioner import augment_function_name
+
+    for v in UDFS.values():
+        v.clickhouse_name = augment_function_name(v.clickhouse_name)
+
+HOGQL_CLICKHOUSE_FUNCTIONS.update(UDFS)
+
 
 ALL_EXPOSED_FUNCTION_NAMES = [
     name for name in chain(HOGQL_CLICKHOUSE_FUNCTIONS.keys(), HOGQL_AGGREGATIONS.keys()) if not name.startswith("_")

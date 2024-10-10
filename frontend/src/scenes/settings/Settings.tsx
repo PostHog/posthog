@@ -11,13 +11,13 @@ import { capitalizeFirstLetter, inStorybookTestRunner } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { settingsLogic } from './settingsLogic'
-import { SettingLevelIds, SettingsLogicProps } from './types'
+import { SettingsLogicProps } from './types'
 
 export function Settings({
     hideSections = false,
     ...props
 }: SettingsLogicProps & { hideSections?: boolean }): JSX.Element {
-    const { selectedSectionId, selectedSection, selectedLevel, sections, isCompactNavigationOpen } = useValues(
+    const { selectedSectionId, selectedSection, selectedLevel, sections, isCompactNavigationOpen, levels } = useValues(
         settingsLogic(props)
     )
     const { selectSection, selectLevel, openCompactNavigation } = useActions(settingsLogic(props))
@@ -44,7 +44,7 @@ export function Settings({
                     {showSections ? (
                         <div className="Settings__sections">
                             <ul className="space-y-px">
-                                {SettingLevelIds.map((level) => (
+                                {levels.map((level) => (
                                     <li key={level} className="space-y-px">
                                         <LemonButton
                                             onClick={() => selectLevel(level)}
@@ -61,7 +61,7 @@ export function Settings({
                                                 .map((section) => (
                                                     <li key={section.id} className="pl-4">
                                                         <LemonButton
-                                                            onClick={() => selectSection(section.id)}
+                                                            onClick={() => selectSection(section.id, section.level)}
                                                             size="small"
                                                             fullWidth
                                                             active={selectedSectionId === section.id}

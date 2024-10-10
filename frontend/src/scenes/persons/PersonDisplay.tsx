@@ -112,10 +112,12 @@ export function PersonDisplay({
         ) : (
             <Popover
                 overlay={
-                    <PersonPreview
-                        distinctId={person?.distinct_id || person?.distinct_ids?.[0]}
-                        onClose={() => setVisible(false)}
-                    />
+                    person?.distinct_id || person?.distinct_ids?.[0] ? (
+                        <PersonPreview
+                            distinctId={person?.distinct_id || person?.distinct_ids?.[0]}
+                            onClose={() => setVisible(false)}
+                        />
+                    ) : null
                 }
                 visible={visible}
                 onClickOutside={() => setVisible(false)}

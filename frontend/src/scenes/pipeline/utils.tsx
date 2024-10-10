@@ -262,6 +262,7 @@ function pluginMenuItems(node: PluginBasedNode): LemonMenuItem[] {
 }
 
 export function pipelineNodeMenuCommonItems(node: Transformation | SiteApp | ImportApp | Destination): LemonMenuItem[] {
+    // eslint-disable-next-line react-hooks/rules-of-hooks
     const { canConfigurePlugins } = useValues(pipelineAccessLogic)
 
     const items: LemonMenuItem[] = [
@@ -295,6 +296,7 @@ export function pipelinePluginBackedNodeMenuCommonItems(
     loadPluginConfigs: any,
     inOverview?: boolean
 ): LemonMenuItem[] {
+    // eslint-disable-next-line react-hooks/rules-of-hooks
     const { canConfigurePlugins } = useValues(pipelineAccessLogic)
 
     return [

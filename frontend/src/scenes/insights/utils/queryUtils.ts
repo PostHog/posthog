@@ -6,6 +6,7 @@ import {
     filterKeyForQuery,
     isEventsNode,
     isFunnelsQuery,
+    isHogQLQuery,
     isInsightQueryNode,
     isInsightQueryWithDisplay,
     isInsightQueryWithSeries,
@@ -14,6 +15,11 @@ import {
 import { ChartDisplayType } from '~/types'
 
 type CompareQueryOpts = { ignoreVisualizationOnlyChanges: boolean }
+
+export const getVariablesFromQuery = (query: string): string[] => {
+    const queryVariableMatches = /\{variables\.([a-z0-9_]+)\}/gm.exec(query)
+    return (queryVariableMatches ?? []).filter(Boolean)
+}
 
 export const compareQuery = (a: Node, b: Node, opts?: CompareQueryOpts): boolean => {
     if (isInsightVizNode(a) && isInsightVizNode(b)) {
@@ -28,6 +34,31 @@ export const compareQuery = (a: Node, b: Node, opts?: CompareQueryOpts): boolean
     }
 
     return objectsEqual(objectCleanWithEmpty(a as any), objectCleanWithEmpty(b as any))
+}
+
+export const haveVariablesOrFiltersChanged = (a: Node, b: Node): boolean => {
+    if (!isHogQLQuery(a) || !isHogQLQuery(b)) {
+        return false
+    }
+
+    // If neither queries use variables, then don't submit the query when variables change
+    if (!getVariablesFromQuery(a.query).length && !getVariablesFromQuery(b.query).length) {
+        return false
+    }
+
+    if (a.variables && b.variables) {
+        if (!objectsEqual(a.variables, b.variables)) {
+            return true
+        }
+    }
+
+    if (a.filters && b.filters) {
+        if (!objectsEqual(a.filters, b.filters)) {
+            return true
+        }
+    }
+
+    return false
 }
 
 /** Compares two queries for semantic equality to prevent double-fetching of data. */

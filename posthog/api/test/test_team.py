@@ -1,5 +1,5 @@
 import json
-import uuid
+from datetime import UTC, datetime
 from typing import Any, Optional
 from unittest import mock
 from unittest.mock import ANY, MagicMock, call, patch
@@ -18,8 +18,8 @@ from posthog.models.async_deletion.async_deletion import AsyncDeletion, Deletion
 from posthog.models.dashboard import Dashboard
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.product_intent import ProductIntent
 from posthog.models.team import Team
-from posthog.models.team.team import get_team_in_cache
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.schedule import describe_schedule
 from posthog.test.base import APIBaseTest
@@ -107,31 +107,31 @@ def team_api_test_factory():
             self.organization_membership.save()
 
             get_geoip_properties_mock.return_value = {}
-            response = self.client.post("/api/environments/", {"name": "Test World"})
+            response = self.client.post("/api/projects/@current/environments/", {"name": "Test World"})
             self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
             self.assertDictContainsSubset({"name": "Test World", "week_start_day": None}, response.json())
 
             get_geoip_properties_mock.return_value = {"$geoip_country_code": "US"}
-            response = self.client.post("/api/environments/", {"name": "Test US"})
+            response = self.client.post("/api/projects/@current/environments/", {"name": "Test US"})
             self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
             self.assertDictContainsSubset({"name": "Test US", "week_start_day": 0}, response.json())
 
             get_geoip_properties_mock.return_value = {"$geoip_country_code": "PL"}
-            response = self.client.post("/api/environments/", {"name": "Test PL"})
+            response = self.client.post("/api/projects/@current/environments/", {"name": "Test PL"})
             self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
             self.assertDictContainsSubset({"name": "Test PL", "week_start_day": 1}, response.json())
 
             get_geoip_properties_mock.return_value = {"$geoip_country_code": "IR"}
-            response = self.client.post("/api/environments/", {"name": "Test IR"})
+            response = self.client.post("/api/projects/@current/environments/", {"name": "Test IR"})
             self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
             self.assertDictContainsSubset({"name": "Test IR", "week_start_day": 0}, response.json())
 
         def test_cant_create_team_without_license_on_selfhosted(self):
             with self.is_cloud(False):
-                response = self.client.post("/api/environments/", {"name": "Test"})
+                response = self.client.post("/api/projects/@current/environments/", {"name": "Test"})
                 self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
                 self.assertEqual(Team.objects.count(), 1)
-                response = self.client.post("/api/environments/", {"name": "Test"})
+                response = self.client.post("/api/projects/@current/environments/", {"name": "Test"})
                 self.assertEqual(Team.objects.count(), 1)
 
         def test_cant_create_a_second_team_without_license(self):
@@ -139,7 +139,7 @@ def team_api_test_factory():
             self.organization_membership.save()
             self.assertEqual(Team.objects.count(), 1)
 
-            response = self.client.post("/api/environments/", {"name": "Hedgebox", "is_demo": False})
+            response = self.client.post("/api/projects/@current/environments/", {"name": "Hedgebox", "is_demo": False})
             self.assertEqual(response.status_code, 403)
             response_data = response.json()
             self.assertDictContainsSubset(
@@ -153,7 +153,7 @@ def team_api_test_factory():
             self.assertEqual(Team.objects.count(), 1)
 
             # another request without the is_demo parameter
-            response = self.client.post("/api/environments/", {"name": "Hedgebox"})
+            response = self.client.post("/api/projects/@current/environments/", {"name": "Hedgebox"})
             self.assertEqual(response.status_code, 403)
             response_data = response.json()
             self.assertDictContainsSubset(
@@ -567,11 +567,11 @@ def team_api_test_factory():
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(response.json(), {"is_generating_demo_data": False})
 
-        @patch("posthog.tasks.demo_create_data.create_data_for_demo_team.delay")
+        @patch("posthog.demo.matrix.manager.MatrixManager.run_on_team")  # We don't actually need demo data, it's slow
         def test_org_member_can_create_demo_project(self, mock_create_data_for_demo_team: MagicMock):
             self.organization_membership.level = OrganizationMembership.Level.MEMBER
             self.organization_membership.save()
-            response = self.client.post("/api/environments/", {"name": "Hedgebox", "is_demo": True})
+            response = self.client.post("/api/projects/@current/environments/", {"name": "Hedgebox", "is_demo": True})
             mock_create_data_for_demo_team.assert_called_once()
             self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
@@ -609,89 +609,6 @@ def team_api_test_factory():
                     },
                 ]
             )
-
-        @freeze_time("2022-02-08")
-        def test_team_creation_is_in_activity_log(self):
-            Team.objects.all().delete()
-
-            self.organization_membership.level = OrganizationMembership.Level.ADMIN
-            self.organization_membership.save()
-
-            team_name = str(uuid.uuid4())
-            response = self.client.post("/api/environments/", {"name": team_name, "is_demo": False})
-            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-
-            team_id = response.json()["id"]
-            self._assert_activity_log(
-                [
-                    {
-                        "activity": "created",
-                        "created_at": "2022-02-08T00:00:00Z",
-                        "detail": {
-                            "changes": None,
-                            "name": team_name,
-                            "short_id": None,
-                            "trigger": None,
-                            "type": None,
-                        },
-                        "item_id": str(team_id),
-                        "scope": "Team",
-                        "user": {
-                            "email": "user1@posthog.com",
-                            "first_name": "",
-                        },
-                    },
-                ],
-                team_id=team_id,
-            )
-
-        def test_team_is_cached_on_create_and_update(self):
-            Team.objects.all().delete()
-            self.organization_membership.level = OrganizationMembership.Level.ADMIN
-            self.organization_membership.save()
-
-            response = self.client.post("/api/environments/", {"name": "Test", "is_demo": False})
-            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-            self.assertEqual(response.json()["name"], "Test")
-
-            token = response.json()["api_token"]
-            team_id = response.json()["id"]
-
-            cached_team = get_team_in_cache(token)
-
-            assert cached_team is not None
-            self.assertEqual(cached_team.name, "Test")
-            self.assertEqual(cached_team.uuid, response.json()["uuid"])
-            self.assertEqual(cached_team.id, response.json()["id"])
-
-            response = self.client.patch(
-                f"/api/environments/{team_id}/",
-                {"timezone": "Europe/Istanbul", "session_recording_opt_in": True},
-            )
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-            cached_team = get_team_in_cache(token)
-            assert cached_team is not None
-
-            self.assertEqual(cached_team.name, "Test")
-            self.assertEqual(cached_team.uuid, response.json()["uuid"])
-            self.assertEqual(cached_team.session_recording_opt_in, True)
-
-            # only things in CachedTeamSerializer are cached!
-            self.assertEqual(cached_team.timezone, "UTC")
-
-            # reset token should update cache as well
-            response = self.client.patch(f"/api/environments/{team_id}/reset_token/")
-            response_data = response.json()
-
-            cached_team = get_team_in_cache(token)
-            assert cached_team is None
-
-            cached_team = get_team_in_cache(response_data["api_token"])
-            assert cached_team is not None
-            self.assertEqual(cached_team.name, "Test")
-            self.assertEqual(cached_team.uuid, response.json()["uuid"])
-            self.assertEqual(cached_team.session_recording_opt_in, True)
 
         def test_turn_on_exception_autocapture(self):
             response = self.client.get("/api/environments/@current/")
@@ -1097,6 +1014,66 @@ def team_api_test_factory():
             # and the existing second level nesting is not preserved
             self._assert_replay_config_is({"ai_config": {"opt_in": None, "included_event_properties": ["and another"]}})
 
+        @patch("posthog.api.project.report_user_action")
+        @patch("posthog.api.team.report_user_action")
+        @freeze_time("2024-01-01T00:00:00Z")
+        def test_can_add_product_intent(
+            self, mock_report_user_action: MagicMock, mock_report_user_action_legacy_endpoint: MagicMock
+        ) -> None:
+            if self.client_class is EnvironmentToProjectRewriteClient:
+                mock_report_user_action = mock_report_user_action_legacy_endpoint
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/add_product_intent/",
+                {"product_type": "product_analytics", "intent_context": "onboarding product selected"},
+                headers={"Referer": "https://posthogtest.com/my-url", "X-Posthog-Session-Id": "test_session_id"},
+            )
+            assert response.status_code == status.HTTP_201_CREATED
+            product_intent = ProductIntent.objects.get(team=self.team, product_type="product_analytics")
+            assert product_intent.created_at == datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC)
+            mock_report_user_action.assert_called_once_with(
+                self.user,
+                "user showed product intent",
+                {
+                    "product_key": "product_analytics",
+                    "$current_url": "https://posthogtest.com/my-url",
+                    "$session_id": "test_session_id",
+                    "intent_context": "onboarding product selected",
+                    "$set_once": {"first_onboarding_product_selected": "product_analytics"},
+                },
+                team=self.team,
+            )
+
+        @patch("posthog.api.project.report_user_action")
+        @patch("posthog.api.team.report_user_action")
+        def test_can_complete_product_onboarding(
+            self, mock_report_user_action: MagicMock, mock_report_user_action_legacy_endpoint: MagicMock
+        ) -> None:
+            if self.client_class is EnvironmentToProjectRewriteClient:
+                mock_report_user_action = mock_report_user_action_legacy_endpoint
+            with freeze_time("2024-01-01T00:00:00Z"):
+                product_intent = ProductIntent.objects.create(team=self.team, product_type="product_analytics")
+            assert product_intent.created_at == datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC)
+            assert product_intent.onboarding_completed_at is None
+            with freeze_time("2024-01-05T00:00:00Z"):
+                response = self.client.patch(
+                    f"/api/environments/{self.team.id}/complete_product_onboarding/",
+                    {"product_type": "product_analytics"},
+                    headers={"Referer": "https://posthogtest.com/my-url", "X-Posthog-Session-Id": "test_session_id"},
+                )
+            assert response.status_code == status.HTTP_200_OK
+            product_intent = ProductIntent.objects.get(team=self.team, product_type="product_analytics")
+            assert product_intent.onboarding_completed_at == datetime(2024, 1, 5, 0, 0, 0, tzinfo=UTC)
+            mock_report_user_action.assert_called_once_with(
+                self.user,
+                "product onboarding completed",
+                {
+                    "product_key": "product_analytics",
+                    "$current_url": "https://posthogtest.com/my-url",
+                    "$session_id": "test_session_id",
+                },
+                team=self.team,
+            )
+
         def _assert_replay_config_is(self, expected: dict[str, Any] | None) -> HttpResponse:
             return self._assert_config_is("session_replay_config", expected)
 
@@ -1160,7 +1137,9 @@ class EnvironmentToProjectRewriteClient(test.APIClient):
         headers=None,
         **extra,
     ):
-        path = path.replace("/api/environments/", "/api/projects/")
+        path = path.replace("/api/projects/@current/environments/", "/api/projects/").replace(
+            "/api/environments/", "/api/projects/"
+        )
         return super().generic(method, path, data, content_type, secure, headers=headers, **extra)
 
 

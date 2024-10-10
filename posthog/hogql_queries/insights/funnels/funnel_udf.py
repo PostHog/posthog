@@ -1,7 +1,7 @@
-from typing import cast
+from typing import cast, Optional
 
 from posthog.hogql import ast
-from posthog.hogql.parser import parse_select
+from posthog.hogql.parser import parse_select, parse_expr
 from posthog.hogql_queries.insights.funnels.base import FunnelBase
 from posthog.schema import BreakdownType, BreakdownAttributionType
 from posthog.utils import DATERANGE_MAP
@@ -11,6 +11,16 @@ HUMAN_READABLE_TIMESTAMP_FORMAT = "%-d-%b-%Y"
 
 
 class FunnelUDF(FunnelBase):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # In base, these fields only get added if you're running an actors query
+        if "uuid" not in self._extra_event_fields:
+            self._extra_event_fields.append("uuid")
+        for property in ("$session_id", "$window_id"):
+            if property not in self._extra_event_properties:
+                self._extra_event_properties.append(property)
+
+    # I think I can delete this
     def get_step_counts_query(self):
         max_steps = self.context.max_steps
         return self._get_step_counts_query(
@@ -27,7 +37,23 @@ class FunnelUDF(FunnelBase):
             self.context.funnelWindowInterval * DATERANGE_MAP[self.context.funnelWindowIntervalUnit].total_seconds()
         )
 
-    def get_query(self) -> ast.SelectQuery:
+    # This is used to reduce the number of events we look at in strict funnels
+    # We remove a non-matching event if there was already one before it (that don't have the same timestamp)
+    # arrayRotateRight turns [1,2,3] into [3,1,2]
+    # For some reason, this uses much less memory than using indexing in clickhouse to check the previous element
+    def _array_filter(self):
+        if self.context.funnelsFilter.funnelOrderType == "strict":
+            return f"""
+                    arrayFilter(
+                        (x, x2) -> not (empty(x.4) and empty(x2.4) and x.1 > x2.1),
+                        events_array,
+                        arrayRotateRight(events_array, 1))
+                """
+        return "events_array"
+
+    # This is the function that calls the UDF
+    # This is used by both the query itself and the actors query
+    def _inner_aggregation_query(self):
         if self.context.funnelsFilter.funnelOrderType == "strict":
             inner_event_query = self._get_inner_event_query_for_udf(
                 entity_name="events", skip_step_filter=True, skip_entity_filter=True
@@ -63,54 +89,52 @@ class FunnelUDF(FunnelBase):
 
         breakdown_attribution_string = f"{self.context.breakdownAttributionType}{f'_{self.context.funnelsFilter.breakdownAttributionValue}' if self.context.breakdownAttributionType == BreakdownAttributionType.STEP else ''}"
 
-        # test
-        '''
-        inner_select = parse_select(
-            f"""
-                    SELECT
-                        arrayJoin({fn}(
-                            {self.context.max_steps},
-                            {self.conversion_window_limit()},
-                            '{breakdown_attribution_string}',
-                            '{self.context.funnelsFilter.funnelOrderType}',
-                            {prop_vals},
-                            arraySort(t -> t.1, groupArray(tuple(toFloat(timestamp), {prop_selector}, arrayFilter((x) -> x != 0, [{steps}{exclusions}]))))
-                        )) as af_tuple,
-                        af_tuple.1 as af,
-                        af_tuple.2 as breakdown,
-                        af_tuple.3 as timings
-                    FROM {{inner_event_query}}
-                    GROUP BY aggregation_target{breakdown_prop}
-                    HAVING af >= 0
-                """,
-            {"inner_event_query": inner_event_query},
-        )
-        return inner_select
-        '''
+        def matched_event_arrays_selects():
+            # We use matched events to get timestamps for the funnel as well as recordings
+            if (
+                self._include_matched_events()
+                or self.context.includePrecedingTimestamp
+                or self.context.includeTimestamp
+            ):
+                return """
+                af_tuple.4 as matched_event_uuids_array_array,
+                groupArray(tuple(timestamp, uuid, $session_id, $window_id)) as user_events,
+                mapFromArrays(arrayMap(x -> x.2, user_events), user_events) as user_events_map,
+                arrayMap(matched_event_uuids_array -> arrayMap(event_uuid -> user_events_map[event_uuid], arrayDistinct(matched_event_uuids_array)), matched_event_uuids_array_array) as matched_events_array,
+                """
+            return ""
 
         inner_select = parse_select(
             f"""
             SELECT
+                arraySort(t -> t.1, groupArray(tuple(toFloat(timestamp), uuid, {prop_selector}, arrayFilter((x) -> x != 0, [{steps}{exclusions}])))) as events_array,
                 arrayJoin({fn}(
                     {self.context.max_steps},
                     {self.conversion_window_limit()},
                     '{breakdown_attribution_string}',
                     '{self.context.funnelsFilter.funnelOrderType}',
                     {prop_vals},
-                    arraySort(t -> t.1, groupArray(tuple(toFloat(timestamp), {prop_selector}, arrayFilter((x) -> x != 0, [{steps}{exclusions}]))))
+                    {self._array_filter()}
                 )) as af_tuple,
-                af_tuple.1 as af,
+                af_tuple.1 as step_reached,
+                af_tuple.1 + 1 as steps, -- Backward compatibility
                 af_tuple.2 as breakdown,
-                af_tuple.3 as timings
+                af_tuple.3 as timings,
+                {matched_event_arrays_selects()}
+                aggregation_target
             FROM {{inner_event_query}}
             GROUP BY aggregation_target{breakdown_prop}
-            HAVING af >= 0
+            HAVING step_reached >= 0
         """,
             {"inner_event_query": inner_event_query},
         )
+        return inner_select
+
+    def get_query(self) -> ast.SelectQuery:
+        inner_select = self._inner_aggregation_query()
 
         step_results = ",".join(
-            [f"countIf(ifNull(equals(af, {i}), 0)) AS step_{i+1}" for i in range(self.context.max_steps)]
+            [f"countIf(ifNull(equals(step_reached, {i}), 0)) AS step_{i+1}" for i in range(self.context.max_steps)]
         )
         step_results2 = ",".join([f"sum(step_{i+1}) AS step_{i+1}" for i in range(self.context.max_steps)])
 
@@ -182,3 +206,112 @@ class FunnelUDF(FunnelBase):
         )
 
         return cast(ast.SelectQuery, s)
+
+    def _get_funnel_person_step_condition(self) -> ast.Expr:
+        actorsQuery, breakdownType = (
+            self.context.actorsQuery,
+            self.context.breakdownType,
+        )
+        assert actorsQuery is not None
+
+        funnelStep = actorsQuery.funnelStep
+        funnelCustomSteps = actorsQuery.funnelCustomSteps
+        funnelStepBreakdown = actorsQuery.funnelStepBreakdown
+
+        conditions: list[ast.Expr] = []
+
+        if funnelCustomSteps:
+            # this is an adjustment for how UDF funnels represent steps
+            funnelCustomSteps = [x - 1 for x in funnelCustomSteps]
+            conditions.append(parse_expr(f"step_reached IN {funnelCustomSteps}"))
+        elif funnelStep is not None:
+            if funnelStep >= 0:
+                conditions.append(parse_expr(f"step_reached >= {funnelStep - 1}"))
+            else:
+                conditions.append(parse_expr(f"step_reached = {-funnelStep - 2}"))
+        else:
+            raise ValueError("Missing both funnelStep and funnelCustomSteps")
+
+        if funnelStepBreakdown is not None:
+            if isinstance(funnelStepBreakdown, int) and breakdownType != "cohort":
+                funnelStepBreakdown = str(funnelStepBreakdown)
+
+            conditions.append(
+                parse_expr(
+                    "arrayFlatten(array(breakdown)) = arrayFlatten(array({funnelStepBreakdown}))",
+                    {"funnelStepBreakdown": ast.Constant(value=funnelStepBreakdown)},
+                )
+            )
+
+        return ast.And(exprs=conditions)
+
+    def _get_funnel_person_step_events(self) -> list[ast.Expr]:
+        if (
+            hasattr(self.context, "actorsQuery")
+            and self.context.actorsQuery is not None
+            and self.context.actorsQuery.includeRecordings
+        ):
+            if self.context.includeFinalMatchingEvents:
+                # Always returns the user's final step of the funnel, 1 indexed
+                return [parse_expr("matched_events_array[step_reached + 1] as matching_events")]
+
+            absolute_actors_step = self._absolute_actors_step
+            if absolute_actors_step is None:
+                raise ValueError("Missing funnelStep actors query property")
+            return [parse_expr(f"matched_events_array[{absolute_actors_step + 1}] as matching_events")]
+        return []
+
+    def _get_timestamp_outer_select(self) -> list[ast.Expr]:
+        """
+        Returns timestamp selectors for the target step and optionally the preceding step.
+        In the former case, always returns the timestamp for the first and last step as well.
+        """
+        target_step = self._absolute_actors_step
+
+        if target_step is None:
+            return []
+
+        # We pull timestamps from matched_events_array and SQL arrays are 1-indexed
+        target_step += 1
+
+        final_step = self.context.max_steps
+        first_step = 1
+
+        if self.context.includePrecedingTimestamp:
+            if target_step == 0:
+                raise ValueError("Cannot request preceding step timestamp if target funnel step is the first step")
+
+            return [
+                parse_expr(f"matched_events_array[{target_step}][1].1 AS max_timestamp"),
+                parse_expr(f"matched_events_array[{target_step - 1}][1].1 AS min_timestamp"),
+            ]
+        elif self.context.includeTimestamp:
+            return [
+                parse_expr(f"matched_events_array[{target_step}][1].1 AS timestamp"),
+                # Correlation code expects null if user hasn't made it to this step
+                parse_expr(f"nullIf(matched_events_array[{final_step}][1].1, 0) AS final_timestamp"),
+                parse_expr(f"matched_events_array[{first_step}][1].1 as first_timestamp"),
+            ]
+        else:
+            return []
+
+    def actor_query(
+        self,
+        extra_fields: Optional[list[str]] = None,
+    ) -> ast.SelectQuery:
+        select: list[ast.Expr] = [
+            ast.Alias(alias="actor_id", expr=ast.Field(chain=["aggregation_target"])),
+            *self._get_funnel_person_step_events(),
+            *self._get_timestamp_outer_select(),
+            *([ast.Field(chain=[field]) for field in extra_fields or []]),
+        ]
+        select_from = ast.JoinExpr(table=self._inner_aggregation_query())
+        where = self._get_funnel_person_step_condition()
+        order_by = [ast.OrderExpr(expr=ast.Field(chain=["aggregation_target"]))]
+
+        return ast.SelectQuery(
+            select=select,
+            select_from=select_from,
+            order_by=order_by,
+            where=where,
+        )

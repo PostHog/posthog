@@ -133,11 +133,8 @@ export const surveyLogic = kea<surveyLogicType>([
             eventUsageLogic,
             [
                 'reportSurveyCreated',
-                'reportSurveyLaunched',
                 'reportSurveyEdited',
                 'reportSurveyArchived',
-                'reportSurveyStopped',
-                'reportSurveyResumed',
                 'reportSurveyViewed',
                 'reportSurveyCycleDetected',
             ],
@@ -584,15 +581,12 @@ export const surveyLogic = kea<surveyLogicType>([
         launchSurveySuccess: ({ survey }) => {
             lemonToast.success(<>Survey {survey.name} launched</>)
             actions.loadSurveys()
-            actions.reportSurveyLaunched(survey)
         },
-        stopSurveySuccess: ({ survey }) => {
+        stopSurveySuccess: () => {
             actions.loadSurveys()
-            actions.reportSurveyStopped(survey)
         },
-        resumeSurveySuccess: ({ survey }) => {
+        resumeSurveySuccess: () => {
             actions.loadSurveys()
-            actions.reportSurveyResumed(survey)
         },
         archiveSurvey: () => {
             actions.updateSurvey({ archived: true })

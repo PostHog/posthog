@@ -35,15 +35,11 @@ class AggregationAxisFormat(StrEnum):
     PERCENTAGE_SCALED = "percentage_scaled"
 
 
-class AlertCheck(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    calculated_value: float
-    created_at: str
-    id: str
-    state: str
-    targets_notified: bool
+class AlertCalculationInterval(StrEnum):
+    HOURLY = "hourly"
+    DAILY = "daily"
+    WEEKLY = "weekly"
+    MONTHLY = "monthly"
 
 
 class AlertCondition(BaseModel):
@@ -53,25 +49,10 @@ class AlertCondition(BaseModel):
     )
 
 
-class AlertTypeBase(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    condition: AlertCondition
-    enabled: bool
-    insight: float
-    name: str
-
-
-class AlertTypeWrite(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    condition: AlertCondition
-    enabled: bool
-    insight: float
-    name: str
-    subscribed_users: list[int]
+class AlertState(StrEnum):
+    FIRING = "Firing"
+    NOT_FIRING = "Not firing"
+    ERRORED = "Errored"
 
 
 class Kind(StrEnum):
@@ -334,6 +315,7 @@ class Type(StrEnum):
     DATA_WAREHOUSE = "data_warehouse"
     VIEW = "view"
     BATCH_EXPORT = "batch_export"
+    MATERIALIZED_VIEW = "materialized_view"
 
 
 class DatabaseSerializedFieldType(StrEnum):
@@ -350,6 +332,7 @@ class DatabaseSerializedFieldType(StrEnum):
     FIELD_TRAVERSER = "field_traverser"
     EXPRESSION = "expression"
     VIEW = "view"
+    MATERIALIZED_VIEW = "materialized_view"
 
 
 class DateRange(BaseModel):
@@ -475,6 +458,15 @@ class EventOddsRatioSerialized(BaseModel):
     success_count: int
 
 
+class EventTaxonomyItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    property: str
+    sample_count: int
+    sample_values: list[str]
+
+
 class Person(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -522,6 +514,7 @@ class ExperimentVariantFunnelResult(BaseModel):
         extra="forbid",
     )
     failure_count: float
+    key: str
     success_count: float
 
 
@@ -588,6 +581,12 @@ class FunnelLayout(StrEnum):
     VERTICAL = "vertical"
 
 
+class FunnelMathType(StrEnum):
+    TOTAL = "total"
+    FIRST_TIME_FOR_USER = "first_time_for_user"
+    FIRST_TIME_FOR_USER_WITH_FILTERS = "first_time_for_user_with_filters"
+
+
 class FunnelPathType(StrEnum):
     FUNNEL_PATH_BEFORE_STEP = "funnel_path_before_step"
     FUNNEL_PATH_BETWEEN_STEPS = "funnel_path_between_steps"
@@ -619,19 +618,6 @@ class GoalLine(BaseModel):
     )
     label: str
     value: float
-
-
-class HedgehogColorOptions(StrEnum):
-    GREEN = "green"
-    RED = "red"
-    BLUE = "blue"
-    PURPLE = "purple"
-    DARK = "dark"
-    LIGHT = "light"
-    SEPIA = "sepia"
-    INVERT = "invert"
-    INVERT_HUE = "invert-hue"
-    GREYSCALE = "greyscale"
 
 
 class HogCompileResponse(BaseModel):
@@ -725,6 +711,16 @@ class HogQLQueryModifiers(BaseModel):
     propertyGroupsMode: Optional[PropertyGroupsMode] = None
     s3TableUseInvalidColumns: Optional[bool] = None
     sessionTableVersion: Optional[SessionTableVersion] = None
+    useMaterializedViews: Optional[bool] = None
+
+
+class HogQLVariable(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    code_name: str
+    value: Optional[Any] = None
+    variableId: str
 
 
 class HogQueryResponse(BaseModel):
@@ -813,15 +809,6 @@ class MatchedRecordingEvent(BaseModel):
     uuid: str
 
 
-class MinimalHedgehogConfig(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    accessories: list[str]
-    color: Optional[HedgehogColorOptions] = None
-    use_as_profile: bool
-
-
 class MultipleBreakdownType(StrEnum):
     PERSON = "person"
     EVENT = "event"
@@ -868,6 +855,8 @@ class NodeKind(StrEnum):
     EXPERIMENT_FUNNEL_QUERY = "ExperimentFunnelQuery"
     EXPERIMENT_TREND_QUERY = "ExperimentTrendQuery"
     DATABASE_SCHEMA_QUERY = "DatabaseSchemaQuery"
+    TEAM_TAXONOMY_QUERY = "TeamTaxonomyQuery"
+    EVENT_TAXONOMY_QUERY = "EventTaxonomyQuery"
 
 
 class PathCleaningFilter(BaseModel):
@@ -1298,6 +1287,14 @@ class TaxonomicFilterGroupType(StrEnum):
     REPLAY = "replay"
 
 
+class TeamTaxonomyItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    count: int
+    event: str
+
+
 class TestBasicQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1356,6 +1353,14 @@ class TimelineEntry(BaseModel):
     events: list[EventType]
     recording_duration_s: Optional[float] = Field(default=None, description="Duration of the recording in seconds.")
     sessionId: Optional[str] = Field(default=None, description="Session ID. None means out-of-session events")
+
+
+class TrendsAlertConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    series_index: int
+    type: Literal["TrendsAlertConfig"] = "TrendsAlertConfig"
 
 
 class YAxisScaleType(StrEnum):
@@ -1425,20 +1430,6 @@ class TrendsQueryResponse(BaseModel):
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
-
-
-class UserBasicType(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    distinct_id: str
-    email: str
-    first_name: str
-    hedgehog_config: Optional[MinimalHedgehogConfig] = None
-    id: float
-    is_email_verified: Optional[Any] = None
-    last_name: Optional[str] = None
-    uuid: str
 
 
 class ActionsPie(BaseModel):
@@ -1793,6 +1784,36 @@ class CachedErrorTrackingQueryResponse(BaseModel):
     )
 
 
+class CachedEventTaxonomyQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cache_key: str
+    cache_target_age: Optional[AwareDatetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    is_cached: bool
+    last_refresh: AwareDatetime
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    next_allowed_client_refresh: AwareDatetime
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    results: list[EventTaxonomyItem]
+    timezone: str
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
 class CachedEventsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1826,6 +1847,46 @@ class CachedEventsQueryResponse(BaseModel):
         default=None, description="Measured timings for different parts of the query generation process"
     )
     types: list[str]
+
+
+class CachedExperimentFunnelQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cache_key: str
+    cache_target_age: Optional[AwareDatetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
+    insight: Literal["FUNNELS"] = "FUNNELS"
+    is_cached: bool
+    last_refresh: AwareDatetime
+    next_allowed_client_refresh: AwareDatetime
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    results: dict[str, ExperimentVariantFunnelResult]
+    timezone: str
+
+
+class CachedExperimentTrendQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cache_key: str
+    cache_target_age: Optional[AwareDatetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
+    insight: Literal["TRENDS"] = "TRENDS"
+    is_cached: bool
+    last_refresh: AwareDatetime
+    next_allowed_client_refresh: AwareDatetime
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    results: dict[str, ExperimentVariantTrendResult]
+    timezone: str
 
 
 class CachedFunnelCorrelationResponse(BaseModel):
@@ -2044,6 +2105,36 @@ class CachedStickinessQueryResponse(BaseModel):
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
     results: list[dict[str, Any]]
+    timezone: str
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
+class CachedTeamTaxonomyQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cache_key: str
+    cache_target_age: Optional[AwareDatetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    is_cached: bool
+    last_refresh: AwareDatetime
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    next_allowed_client_refresh: AwareDatetime
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    results: list[TeamTaxonomyItem]
     timezone: str
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
@@ -2620,6 +2711,27 @@ class EventPropertyFilter(BaseModel):
     operator: Optional[PropertyOperator] = PropertyOperator.EXACT
     type: Literal["event"] = Field(default="event", description="Event properties")
     value: Optional[Union[str, float, list[Union[str, float]]]] = None
+
+
+class EventTaxonomyQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    results: list[EventTaxonomyItem]
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
 
 
 class EventsQueryResponse(BaseModel):
@@ -3761,6 +3873,27 @@ class TableSettings(BaseModel):
     conditionalFormatting: Optional[list[ConditionalFormattingRule]] = None
 
 
+class TeamTaxonomyQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    results: list[TeamTaxonomyItem]
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
 class WebExternalClicksTableQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3806,6 +3939,7 @@ class WebOverviewQuery(BaseModel):
     conversionGoal: Optional[Union[ActionConversionGoal, CustomEventConversionGoal]] = None
     dateRange: Optional[DateRange] = None
     filterTestAccounts: Optional[bool] = None
+    includeLCPScore: Optional[bool] = None
     kind: Literal["WebOverviewQuery"] = "WebOverviewQuery"
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
@@ -3853,31 +3987,6 @@ class WebTopClicksQuery(BaseModel):
     response: Optional[WebTopClicksQueryResponse] = None
     sampling: Optional[Sampling] = None
     useSessionsTable: Optional[bool] = None
-
-
-class Threshold(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    configuration: InsightThreshold
-
-
-class AlertType(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    checks: list[AlertCheck]
-    condition: AlertCondition
-    created_at: str
-    created_by: UserBasicType
-    enabled: bool
-    id: str
-    insight: float
-    last_notified_at: str
-    name: str
-    state: str
-    subscribed_users: list[UserBasicType]
-    threshold: Threshold
 
 
 class AnyResponseType(
@@ -4087,7 +4196,14 @@ class DataWarehouseNode(BaseModel):
     id_field: str
     kind: Literal["DataWarehouseNode"] = "DataWarehouseNode"
     math: Optional[
-        Union[BaseMathType, PropertyMathType, CountPerActorMathType, Literal["unique_group"], Literal["hogql"]]
+        Union[
+            BaseMathType,
+            FunnelMathType,
+            PropertyMathType,
+            CountPerActorMathType,
+            Literal["unique_group"],
+            Literal["hogql"],
+        ]
     ] = None
     math_group_type_index: Optional[MathGroupTypeIndex] = None
     math_hogql: Optional[str] = None
@@ -4170,7 +4286,14 @@ class EntityNode(BaseModel):
     )
     kind: NodeKind
     math: Optional[
-        Union[BaseMathType, PropertyMathType, CountPerActorMathType, Literal["unique_group"], Literal["hogql"]]
+        Union[
+            BaseMathType,
+            FunnelMathType,
+            PropertyMathType,
+            CountPerActorMathType,
+            Literal["unique_group"],
+            Literal["hogql"],
+        ]
     ] = None
     math_group_type_index: Optional[MathGroupTypeIndex] = None
     math_hogql: Optional[str] = None
@@ -4196,6 +4319,18 @@ class EntityNode(BaseModel):
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
     response: Optional[dict[str, Any]] = None
+
+
+class EventTaxonomyQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    event: str
+    kind: Literal["EventTaxonomyQuery"] = "EventTaxonomyQuery"
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    response: Optional[EventTaxonomyQueryResponse] = None
 
 
 class EventsNode(BaseModel):
@@ -4229,7 +4364,14 @@ class EventsNode(BaseModel):
     kind: Literal["EventsNode"] = "EventsNode"
     limit: Optional[int] = None
     math: Optional[
-        Union[BaseMathType, PropertyMathType, CountPerActorMathType, Literal["unique_group"], Literal["hogql"]]
+        Union[
+            BaseMathType,
+            FunnelMathType,
+            PropertyMathType,
+            CountPerActorMathType,
+            Literal["unique_group"],
+            Literal["hogql"],
+        ]
     ] = None
     math_group_type_index: Optional[MathGroupTypeIndex] = None
     math_hogql: Optional[str] = None
@@ -4290,7 +4432,14 @@ class FunnelExclusionActionsNode(BaseModel):
     id: int
     kind: Literal["ActionsNode"] = "ActionsNode"
     math: Optional[
-        Union[BaseMathType, PropertyMathType, CountPerActorMathType, Literal["unique_group"], Literal["hogql"]]
+        Union[
+            BaseMathType,
+            FunnelMathType,
+            PropertyMathType,
+            CountPerActorMathType,
+            Literal["unique_group"],
+            Literal["hogql"],
+        ]
     ] = None
     math_group_type_index: Optional[MathGroupTypeIndex] = None
     math_hogql: Optional[str] = None
@@ -4351,7 +4500,14 @@ class FunnelExclusionEventsNode(BaseModel):
     kind: Literal["EventsNode"] = "EventsNode"
     limit: Optional[int] = None
     math: Optional[
-        Union[BaseMathType, PropertyMathType, CountPerActorMathType, Literal["unique_group"], Literal["hogql"]]
+        Union[
+            BaseMathType,
+            FunnelMathType,
+            PropertyMathType,
+            CountPerActorMathType,
+            Literal["unique_group"],
+            Literal["hogql"],
+        ]
     ] = None
     math_group_type_index: Optional[MathGroupTypeIndex] = None
     math_hogql: Optional[str] = None
@@ -4421,6 +4577,9 @@ class HogQLQuery(BaseModel):
     response: Optional[HogQLQueryResponse] = None
     values: Optional[dict[str, Any]] = Field(
         default=None, description="Constant values that can be referenced with the {placeholder} syntax in the query"
+    )
+    variables: Optional[dict[str, HogQLVariable]] = Field(
+        default=None, description="Variables to be subsituted into the query"
     )
 
 
@@ -4589,6 +4748,17 @@ class SessionsTimelineQuery(BaseModel):
     response: Optional[SessionsTimelineQueryResponse] = None
 
 
+class TeamTaxonomyQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["TeamTaxonomyQuery"] = "TeamTaxonomyQuery"
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    response: Optional[TeamTaxonomyQueryResponse] = None
+
+
 class AIActionsNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4609,7 +4779,14 @@ class AIActionsNode(BaseModel):
     ] = None
     kind: Literal["EventsNode"] = "EventsNode"
     math: Optional[
-        Union[BaseMathType, PropertyMathType, CountPerActorMathType, Literal["unique_group"], Literal["hogql"]]
+        Union[
+            BaseMathType,
+            FunnelMathType,
+            PropertyMathType,
+            CountPerActorMathType,
+            Literal["unique_group"],
+            Literal["hogql"],
+        ]
     ] = None
     math_group_type_index: Optional[MathGroupTypeIndex] = None
     math_property: Optional[str] = None
@@ -4650,7 +4827,14 @@ class AIEventsNode(BaseModel):
     ] = None
     kind: Literal["EventsNode"] = "EventsNode"
     math: Optional[
-        Union[BaseMathType, PropertyMathType, CountPerActorMathType, Literal["unique_group"], Literal["hogql"]]
+        Union[
+            BaseMathType,
+            FunnelMathType,
+            PropertyMathType,
+            CountPerActorMathType,
+            Literal["unique_group"],
+            Literal["hogql"],
+        ]
     ] = None
     math_group_type_index: Optional[MathGroupTypeIndex] = None
     math_property: Optional[str] = None
@@ -4701,7 +4885,14 @@ class ActionsNode(BaseModel):
     id: int
     kind: Literal["ActionsNode"] = "ActionsNode"
     math: Optional[
-        Union[BaseMathType, PropertyMathType, CountPerActorMathType, Literal["unique_group"], Literal["hogql"]]
+        Union[
+            BaseMathType,
+            FunnelMathType,
+            PropertyMathType,
+            CountPerActorMathType,
+            Literal["unique_group"],
+            Literal["hogql"],
+        ]
     ] = None
     math_group_type_index: Optional[MathGroupTypeIndex] = None
     math_hogql: Optional[str] = None
@@ -4738,6 +4929,19 @@ class DataVisualizationNode(BaseModel):
     kind: Literal["DataVisualizationNode"] = "DataVisualizationNode"
     source: HogQLQuery
     tableSettings: Optional[TableSettings] = None
+
+
+class DatabaseSchemaMaterializedViewTable(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    fields: dict[str, DatabaseSchemaField]
+    id: str
+    last_run_at: Optional[str] = None
+    name: str
+    query: HogQLQuery
+    status: Optional[str] = None
+    type: Literal["materialized_view"] = "materialized_view"
 
 
 class DatabaseSchemaViewTable(BaseModel):
@@ -4878,6 +5082,7 @@ class RecordingsQuery(BaseModel):
     ] = None
     response: Optional[RecordingsQueryResponse] = None
     session_ids: Optional[list[str]] = None
+    user_modified_filters: Optional[dict[str, Any]] = None
 
 
 class RetentionQuery(BaseModel):
@@ -5034,6 +5239,7 @@ class ErrorTrackingQuery(BaseModel):
     )
     order: Optional[Order] = None
     response: Optional[ErrorTrackingQueryResponse] = None
+    searchQuery: Optional[str] = None
     select: Optional[list[str]] = None
 
 
@@ -5108,9 +5314,9 @@ class ExperimentTrendQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    count_source: TrendsQuery
+    count_query: TrendsQuery
     experiment_id: int
-    exposure_source: TrendsQuery
+    exposure_query: Optional[TrendsQuery] = None
     kind: Literal["ExperimentTrendQuery"] = "ExperimentTrendQuery"
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
@@ -5426,6 +5632,7 @@ class QueryResponseAlternative37(BaseModel):
             DatabaseSchemaDataWarehouseTable,
             DatabaseSchemaViewTable,
             DatabaseSchemaBatchExportTable,
+            DatabaseSchemaMaterializedViewTable,
         ],
     ]
 
@@ -5521,6 +5728,7 @@ class DatabaseSchemaQueryResponse(BaseModel):
             DatabaseSchemaDataWarehouseTable,
             DatabaseSchemaViewTable,
             DatabaseSchemaBatchExportTable,
+            DatabaseSchemaMaterializedViewTable,
         ],
     ]
 
@@ -5945,21 +6153,16 @@ class HogQLMetadata(BaseModel):
         default=None,
         description='Query within which "expr" and "template" are validated. Defaults to "select * from events"',
     )
+    variables: Optional[dict[str, HogQLVariable]] = Field(
+        default=None, description="Variables to be subsituted into the query"
+    )
 
 
 class QueryRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    async_: Optional[bool] = Field(
-        default=None,
-        alias="async",
-        description=(
-            "(Experimental) Whether to run the query asynchronously. Defaults to False. If True, the `id` of the query"
-            " can be used to check the status and to cancel it."
-        ),
-        examples=[True],
-    )
+    async_: Optional[bool] = Field(default=None, alias="async")
     client_query_id: Optional[str] = Field(
         default=None, description="Client provided query ID. Can be used to retrieve the status or cancel the query."
     )
@@ -6009,7 +6212,20 @@ class QueryRequest(BaseModel):
         ),
         discriminator="kind",
     )
-    refresh: Optional[Union[bool, str]] = None
+    refresh: Optional[Union[bool, str]] = Field(
+        default="blocking",
+        description=(
+            "Whether results should be calculated sync or async, and how much to rely on the cache:\n- `'blocking'` -"
+            " calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in"
+            " the cache\n- `'async'` - kick off background calculation (returning immediately with a query status),"
+            " UNLESS there are very fresh results in the cache\n- `'lazy_async'` - kick off background calculation,"
+            " UNLESS there are somewhat fresh results in the cache\n- `'force_blocking'` - calculate synchronously,"
+            " even if fresh results are already cached\n- `'force_async'` - kick off background calculation, even if"
+            " fresh results are already cached\n- `'force_cache'` - return cached data or a cache miss; always"
+            " completes immediately as it never calculates Background calculation can be tracked using the"
+            " `query_status` response field."
+        ),
+    )
 
 
 class QuerySchemaRoot(

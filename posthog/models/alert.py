@@ -1,5 +1,7 @@
 from datetime import datetime, UTC, timedelta
-from typing import Any, Optional
+from typing import Any, Optional, cast
+from dateutil.relativedelta import relativedelta
+
 
 from django.db import models
 from django.core.exceptions import ValidationError
@@ -7,7 +9,28 @@ from django.core.exceptions import ValidationError
 from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager import conversion_to_query_based
 from posthog.models.insight import Insight
 from posthog.models.utils import UUIDModel, CreatedMetaFields
-from posthog.schema import AlertCondition, InsightThreshold
+from posthog.schema import AlertCondition, InsightThreshold, AlertState, AlertCalculationInterval
+
+
+ALERT_STATE_CHOICES = [
+    (AlertState.FIRING, AlertState.FIRING),
+    (AlertState.NOT_FIRING, AlertState.NOT_FIRING),
+    (AlertState.ERRORED, AlertState.ERRORED),
+]
+
+
+def alert_calculation_interval_to_relativedelta(alert_calculation_interval: AlertCalculationInterval) -> relativedelta:
+    match alert_calculation_interval:
+        case AlertCalculationInterval.HOURLY:
+            return relativedelta(hours=1)
+        case AlertCalculationInterval.DAILY:
+            return relativedelta(days=1)
+        case AlertCalculationInterval.WEEKLY:
+            return relativedelta(weeks=1)
+        case AlertCalculationInterval.MONTHLY:
+            return relativedelta(months=1)
+        case _:
+            raise ValueError(f"Invalid alert calculation interval: {alert_calculation_interval}")
 
 
 def are_alerts_supported_for_insight(insight: Insight) -> bool:
@@ -16,8 +39,6 @@ def are_alerts_supported_for_insight(insight: Insight) -> bool:
         while query.get("source"):
             query = query["source"]
         if query is None or query.get("kind") != "TrendsQuery":
-            return False
-        if query.get("trendsFilter", {}).get("display") != "BoldNumber":
             return False
     return True
 
@@ -31,10 +52,10 @@ class ConditionValidator:
         validators: Any = [
             self.validate_absolute_threshold,
         ]
-        matches = []
+        breaches = []
         for validator in validators:
-            matches += validator(calculated_value)
-        return matches
+            breaches += validator(calculated_value)
+        return breaches
 
     def validate_absolute_threshold(self, calculated_value: float) -> list[str]:
         if not self.threshold or not self.threshold.absoluteThreshold:
@@ -83,7 +104,7 @@ class Threshold(CreatedMetaFields, UUIDModel):
 
 
 class AlertConfiguration(CreatedMetaFields, UUIDModel):
-    ALERTS_PER_TEAM = 10
+    ALERTS_PER_TEAM = 5
 
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
     insight = models.ForeignKey("posthog.Insight", on_delete=models.CASCADE)
@@ -96,26 +117,43 @@ class AlertConfiguration(CreatedMetaFields, UUIDModel):
         related_name="alert_configurations",
     )
 
+    # insight specific config for the alert
+    config = models.JSONField(default=dict, null=True, blank=True)
+
+    # how often to recalculate the alert
+    CALCULATION_INTERVAL_CHOICES = [
+        (AlertCalculationInterval.HOURLY, AlertCalculationInterval.HOURLY.value),
+        (AlertCalculationInterval.DAILY, AlertCalculationInterval.DAILY.value),
+        (AlertCalculationInterval.WEEKLY, AlertCalculationInterval.WEEKLY.value),
+        (AlertCalculationInterval.MONTHLY, AlertCalculationInterval.MONTHLY.value),
+    ]
+    calculation_interval = models.CharField(
+        max_length=10,
+        choices=CALCULATION_INTERVAL_CHOICES,
+        default=AlertCalculationInterval.DAILY,
+        null=True,
+        blank=True,
+    )
+
     # The threshold to evaluate the alert against. If null, the alert must have other conditions to trigger.
     threshold = models.ForeignKey(Threshold, on_delete=models.CASCADE, null=True, blank=True)
     condition = models.JSONField(default=dict)
 
-    STATE_CHOICES = [
-        ("firing", "Firing"),
-        ("inactive", "Inactive"),
-    ]
-    state = models.CharField(max_length=10, choices=STATE_CHOICES, default="inactive")
+    state = models.CharField(max_length=10, choices=ALERT_STATE_CHOICES, default=AlertState.NOT_FIRING)
     enabled = models.BooleanField(default=True)
+    is_calculating = models.BooleanField(default=False, null=True, blank=True)
 
     last_notified_at = models.DateTimeField(null=True, blank=True)
+    last_checked_at = models.DateTimeField(null=True, blank=True)
+    next_check_at = models.DateTimeField(null=True, blank=True)
 
     def __str__(self):
         return f"{self.name} (Team: {self.team})"
 
     def save(self, *args, **kwargs):
         if not self.enabled:
-            # When disabling an alert, set the state to inactive
-            self.state = "inactive"
+            # When disabling an alert, set the state to not firing
+            self.state = AlertState.NOT_FIRING
             if "update_fields" in kwargs:
                 kwargs["update_fields"].append("state")
 
@@ -128,44 +166,67 @@ class AlertConfiguration(CreatedMetaFields, UUIDModel):
         return validator.validate(calculated_value)
 
     def add_check(
-        self, *, calculated_value: Optional[float], error: Optional[dict] = None
-    ) -> tuple["AlertCheck", list[str]]:
-        """Add a new AlertCheck, managing state transitions and cooldown."""
-        matches = self.evaluate_condition(calculated_value) if calculated_value is not None else []
-        targets_notified = {}
+        self, *, aggregated_value: Optional[float], error: Optional[dict] = None
+    ) -> tuple["AlertCheck", list[str], Optional[dict], bool]:
+        """
+        Add a new AlertCheck, managing state transitions and cool down.
 
-        # Determine the appropriate state for this check
-        if matches:
-            if self.state != "firing":
-                # Transition to firing state and send a notification
-                check_state = "firing"
-                self.last_notified_at = datetime.now(UTC)
-                targets_notified = {"users": list(self.subscribed_users.all().values_list("email", flat=True))}
-            else:
-                check_state = "firing"  # Already firing, no new notification
-                matches = []  # Don't send duplicate notifications
+        Args:
+            aggregated_value: result of insight calculation compressed to one number to compare against threshold
+            error: any error raised while calculating insight value, if present then set state as errored
+        """
+
+        targets_notified: dict[str, list[str]] = {}
+        breaches = []
+        notify = False
+
+        if not error:
+            try:
+                breaches = self.evaluate_condition(aggregated_value) if aggregated_value is not None else []
+            except Exception as err:
+                # error checking the condition
+                error = {
+                    "message": f"Error checking alert condition {str(err)}",
+                }
+
+        if error:
+            # If the alert is not already errored, notify user
+            if self.state != AlertState.ERRORED:
+                self.state = AlertState.ERRORED
+                notify = True
+        elif breaches:
+            # If the alert is not already firing, notify user
+            if self.state != AlertState.FIRING:
+                self.state = AlertState.FIRING
+                notify = True
         else:
-            check_state = "not_met"
-            self.state = "inactive"  # Set the Alert to inactive if the threshold is no longer met
-            # Optionally send a resolved notification
+            self.state = AlertState.NOT_FIRING  # Set the Alert to not firing if the threshold is no longer met
+            # TODO: Optionally send a resolved notification when alert goes from firing to not_firing?
+
+        now = datetime.now(UTC)
+        self.last_checked_at = datetime.now(UTC)
+
+        # IMPORTANT: update next_check_at according to interval
+        # ensure we don't recheck alert until the next interval is due
+        self.next_check_at = (self.next_check_at or now) + alert_calculation_interval_to_relativedelta(
+            cast(AlertCalculationInterval, self.calculation_interval)
+        )
+
+        if notify:
+            self.last_notified_at = now
+            targets_notified = {"users": list(self.subscribed_users.all().values_list("email", flat=True))}
 
         alert_check = AlertCheck.objects.create(
             alert_configuration=self,
-            calculated_value=calculated_value,
+            calculated_value=aggregated_value,
             condition=self.condition,
             targets_notified=targets_notified,
-            state=check_state,
+            state=self.state,
             error=error,
         )
 
-        # Update the Alert state
-        if check_state == "firing":
-            self.state = "firing"
-        elif check_state == "not_met":
-            self.state = "inactive"
-
         self.save()
-        return alert_check, matches
+        return alert_check, breaches, error, notify
 
 
 class AlertSubscription(CreatedMetaFields, UUIDModel):
@@ -196,11 +257,7 @@ class AlertCheck(UUIDModel):
     targets_notified = models.JSONField(default=dict)
     error = models.JSONField(null=True, blank=True)
 
-    STATE_CHOICES = [
-        ("firing", "Firing"),
-        ("not_met", "Not Met"),
-    ]
-    state = models.CharField(max_length=10, choices=STATE_CHOICES, default="not_met")
+    state = models.CharField(max_length=10, choices=ALERT_STATE_CHOICES, default=AlertState.NOT_FIRING)
 
     def __str__(self):
         return f"AlertCheck for {self.alert_configuration.name} at {self.created_at}"

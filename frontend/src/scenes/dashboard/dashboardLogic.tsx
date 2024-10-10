@@ -1128,7 +1128,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 try {
                     breakpoint()
                     if (queryId) {
-                        await pollForResults(queryId, false, methodOptions)
+                        await pollForResults(queryId, methodOptions)
                         const currentTeamId = values.currentTeamId
                         // TODO: Check and remove - We get the insight again here to get everything in the right format (e.g. because of result vs results)
                         const polledInsight = await getSingleInsight(

@@ -66,7 +66,7 @@ const UrlInput = ({ iframeRef }: { iframeRef: React.RefObject<HTMLIFrameElement>
                                 }}
                                 size="xsmall"
                                 transparentBackground
-                                borderless
+                                className="border-none"
                             />
                         </div>
                         /

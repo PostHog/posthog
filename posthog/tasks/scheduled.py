@@ -8,7 +8,11 @@ from django.conf import settings
 
 from posthog.caching.warming import schedule_warming_for_teams_task
 from posthog.celery import app
-from posthog.tasks.alerts.checks import check_all_alerts_task, checks_cleanup_task
+from posthog.tasks.alerts.checks import (
+    check_alerts_task,
+    checks_cleanup_task,
+    alerts_backlog_task,
+)
 from posthog.tasks.integrations import refresh_integrations
 from posthog.tasks.tasks import (
     calculate_cohort,
@@ -201,17 +205,17 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     )
 
     sender.add_periodic_task(
-        crontab(settings.CALCULATE_COHORTS_DAY_SCHEDULE),
+        get_crontab(settings.CALCULATE_COHORTS_DAY_SCHEDULE),
         calculate_cohort.s(),
-        name="recalculate cohorts",
+        name="recalculate cohorts day",
         expires=120 * 1.5,
         args=(settings.CALCULATE_X_PARALLEL_COHORTS_DURING_DAY,),
     )
 
     sender.add_periodic_task(
-        crontab(settings.CALCULATE_COHORTS_NIGHT_SCHEDULE),
+        get_crontab(settings.CALCULATE_COHORTS_NIGHT_SCHEDULE),
         calculate_cohort.s(),
-        name="recalculate cohorts",
+        name="recalculate cohorts night",
         expires=60 * 1.5,
         args=(settings.CALCULATE_X_PARALLEL_COHORTS_DURING_NIGHT,),
     )
@@ -252,9 +256,15 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     )
 
     sender.add_periodic_task(
-        crontab(hour="*", minute="45"),
-        check_all_alerts_task.s(),
-        name="check alerts for matches and send notifications",
+        crontab(hour="*", minute="*/2"),
+        check_alerts_task.s(),
+        name="check_alerts_task",
+    )
+
+    sender.add_periodic_task(
+        crontab(hour="*", minute="*/12"),
+        alerts_backlog_task.s(),
+        name="alerts_backlog_task",
     )
 
     sender.add_periodic_task(

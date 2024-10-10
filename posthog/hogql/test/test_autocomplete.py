@@ -4,9 +4,13 @@ from posthog.hogql.database.database import Database, create_hogql_database
 from posthog.hogql.database.models import StringDatabaseField
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.persons import PERSONS_FIELDS
+from posthog.models.insight_variable import InsightVariable
 from posthog.models.property_definition import PropertyDefinition
 from posthog.schema import HogQLAutocomplete, HogQLAutocompleteResponse, HogLanguage, HogQLQuery, Kind
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from posthog.warehouse.models.credential import DataWarehouseCredential
+from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from posthog.warehouse.models.table import DataWarehouseTable
 
 
 class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
@@ -387,3 +391,52 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
 
         suggestions = list(filter(lambda x: x.kind == Kind.VARIABLE, results.suggestions))
         assert sorted([suggestion.label for suggestion in suggestions]) == ["event", "otherVar", "var1"]
+
+    def test_autocomplete_variables(self):
+        InsightVariable.objects.create(team=self.team, name="Variable 1", code_name="variable_1")
+        query = "select {}"
+        results = self._select(query=query, start=8, end=8)
+
+        assert len(results.suggestions) == 1
+        assert results.suggestions[0].label == "variables.variable_1"
+
+    def test_autocomplete_variables_partial(self):
+        InsightVariable.objects.create(team=self.team, name="Variable 1", code_name="variable_1")
+        query = "select {vari}"
+        results = self._select(query=query, start=8, end=12)
+
+        assert len(results.suggestions) == 1
+        assert results.suggestions[0].label == "variables.variable_1"
+
+    def test_autocomplete_variables_prefix(self):
+        InsightVariable.objects.create(team=self.team, name="Variable 1", code_name="variable_1")
+        query = "select {variables.}"
+        results = self._select(query=query, start=8, end=18)
+
+        assert len(results.suggestions) == 1
+        assert results.suggestions[0].label == "variable_1"
+
+    def test_autocomplete_warehouse_table(self):
+        credentials = DataWarehouseCredential.objects.create(team=self.team, access_key="key", access_secret="secret")
+        DataWarehouseTable.objects.create(
+            team=self.team,
+            name="some_table",
+            format="CSV",
+            url_pattern="http://localhost/file.csv",
+            credential=credentials,
+        )
+        query = "select * from "
+        results = self._select(query=query, start=14, end=14)
+
+        assert "some_table" in [x.label for x in results.suggestions]
+
+    def test_autocomplete_warehouse_view(self):
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="some_view",
+            query={"query": "select * from events"},
+        )
+        query = "select * from "
+        results = self._select(query=query, start=14, end=14)
+
+        assert "some_view" in [x.label for x in results.suggestions]

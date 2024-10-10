@@ -1,35 +1,35 @@
 import { LemonButton, LemonCheckbox, LemonDialog, LemonInput, LemonSelect } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { surveyLogic } from 'scenes/surveys/surveyLogic'
 
-import {
-    AvailableFeature,
-    SurveyAppearance as SurveyAppearanceType,
-} from '~/types'
+import { AvailableFeature, SurveyAppearance as SurveyAppearanceType } from '~/types'
 
 import { defaultSurveyAppearance } from './constants'
 import { surveysLogic } from './surveysLogic'
 
 interface CustomizationProps {
     appearance: SurveyAppearanceType
-    customizeRatingButtons: boolean,
-    customizePlaceholderText: boolean,
+    customizeRatingButtons: boolean
+    customizePlaceholderText: boolean
     onAppearanceChange: (appearance: SurveyAppearanceType) => void
 }
 
 interface WidgetCustomizationProps extends Omit<CustomizationProps, 'surveyQuestionItem'> {}
 
-export function Customization({ appearance, customizeRatingButtons, customizePlaceholderText, onAppearanceChange }: CustomizationProps): JSX.Element {
+export function Customization({
+    appearance,
+    customizeRatingButtons,
+    customizePlaceholderText,
+    onAppearanceChange,
+}: CustomizationProps): JSX.Element {
     const { surveysStylingAvailable } = useValues(surveysLogic)
     const surveyShufflingQuestionsAvailable = true
-    const hasBranchingLogic  = true
-        // useValues(surveyLogic)
+    const hasBranchingLogic = true
+    // useValues(surveyLogic)
     // const { deleteBranchingLogic } = useActions(surveyLogic)
     const surveyShufflingQuestionsDisabledReason = surveyShufflingQuestionsAvailable
-
         ? ''
         : 'Please add more than one question to the survey to enable shuffling questions'
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
@@ -105,6 +105,20 @@ export function Customization({ appearance, customizeRatingButtons, customizePla
                     onChange={(submitButtonTextColor) => onAppearanceChange({ ...appearance, submitButtonTextColor })}
                     disabled={!surveysStylingAvailable}
                 />
+
+                <LemonField.Pure
+                    label="Survey form zIndex"
+                    info="If the survey popup is hidden behind another overlapping UI element, set this value higher than the overlapping element's zIndex."
+                >
+                    <LemonInput
+                        type="text"
+                        value={appearance?.zIndex}
+                        onChange={(zIndex) => onAppearanceChange({ ...appearance, zIndex })}
+                        disabled={!surveysStylingAvailable}
+                        placeholder="99999"
+                        defaultValue="99999"
+                    />
+                </LemonField.Pure>
                 {customizePlaceholderText && (
                     <>
                         <div className="mt-2">Placeholder text</div>

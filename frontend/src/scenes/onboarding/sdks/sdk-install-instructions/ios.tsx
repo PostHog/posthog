@@ -40,7 +40,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         ${
             includeReplay
                 ? `
-        // check https://posthog.com/docs/session-replay/mobile#installation
+        // check https://posthog.com/docs/session-replay/ios#installation
         // for more config and to learn about how we capture sessions on mobile
         // and what to expect
         config.sessionReplay = true
@@ -81,6 +81,23 @@ export function SDKInstallIOSInstructions(props: iOSSetupProps): JSX.Element {
             <IOSInstallSPMSnippet />
             <h3>Configure</h3>
             <IOSSetupSnippet {...props} />
+        </>
+    )
+}
+
+export function SDKInstallIOSTrackScreenInstructions(): JSX.Element {
+    return (
+        <>
+            <p>
+                With <code>configuration.captureScreenViews</code> set as <code>true</code>, PostHog will try to record
+                all screen changes automatically.
+            </p>
+            <p>
+                If you want to manually send a new screen capture event, use the <code>screen</code> function.
+            </p>
+            <CodeSnippet
+                language={Language.Swift}
+            >{`PostHogSDK.shared.screen("Dashboard", properties: ["fromIcon": "bottom"])`}</CodeSnippet>
         </>
     )
 }

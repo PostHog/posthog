@@ -205,7 +205,7 @@ const teamActionsMapping: Record<
         return { description: [<>set allowed web vitals autocapture metrics to {metricsList}</>] }
     },
     autocapture_opt_out(change: ActivityChange | undefined): ChangeMapping | null {
-        return { description: [<>{change?.after ? 'opted in to' : 'opted out of'} autocapture</>] }
+        return { description: [<>{change?.after ? 'opted out of' : 'opted in to'} autocapture</>] }
     },
     heatmaps_opt_in(change: ActivityChange | undefined): ChangeMapping | null {
         return { description: [<>{change?.after ? 'enabled' : 'disabled'} heatmaps</>] }
@@ -278,6 +278,7 @@ const teamActionsMapping: Record<
     is_demo: () => null,
     live_events_columns: () => null,
     organization: () => null,
+    project_id: () => null,
     path_cleaning_filters: () => null,
     person_display_name_properties: () => null,
     person_on_events_querying_enabled: () => null,

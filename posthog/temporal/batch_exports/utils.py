@@ -2,6 +2,7 @@ import asyncio
 import collections.abc
 import contextlib
 import functools
+import re
 import typing
 import uuid
 
@@ -124,27 +125,33 @@ class JsonScalar(pa.ExtensionScalar):
     def as_py(self) -> dict | None:
         """Try to convert value to Python representation.
 
-        We attempt to decode the value returned by `as_py` as JSON 3 times:
-        1. As returned by `as_py`, without changes.
-        2. By escaping and replacing any encoding errors.
-        3. By treating the value as a string and surrouding it with quotes.
+        We attempt to decode the value returned by `as_py` as JSON. However, to do so safely we must
+        ensure the value is a valid UTF-8 string. We try to take care of the following scenarios:
+        * Unescaped whitespace characters (e.g. \n).
+        * Unescaped surrogates without a pair.
+        * Escaped surrogates without a pair.
+        * Not a JSON document (we assume it's a string and quote it).
 
         If all else fails, we will log the offending value and re-raise the decoding error.
         """
         if self.value:
             value = self.value.as_py()
 
+            if re.search("([\t\n\r\f\v])", value):
+                value = value.encode("unicode-escape").decode("utf-8")
+
             if not value:
                 return None
 
-            json_bytes = value.encode("utf-8")
+            json_bytes = value.encode("utf-8", "replace")
 
             try:
                 return orjson.loads(json_bytes)
             except orjson.JSONDecodeError:
                 pass
 
-            json_bytes = value.encode("unicode-escape").decode("utf-8", "replace").encode("unicode-escape")
+            json_bytes = json_bytes.decode("raw-unicode-escape").encode("utf-8", "replace")
+
             try:
                 return orjson.loads(json_bytes)
             except orjson.JSONDecodeError:
@@ -154,7 +161,7 @@ class JsonScalar(pa.ExtensionScalar):
                 # Handles non-valid JSON strings like `'"$set": "Something"'` by quoting them.
                 value = f'"{value}"'
 
-            json_bytes = value.encode("unicode-escape").decode("utf-8", "replace").encode("unicode-escape")
+            json_bytes = value.encode("utf-8", "replace").decode("raw-unicode-escape").encode("utf-8", "replace")
             try:
                 return orjson.loads(json_bytes)
             except orjson.JSONDecodeError:

@@ -36,6 +36,7 @@ from . import (
     hog_function_template,
     hog,
     ingestion_warnings,
+    insight_variable,
     instance_settings,
     instance_status,
     integration,
@@ -86,6 +87,7 @@ router.register(r"feature_flag", feature_flag.LegacyFeatureFlagViewSet)  # Used 
 
 # Nested endpoints shared
 projects_router = router.register(r"projects", project.RootProjectViewSet, "projects")
+projects_router.register(r"environments", team.TeamViewSet, "project_environments", ["project_id"])
 environments_router = router.register(r"environments", team.RootTeamViewSet, "environments")
 
 
@@ -450,13 +452,6 @@ project_insights_router.register(
     ["team_id", "insight_id"],
 )
 
-project_insights_router.register(
-    "alerts",
-    alert.AlertViewSet,
-    "project_insight_alerts",
-    ["team_id", "insight_id"],
-)
-
 environment_sessions_recordings_router.register(
     r"sharing",
     sharing.SharingConfigurationViewSet,
@@ -509,6 +504,13 @@ projects_router.register(
     r"hog",
     hog.HogViewSet,
     "hog",
+    ["team_id"],
+)
+
+projects_router.register(
+    r"insight_variables",
+    insight_variable.InsightVariableViewSet,
+    "insight_variables",
     ["team_id"],
 )
 

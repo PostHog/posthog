@@ -440,6 +440,23 @@ class TestResolver(BaseTest):
 
         assert hogql == expected
 
+    def test_visit_hogqlx_recording_button(self):
+        node = self._select("select <RecordingButton sessionId={'12345-6789'} />")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+        expected = ast.SelectQuery(
+            select=[
+                ast.Tuple(
+                    exprs=[
+                        ast.Constant(value="__hx_tag"),
+                        ast.Constant(value="RecordingButton"),
+                        ast.Constant(value="sessionId"),
+                        ast.Constant(value="12345-6789"),
+                    ]
+                )
+            ],
+        )
+        assert clone_expr(node, clear_types=True) == expected
+
     def test_visit_hogqlx_sparkline(self):
         node = self._select("select <Sparkline data={[1,2,3]} />")
         node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
@@ -563,6 +580,14 @@ class TestResolver(BaseTest):
         node = self._select("select plus(1, 2) from events")
         node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
         self._assert_first_columm_is_type(node, ast.IntegerType(nullable=False))
+
+    def test_recording_button_tag(self):
+        node: ast.SelectQuery = self._select("select <RecordingButton sessionId={'12345'} />")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+
+        node2 = self._select("select recording_button('12345')")
+        node2 = cast(ast.SelectQuery, resolve_types(node2, self.context, dialect="clickhouse"))
+        assert node == node2
 
     def test_sparkline_tag(self):
         node: ast.SelectQuery = self._select("select <Sparkline data={[1,2,3]} />")
