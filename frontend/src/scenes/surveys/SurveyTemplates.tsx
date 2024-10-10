@@ -1,10 +1,12 @@
 import './SurveyTemplates.scss'
 
-import { LemonButton } from '@posthog/lemon-ui'
-import { useActions } from 'kea'
+import { LemonBadge, LemonButton } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { SceneExport } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { Survey } from '~/types'
@@ -20,6 +22,10 @@ export const scene: SceneExport = {
 export function SurveyTemplates(): JSX.Element {
     const { setSurveyTemplateValues } = useActions(surveyLogic({ id: 'new' }))
     const { reportSurveyTemplateClicked } = useActions(eventUsageLogic)
+    const { currentTeam } = useValues(teamLogic)
+    const surveyAppearance = {
+        ...currentTeam?.survey_config?.appearance,
+    }
 
     return (
         <>
@@ -30,6 +36,26 @@ export function SurveyTemplates(): JSX.Element {
                     </LemonButton>
                 }
             />
+            {currentTeam?.survey_config?.templates && (
+                <div className="flex items-center min-h-6">
+                    <div className="mr-1">Custom</div>
+                    <LemonBadge.Number
+                        count={Object.keys(defaultSurveyTemplates).length}
+                        size="medium"
+                        maxDigits={Infinity}
+                    />
+                </div>
+            )}
+            <LemonDivider dashed={true} />
+            <div className="flex items-center min-h-6">
+                <div className="mr-1">Default</div>
+                <LemonBadge.Number
+                    count={Object.keys(defaultSurveyTemplates).length}
+                    size="medium"
+                    maxDigits={Infinity}
+                />
+            </div>
+            <LemonDivider />
             <div className="flex flex-row flex-wrap gap-8 mt-8">
                 {defaultSurveyTemplates.map((template, idx) => {
                     return (
@@ -48,7 +74,11 @@ export function SurveyTemplates(): JSX.Element {
                                     setSurveyTemplateValues({
                                         name: template.templateType,
                                         questions: template.questions,
-                                        appearance: { ...defaultSurveyAppearance, ...template.appearance },
+                                        appearance: {
+                                            ...defaultSurveyAppearance,
+                                            ...template.appearance,
+                                            ...surveyAppearance,
+                                        },
                                     })
                                     reportSurveyTemplateClicked(template.templateType)
                                 }}
@@ -61,6 +91,7 @@ export function SurveyTemplates(): JSX.Element {
                                 <div className="SurveyTemplate">
                                     <SurveyAppearancePreview
                                         key={idx}
+                                        surveyAppearance={surveyAppearance}
                                         survey={
                                             {
                                                 id: `templateMock-${idx}`,
@@ -69,6 +100,7 @@ export function SurveyTemplates(): JSX.Element {
                                                     ...defaultSurveyAppearance,
                                                     whiteLabel: true,
                                                     ...template.appearance,
+                                                    ...surveyAppearance,
                                                 },
                                             } as Survey
                                         }

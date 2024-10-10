@@ -9,6 +9,7 @@ import { featureFlagLogic as enabledFlagLogic } from 'lib/logic/featureFlagLogic
 import { hasFormErrors, isObject } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Scene } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { DataTableNode, HogQLQuery, InsightVizNode, NodeKind } from '~/queries/schema'
@@ -28,7 +29,7 @@ import {
     SurveyUrlMatchType,
 } from '~/types'
 
-import { defaultSurveyFieldValues, NEW_SURVEY, NewSurvey } from './constants'
+import { defaultSurveyAppearance, defaultSurveyFieldValues, NEW_SURVEY, NewSurvey } from './constants'
 import type { surveyLogicType } from './surveyLogicType'
 import { surveysLogic } from './surveysLogic'
 import { sanitizeHTML } from './utils'
@@ -196,9 +197,23 @@ export const surveyLogic = kea<surveyLogicType>([
                     }
                 }
                 if (props.id === 'new' && router.values.hashParams.fromTemplate) {
-                    return values.survey
+                    const templatedSurvey = values.survey
+                    templatedSurvey.appearance = {
+                        ...defaultSurveyAppearance,
+                        ...teamLogic.values.currentTeam?.survey_config?.appearance,
+                        ...templatedSurvey.appearance,
+                    }
+                    return templatedSurvey
                 }
-                return { ...NEW_SURVEY }
+
+                const newSurvey = NEW_SURVEY
+                newSurvey.appearance = {
+                    ...defaultSurveyAppearance,
+                    ...teamLogic.values.currentTeam?.survey_config?.appearance,
+                    ...newSurvey.appearance,
+                }
+
+                return newSurvey
             },
             createSurvey: async (surveyPayload: Partial<Survey>) => {
                 return await api.surveys.create(sanitizeQuestions(surveyPayload))

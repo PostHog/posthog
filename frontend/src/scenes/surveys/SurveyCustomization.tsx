@@ -1,34 +1,35 @@
 import { LemonButton, LemonCheckbox, LemonDialog, LemonInput, LemonSelect } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { surveyLogic } from 'scenes/surveys/surveyLogic'
 
-import {
-    AvailableFeature,
-    MultipleSurveyQuestion,
-    RatingSurveyQuestion,
-    SurveyAppearance as SurveyAppearanceType,
-    SurveyQuestion,
-    SurveyQuestionType,
-} from '~/types'
+import { AvailableFeature, SurveyAppearance as SurveyAppearanceType } from '~/types'
 
 import { defaultSurveyAppearance } from './constants'
 import { surveysLogic } from './surveysLogic'
 
 interface CustomizationProps {
     appearance: SurveyAppearanceType
-    surveyQuestionItem: RatingSurveyQuestion | SurveyQuestion | MultipleSurveyQuestion
+    customizeRatingButtons: boolean
+    customizePlaceholderText: boolean
+    hasBranchingLogic: boolean
+    deleteBranchingLogic?: () => void
     onAppearanceChange: (appearance: SurveyAppearanceType) => void
 }
 
 interface WidgetCustomizationProps extends Omit<CustomizationProps, 'surveyQuestionItem'> {}
 
-export function Customization({ appearance, surveyQuestionItem, onAppearanceChange }: CustomizationProps): JSX.Element {
+export function Customization({
+    appearance,
+    customizeRatingButtons,
+    customizePlaceholderText,
+    hasBranchingLogic,
+    onAppearanceChange,
+    deleteBranchingLogic,
+}: CustomizationProps): JSX.Element {
     const { surveysStylingAvailable } = useValues(surveysLogic)
-    const { surveyShufflingQuestionsAvailable, hasBranchingLogic } = useValues(surveyLogic)
-    const { deleteBranchingLogic } = useActions(surveyLogic)
+    const surveyShufflingQuestionsAvailable = true
     const surveyShufflingQuestionsDisabledReason = surveyShufflingQuestionsAvailable
         ? ''
         : 'Please add more than one question to the survey to enable shuffling questions'
@@ -41,72 +42,85 @@ export function Customization({ appearance, surveyQuestionItem, onAppearanceChan
                         <></>
                     </PayGateMini>
                 )}
-                <div className="mt-2">Background color</div>
-                <LemonInput
-                    value={appearance?.backgroundColor}
-                    onChange={(backgroundColor) => onAppearanceChange({ ...appearance, backgroundColor })}
-                    disabled={!surveysStylingAvailable}
-                />
-                <div className="mt-2">Border color</div>
-                <LemonInput
-                    value={appearance?.borderColor || defaultSurveyAppearance.borderColor}
-                    onChange={(borderColor) => onAppearanceChange({ ...appearance, borderColor })}
-                    disabled={!surveysStylingAvailable}
-                />
+                <LemonField.Pure className="mt-2" label="Background color">
+                    <LemonInput
+                        value={appearance?.backgroundColor}
+                        onChange={(backgroundColor) => onAppearanceChange({ ...appearance, backgroundColor })}
+                        disabled={!surveysStylingAvailable}
+                    />
+                </LemonField.Pure>
+                <LemonField.Pure className="mt-2" label="Border color">
+                    <LemonInput
+                        value={appearance?.borderColor || defaultSurveyAppearance.borderColor}
+                        onChange={(borderColor) => onAppearanceChange({ ...appearance, borderColor })}
+                        disabled={!surveysStylingAvailable}
+                    />
+                </LemonField.Pure>
                 <>
-                    <div className="mt-2">Position</div>
-                    <div className="flex gap-1">
-                        {['left', 'center', 'right'].map((position) => {
-                            return (
-                                <LemonButton
-                                    key={position}
-                                    type="tertiary"
-                                    onClick={() => onAppearanceChange({ ...appearance, position })}
-                                    active={appearance.position === position}
-                                    disabledReason={
-                                        surveysStylingAvailable
-                                            ? null
-                                            : 'Upgrade your plan to customize survey position.'
-                                    }
-                                >
-                                    {position}
-                                </LemonButton>
-                            )
-                        })}
-                    </div>
+                    <LemonField.Pure className="mt-2" label="Position">
+                        <div className="flex gap-1">
+                            {['left', 'center', 'right'].map((position) => {
+                                return (
+                                    <LemonButton
+                                        key={position}
+                                        type="tertiary"
+                                        onClick={() => onAppearanceChange({ ...appearance, position })}
+                                        active={appearance.position === position}
+                                        disabledReason={
+                                            surveysStylingAvailable
+                                                ? null
+                                                : 'Upgrade your plan to customize survey position.'
+                                        }
+                                    >
+                                        {position}
+                                    </LemonButton>
+                                )
+                            })}
+                        </div>
+                    </LemonField.Pure>
                 </>
-                {surveyQuestionItem.type === SurveyQuestionType.Rating && (
+                {customizeRatingButtons && (
                     <>
-                        <div className="mt-2">Rating button color</div>
-                        <LemonInput
-                            value={appearance?.ratingButtonColor}
-                            onChange={(ratingButtonColor) => onAppearanceChange({ ...appearance, ratingButtonColor })}
-                            disabled={!surveysStylingAvailable}
-                        />
-                        <div className="mt-2">Rating button active color</div>
-                        <LemonInput
-                            value={appearance?.ratingButtonActiveColor}
-                            onChange={(ratingButtonActiveColor) =>
-                                onAppearanceChange({ ...appearance, ratingButtonActiveColor })
-                            }
-                            disabled={!surveysStylingAvailable}
-                        />
+                        <LemonField.Pure className="mt-2" label="Rating button color">
+                            <LemonInput
+                                value={appearance?.ratingButtonColor}
+                                onChange={(ratingButtonColor) =>
+                                    onAppearanceChange({ ...appearance, ratingButtonColor })
+                                }
+                                disabled={!surveysStylingAvailable}
+                            />
+                        </LemonField.Pure>
+                        <LemonField.Pure className="mt-2" label="Rating button active color">
+                            <LemonInput
+                                value={appearance?.ratingButtonActiveColor}
+                                onChange={(ratingButtonActiveColor) =>
+                                    onAppearanceChange({ ...appearance, ratingButtonActiveColor })
+                                }
+                                disabled={!surveysStylingAvailable}
+                            />
+                        </LemonField.Pure>
                     </>
                 )}
-                <div className="mt-2">Button color</div>
-                <LemonInput
-                    value={appearance?.submitButtonColor}
-                    onChange={(submitButtonColor) => onAppearanceChange({ ...appearance, submitButtonColor })}
-                    disabled={!surveysStylingAvailable}
-                />
-                <div className="mt-2">Button text color</div>
-                <LemonInput
-                    value={appearance?.submitButtonTextColor}
-                    onChange={(submitButtonTextColor) => onAppearanceChange({ ...appearance, submitButtonTextColor })}
-                    disabled={!surveysStylingAvailable}
-                />
+                <LemonField.Pure className="mt-2" label="Button color">
+                    <LemonInput
+                        value={appearance?.submitButtonColor}
+                        onChange={(submitButtonColor) => onAppearanceChange({ ...appearance, submitButtonColor })}
+                        disabled={!surveysStylingAvailable}
+                    />
+                </LemonField.Pure>
+
+                <LemonField.Pure className="mt-2" label="Button text color">
+                    <LemonInput
+                        value={appearance?.submitButtonTextColor}
+                        onChange={(submitButtonTextColor) =>
+                            onAppearanceChange({ ...appearance, submitButtonTextColor })
+                        }
+                        disabled={!surveysStylingAvailable}
+                    />
+                </LemonField.Pure>
 
                 <LemonField.Pure
+                    className="mt-2"
                     label="Survey form zIndex"
                     info="If the survey popup is hidden behind another overlapping UI element, set this value higher than the overlapping element's zIndex."
                 >
@@ -119,14 +133,15 @@ export function Customization({ appearance, surveyQuestionItem, onAppearanceChan
                         defaultValue="99999"
                     />
                 </LemonField.Pure>
-                {surveyQuestionItem.type === SurveyQuestionType.Open && (
+                {customizePlaceholderText && (
                     <>
-                        <div className="mt-2">Placeholder text</div>
-                        <LemonInput
-                            value={appearance?.placeholder || defaultSurveyAppearance.placeholder}
-                            onChange={(placeholder) => onAppearanceChange({ ...appearance, placeholder })}
-                            disabled={!surveysStylingAvailable}
-                        />
+                        <LemonField.Pure className="mt-2" label="Placeholder text">
+                            <LemonInput
+                                value={appearance?.placeholder || defaultSurveyAppearance.placeholder}
+                                onChange={(placeholder) => onAppearanceChange({ ...appearance, placeholder })}
+                                disabled={!surveysStylingAvailable}
+                            />
+                        </LemonField.Pure>
                     </>
                 )}
                 <div className="mt-4">
@@ -168,7 +183,9 @@ export function Customization({ appearance, surveyQuestionItem, onAppearanceChan
                                         children: 'Continue',
                                         status: 'danger',
                                         onClick: () => {
-                                            deleteBranchingLogic()
+                                            if (deleteBranchingLogic) {
+                                                deleteBranchingLogic()
+                                            }
                                             onAppearanceChange({ ...appearance, shuffleQuestions: true })
                                         },
                                     },
