@@ -490,6 +490,8 @@ export default function SurveyEdit(): JSX.Element {
                                                       )}
                                                       <Customization
                                                           appearance={survey.appearance}
+                                                          hasBranchingLogic={hasBranchingLogic}
+                                                          deleteBranchingLogic={deleteBranchingLogic}
                                                           customizeRatingButtons={
                                                               survey.questions[0].type === SurveyQuestionType.Rating
                                                           }

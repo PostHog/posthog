@@ -71,7 +71,7 @@ export function Surveys(): JSX.Element {
         currentTeam?.survey_config?.appearance || defaultSurveyAppearance
     )
     const shouldShowEmptyState = !surveysLoading && surveys.length === 0
-    const showLinkedHogFunctions = useFeatureFlag('HOG_FUNCTIONS_LINKED') || true
+    const showLinkedHogFunctions = useFeatureFlag('HOG_FUNCTIONS_LINKED')
 
     return (
         <div>
@@ -158,6 +158,7 @@ export function Surveys(): JSX.Element {
                                         <Customization
                                             key="survey-settings-customization"
                                             appearance={editableSurveyConfig}
+                                            hasBranchingLogic={false}
                                             customizeRatingButtons={true}
                                             customizePlaceholderText={true}
                                             onAppearanceChange={(appearance) => {
