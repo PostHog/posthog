@@ -226,9 +226,10 @@ fn collect_escape_sequence(
 
 #[cfg(test)]
 mod test {
-    use bytes::Bytes;
 
-    use crate::v0_request::{RawEvent, RawRequest};
+    use crate::v0_request::RawEvent;
+
+    use super::InvalidSurrogatesPass;
 
     const RAW_DATA: &str = include_str!("../../tests/invalid_surrogate.json");
 
@@ -330,12 +331,11 @@ mod test {
 
     #[test]
     fn it_handles_actual_session_data() {
-        // We take a known-good session example, and assert that it doesn't contain any replacement characters
-        let raw = include_bytes!("../../tests/session-example");
-        let req = RawRequest::from_bytes(Bytes::from_static(raw), 100000).unwrap();
-        let event = req.events().pop().unwrap();
+        let data = include_str!("../../tests/session-example-event.json");
+        let data = InvalidSurrogatesPass::new(data.chars()).collect::<String>();
+        let event: RawEvent = serde_json::from_str(&data).unwrap();
         let out = serde_json::to_string(&event).unwrap();
-        println!("{}", out);
+        // Assert that the output does not contain and replacement characters
         assert!(!out.contains('�'));
     }
 }

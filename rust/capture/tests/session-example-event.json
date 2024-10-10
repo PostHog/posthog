@@ -1,0 +1,214 @@
+{
+    "uuid": "01927808-2979-7ca6-bf36-856559c002c1",
+    "event": "$snapshot",
+    "properties": {
+        "$window_id": "019277f6-6dc4-7180-ba23-9fcd93616e02",
+        "$snapshot_bytes": 13365,
+        "$snapshot_data": [
+            {
+                "data": { "id": 336, "source": 2, "type": 1, "x": 32.21875, "y": 23.0703125 },
+                "timestamp": 1728590632803,
+                "type": 3
+            },
+            { "data": { "id": 333, "source": 2, "type": 5 }, "timestamp": 1728590632805, "type": 3 },
+            {
+                "data": {
+                    "positions": [
+                        { "id": 313, "timeOffset": -204, "x": 33, "y": 1 },
+                        { "id": 334, "timeOffset": -148, "x": 36, "y": 14 },
+                        { "id": 336, "timeOffset": -91, "x": 35, "y": 21 },
+                        { "id": 336, "timeOffset": -35, "x": 33, "y": 22 }
+                    ],
+                    "source": 1
+                },
+                "timestamp": 1728590632808,
+                "type": 3
+            },
+            {
+                "data": { "id": 336, "source": 2, "type": 0, "x": 31.6796875, "y": 23.0703125 },
+                "timestamp": 1728590632891,
+                "type": 3
+            },
+            {
+                "data": { "id": 336, "pointerType": 0, "source": 2, "type": 2, "x": 31, "y": 23 },
+                "timestamp": 1728590632904,
+                "type": 3
+            },
+            {
+                "data": {
+                    "adds": [],
+                    "attributes": [
+                        { "attributes": { "class": "Navbar3000" }, "id": 74 },
+                        { "attributes": { "class": "Navbar3000__overlay" }, "id": 73 }
+                    ],
+                    "removes": [],
+                    "source": 0,
+                    "texts": []
+                },
+                "timestamp": 1728590632915,
+                "type": 3
+            },
+            {
+                "data": {
+                    "positions": [
+                        { "id": 92, "timeOffset": -105, "x": 31, "y": 24 },
+                        { "id": 105, "timeOffset": -49, "x": 37, "y": 97 }
+                    ],
+                    "source": 1
+                },
+                "timestamp": 1728590633310,
+                "type": 3
+            },
+            {
+                "data": {
+                    "positions": [
+                        { "id": 133, "timeOffset": -495, "x": 57, "y": 221 },
+                        { "id": 141, "timeOffset": -309, "x": 65, "y": 251 },
+                        { "id": 161, "timeOffset": -258, "x": 70, "y": 293 },
+                        { "id": 182, "timeOffset": -202, "x": 84, "y": 367 },
+                        { "id": 181, "timeOffset": -146, "x": 87, "y": 382 },
+                        { "id": 182, "timeOffset": -91, "x": 88, "y": 378 },
+                        { "id": 181, "timeOffset": -34, "x": 89, "y": 366 }
+                    ],
+                    "source": 1
+                },
+                "timestamp": 1728590633811,
+                "type": 3
+            },
+            {
+                "data": { "id": 181, "source": 2, "type": 1, "x": 90.7421875, "y": 366.05859375 },
+                "timestamp": 1728590633918,
+                "type": 3
+            },
+            { "data": { "id": 333, "source": 2, "type": 6 }, "timestamp": 1728590633921, "type": 3 },
+            { "data": { "id": 180, "source": 2, "type": 5 }, "timestamp": 1728590633922, "type": 3 },
+            {
+                "data": { "id": 181, "source": 2, "type": 0, "x": 90.7421875, "y": 366.05859375 },
+                "timestamp": 1728590633999,
+                "type": 3
+            },
+            {
+                "data": { "id": 181, "pointerType": 0, "source": 2, "type": 2, "x": 90, "y": 366 },
+                "timestamp": 1728590634010,
+                "type": 3
+            },
+            {
+                "data": {
+                    "adds": [],
+                    "attributes": [
+                        { "attributes": { "class": "Navbar3000 Navbar3000--hidden" }, "id": 74 },
+                        { "attributes": { "class": "Navbar3000__overlay Navbar3000--hidden" }, "id": 73 }
+                    ],
+                    "removes": [],
+                    "source": 0,
+                    "texts": []
+                },
+                "timestamp": 1728590634039,
+                "type": 3
+            },
+            {
+                "data": {
+                    "payload": {
+                        "requests": [
+                            {
+                                "connectEnd": 0,
+                                "connectStart": 0,
+                                "decodedBodySize": 0,
+                                "deliveryType": "",
+                                "domainLookupEnd": 0,
+                                "domainLookupStart": 0,
+                                "duration": 117.5,
+                                "encodedBodySize": 0,
+                                "endTime": 1074092,
+                                "entryType": "resource",
+                                "fetchStart": 1073974.0999999046,
+                                "firstInterimResponseStart": 0,
+                                "initiatorType": "script",
+                                "name": "https://app-static-prod.posthog.com/static/SessionRecordings-ZGNAH7GO.js",
+                                "nextHopProtocol": "",
+                                "redirectEnd": 0,
+                                "redirectStart": 0,
+                                "renderBlockingStatus": "non-blocking",
+                                "requestStart": 0,
+                                "responseEnd": 1074091.5999999046,
+                                "responseStart": 0,
+                                "responseStatus": 200,
+                                "secureConnectionStart": 0,
+                                "serverTiming": [],
+                                "startTime": 1073974,
+                                "timeOrigin": 1728589560060,
+                                "timestamp": 1728590634034,
+                                "transferSize": 0,
+                                "workerStart": 0
+                            }
+                        ]
+                    },
+                    "plugin": "rrweb/network@1"
+                },
+                "timestamp": 1728590634153,
+                "type": 6
+            },
+            {
+                "data": {
+                    "adds": [],
+                    "attributes": [
+                        { "attributes": { "style": { "left": "232.121px", "top": "5287.58px" } }, "id": 1125 }
+                    ],
+                    "removes": [],
+                    "source": 0,
+                    "texts": [
+                        { "id": 627, "value": "Last modified 8 days ago" },
+                        { "id": 638, "value": "Last modified 8 days ago" },
+                        { "id": 1754, "value": "First seen 19 minutes ago" },
+                        { "id": 1766, "value": "First seen 19 minutes ago" },
+                        { "id": 1778, "value": "First seen 20 minutes ago" },
+                        { "id": 1790, "value": "First seen 20 minutes ago" },
+                        { "id": 1738, "value": "First seen 20 minutes ago" },
+                        { "id": 1821, "value": "Recorded 18 minutes ago" },
+                        { "id": 1839, "value": "Recorded 18 minutes ago" },
+                        { "id": 1858, "value": "Recorded 18 minutes ago" },
+                        { "id": 1877, "value": "Recorded 18 minutes ago" },
+                        { "id": 1892, "value": "Recorded 18 minutes ago" },
+                        { "id": 1117, "value": "an hour ago" }
+                    ]
+                },
+                "timestamp": 1728590634181,
+                "type": 3
+            },
+            {
+                "data": { "payload": { "href": "https://us.posthog.com/project/2/replay/home" }, "tag": "$pageview" },
+                "timestamp": 1728590634217,
+                "type": 5
+            },
+            {
+                "cv": "2024-10",
+                "data": {
+                    "adds": "\u001f\b\u0000*3\bg\u0000\u0003í]énãH~\u0015ÂýµEY¤xHµÀ\u0002=Þ£\u0007põ6¦\u0007µ@5\u001a\u0005Z¢-NI¢@Rvy\u0007\rÌ³Ìy°yù\"xyX¤Ùå1ºË\"3q$####?ÿùbïEþ.ùýêâ½óîbçåËÝa³Á]¸ò/Þÿù\"yÜãwöî\"AõU¸KðÀÅû?øË0Z\u0005»»Xûû_þªý\u0018ÆÉ÷áÝÅ»\u0000-\u0018ælnþúë»|\u00073ÃªïÂD\u0017ÞÝ\u000fÞ\u0016×\u00177$\twhÎK(À\u001f\u0013ärãÅ¸¸¸ö·áîw\f£å®u=\u0006Z»\u0017=\u0013/9ÄúÊ¿õ\u000e¤T·õ6bÑÚõ\u0000\r¡[Ï¯ï.ë`³ú\u0001\u00039Ñ;+ÑËe\u001d(÷^+z?^®£\u0010Ôàb\t¸tá~\u0007\\Ò\u0001Q- cw\u001cm¸º\rî\u000e\u001b`N©]sáv q\u0015Ü?I!È_úú£nÖå\ndõÀO~\u001c\u0007áîøý¸ñ\u001e7\u0001Þ0?¸['ÿ\u0017yû½\u001fÕ!7\u0017÷ÜZ¿ÅãZ+&-\u0004<\u0016gâ±ò\u0012O§\"b\u001e\u001dµ¾Oyç23öÕ`ºV1]L{âXÖÿçÏ[/¨S\"\u000bCÀÂè\tm¢ÓºÎË\u001aËzêÜßîG}\u000bqywuªk!¨ÑE\u00175ZÄíÆÿªÑ\u001f}\u0019n´t\u001c\u0007¿õ%ºó#íO8\tn\u001f³Û­n×á*¨ÙE\u00175ë=­cÝüôI\u000em¯#ÿ^Ø$ÙÇï//÷£×áÝd\u0019n/Wá2¾<Ä~¤ß\u001d\u0002\u0010vyzê(\u0016tù¢A\u000f5É-ÊúËFä\u0016ÂlÐ4\u001dU&¹kßvÚ6|Í»\t\u000fÉ©§²j/ØUÑÑ¿aµmw³ªb@½kRß·Á\u0006o^¬ÇÞ½¯Ã\f;ªó\u001aæg2K\u00164å|s¶fU»0ñoÂðK¬{«~\u0004ü8<DKzìçðæOþ2Ñþ~!z¢À£ö÷áþ°\u0007D\u0012\u001djÞ(kZ\u0003K|\u0004À |¼à\\6îB(u~Z³·+{ª3ÊFQ~Ö´:W£l\u0010\\y5T'luÁäV5ü^Iï!X%k\u0019Óé¿â\u0016zb»å!¢¯ÂM\u0018¡ôëv³c\u001b\u0015S\u001ef¼ÉÃl\u0012Fwæt:½T}Ý\u0007þÃïÂ¯\u0000jSÍ´ð¿H`üÓÇÿ¹xO£âDmuÊGY\u0007j÷\u001e¨X´¨ø0¸¶fL'¦í\u0019|I¦Sm6I\u000bÒRþOGé§\u000fù§Lzä\u0019\u000f¶fTÕRPêc¥j) l\u001cKÁV-\u00022\fòB¯nu²¾ø\u0012ù\u001b/\tî}-Øm¯Ý]Lu©²×ªGêr\u0013eçê\u0011¢E\u000e\u001b\u0002ðï}<¾âUp°¯¦:ÇÖ,¨+ºMÌùïéÇDM:\u0002\u0017ß\u001bsè+c1q\rGUA\u001càkjæ#AØW|?\f||È Bíðå÷ÔöUÖ\u0017Õ\u0011\nÙC¬¨­\u0003XôV'\u0000u\u0017\u001a0\n¸0\u001cËT×6w¬®f3{Ò\u0014Ñ¤r4öL\u0000\u001a¤\"Õ9±¬ES5\u0007Ôæùæ\fjLµHÜè¢Øà\u001bO\u001c`g¤×\\mkn\nºT¡\"6~ú`k\u000bÅ ;md¡9Ç\u0006é\nUÎ±±\f\u001acQcª©+\u0012a\u0018\u0019jÔ¯¥`¬L¨óÉ|>7Pl,°|y'îpÁP\u0019´BÉr!ªD\u0005¡\nB,ÐÃBt\"Ä\u0015\u000bY|GÀ$/\u0013^±!\u0016\u001eKEGWÔL*¶#\u0018MµÄbÐ>}X(N\u0018RÉQç©X\bsæ¤ÁÄ_j«Tö\u0004.¹\rþMûJ!QIOBÌÅ¬mú/\u0003U\b\u0010\"À\u0007\u0017c*¬\u0019\u00115¨¤¾LÕª6 ®ô9º4¯ø¯âÆ\u0011¹ÄO«ë\"Jªù1ºj=Ó\u001bYÜuéûÝj¥%¡-rË]ËR¦þì\bC0u\\üv!X¢M;,\u0015¶ÿE¶æÅZÎg5/yíK\u0006rü¼b\bæÑÉ|û¦,\u0003Á>4ºì+t°\fØ\u0006òp\fq=h\u0007R\u0010ÊØÓ9éônL\f\u0017\u0002Å\u0002f\u0000TÍ¡·gÖ5Ô9ÏCs·ÜÊl6:ÎF8SèÅ©UªG\u001dÁ \u0001\u0003º\u0010Î«J\u001fÔ>îç6a\u0002$pm{\u0001À×½¸óBÖÌ7¹GK\u001dh¹\u000e þ <'îÂ,5¢¹\u0011©ÐTÒ£3n¥ÒKÆ*À\u001cÙYjdê\u0012ºë*\u0011 iäg\u0015\u0017ÄöW\u0004)òY\u0015Iæ7\u0013Áò¨\u0012É\u0002S| ~\u0016U:¨\u000b»b)*Ïiø¸÷À§H\nSÁC+\u0015¦z\\\u0012¹êãHQ LGkFÍÄ\u0006}ê\u001fþ¯CE¼\"K\u0012\u0011÷¨XÈh¥.¿\u0015.\u0013±&Ú>m\u0001cÙÀÄ5¿«\bß+ÅY\u0015\u0016BÅi0TF\u0003[lÊLV#Ê\u0012\u001aq@\u0003VNl\u0018\u0000ô?_eC´\"9ÀòC×°ÊfdEºåa\u001e©çÜÛ²Xsw2\u0003ëÂªsQC\u0006\u0003áÏo[UtÔ\u0007jéÅª¾­i/D\u0015¿mÂKáS\u001cUqeôçTVÊÅ\u000e«ÊÉÌ`,Q¡\u0013%_î%\u001d\u0013B/LÔilÉÈ2U¹\u0001+RÍÌô\u0005¬ð;Ì¿?\u0015Øà-øý[â!\u0018\u0013sa\u0012ð\f`Ô\u0007Ii\u0011_àc'9<¤á\"û\u0014A,AEõ3q®xwzãRuØÑ!\u0019ï\u0014\u0017,¼x¼\\ôÔºU9®°\u0000J]Wª8OO,ÛÎÇe'I!Ì ÛôÞ~$\u001b\u001fônbå²¦+\u001d{¤«à°Å3qòÈ\bëújõªã\rvë\"M÷;ÛýwM\u0002\booc?y¯M\u0001Pg[\t^\u0017£y} -\u0006ê>¾ñÈtB¦\u0007hÖoèX¦à\u001d1»xG6A\u001b¬H\u0001«lK ö7Ø@ñÉ:ºõ61Å 6Ø­àÀEW¸°\u0016Ê#Î ¿MÌ\r2æ´¿Ð\u0003æ§ÁÎ·ºî-ÉOØD\u0010ïÎ´§GX«}Å\u0011\bh^¬ÂbÍìºX;EÜi¦àfg9C¦°R3»\u0006\u0016fÁ2y*5\u0011¿GãP)¸ÍÍ\u0006·yÊÿ¢0ÊØ\u0010)#=FÔaVÐ\u001fµ;\u001dÿo(LÂ\u0003^¤vQU\u0017MfÍ\u0004u<ë+6crî¼½njøW [óX0ÈyhdÑ?7~òàû;mÿ°zYb«°¡\u0007DÞ1²F\u001d¢*ùNÖô&(º|o\fÒCÄÔt³\u00101UÇ\u0007AéÍ¾­\u0018àÞ\u001arO©ªx6:?`&hí<g\u0018äùÎµ[hÌ¬ABPÖe$Hw\u0013òi\u001f¨mÍÉ¤Lw½I?>Ý§!Ù\u001bx'ò#owçVv\u0015;4óAF\u0004F`ÕqP\u0000Ë\u001c¤ùð\fÓVÅ\bËÙ¹ñÅO\"¢µ{±,aº´\u001a¦Ë}Á\f\u0004Kþò­2Èo|ØÔéfÖ^uª%ÌºeþÔ/`juêvSkXÂ,l5,7*2ÿà%KrÝgm\nó'0ÂÖ%ÌXÖ0¿\r»A0må1a\u0017Û³ÉÄê²[S?\u001f­¯:{Ó\u0012Ô±Õu=¢bu³\u0016\u0005µÊL};n¶ ¯íÅq'½~\u000bÎX!.Ô©£M¯É%jN\u0016Ö\u0006NT\u0017ÎÏ<\u0018¹>\u0019þlPéX\u000e| \u000e`T@æo%7´\u000bÇúô;Cô\u001fíä{\u0002bê´Þû·¥5Yo\u0011dÝT-L\u0000ö(!±¶0\u0019ä1a\u0017SQ¶0±!ãí%\u0018#Ì\"v§YäÒ+ÂLewÑ¢OÇ\nãÝ5=zíÕË¯öIÔN\u0001Ãjúi-z\u0000K6´ ÙBk>\tshO\fò\u0012Á\b`píïÒhÀ£Jdí8[CûVë\u0010ÂEÕ÷b%\u0002ä(|Ò@ÀÐ,â\f¨þ#U~úÍkìÇÚ÷\u0014µÄ¶³Ø¤Ï3íM\u0018%ªèyÜc_O@g£!<¾Ö\rûÓÖ \u0002¾æÆi\u0003c°Ó\u0003åæ\n\u001d~tÛO0?X¡ô¢wÉJÁÙ\u000eò>Õ)\u0016Á`±\u001bÖÕãW^@,+ï1·ìr$ãàÕ\u001eopùÜéâhÿç5\u001cÉëÛÛJ )ä\b\u00063L bÃï\bÆG\u001e\u0013\u0006y1SÈ\u0011ì\u000f§k*ÿÀØP.\u0010¦z¦ëuj\taÂv\u0006\nQ|mZBrvÝ!Ã\b[âÚÍcn\u0000JÐq\u000ef[®0eºÃ\u001cýjÐ>®0å1a\u0017Ó>®0C¸½-PÛù\\afp»ú)¯±K\u0015w\u0005%Ï|}ÚÏ\u0015&\u0011·Ë«öÏ«ý\\iË±× \u001e\u0002øÐÓ\u0005¾.lFdE*ä\u0001:´PJé@Td]Ý\u001b$L~nÉïm\u0018Þ £÷\náPKDf$Ù>Ü)M\u000eYÔeÍ÷MÒ ªáê\b\u0011¦¢<!\fR\u001fñåÝøÕð¿[¼2%5¸\bÓ;Ü>ÞÃ\u001a·*QãÒr.Ìfó.³Ùs¼tÏ\u0014\b{$@ØÙÙ\u00124ìw\u0019@¼Aæ\u0010OòIdöQH©&.ÍKÄ&\u0014\u0015!]H¸:à×ÛyÇ$XÆÿ\u0012\u0010ëq§sÖ\u00195$ðH\u001dëé;Ïz\u0006é<cÖô'LÐó\tº29þ7\u0013¦QúbÍÛát\u001b^\bHÏ9\u0017q¢\u0011¬6!g\u001cÊÆ°Úq({­æD%\u001d½÷z;ïõvÞëí¼×Ûy¯·ó^oç½^ò¼×U­z^£~þ¼Y\b\fk\f!iCAúÁE\u001aÓê<]lÕñÃ\u000fûI\u0003'dEÙ8F»/\u0016e#e¤\u0010òÇ\u0016aYB\bYdQöZ\u0010B\u001eZ\r¹@¢#PÝÜÃ&[ã_ÉIi\u0001á\b(§úB\u001d¬ÞS\u001d\u0003T½Ü\u001e\u0003|Wôs\u000235½ÌV\rÐ®kº¬a)3mÁo¡:Lºá\u0014­\u0016e=Ídðãàÿ1c¤¿º\u001eÑ2g§ù¾ñüq%m\tG\u0006é)ßóÊ÷?\u0002\u0017ÞûÑí&|Ð×Áj\u0003_Ê/¬Ginè:Äé°S^¢:¼h=êÞ!\tFÃ®¤l-¡Á Ï×¹ÿ\u0019yww8®íÿ1üái6N¶3\u0015e}¥é_ÃøE\"OrjP<ÅWpýâè:ÀWu\u0002gÒ¿©£§:Ç¡¬ç¨\u001bÿ:ôÈ\u001cÃ>\u0005¦»­¾ÿz<3ÕáÔ4¾\u0001àEOVd§ªkh©N\u0005Z\u0018äõ%üU»\u0016'=`\u000eå»®cUu­°ê0\u0016:bªÆ®ÚÀUç,ëð©N]\u0015|ê\u000f\u0010~[¢«áDu®EÙ(Ö¸-¤vEÙ\b.t[Èì²¾í_ Ü}}1ýXÂ¶D\u0016e/¾7ò\u0005¾ZäWÑ´9)d\u0011ñ\u0012\u001aRÝ#y\n_}M91gS\u000bF<{û¹9\u0003\b\u001cwÉÉ2Õý\u0002ÞM\u0017´\f\u001eÁ½ø%xU\u000e¿\u001dÃÁ\\æçN÷Ôn\u0006Ï1\u0002\u000e÷~ØaBd2Z:5åRK\u0014\u001f|¼GKÎ±©+8²]<)jÇû\u0014õ#¼\"íúÄ O\u0014ÈÀu`\bý¢-Õ\u0017<yÜFËé^áÂ\u0013\u0019.·f]g\u0014fMe\u001cÈ\u001eÍ8»g\u000e\u001eáS\u000e[\u0019¹é=\u001cX\u001d)<b¥\tëLx\u000bJÉÉb\u0005?æiæN\u0016»ºGO)Á\u000b\n¥`rÓ6¬ËúÈî3\u001cJìi\u001bka\u000b\u0019Õp2zZã\bY@\u000bÝ1ÈGÚoÂÍJ;Ð§^ìcG\u0015¡á_cmK³g\u0012yË/Å)~#µ\u0003×î$±-ä\u0019EÙù\u0019Zl!i¨âD?I¶Ó\u001c\u001elApºmDÜHYCk\u001deÔªõ\u000e³1ö·\u0001³R\u001d\u0002Çl¼«ÕD£(ëÈË1D°]ß\u0000Hc4åd\rJ&À@_;k2\u0001ì(\u001bÃ\u0004¨ä-ã²Wê\u0002³<f({ÛEÛEÛEÛEÛEÛEÛEÁ]t[Èà©\u001cÑ}øI÷ºÕæë£¶³\u0004\fä2.aQ¿-Ú\u000b\u0016³·ÅóÓÄµÆBò£°¨÷£öä=-aQï=í\u0005\u000biÙRÂ¢>M/XH>Ë\u0012\u0016ÏOpÜ\u001a\u000bÉ_YÂâùÛ­±¼%,ê¿$Ù\u0007\u0016B¶Í2\u0016ör`,uç\u0019Ù6[cÑ¬;9×åÀX4ëÎ3Rl¶Æ¢Ywr\u0012¾±hÖ\r©+{Á¢Yw6ä®ì\u0005fÝÙI²\u0017,uç\u0019Ù\u0018[cÑ¬;91ã°X\b©\u0017QÖkðæ\u00178MiW4ó¼>èÆå\fñ\"²«*EAP¦ÅÜ\u0000\u0019\u0000/³\t/A½a°¦;AvNHQ\u000eð°ÿý/;yL¡\u0003Ñ!èÀ¦díè\u0010ÔZoéLÏ\u0018¾Ë£Å c\f_Aó5%><Gì³:'\u0019\u0012Ä.$ T\f\u001d\u000e!i\u001fÊú CP'²\u0001\u000e3|t|\u0005´\u0018dá+$æCÙpb\u0017´VSò½vb\u0017´V·\u0014YÝè\u0010´\u0011ç;\u000eAtÊà4Ðð\u0015ÔN\u001e-\u0006\u0019aø\nÑP6ØÔd(ëAìBâ.ÅÐè\u0010´QSn®vt\bê¤)µÐ\u000b\f_!çV\u0001-\u0006\u0019cø\nZË97p°¦;Ak5åÌj'vAk5å4;\u000eA\u001b9}\u0018ABÖ(åI\u0018wø\n)¤\nh1È\bÃWH&²ÁÄ.äBY\u001fb\u0017´V·ÜQÝè\u0010´QSò¦vtHK·.ÆÜ@ÃWZº\u0015­8çÏ\u000f_Aku:eÛQìÖjÊ/ÔJìBv ÅÐaè\u00102â ¬\u000f:¤¥[¿¹3|\u00049\u0005´\u0018dá+$ËAÙpb\u0017´VSFvb\u0017´\u00163t :\u0004mÄO=\u000eiéÖë±¬ç\r_iéV<¦Ãßø{éá+\u001caGÙ`b\u0017N©£¬\u0007±\u000b'Î\u0015C\u0007¢CÐFM§ÊÛÑ!-Ýzý¾å³¯p@º\u00161|\u0005­µ\u0018né&£FY\u001fb\u0017´\u00163t :\u0004mÔtd¹\r\u001dp\bY(:|\u001déìqñ¡\u0000yùáë\bgQ6Ø\u001dá/Êú\u0010{Uk)\u000eDGU\u001b¡¬\u000f:\u0004uÂq>#\u000f_AíäÑb1oUk¡l8±Wµ\u0016Êz\u0010»p@N1t\u0018:\u0003r(ë\u000eÁ\bjú\u001cõ\u000b\f_éÜ[\u001e-\u0006\u0019aø\nÇÙP6Ø\u0005­ÅÇÛÎ\u0016{Uk)\u000eDGU\u001b¡¬\u000f:\u0004##NG\u001e¾±GAF\u0018¾B`=Ê\u0006\u0013»\u0010B²\u001eÄ.DÅ+\u000eD`\u0004q¼ûÙt\bK7\u000eÛ\u001ewøJ!îy´\u0018dá+h­Nìê(vAk5)vb\u0017 fè@t\bFPÚ\u000e)Ø¼\u0013\u001dÃ\f_)ú<\u00160|xt\r&v!ð\u001ce}]0:9:Ò!\u0018AM{»íèn£ïº9R`x\u001e-\u0006\u0019cø\nZëìÏõÖt'h­¦pÖVb\u0017Â¼\u0015C¡C\bßFY\u001ftHK·ÑwÝ\u001c)N;\u00160|0o\r'vAkõ\u0011æÏ-\t\r\u000f·t\u0013Â·QÖ\u0007\u001dÒÒmô]7GÓÎ£Å #\f_!Ì\u001be]\bóFY\u000fb\u0017Â¼\u0015C\u0007¢C0ÂÛÑ!-ÝFßus¤8í<Z\f2Æð\u0015´V§Ïw\u0014» µú\bóv0oÅÐè\u0010 î¦\u0016è¾LÍ¹{LïÜü\u0002GËåÓmýpÝ×ü{ÒnQ°Oº¤W\u0010Ë]B\u0006 µÈ¬gOc\u0013$õ\u0010\u0014UçÈî\u001fBd3N³È¥\tÚüÓ\u001d!È[QÔ¥\u001f7>åÏS­k^®Ã[¤7Óµ¯qb\\(\b¾öoO\u001fût(û\u0000Î¥¯:¼\u0000\u0000",
+                    "attributes": "\u001f\b\u0000*3\bg\u0000\u0003½Î»\nÂ@\u0010áW\tSg@Ñ\"¤´\u000e¾XÌ^d\u0017÷\u0002»³\u0011\tywWÒ\u0018m%Ýá\u0019¾Ë\u0004VAßu-\u0010s²¢°ÎÐO \u001då:`°áÞ\fÚÇp*Ì1|nÄ¬e\fÒó+3qÉH×ýVÃUlÖÝPF[?5g\u001a\u0005¥%Ã<·nßí6ád;ê¿\u000fÇ\u001f²\"&|§Ê\u0016I©x&z]ï®/¼E^\u0001\u0000\u0000",
+                    "removes": "\u001f\b\u0000*3\bg\u0000\u0003®V*H,JÍ+ñLQ²2ÓQÊ\u0004RÆµ:ÈâÆ&P\u0019S\u000b\\2¦¨2¦F\u0010\tCsc4Ód\fpÉ\u0018YâAs\u00019N\u00193ì2Æè\u000e0²4y\u0007\u0003\fLkc\u0001¦ü÷¤6\u0001\u0000\u0000",
+                    "source": 0,
+                    "texts": "\u001f\b\u0000*3\bg\u0000\u0003®VÊLQ²265ÕQ*KÌ)MU²R\nJMÎ/JÉÌK/VªÕÉc\u0005\u0000ì|ÕàA\u0000\u0000\u0000"
+                },
+                "timestamp": 1728590634319,
+                "type": 3
+            },
+            { "data": { "id": 72, "source": 3, "x": 0, "y": 20 }, "timestamp": 1728590653795, "type": 3 },
+            {
+                "data": { "positions": [{ "id": 181, "timeOffset": -19955, "x": 90, "y": 365 }], "source": 1 },
+                "timestamp": 1728590653804,
+                "type": 3
+            }
+        ],
+        "$session_id": "019277f6-6dc4-7180-ba23-9fcc4f2b5775",
+        "token": "sTMFPsFhdP1Ssg",
+        "distinct_id": "LHXguY3g2CNqLct7jXt0FWZzCxtPock0Wzaj73gDRUM"
+    },
+    "offset": 16,
+    "$set_once": {
+        "$initial_referring_domain": "$direct",
+        "$initial_pathname": "/login",
+        "$initial_host": "us.posthog.com",
+        "$initial_current_url": "https://us.posthog.com/login?next=/",
+        "$initial_referrer": "$direct"
+    }
+}
