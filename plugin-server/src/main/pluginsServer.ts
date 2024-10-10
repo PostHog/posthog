@@ -20,7 +20,6 @@ import { defaultConfig } from '../config/config'
 import { Hub, PluginServerCapabilities, PluginServerService, PluginsServerConfig } from '../types'
 import { closeHub, createHub, createKafkaClient, createKafkaProducerWrapper } from '../utils/db/hub'
 import { PostgresRouter } from '../utils/db/postgres'
-import { createRedisClient } from '../utils/db/redis'
 import { cancelAllScheduledJobs } from '../utils/node-schedule'
 import { posthog } from '../utils/posthog'
 import { PubSub } from '../utils/pubsub'
@@ -203,12 +202,6 @@ export async function startPluginsServer(
 
         return serverInstance.hub
     }
-
-    // Creating a dedicated single-connection redis client to this Redis, as it's not relevant for hobby
-    // and cloud deploys don't have concurrent uses. We should abstract multi-Redis into a router util.
-    const captureRedis = serverConfig.CAPTURE_CONFIG_REDIS_HOST
-        ? await createRedisClient(serverConfig.CAPTURE_CONFIG_REDIS_HOST)
-        : undefined
 
     try {
         // Based on the mode the plugin server was started, we start a number of
@@ -416,7 +409,7 @@ export async function startPluginsServer(
                 throw new Error("Can't start session recording blob ingestion without object storage")
             }
             // NOTE: We intentionally pass in the original serverConfig as the ingester uses both kafkas
-            const ingester = new SessionRecordingIngester(serverConfig, postgres, s3, false, captureRedis)
+            const ingester = new SessionRecordingIngester(serverConfig, postgres, s3, false)
             await ingester.start()
 
             services.push({
@@ -437,7 +430,7 @@ export async function startPluginsServer(
             }
             // NOTE: We intentionally pass in the original serverConfig as the ingester uses both kafkas
             // NOTE: We don't pass captureRedis to disable overflow computation on the overflow topic
-            const ingester = new SessionRecordingIngester(serverConfig, postgres, s3, true, undefined)
+            const ingester = new SessionRecordingIngester(serverConfig, postgres, s3, true)
             await ingester.start()
             services.push(ingester.service)
         }
