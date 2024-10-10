@@ -243,8 +243,21 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 (state, props) => {
                     const taxonomicGroups = selectors.taxonomicGroups(state)
                     const group = taxonomicGroups.find((g) => g.type === props.listGroupType)
+
+                    const filterNonBehavioralCohorts = (items: CohortType[]): CohortType[] => {
+                        return items.filter((item: CohortType) => {
+                            if (item.filters?.properties?.values) {
+                                return !item.filters.properties.values.some((value: any) =>
+                                    value.values?.some((subValue: any) => subValue.type === 'behavioral')
+                                )
+                            }
+                            return true
+                        })
+                    }
+
                     if (group?.logic && group?.value) {
-                        return group.logic.selectors[group.value]?.(state) || null
+                        const items = group.logic.selectors[group.value]?.(state) || null
+                        return items ? filterNonBehavioralCohorts(items) : null
                     }
                     if (group?.options) {
                         return group.options
