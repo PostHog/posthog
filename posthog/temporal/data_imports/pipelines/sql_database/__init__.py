@@ -74,7 +74,7 @@ def sql_source_for_type(
         is_debug = get_from_env("DEBUG", False, type_cast=str_to_bool)
         ssl_ca = "/etc/ssl/cert.pem" if is_debug else "/etc/ssl/certs/ca-certificates.crt"
         credentials = ConnectionStringCredentials(
-            f"mysql+pymysql://{user}:{password}@{host}:{port}/{database}?ssl_ca={ssl_ca}"
+            f"mysql+pymysql://{user}:{password}@{host}:{port}/{database}?ssl_ca={ssl_ca}&ssl_verify_cert=false"
         )
     elif source_type == ExternalDataSource.Type.MSSQL:
         credentials = ConnectionStringCredentials(
