@@ -153,8 +153,6 @@ export const FEATURE_FLAGS = {
     HEDGEHOG_MODE_DEBUG: 'hedgehog-mode-debug', // owner: @benjackwhite
     HIGH_FREQUENCY_BATCH_EXPORTS: 'high-frequency-batch-exports', // owner: @tomasfarias
     PERSON_BATCH_EXPORTS: 'person-batch-exports', // owner: @tomasfarias
-    // owner: #team-replay, only to be enabled for PostHog team testing
-    EXCEPTION_AUTOCAPTURE: 'exception-autocapture',
     FF_DASHBOARD_TEMPLATES: 'ff-dashboard-templates', // owner: @EDsCODE
     ARTIFICIAL_HOG: 'artificial-hog', // owner: @Twixes
     CS_DASHBOARDS: 'cs-dashboards', // owner: @pauldambra

@@ -167,7 +167,7 @@ class Database(BaseModel):
         raise QueryError(f'Unknown table "{table_name}".')
 
     def get_all_tables(self) -> list[str]:
-        return self._table_names + self._warehouse_table_names
+        return self._table_names + self._warehouse_table_names + self._view_table_names
 
     def get_posthog_tables(self) -> list[str]:
         return self._table_names
