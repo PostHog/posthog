@@ -4,10 +4,12 @@ from typing import Any, Optional
 import structlog
 from celery import shared_task
 from dateutil.relativedelta import relativedelta
-from django.db.models import F
+from django.db.models import F, ExpressionWrapper, DurationField
 from django.utils import timezone
 from prometheus_client import Gauge
 from sentry_sdk import set_tag
+
+from datetime import timedelta
 
 from posthog.api.monitoring import Feature
 from posthog.models import Cohort
@@ -46,6 +48,9 @@ def calculate_cohorts(parallel_count: int) -> None:
             is_calculating=False,
             last_calculation__lte=timezone.now() - relativedelta(minutes=MAX_AGE_MINUTES),
             errors_calculating__lte=20,
+            # Exponential backoff, with the first one starting after 30 minutes
+            last_error_at__lte=timezone.now()
+            - ExpressionWrapper(timedelta(minutes=30) * 2 ** F("errors_calculating"), output_field=DurationField()),  #  type: ignore
         )
         .exclude(is_static=True)
         .order_by(F("last_calculation").asc(nulls_first=True))[0:parallel_count]

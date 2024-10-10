@@ -93,6 +93,7 @@ class Cohort(models.Model):
     is_calculating = models.BooleanField(default=False)
     last_calculation = models.DateTimeField(blank=True, null=True)
     errors_calculating = models.IntegerField(default=0)
+    last_error_at = models.DateTimeField(blank=True, null=True)
 
     is_static = models.BooleanField(default=False)
 
@@ -218,6 +219,7 @@ class Cohort(models.Model):
             self.errors_calculating = 0
         except Exception:
             self.errors_calculating = F("errors_calculating") + 1
+            self.last_error_at = timezone.now()
 
             logger.warning(
                 "cohort_calculation_failed",
@@ -306,6 +308,7 @@ class Cohort(models.Model):
                 raise
             self.is_calculating = False
             self.errors_calculating = F("errors_calculating") + 1
+            self.last_error_at = timezone.now()
             self.save()
             capture_exception(err)
 
@@ -348,6 +351,8 @@ class Cohort(models.Model):
                 raise
             self.is_calculating = False
             self.errors_calculating = F("errors_calculating") + 1
+            self.last_error_at = timezone.now()
+
             self.save()
             capture_exception(err)
 
