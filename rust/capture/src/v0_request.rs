@@ -12,6 +12,7 @@ use tracing::instrument;
 use uuid::Uuid;
 
 use crate::api::CaptureError;
+use crate::passes::invalid_surrogates::InvalidSurrogatesPass;
 use crate::prometheus::report_dropped_events;
 use crate::token::validate_token;
 
@@ -176,6 +177,7 @@ impl RawRequest {
             s
         };
 
+        let payload = InvalidSurrogatesPass::new(payload).run();
         tracing::debug!(json = payload, "decoded event data");
         Ok(serde_json::from_str::<RawRequest>(&payload)?)
     }
