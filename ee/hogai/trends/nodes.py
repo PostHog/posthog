@@ -1,3 +1,4 @@
+import json
 import xml.etree.ElementTree as ET
 from typing import Literal, Union, cast
 
@@ -5,14 +6,26 @@ from langchain.agents.format_scratchpad import format_log_to_str
 from langchain.agents.output_parsers import ReActJsonSingleInputOutputParser
 from langchain_core.agents import AgentAction, AgentFinish
 from langchain_core.exceptions import OutputParserException
-from langchain_core.messages import merge_message_runs
+from langchain_core.messages import AIMessage, merge_message_runs
+from langchain_core.output_parsers import PydanticOutputParser
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.runnables import RunnablePassthrough
+from langchain_core.runnables import RunnableLambda, RunnablePassthrough
 from pydantic import ValidationError
 
 from ee.hogai.hardcoded_definitions import hardcoded_prop_defs
-from ee.hogai.trends.prompts import react_definitions_prompt, react_scratchpad_prompt, react_system_prompt
-from ee.hogai.trends.toolkit import TrendsAgentToolkit, TrendsAgentToolModel
+from ee.hogai.trends.prompts import (
+    react_definitions_prompt,
+    react_scratchpad_prompt,
+    react_system_prompt,
+    trends_system_prompt,
+    trends_user_prompt,
+)
+from ee.hogai.trends.toolkit import (
+    GenerateTrendOutputModel,
+    GenerateTrendTool,
+    TrendsAgentToolkit,
+    TrendsAgentToolModel,
+)
 from ee.hogai.utils import (
     AssistantNode,
     AssistantNodeName,
@@ -202,5 +215,57 @@ class GenerateTrendsNode(AssistantNode):
     name = AssistantNodeName.GENERATE_TRENDS
 
     @classmethod
+    def _get_group_mapping_prompt(cls, team: Team) -> str:
+        groups = GroupTypeMapping.objects.filter(team=team).order_by("group_type_index")
+        if not groups:
+            return "The user has not defined any groups."
+
+        root = ET.Element("list of defined groups")
+        root.text = (
+            "\n" + "\n".join([f'name "{group.group_type}", index {group.group_type_index}' for group in groups]) + "\n"
+        )
+        return ET.tostring(root, encoding="unicode")
+
+    @classmethod
     def run(cls, state: AssistantState) -> AssistantState:
-        return state
+        team = state["team"]
+        messages = state["messages"]
+        user_message = messages[-1]
+
+        agent_state = state["agent_state"]
+        assert agent_state is not None
+        action, _ = agent_state["intermediate_steps"][-1]
+
+        llm = llm_gpt_4o.with_structured_output(
+            GenerateTrendTool().schema,
+            method="function_calling",
+            include_raw=False,
+        )
+
+        trends_generation_prompt = ChatPromptTemplate.from_messages(
+            [
+                ("system", trends_system_prompt),
+                ("user", trends_user_prompt),
+            ],
+            template_format="mustache",
+        ).partial(
+            plan=action.tool_input,
+            question=user_message.content,
+        )
+
+        parser = PydanticOutputParser(pydantic_object=GenerateTrendOutputModel)
+        chain = (
+            trends_generation_prompt
+            | llm
+            | RunnableLambda(lambda x: json.dumps(x))
+            | parser
+            | RunnableLambda(lambda x: x.model_dump_json())
+        )
+
+        message = chain.invoke({"group_mapping": cls._get_group_mapping_prompt(team)})
+
+        return {
+            **state,
+            "messages": [AIMessage(content=message)],
+            "agent_state": None,
+        }
