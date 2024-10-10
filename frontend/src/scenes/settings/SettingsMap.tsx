@@ -469,6 +469,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'optout',
                 title: 'Anonymize data collection',
                 component: <OptOutCapture />,
+                hidden: 'cloud',
             },
             {
                 id: 'hedgehog-mode',
