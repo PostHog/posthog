@@ -7,13 +7,15 @@ import { FEATURE_FLAGS, RETENTION_FIRST_TIME, STALE_EVENT_SECONDS } from 'lib/co
 import { dayjs } from 'lib/dayjs'
 import { Link, PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { getDefaultInterval, isNotNil, updateDatesWithInterval } from 'lib/utils'
+import { getDefaultInterval, isNotNil, objectsEqual, updateDatesWithInterval } from 'lib/utils'
 import { errorTrackingQuery } from 'scenes/error-tracking/queries'
 import { urls } from 'scenes/urls'
 
 import {
+    ActionConversionGoal,
     ActionsNode,
     AnyEntityNode,
+    CustomEventConversionGoal,
     EventsNode,
     NodeKind,
     QuerySchema,
@@ -1394,7 +1396,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         }
     }),
 
-    urlToAction(({ actions }) => ({
+    urlToAction(({ actions, values }) => ({
         '/web': (
             _,
             {
@@ -1415,36 +1417,46 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         ) => {
             const parsedFilters = isWebAnalyticsPropertyFilters(filters) ? filters : undefined
 
-            if (parsedFilters) {
+            if (parsedFilters && !objectsEqual(parsedFilters, values.webAnalyticsFilters)) {
                 actions.setWebAnalyticsFilters(parsedFilters)
             }
-            if (conversionGoalActionId) {
+            if (
+                conversionGoalActionId &&
+                conversionGoalActionId !== (values.conversionGoal as ActionConversionGoal)?.actionId
+            ) {
                 actions.setConversionGoal({ actionId: parseInt(conversionGoalActionId, 10) })
-            } else if (conversionGoalCustomEventName) {
+            } else if (
+                conversionGoalCustomEventName &&
+                conversionGoalCustomEventName !== (values.conversionGoal as CustomEventConversionGoal)?.customEventName
+            ) {
                 actions.setConversionGoal({ customEventName: conversionGoalCustomEventName })
             }
-            if (date_from || date_to || interval) {
+            if (
+                (date_from && date_from !== values.dateFilter.dateFrom) ||
+                (date_to && date_to !== values.dateFilter.dateTo) ||
+                (interval && interval !== values.dateFilter.interval)
+            ) {
                 actions.setDatesAndInterval(date_from, date_to, interval)
             }
-            if (device_tab) {
+            if (device_tab && device_tab !== values._deviceTab) {
                 actions.setDeviceTab(device_tab)
             }
-            if (source_tab) {
+            if (source_tab && source_tab !== values._sourceTab) {
                 actions.setSourceTab(source_tab)
             }
-            if (graphs_tab) {
+            if (graphs_tab && graphs_tab !== values._graphsTab) {
                 actions.setGraphsTab(graphs_tab)
             }
-            if (path_tab) {
+            if (path_tab && path_tab !== values._pathTab) {
                 actions.setPathTab(path_tab)
             }
-            if (geography_tab) {
+            if (geography_tab && geography_tab !== values._geographyTab) {
                 actions.setGeographyTab(geography_tab)
             }
-            if (path_cleaning) {
+            if (path_cleaning && path_cleaning !== values.isPathCleaningEnabled) {
                 actions.setIsPathCleaningEnabled([true, 'true', 1, '1'].includes(path_cleaning))
             }
-            if (filter_test_accounts) {
+            if (filter_test_accounts && filter_test_accounts !== values.shouldFilterTestAccounts) {
                 actions.setShouldFilterTestAccounts([true, 'true', 1, '1'].includes(filter_test_accounts))
             }
         },

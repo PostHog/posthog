@@ -107,6 +107,11 @@ class BatchExportRun(UUIDModel):
         null=True, help_text="The total count of records that should be exported in this BatchExportRun."
     )
 
+    @property
+    def workflow_id(self) -> str:
+        """Return the Workflow id that corresponds to this BatchExportRun model."""
+        return f"{self.batch_export.id}-{self.data_interval_end:%Y-%m-%dT%H:%M:%S}Z"
+
 
 def fetch_batch_export_run_count(
     *,

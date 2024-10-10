@@ -586,6 +586,9 @@ class RedshiftBatchExportWorkflow(PostHogWorkflow):
                 "InvalidSchemaName",
                 # Missing permissions to, e.g., insert into table.
                 "InsufficientPrivilege",
+                # A column, usually properties, exceeds the limit for a VARCHAR field,
+                # usually the max of 65535 bytes
+                "StringDataRightTruncation",
             ],
             finish_inputs=finish_inputs,
         )

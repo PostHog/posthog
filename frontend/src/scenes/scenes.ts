@@ -9,7 +9,15 @@ import { Error404 as Error404Component } from '~/layout/Error404'
 import { ErrorNetwork as ErrorNetworkComponent } from '~/layout/ErrorNetwork'
 import { ErrorProjectUnavailable as ErrorProjectUnavailableComponent } from '~/layout/ErrorProjectUnavailable'
 import { EventsQuery } from '~/queries/schema'
-import { ActivityScope, InsightShortId, PipelineStage, PipelineTab, PropertyFilterType, ReplayTabs } from '~/types'
+import {
+    ActivityScope,
+    ActivityTab,
+    InsightShortId,
+    PipelineStage,
+    PipelineTab,
+    PropertyFilterType,
+    ReplayTabs,
+} from '~/types'
 
 export const emptySceneParams = { params: {}, searchParams: {}, hashParams: {} }
 
@@ -409,6 +417,7 @@ export const redirects: Record<
     '/i/:shortId': ({ shortId }) => urls.insightView(shortId),
     '/action/:id': ({ id }) => urls.action(id),
     '/action': urls.createAction(),
+    '/events': urls.activity(),
     '/events/actions': urls.actions(),
     '/events/stats': urls.eventDefinitions(),
     '/events/stats/:id': ({ id }) => urls.eventDefinition(id),
@@ -428,7 +437,7 @@ export const redirects: Record<
         } catch (e) {
             lemonToast.error('Invalid event timestamp')
         }
-        return combineUrl(urls.events(), {}, { q: query }).url
+        return combineUrl(urls.activity(ActivityTab.ExploreEvents), {}, { q: query }).url
     },
     '/events/properties': urls.propertyDefinitions(),
     '/events/properties/:id': ({ id }) => urls.propertyDefinition(id),
@@ -494,7 +503,6 @@ export const routes: Record<string, Scene> = {
     [urls.dataManagementHistory()]: Scene.DataManagement,
     [urls.database()]: Scene.DataManagement,
     [urls.activity(':tab')]: Scene.Activity,
-    [urls.events()]: Scene.Activity,
     [urls.replay()]: Scene.Replay,
     // One entry for every available tab
     ...Object.values(ReplayTabs).reduce((acc, tab) => {
