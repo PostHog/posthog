@@ -217,6 +217,7 @@ export const FEATURE_FLAGS = {
     BIGQUERY_DWH: 'bigquery-dwh', // owner: @Gilbert09 #team-data-warehouse
     REPLAY_DEFAULT_SORT_ORDER_EXPERIMENT: 'replay-order-by-experiment', // owner: #team-replay
     ENVIRONMENTS: 'environments', // owner: @Twixes #team-product-analytics
+    BILLING_PAYMENT_ENTRY_IN_APP: 'billing-payment-entry-in-app', // owner: @zach
     LEGACY_ACTION_WEBHOOKS: 'legacy-action-webhooks', // owner: @mariusandra #team-cdp
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]

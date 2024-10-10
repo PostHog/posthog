@@ -5,6 +5,7 @@ declare global {
         POSTHOG_APP_CONTEXT?: AppContext
         SENTRY_DSN?: string
         SENTRY_ENVIRONMENT?: string
+        STRIPE_PUBLIC_KEY?: string
     }
 }
 
