@@ -170,6 +170,7 @@ def materialize_properties_task(
     backfill_period_days: int = MATERIALIZE_COLUMNS_BACKFILL_PERIOD_DAYS,
     dry_run: bool = False,
     team_id_to_analyze: Optional[int] = None,
+    is_nullable: bool = False,
 ) -> None:
     """
     Creates materialized columns for event and person properties based off of slow queries
@@ -196,7 +197,7 @@ def materialize_properties_task(
         logger.info(f"Materializing column. table={table}, property_name={property_name}")
 
         if not dry_run:
-            materialize(table, property_name, table_column=table_column)
+            materialize(table, property_name, table_column=table_column, is_nullable=is_nullable)
         properties[table].append((property_name, table_column))
 
     if backfill_period_days > 0 and not dry_run:
