@@ -156,6 +156,7 @@ class BatchExportRunViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.Read
         batch_export_run: BatchExportRun = self.get_object()
 
         temporal = sync_connect()
+        # TODO: check status of run beforehand
         cancel_running_batch_export_run(temporal, batch_export_run)
 
         return response.Response({"cancelled": True})
