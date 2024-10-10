@@ -67,6 +67,13 @@ class TestMappings(BaseTest):
         assert res is False
 
     def test_unknown_type_mapping(self):
+        HOGQL_CLICKHOUSE_FUNCTIONS["overloadedFunction"] = HogQLFunctionMeta(
+            "overloadFailure",
+            1,
+            1,
+            overloads=[((DateType,), "overloadSuccess")],
+        )
+
         HOGQL_CLICKHOUSE_FUNCTIONS["dateEmittingFunction"] = HogQLFunctionMeta(
             "dateEmittingFunction",
             1,
@@ -76,8 +83,8 @@ class TestMappings(BaseTest):
             ],
         )
         ast = print_ast(
-            parse_expr("toDateTime(dateEmittingFunction('123123'))"),
+            parse_expr("overloadedFunction(dateEmittingFunction('123123'))"),
             HogQLContext(self.team.pk, enable_select_queries=True),
             "clickhouse",
         )
-        assert "parseDateTime64BestEffortOrNull" not in ast
+        assert "overloadSuccess" in ast
