@@ -14,7 +14,7 @@ HUMAN_READABLE_TIMESTAMP_FORMAT = "%-d-%b-%Y"
 # We remove a non-matching event if there was already one before it (that don't have the same timestamp)
 # arrayRotateRight turns [1,2,3] into [3,1,2]
 # For some reason, this uses much less memory than using indexing in clickhouse to check the previous element
-def udf_event_array_filter(funnelOrderType: StepOrderValue):
+def udf_event_array_filter(funnelOrderType: StepOrderValue | None):
     if funnelOrderType == "strict":
         return f"""
                 arrayFilter(
