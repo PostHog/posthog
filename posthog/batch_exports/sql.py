@@ -130,7 +130,7 @@ CREATE OR REPLACE VIEW events_batch_export_backfill ON CLUSTER {settings.CLICKHO
         event AS event,
         distinct_id AS distinct_id,
         toString(uuid) AS uuid,
-        COALESCE(inserted_at, _timestamp) AS _inserted_at,
+        timestamp AS _inserted_at,
         created_at AS created_at,
         elements_chain AS elements_chain,
         toString(person_id) AS person_id,
