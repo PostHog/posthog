@@ -38,7 +38,6 @@ services:
             file: docker-compose.base.yml
             service: clickhouse
         ports:
-            - '8123:8123'
             - '9000:9000'
             - '9440:9440'
             - '9009:9009'
