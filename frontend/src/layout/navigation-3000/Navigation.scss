@@ -54,6 +54,15 @@
         flex-direction: column;
     }
 
+    &.Navigation3000__scene--raw-no-header {
+        --scene-padding: 0px;
+        --scene-padding-bottom: 0px;
+
+        display: flex;
+        flex-direction: column;
+        height: 100vh;
+    }
+
     &.Navigation3000__scene--canvas {
         --scene-padding: 0px;
 

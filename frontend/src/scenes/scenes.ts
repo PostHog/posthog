@@ -233,6 +233,7 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         projectBased: true,
         name: 'Data warehouse',
         defaultDocsPath: '/docs/data-warehouse',
+        layout: 'app-raw-no-header',
     },
     [Scene.DataWarehouseExternal]: {
         projectBased: true,
