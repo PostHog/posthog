@@ -87,7 +87,19 @@ impl<'a> InvalidSurrogatesPass<'a> {
         }
 
         // We're out of input, and we've go no pending output, so we're done
-        let c = self.input.next()?;
+        let Some(c) = self.input.next() else {
+            // If we're all out of input and the last thing we saw was an escape,
+            // we have to emit that escape character. We just do that directly here,
+            // knowing the next call around we'll return None.
+            // Note that since we're parsing strings to get turned into json values,
+            // we technically know this will be immediately discarded, but there's
+            // no harm making it "correct" first.
+            if self.last_seen == LastSeen::Escape {
+                self.last_seen = LastSeen::Char;
+                return Some('\\');
+            };
+            return None;
+        };
 
         // We need a small string buffer to collect hex escape sequences into
         let mut buf = String::with_capacity(32);
