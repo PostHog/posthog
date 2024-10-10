@@ -147,6 +147,11 @@ jobs:
               run: |
                   npm run schema:build:python && git diff --exit-code
 
+            - name: Run "tach" to enforce module boundaries defined in tach.toml
+              # tach enforces module boundaries: https://docs.gauge.sh/getting-started/why-tach
+              run: tach check
+
+
     check-migrations:
         needs: changes
         if: needs.changes.outputs.backend == 'true'
