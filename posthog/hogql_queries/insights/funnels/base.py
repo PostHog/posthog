@@ -304,7 +304,7 @@ class FunnelBase(ABC):
                 "Data warehouse tables are not supported in funnels just yet. For now, please try this funnel without the data warehouse-based step."
             )
         else:
-            assert self.team.project_id is not None
+            assert self.context.team.project_id is not None
             action = Action.objects.get(pk=step.id, team__project_id=self.context.team.project_id)
             name = action.name
             action_id = step.id
@@ -677,7 +677,7 @@ class FunnelBase(ABC):
 
         if isinstance(entity, ActionsNode) or isinstance(entity, FunnelExclusionActionsNode):
             # action
-            assert self.team.project_id is not None
+            assert self.context.team.project_id is not None
             action = Action.objects.get(pk=int(entity.id), team__project_id=self.context.team.project_id)
             event_expr = action_to_expr(action)
         elif isinstance(entity, DataWarehouseNode):

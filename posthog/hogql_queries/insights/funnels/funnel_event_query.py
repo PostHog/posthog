@@ -144,7 +144,7 @@ class FunnelEventQuery:
             if isinstance(node, EventsNode) or isinstance(node, FunnelExclusionEventsNode):
                 events.add(node.event)
             elif isinstance(node, ActionsNode) or isinstance(node, FunnelExclusionActionsNode):
-                assert self.team.project_id is not None
+                assert self.context.team.project_id is not None
                 try:
                     action = Action.objects.get(pk=int(node.id), team__project_id=self.context.team.project_id)
                     events.update(action.get_step_events())
