@@ -34,8 +34,11 @@ class AssistantNodeName(StrEnum):
 
 class AssistantNode(ABC):
     name: AssistantNodeName
+    _team: Team
 
-    @classmethod
+    def __init__(self, team: Team):
+        self._team = team
+
     @abstractmethod
     def run(cls, state: AssistantState) -> AssistantState:
         raise NotImplementedError

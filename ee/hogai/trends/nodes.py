@@ -1,5 +1,6 @@
 import json
 import xml.etree.ElementTree as ET
+from functools import cached_property
 from typing import Literal, Union, cast
 
 from langchain.agents.format_scratchpad import format_log_to_str
@@ -36,20 +37,19 @@ from ee.hogai.utils import (
 from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.group_type_mapping import GroupTypeMapping
-from posthog.models.team.team import Team
 from posthog.schema import CachedTeamTaxonomyQueryResponse, TeamTaxonomyQuery
 
 
 class CreateTrendsPlanNode(AssistantNode):
     name = AssistantNodeName.CREATE_TRENDS_PLAN
 
-    @classmethod
-    def _generate_events_prompt(cls, team: Team) -> str:
+    @cached_property
+    def _events_prompt(self) -> str:
         event_description_mapping = {
             "$identify": "Identifies an anonymous user. This event doesn't show how many users you have but rather how many users used an account."
         }
 
-        response = TeamTaxonomyQueryRunner(TeamTaxonomyQuery(), team).run(
+        response = TeamTaxonomyQueryRunner(TeamTaxonomyQuery(), self._team).run(
             ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
         )
 
@@ -77,16 +77,16 @@ class CreateTrendsPlanNode(AssistantNode):
         root.text = "\n" + "\n".join(tags) + "\n"
         return ET.tostring(root, encoding="unicode")
 
-    @classmethod
-    def _retrieve_group_types(cls, team: Team) -> list[str]:
+    @cached_property
+    def _team_group_types(self) -> list[str]:
         return list(
-            GroupTypeMapping.objects.filter(team=team).order_by("group_type_index").values_list("group_type", flat=True)
+            GroupTypeMapping.objects.filter(team=self._team)
+            .order_by("group_type_index")
+            .values_list("group_type", flat=True)
         )
 
-    @classmethod
     def router(
-        cls,
-        state: AssistantState,
+        self, state: AssistantState
     ) -> Literal[AssistantNodeName.CREATE_TRENDS_PLAN_TOOLS, AssistantNodeName.GENERATE_TRENDS]:
         # Invalid state
         if (
@@ -103,9 +103,7 @@ class CreateTrendsPlanNode(AssistantNode):
 
         return AssistantNodeName.CREATE_TRENDS_PLAN_TOOLS
 
-    @classmethod
-    def run(cls, state: AssistantState) -> AssistantState:
-        team = state["team"]
+    def run(self, state: AssistantState) -> AssistantState:
         messages = state["messages"]
         agent_state = state.get("agent_state")
         intermediate_steps = agent_state["intermediate_steps"] if agent_state is not None else []
@@ -126,11 +124,11 @@ class CreateTrendsPlanNode(AssistantNode):
                 template_format="mustache",
             )
         ).partial(
-            events=cls._generate_events_prompt(team),
-            groups=cls._retrieve_group_types(team),
+            events=self._events_prompt,
+            groups=self._team_group_types,
         )
 
-        toolkit = TrendsAgentToolkit(team)
+        toolkit = TrendsAgentToolkit(self._team)
         output_parser = ReActJsonSingleInputOutputParser()
         merger = merge_message_runs()
 
@@ -174,13 +172,11 @@ class CreateTrendsPlanNode(AssistantNode):
 class CreateTrendsPlanToolsNode(AssistantNode):
     name = AssistantNodeName.CREATE_TRENDS_PLAN_TOOLS
 
-    @classmethod
-    def run(cls, state: AssistantState) -> AssistantState:
-        team = state["team"]
+    def run(self, state: AssistantState) -> AssistantState:
         if "agent_state" not in state or state["agent_state"] is None:
             raise ValueError("Invalid state.")
 
-        toolkit = TrendsAgentToolkit(team)
+        toolkit = TrendsAgentToolkit(self._team)
         intermediate_steps = state["agent_state"]["intermediate_steps"]
         action, _ = intermediate_steps[-1]
 
@@ -214,9 +210,9 @@ class CreateTrendsPlanToolsNode(AssistantNode):
 class GenerateTrendsNode(AssistantNode):
     name = AssistantNodeName.GENERATE_TRENDS
 
-    @classmethod
-    def _get_group_mapping_prompt(cls, team: Team) -> str:
-        groups = GroupTypeMapping.objects.filter(team=team).order_by("group_type_index")
+    @cached_property
+    def _group_mapping_prompt(self) -> str:
+        groups = GroupTypeMapping.objects.filter(team=self._team).order_by("group_type_index")
         if not groups:
             return "The user has not defined any groups."
 
@@ -226,9 +222,7 @@ class GenerateTrendsNode(AssistantNode):
         )
         return ET.tostring(root, encoding="unicode")
 
-    @classmethod
-    def run(cls, state: AssistantState) -> AssistantState:
-        team = state["team"]
+    def run(self, state: AssistantState) -> AssistantState:
         messages = state["messages"]
         user_message = messages[-1]
 
@@ -262,7 +256,7 @@ class GenerateTrendsNode(AssistantNode):
             | RunnableLambda(lambda x: x.model_dump_json())
         )
 
-        message = chain.invoke({"group_mapping": cls._get_group_mapping_prompt(team)})
+        message = chain.invoke({"group_mapping": self._group_mapping_prompt})
 
         return {
             **state,
