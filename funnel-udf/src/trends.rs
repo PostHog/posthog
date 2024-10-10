@@ -1,10 +1,19 @@
 use std::collections::HashMap;
 use std::iter::repeat;
+use std::str::FromStr;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use uuid::Uuid;
 use crate::PropVal;
+
+fn deserialize_number_from_string<'de, D>(deserializer: D) -> Result<u64, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let s = String::deserialize(deserializer)?;
+    u64::from_str(&s).map_err(serde::de::Error::custom)
+}
 
 #[derive(Clone, Deserialize)]
 struct EnteredTimestamp {
@@ -15,7 +24,8 @@ struct EnteredTimestamp {
 #[derive(Clone, Deserialize)]
 struct Event {
     timestamp: f64,
-    interval_start: f64,
+    #[serde(deserialize_with = "deserialize_number_from_string")]
+    interval_start: u64,
     breakdown: PropVal,
     steps: Vec<i8>,
 }
@@ -32,18 +42,18 @@ struct Args {
 }
 
 #[derive(Serialize)]
-struct Result(f64, i8, PropVal);
+struct ResultStruct(u64, i8, PropVal);
 
 struct Vars {
     max_step: (usize, EnteredTimestamp),
     event_uuids: Vec<Vec<Uuid>>,
     entered_timestamp: Vec<EnteredTimestamp>,
-    interval_start_to_entered_timestamps: HashMap<f64, Vec<EnteredTimestamp>>,
+    interval_start_to_entered_timestamps: HashMap<u64, Vec<EnteredTimestamp>>,
 }
 
 struct AggregateFunnelRow {
     breakdown_step: Option<usize>,
-    results: HashMap<f64, Result>,
+    results: HashMap<u64, ResultStruct>,
 }
 
 const MAX_REPLAY_EVENTS: usize = 10;
@@ -59,7 +69,8 @@ pub fn process_line(line: &str) -> Value {
         results: HashMap::new(),
         breakdown_step: Option::None,
     };
-    let result = aggregate_funnel_row.calculate_funnel_from_user_events(&args);
+    aggregate_funnel_row.calculate_funnel_from_user_events(&args);
+    let result: Vec<ResultStruct> = aggregate_funnel_row.results.into_values().collect();
     json!({ "result": result })
 }
 
@@ -70,14 +81,12 @@ fn parse_args(line: &str) -> Args {
 
 impl AggregateFunnelRow {
     #[inline(always)]
-    fn calculate_funnel_from_user_events(&mut self, args: &Args) -> &HashMap<u64, Result> {
+    fn calculate_funnel_from_user_events(&mut self, args: &Args) {
         if args.breakdown_attribution_type.starts_with("step_") {
             self.breakdown_step = args.breakdown_attribution_type[5..].parse::<usize>().ok()
         }
 
         args.prop_vals.iter().for_each(|prop_val| self.loop_prop_val(args, prop_val));
-
-        &self.results
     }
 
     #[inline(always)]
@@ -85,8 +94,8 @@ impl AggregateFunnelRow {
         let mut vars = Vars {
             max_step: (0, DEFAULT_ENTERED_TIMESTAMP.clone()),
             event_uuids: repeat(Vec::new()).take(args.num_steps).collect(),
-            entered_timestamp: vec![DEFAULT_ENTERED_TIMESTAMP.clone(); args.num_steps + 1]
-            interval_start_to_entered_timestamps: HashMap::new();
+            entered_timestamp: vec![DEFAULT_ENTERED_TIMESTAMP.clone(); args.num_steps + 1],
+            interval_start_to_entered_timestamps: HashMap::new(),
         };
 
         let filtered_events = args.value.iter()
@@ -99,7 +108,7 @@ impl AggregateFunnelRow {
             })
             .group_by(|e| e.timestamp);
 
-        for (timestamp, events_with_same_timestamp) in &filtered_events {
+        for (_timestamp, events_with_same_timestamp) in &filtered_events {
             let events_with_same_timestamp: Vec<_> = events_with_same_timestamp.collect();
             for event in events_with_same_timestamp {
                 if !self.process_event(
@@ -108,7 +117,7 @@ impl AggregateFunnelRow {
                     &event,
                     prop_val,
                 ) {
-                    return;
+                    return
                 }
             }
         }
@@ -116,8 +125,8 @@ impl AggregateFunnelRow {
 
         // At this point, everything left in entered_timestamps is a failure, if it has made it to from_step
         for entered_timestamp in vars.interval_start_to_entered_timestamps.values() {
-            if !self.results.contains_key(entered_timestamp[0].timestamp) && entered_timestamp[0].timings.size() > 0 {
-                self.results.insert(entered_timestamp[0].timestamp, (-1, prop_val)
+            if !self.results.contains_key(&(entered_timestamp[0].timestamp as u64)) && entered_timestamp[0].timings.len() > 0 {
+                self.results.insert(entered_timestamp[0].timestamp as u64, ResultStruct(entered_timestamp[0].timestamp as u64, -1, prop_val.clone() ));
             }
         }
 
@@ -128,7 +137,7 @@ impl AggregateFunnelRow {
             final_value.timings.windows(2).map(|w| w[1] - w[0]).collect(),
             vars.event_uuids,
         ))
-        
+
          */
     }
 
@@ -139,7 +148,7 @@ impl AggregateFunnelRow {
         vars: &mut Vars,
         event: &Event,
         prop_val: &PropVal,
-    ) -> None {
+    ) -> bool {
         for step in event.steps.iter().rev() {
             let mut exclusion = false;
             let step = (if *step < 0 {
@@ -151,13 +160,13 @@ impl AggregateFunnelRow {
 
             if step == 1 {
                 if !vars.interval_start_to_entered_timestamps.contains_key(&event.interval_start) && !self.results.contains_key(&event.interval_start) {
-                    let entered_timestamp = vec![DEFAULT_ENTERED_TIMESTAMP.clone(); args.num_steps + 1];
-                    entered_timestamp[0] = EnteredTimestamp { timestamp: event.interval_start, timings: if args.from_step == 0 {vec![1.0]} else {vec![]} };
+                    let mut entered_timestamp = vec![DEFAULT_ENTERED_TIMESTAMP.clone(); args.num_steps + 1];
+                    entered_timestamp[0] = EnteredTimestamp { timestamp: event.interval_start as f64, timings: if args.from_step == 0 {vec![1.0]} else {vec![]} };
                     entered_timestamp[1] = EnteredTimestamp { timestamp: event.timestamp, timings: vec![event.timestamp] };
                     vars.interval_start_to_entered_timestamps.insert(event.interval_start, entered_timestamp);
                 }
             } else {
-                for entered_timestamp in vars.interval_start_to_entered_timestamps.values() {
+                for entered_timestamp in vars.interval_start_to_entered_timestamps.values_mut() {
                     let in_match_window = (event.timestamp - vars.entered_timestamp[step - 1].timestamp) <= args.conversion_window_limit as f64;
                     let already_reached_this_step = vars.entered_timestamp[step].timestamp == vars.entered_timestamp[step - 1].timestamp
                         && vars.entered_timestamp[step].timestamp != 0.0;
@@ -183,9 +192,9 @@ impl AggregateFunnelRow {
                             //    vars.max_step = (step, vars.entered_timestamp[step].clone());
                             //}
                             // check if we have hit the goal. if we have, remove it from the list and add it to the successful_timestamps
-                            if (entered_timestamp[args.num_steps].timestamp > 0.0) {
-                                self.results.insert(entered_timestamp[0].timestamp, Result(entered_timestamp[0].timestamp, 1, prop_val.clone()));
-                            } else if (step == args.from_step + 1) {
+                            if entered_timestamp[args.num_steps].timestamp > 0.0 {
+                                self.results.insert(entered_timestamp[0].timestamp as u64, ResultStruct(entered_timestamp[0].timestamp as u64, 1, prop_val.clone()));
+                            } else if step == args.from_step + 1 {
                                 entered_timestamp[0].timings.push(1.0)
                             }
                         }
@@ -196,7 +205,7 @@ impl AggregateFunnelRow {
             // If a strict funnel, clear all of the steps that we didn't match to
             // If we are processing multiple events, skip this step, because ordering makes it complicated
             if args.funnel_order_type == "strict" {
-                for entered_timestamp in vars.interval_start_to_entered_timestamps.values() {
+                for entered_timestamp in vars.interval_start_to_entered_timestamps.values_mut() {
                     for i in 1..entered_timestamp.len() {
                         if !event.steps.contains(&(i as i8)) {
                             entered_timestamp[i] = DEFAULT_ENTERED_TIMESTAMP;

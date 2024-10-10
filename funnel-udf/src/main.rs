@@ -1,7 +1,7 @@
 mod steps;
 mod trends;
 
-use crate::steps::process_line;
+use std::env;
 use serde::{Deserialize, Serialize};
 use std::io::{self, BufRead, Write};
 
@@ -14,12 +14,19 @@ enum PropVal {
 }
 
 fn main() {
+    let args: Vec<String> = env::args().collect();
+    let arg = args.get(1).map(|x| x.as_str());
+
     let stdin = io::stdin();
     let mut stdout = io::stdout();
 
     for line in stdin.lock().lines() {
         if let Ok(line) = line {
-            writeln!(stdout, "{}", process_line(&line)).unwrap();
+            let output = match arg {
+                Some("trends") => trends::process_line(&line),
+                _ => steps::process_line(&line),
+            };
+            writeln!(stdout, "{}", output).unwrap();
             stdout.flush().unwrap();
         }
     }
