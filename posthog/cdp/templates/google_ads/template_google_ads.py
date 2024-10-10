@@ -12,18 +12,19 @@ let res := fetch(f'https://googleads.googleapis.com/v17/customers/{inputs.custom
     'method': 'POST',
     'headers': {
         'Authorization': f'Bearer {inputs.auth.access_token}',
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        'developer-token': inputs.developerToken
     },
     'body': {
         'conversions': [
             {
                 'gclid': inputs.gclid,
-                'conversionAction': inputs.conversionActionId,
-                'conversionDateTime': '2024-09-09 15:32:45-8:00'
+                'conversionAction': f'customers/{inputs.customerId}/conversionActions/{inputs.conversionActionId}',
+                'conversionDateTime': inputs.conversionDateTime
             }
         ],
-        'debugEnabled': true,
-        'partialFailure': true
+        'partialFailure': true,
+        'validateOnly': true
     }
 })
 
@@ -38,6 +39,13 @@ if (res.status >= 400) {
             "type": "integration",
             "integration": "google-ads",
             "label": "Google Ads account",
+            "secret": False,
+            "required": True,
+        },
+        {
+            "key": "developerToken",
+            "type": "string",
+            "label": "Developer token",
             "secret": False,
             "required": True,
         },
