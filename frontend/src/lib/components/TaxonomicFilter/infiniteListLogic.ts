@@ -246,14 +246,11 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
 
                     const filterNonBehavioralCohorts = (items: CohortType[]): CohortType[] => {
                         return items.filter((item: CohortType) => {
-                            // Check if the cohort has filters and properties
                             if (item.filters?.properties?.values) {
-                                // Check if any of the properties are of type 'behavioral'
                                 return !item.filters.properties.values.some((value: any) =>
                                     value.values?.some((subValue: any) => subValue.type === 'behavioral')
                                 )
                             }
-                            // If there are no filters or properties, assume it's not a behavioral cohort
                             return true
                         })
                     }
