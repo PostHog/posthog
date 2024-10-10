@@ -4,6 +4,7 @@ from typing import Optional
 from django.db import models
 from django_deprecate_fields import deprecate_field
 import snowflake.connector
+from django.conf import settings
 from posthog.models.team import Team
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UUIDModel, UpdatedMetaFields, sane_repr
 import uuid
@@ -314,6 +315,7 @@ def get_mysql_schemas(
             user=user,
             password=password,
             connect_timeout=5,
+            ssl_ca="/etc/ssl/cert.pem" if settings.DEBUG else "/etc/ssl/certs/ca-certificates.crt",
         )
 
         with connection.cursor() as cursor:

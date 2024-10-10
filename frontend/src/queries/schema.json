@@ -5383,6 +5383,10 @@
             "enum": ["horizontal", "vertical"],
             "type": "string"
         },
+        "FunnelMathType": {
+            "enum": ["total", "first_time_for_user", "first_time_for_user_with_filters"],
+            "type": "string"
+        },
         "FunnelPathType": {
             "enum": ["funnel_path_before_step", "funnel_path_between_steps", "funnel_path_after_step"],
             "type": "string"
@@ -7149,6 +7153,9 @@
             "anyOf": [
                 {
                     "$ref": "#/definitions/BaseMathType"
+                },
+                {
+                    "$ref": "#/definitions/FunnelMathType"
                 },
                 {
                     "$ref": "#/definitions/PropertyMathType"
