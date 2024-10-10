@@ -1,0 +1,28 @@
+{
+    "event": "$snapshot",
+    "properties": {
+        "$snapshot_data": [
+            {
+                "windowId": "01924ccf-34f9-764e-b7f9-73c74eb7ed55",
+                "data": {
+                    "payload": {
+                        "level": "warn",
+                        "payload": ["\\\\\\\",\\\\\\\"emoji_flag\\\\\\\":\\\\\\\"\ud83c...[truncated]", "\"test\""],
+                        "trace": [
+                            "q/< (https://internal-t.posthog.com/static/recorder.js?v=1.166.0:1:19808)",
+                            "q (https://internal-t.posthog.com/static/recorder.js?v=1.166.0:1:20042)",
+                            "z (https://internal-t.posthog.com/static/recorder.js?v=1.166.0:1:21009)",
+                            "a (https://internal-t.posthog.com/static/recorder.js?v=1.166.0:1:34064)",
+                            "e/this.emit (https://internal-t.posthog.com/static/recorder.js?v=1.166.0:1:35299)",
+                            "e/this.processMutations (https://internal-t.posthog.com/static/recorder.js?v=1.166.0:1:33691)"
+                        ]
+                    },
+                    "plugin": "rrweb/console@1"
+                },
+                "timestamp": 1727865503680,
+                "type": 6,
+                "seen": 1185537021728171
+            }
+        ]
+    }
+}
