@@ -29,7 +29,7 @@
             <name>value</name>
         </argument>
         <format>JSONEachRow</format>
-        <command>aggregate_funnel</command>
+        <command>aggregate_funnel steps</command>
         <lifetime>600</lifetime>
     </function>
 
@@ -63,7 +63,7 @@
             <name>value</name>
         </argument>
         <format>JSONEachRow</format>
-        <command>aggregate_funnel</command>
+        <command>aggregate_funnel steps</command>
         <lifetime>600</lifetime>
     </function>
 
@@ -97,7 +97,7 @@
             <name>value</name>
         </argument>
         <format>JSONEachRow</format>
-        <command>aggregate_funnel</command>
+        <command>aggregate_funnel steps</command>
         <lifetime>600</lifetime>
     </function>
 
@@ -138,7 +138,7 @@
     <function>
         <type>executable_pool</type>
         <name>aggregate_funnel_trends</name>
-        <return_type>Array(Tuple(DateTime, Int8, Nullable(String)))</return_type>
+        <return_type>Array(Tuple(UInt64, Int8, Nullable(String)))</return_type>
         <return_name>result</return_name>
         <argument>
             <type>UInt8</type>
@@ -169,11 +169,11 @@
             <name>prop_vals</name>
         </argument>
         <argument>
-            <type>Array(Tuple(Nullable(Float64), Nullable(DateTime), Nullable(String), Array(Int8)))</type>
+            <type>Array(Tuple(Nullable(Float64), UInt64, Nullable(String), Array(Int8)))</type>
             <name>value</name>
         </argument>
         <format>JSONEachRow</format>
-        <command>aggregate_funnel_trends.py</command>
+        <command>aggregate_funnel trends</command>
         <lifetime>600</lifetime>
     </function>
 
@@ -181,7 +181,7 @@
         <type>executable_pool</type>
         <name>aggregate_funnel_array_trends</name>
         <!-- Return type for trends is a start interval time, a success flag (1 or -1), and a breakdown value -->
-        <return_type>Array(Tuple(DateTime, Int8, Array(String)))</return_type>
+        <return_type>Array(Tuple(UInt64, Int8, Array(String)))</return_type>
         <return_name>result</return_name>
         <argument>
             <type>UInt8</type>
@@ -208,11 +208,11 @@
             <name>prop_vals</name>
         </argument>
         <argument>
-            <type>Array(Tuple(Nullable(Float64), Nullable(DateTime), Array(String), Array(Int8)))</type>
+            <type>Array(Tuple(Nullable(Float64), UInt64, Array(String), Array(Int8)))</type>
             <name>value</name>
         </argument>
         <format>JSONEachRow</format>
-        <command>aggregate_funnel_array_trends.py</command>
+        <command>aggregate_funnel trends</command>
         <lifetime>600</lifetime>
     </function>
 
@@ -220,7 +220,7 @@
         <type>executable_pool</type>
         <name>aggregate_funnel_cohort_trends</name>
         <!-- Return type for trends is a start interval time, a success flag (1 or -1), and a breakdown value -->
-        <return_type>Array(Tuple(DateTime, Int8, UInt64))</return_type>
+        <return_type>Array(Tuple(UInt64, Int8, UInt64))</return_type>
         <return_name>result</return_name>
         <argument>
             <type>UInt8</type>
@@ -247,11 +247,11 @@
             <name>prop_vals</name>
         </argument>
         <argument>
-            <type>Array(Tuple(Nullable(Float64), Nullable(DateTime), UInt64, Array(Int8)))</type>
+            <type>Array(Tuple(Nullable(Float64), UInt64, UInt64, Array(Int8)))</type>
             <name>value</name>
         </argument>
         <format>JSONEachRow</format>
-        <command>aggregate_funnel_cohort_trends.py</command>
+        <command>aggregate_funnel trends</command>
         <lifetime>600</lifetime>
     </function>
 
@@ -285,7 +285,7 @@
             <name>prop_vals</name>
         </argument>
         <argument>
-            <type>Array(Tuple(Nullable(Float64), Nullable(DateTime), Array(String), Array(Int8)))</type>
+            <type>Array(Tuple(Nullable(Float64), UInt64, Array(String), Array(Int8)))</type>
             <name>value</name>
         </argument>
         <format>JSONEachRow</format>
