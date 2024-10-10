@@ -28,11 +28,6 @@ impl<'a> Iterator for InvalidSurrogatesPass<'a> {
 }
 
 impl<'a> InvalidSurrogatesPass<'a> {
-    // This is a simple heuristic to determine if we need to run this pass
-    pub fn needed(input: &str) -> bool {
-        input.contains("\\u")
-    }
-
     pub fn new(input: Chars<'a>) -> Self {
         Self {
             input,
