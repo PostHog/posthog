@@ -45,7 +45,7 @@ def build_billing_token(license: License, organization: Organization, user: Opti
     }
 
     if user:
-        payload["distinct_id"] = str(user.id)
+        payload["distinct_id"] = str(user.distinct_id)
 
     encoded_jwt = jwt.encode(
         payload,
