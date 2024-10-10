@@ -1,9 +1,13 @@
 from typing import Literal, Union, cast
 
+from langchain.agents.format_scratchpad import format_log_to_str
 from langchain.agents.output_parsers import ReActJsonSingleInputOutputParser
 from langchain_core.agents import AgentAction, AgentFinish
+from langchain_core.exceptions import OutputParserException
 from langchain_core.messages import merge_message_runs
 from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.runnables import RunnablePassthrough
+from pydantic import ValidationError
 
 from ee.hogai.hardcoded_definitions import hardcoded_prop_defs
 from ee.hogai.trends.prompts import react_definitions_prompt, react_scratchpad_prompt, react_system_prompt
@@ -54,18 +58,17 @@ class CreateTrendsPlanNode(AssistantNode):
         cls,
         state: AssistantState,
     ) -> Literal[AssistantNodeName.CREATE_TRENDS_PLAN_TOOLS, AssistantNodeName.GENERATE_TRENDS]:
-        # The plan was generated.
-        if not state["agent_state"]:
-            return AssistantNodeName.GENERATE_TRENDS
-
         # Invalid state
         if (
             state["agent_state"] is None
             or "intermediate_steps" not in state["agent_state"]
             or len(state["agent_state"]["intermediate_steps"]) == 0
-            or state["agent_state"]["intermediate_steps"][-1][1] is not None
         ):
             raise ValueError("Invalid state.")
+
+        # The plan was generated.
+        if state["agent_state"]["intermediate_steps"][-1][1] is not None:
+            return AssistantNodeName.GENERATE_TRENDS
 
         return AssistantNodeName.CREATE_TRENDS_PLAN_TOOLS
 
@@ -73,7 +76,8 @@ class CreateTrendsPlanNode(AssistantNode):
     def run(cls, state: AssistantState) -> AssistantState:
         team = state["team"]
         messages = state["messages"]
-        intermediate_steps = state["agent_state"]["intermediate_steps"] if state.get("agent_state") is not None else []
+        agent_state = state.get("agent_state")
+        intermediate_steps = agent_state["intermediate_steps"] if agent_state is not None else []
 
         prompt = (
             ChatPromptTemplate.from_messages(
@@ -98,25 +102,34 @@ class CreateTrendsPlanNode(AssistantNode):
         output_parser = ReActJsonSingleInputOutputParser()
         merger = merge_message_runs()
 
-        agent = prompt | merger | llm_gpt_4o | output_parser
-
-        result = cast(
-            Union[AgentAction, AgentFinish],
-            agent.invoke(
-                {
-                    "tools": toolkit.render_text_description(),
-                    "tool_names": ", ".join([t["name"] for t in toolkit.tools]),
-                    "agent_scratchpad": "",
-                }
-            ),
+        agent = (
+            RunnablePassthrough.assign(
+                agent_scratchpad=lambda x: format_log_to_str(x["intermediate_steps"]),
+            )
+            | prompt
+            | merger
+            | llm_gpt_4o
+            | output_parser
         )
+
+        try:
+            result = cast(
+                Union[AgentAction, AgentFinish],
+                agent.invoke(
+                    {
+                        "tools": toolkit.render_text_description(),
+                        "tool_names": ", ".join([t["name"] for t in toolkit.tools]),
+                        "intermediate_steps": intermediate_steps,
+                    }
+                ),
+            )
+        except OutputParserException:
+            # incorrect json returned
+            pass
 
         if isinstance(result, AgentFinish):
             # Exceptional case
-            return {
-                **state,
-                "last_thought": result.output,
-            }
+            return state
 
         try:
             TrendsAgentToolModel(name=result.tool, argument=result.tool_input)
@@ -145,13 +158,24 @@ class CreateTrendsPlanToolsNode(AssistantNode):
         intermediate_steps = state["agent_state"]["intermediate_steps"]
         action, _ = intermediate_steps[-1]
 
+        try:
+            input = TrendsAgentToolModel(name=action.tool, argument=action.tool_input)
+        except ValidationError as e:
+            feedback = f"Invalid tool call. Pydantic exception: {e.errors(include_url=False)}"
+            return {
+                **state,
+                "agent_state": {
+                    "intermediate_steps": [*state["agent_state"]["intermediate_steps"], (action, feedback)],
+                },
+            }
+
         output = ""
-        if action.tool == "retrieve_entity_properties_tool":
-            output = toolkit.retrieve_entity_properties(action.tool_input)
-        elif action.tool == "retrieve_event_properties_tool":
-            output = toolkit.retrieve_event_properties(action.tool_input)
+        if input.name == "retrieve_entity_properties_tool":
+            output = toolkit.retrieve_entity_properties(input.argument)
+        elif input.name == "retrieve_event_properties_tool":
+            output = toolkit.retrieve_event_properties(input.argument)
         else:
-            output = toolkit.retrieve_event_properties(action.tool_input)
+            output = toolkit.retrieve_event_properties(input.argument)
 
         return {
             **state,
