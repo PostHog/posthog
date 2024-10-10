@@ -69,7 +69,7 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
 
         @patch("posthog.tasks.calculate_cohort.update_cohort")
         def test_exponential_backoff(self, patch_update_cohort: MagicMock) -> None:
-            # Create two cohorts with different error counts and last_error_at times
+            # Exponential backoff
             Cohort.objects.create(
                 last_calculation=timezone.now() - relativedelta(minutes=MAX_AGE_MINUTES + 1),
                 errors_calculating=1,
@@ -82,7 +82,13 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
                 last_error_at=timezone.now() - relativedelta(minutes=60),  # Should be excluded
                 team_id=self.team.pk,
             )
+            # Test empty last_error_at
+            Cohort.objects.create(
+                last_calculation=timezone.now() - relativedelta(minutes=MAX_AGE_MINUTES + 1),
+                errors_calculating=1,
+                team_id=self.team.pk,
+            )
             calculate_cohorts(5)
-            self.assertEqual(patch_update_cohort.call_count, 1)
+            self.assertEqual(patch_update_cohort.call_count, 2)
 
     return TestCalculateCohort

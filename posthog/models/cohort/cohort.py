@@ -217,6 +217,7 @@ class Cohort(models.Model):
 
             self.last_calculation = timezone.now()
             self.errors_calculating = 0
+            self.last_error_at = None
         except Exception:
             self.errors_calculating = F("errors_calculating") + 1
             self.last_error_at = timezone.now()
