@@ -177,8 +177,6 @@ impl RawRequest {
             s
         };
 
-        // Try to skip this is we can - it's an expensive check, it's not always needed,
-        // and it requires double-allocating of the request data.
         let payload: String = InvalidSurrogatesPass::new(payload.chars()).collect();
 
         tracing::debug!(json = payload, "decoded event data");
