@@ -1,21 +1,24 @@
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from enum import StrEnum
-from typing import Annotated, Generic, TypeVar
+from typing import Annotated, Optional, TypedDict
 
+from langchain_core.agents import AgentAction
 from langchain_core.messages import BaseMessage
 from langchain_openai import ChatOpenAI
 from langgraph.graph import END, START
 from langgraph.graph.message import add_messages
-from pydantic import BaseModel
 
 from posthog.models.team.team import Team
 
 llm_gpt_4o = ChatOpenAI(model="gpt-4o", temperature=0.7, streaming=True)
 
 
-class AssistantState(BaseModel):
+class AssistantState(TypedDict):
     messages: Annotated[Sequence[BaseMessage], add_messages]
+    intermediate_steps: Optional[list[tuple[AgentAction, Optional[str]]]]
+    plan: Optional[str]
+    tool_argument: Optional[str]
 
 
 class AssistantNodeName(StrEnum):
@@ -27,11 +30,7 @@ class AssistantNodeName(StrEnum):
     GENERATE_TRENDS_TOOLS = "generate_trends_tools"
 
 
-T = TypeVar("T", bound=AssistantState)
-R = TypeVar("R", bound=AssistantState)
-
-
-class AssistantNode(ABC, Generic[T, R]):
+class AssistantNode(ABC):
     name: AssistantNodeName
     _team: Team
 
@@ -39,7 +38,7 @@ class AssistantNode(ABC, Generic[T, R]):
         self._team = team
 
     @abstractmethod
-    def run(cls, state: T) -> R:
+    def run(cls, state: AssistantState) -> AssistantState:
         raise NotImplementedError
 
 

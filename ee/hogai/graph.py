@@ -26,12 +26,9 @@ class AssistantGraph:
         builder.add_node(GenerateTrendsNode.name, generate_trends_node.run)
 
         builder.add_edge(AssistantNodeName.START, create_trends_plan_node.name)
-
         builder.add_conditional_edges(create_trends_plan_node.name, create_trends_plan_node.router)
-
-        builder.add_edge(create_trends_plan_tools_node.name, create_trends_plan_node.name)
-
-        builder.add_edge(GenerateTrendsNode.name, AssistantNodeName.END)
+        builder.add_conditional_edges(create_trends_plan_tools_node.name, create_trends_plan_tools_node.router)
+        builder.add_conditional_edges(GenerateTrendsNode.name, generate_trends_node.router)
 
         return builder.compile()
 
