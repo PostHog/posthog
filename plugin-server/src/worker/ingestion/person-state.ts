@@ -9,7 +9,12 @@ import { ONE_HOUR } from '../../config/constants'
 import { InternalPerson, Person, PropertyUpdateOperation } from '../../types'
 import { DB } from '../../utils/db/db'
 import { PostgresUse, TransactionClient } from '../../utils/db/postgres'
-import { eventToPersonProperties, initialEventToPersonProperties, timeoutGuard } from '../../utils/db/utils'
+import {
+    eventToPersonProperties,
+    initialCampaignParamsDefault,
+    initialEventToPersonProperties,
+    timeoutGuard,
+} from '../../utils/db/utils'
 import { promiseRetry } from '../../utils/retries'
 import { status } from '../../utils/status'
 import { uuidFromDistinctId } from './person-uuid'
@@ -261,6 +266,12 @@ export class PersonState {
             throw new Error('at least 1 distinctId is required in `createPerson`')
         }
         const uuid = uuidFromDistinctId(teamId, distinctIds[0].distinctId)
+
+        // Set the initial campaign params to null, so that they cannot be set on future visits
+        propertiesOnce = {
+            ...initialCampaignParamsDefault,
+            ...propertiesOnce,
+        }
 
         const props = { ...propertiesOnce, ...properties, ...{ $creator_event_uuid: creatorEventUuid } }
         const propertiesLastOperation: Record<string, any> = {}

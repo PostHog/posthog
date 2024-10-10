@@ -78,6 +78,8 @@ export const campaignParams = new Set([
 
 export const initialCampaignParams = new Set(Array.from(campaignParams, (key) => `$initial_${key.replace('$', '')}`))
 
+export const initialCampaignParamsDefault = Object.fromEntries(Array.from(initialCampaignParams, (key) => [key, null]))
+
 // When changing this set, make sure you also make the same changes in:
 // - taxonomy.tsx (PERSON_PROPERTIES_ADAPTED_FROM_EVENT)
 export const eventToPersonProperties = new Set([
@@ -113,10 +115,18 @@ export function personInitialAndUTMProperties(properties: Properties): Propertie
     )
 
     // all potential params are checked for $initial_ values and added to $set_once
-    const maybeSetOnce: [string, any][] = propertiesForPerson.map(([key, value]) => [
+    let maybeSetOnce: [string, any][] = propertiesForPerson.map(([key, value]) => [
         `$initial_${key.replace('$', '')}`,
         value,
     ])
+    // Users upgrading from anonymous to identified will have their initial campaign params set in $set_once, and we
+    // shouldn't generate additional ones from the regular event properties
+    if (
+        properties.$set_once &&
+        Object.keys(properties.$set_once).some((key) => initialEventToPersonProperties.has(key))
+    ) {
+        maybeSetOnce = maybeSetOnce.filter(([key]) => !initialCampaignParams.has(key))
+    }
 
     // all found are also then added to $set
     const maybeSet: [string, any][] = propertiesForPerson
