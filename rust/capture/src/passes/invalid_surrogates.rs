@@ -226,7 +226,9 @@ fn collect_escape_sequence(
 
 #[cfg(test)]
 mod test {
-    use crate::v0_request::RawEvent;
+    use bytes::Bytes;
+
+    use crate::v0_request::{RawEvent, RawRequest};
 
     const RAW_DATA: &str = include_str!("../../tests/invalid_surrogate.json");
 
@@ -308,5 +310,32 @@ mod test {
         let pass = super::InvalidSurrogatesPass::new(raw_data.chars());
         let data = pass.collect::<String>();
         assert_eq!(data, r#"{"event":"\uD800\uDC00\"#);
+    }
+
+    #[test]
+    fn it_handles_normal_data() {
+        let raw_data = r#"{"event":"\uD800\uDC00"}"#;
+        let pass = super::InvalidSurrogatesPass::new(raw_data.chars());
+        let data = pass.collect::<String>();
+        assert_eq!(data, r#"{"event":"\uD800\uDC00"}"#);
+    }
+
+    #[test]
+    fn it_handles_data_with_no_surrogates() {
+        let raw_data = r#"{"event":"\n"}"#;
+        let pass = super::InvalidSurrogatesPass::new(raw_data.chars());
+        let data = pass.collect::<String>();
+        assert_eq!(data, r#"{"event":"\n"}"#);
+    }
+
+    #[test]
+    fn it_handles_actual_session_data() {
+        // We take a known-good session example, and assert that it doesn't contain any replacement characters
+        let raw = include_bytes!("../../tests/session-example");
+        let req = RawRequest::from_bytes(Bytes::from_static(raw), 100000).unwrap();
+        let event = req.events().pop().unwrap();
+        let out = serde_json::to_string(&event).unwrap();
+        println!("{}", out);
+        assert!(!out.contains('�'));
     }
 }
