@@ -2,7 +2,6 @@ import './FeatureFlag.scss'
 
 import { IconCopy, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonInput, LemonSelect, LemonSnack, Link } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
@@ -299,11 +298,6 @@ export function FeatureFlagReleaseConditions({
                                         suffix={<span>%</span>}
                                     />
                                 </LemonField.Pure>{' '}
-                                <div
-                                    className={clsx(
-                                        propertySelectErrors?.[index]?.rollout_percentage ? 'basis-full h-0' : ''
-                                    )}
-                                />
                                 of <b>{aggregationTargetName}</b> in this set. Will match approximately{' '}
                                 {affectedUsers[index] !== undefined ? (
                                     <b>
@@ -454,13 +448,18 @@ export function FeatureFlagReleaseConditions({
                                 <>
                                     <h3 className="l3">Release conditions</h3>
                                     <div className="text-muted mb-4">
-                                        Specify the {aggregationTargetName} to which you want to release this flag. Note
-                                        that condition sets are rolled out independently of each other; and cohort-based
-                                        targeting{' '}
-                                        <Link to="https://posthog.com/docs/data/cohorts#can-you-use-a-dynamic-behavioral-cohort-as-a-feature-flag-target">
-                                            does not support dynamic behavioral cohorts
-                                        </Link>
-                                        , so those cohorts will not appear as filter options.
+                                        Specify {aggregationTargetName} for flag release. Condition sets roll out
+                                        independently.
+                                        {aggregationTargetName === 'users' && (
+                                            <>
+                                                {' '}
+                                                Cohort-based targeting{' '}
+                                                <Link to="https://posthog.com/docs/data/cohorts#can-you-use-a-dynamic-behavioral-cohort-as-a-feature-flag-target">
+                                                    doesn't support dynamic behavioral cohorts
+                                                </Link>{' '}
+                                                (excluded from filters).
+                                            </>
+                                        )}
                                     </div>
                                 </>
                             )}
