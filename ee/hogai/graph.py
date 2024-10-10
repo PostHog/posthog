@@ -37,5 +37,4 @@ class AssistantGraph:
 
     def stream(self, user_input: str):
         assistant_graph = self._compile_graph()
-
         return assistant_graph.stream({"messages": [("user", user_input)], "team": self._team})

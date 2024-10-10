@@ -25,6 +25,7 @@ class TrendsAgentToolModel(BaseModel):
         "retrieve_entity_properties_tool",
         "retrieve_event_properties_tool",
         "retrieve_property_values_tool",
+        "handle_incorrect_response",
         "final_answer",
     ]
     argument: str
@@ -245,6 +246,12 @@ class TrendsAgentToolkit:
     def retrieve_property_values_tool(self, property_name: str) -> str:
         # output values here with quotes for strings
         pass
+
+    def handle_incorrect_response(self, response: str) -> str:
+        """
+        Take a parsing error and return a response that the LLM can use to correct itself.
+        """
+        return response
 
 
 class GenerateTrendOutputModel(BaseModel):

@@ -153,9 +153,14 @@ class CreateTrendsPlanNode(AssistantNode):
                     }
                 ),
             )
-        except OutputParserException:
-            # incorrect json returned
-            pass
+        except OutputParserException as e:
+            text = str(e)
+            if e.send_to_llm:
+                observation = str(e.observation)
+                text = str(e.llm_output)
+            else:
+                observation = "Invalid or incomplete response. You must use the provided tools and output JSON to answer the user's question. Use the exception message to correct the response."
+            result = AgentAction("handle_incorrect_response", observation, text)
 
         if isinstance(result, AgentFinish):
             # Exceptional case
@@ -196,8 +201,10 @@ class CreateTrendsPlanToolsNode(AssistantNode):
             output = toolkit.retrieve_entity_properties(input.argument)
         elif input.name == "retrieve_event_properties_tool":
             output = toolkit.retrieve_event_properties(input.argument)
-        else:
+        elif input.name == "retrieve_property_values_tool":
             output = toolkit.retrieve_property_values_tool(input.argument)
+        else:
+            output = toolkit.handle_incorrect_response(input.argument)
 
         return {
             **state,
