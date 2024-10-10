@@ -39,7 +39,7 @@ describe('sessionRecordingsListPropertiesLogic', () => {
     beforeEach(() => {
         useMocks({
             post: {
-                '/api/projects/:team/query': {
+                '/api/environments/:team_id/query': {
                     results: [
                         ['s1', JSON.stringify({ blah: 'blah1' })],
                         ['s2', JSON.stringify({ blah: 'blah2' })],

@@ -27,7 +27,7 @@ export function MultiplePointsForOnePersonProperty(): JSX.Element {
     const examplePerson: PersonActorType = { ...EXAMPLE_PERSON, id: 1, uuid: '012e89b5-4239-4319-8ae4-d3cae2f5deb1' }
     useStorybookMocks({
         get: {
-            [`/api/projects/${MOCK_TEAM_ID}/persons/${examplePerson.uuid}/properties_timeline/`]: {
+            [`/api/environments/${MOCK_TEAM_ID}/persons/${examplePerson.uuid}/properties_timeline/`]: {
                 points: [
                     {
                         timestamp: '2021-01-01T00:00:00.000Z',
@@ -88,7 +88,7 @@ export function OnePointForOnePersonProperty(): JSX.Element {
     const examplePerson: PersonActorType = { ...EXAMPLE_PERSON, id: 2, uuid: '012e89b5-4239-4319-8ae4-d3cae2f5deb2' }
     useStorybookMocks({
         get: {
-            [`/api/projects/${MOCK_TEAM_ID}/persons/${examplePerson.uuid}/properties_timeline/`]: {
+            [`/api/environments/${MOCK_TEAM_ID}/persons/${examplePerson.uuid}/properties_timeline/`]: {
                 points: [
                     {
                         timestamp: '2021-05-01T00:00:00.000Z',
@@ -125,7 +125,7 @@ export function NoPointsForNoPersonProperties(): JSX.Element {
     const examplePerson: PersonActorType = { ...EXAMPLE_PERSON, id: 3, uuid: '012e89b5-4239-4319-8ae4-d3cae2f5deb3' }
     useStorybookMocks({
         get: {
-            [`/api/projects/${MOCK_TEAM_ID}/persons/${examplePerson.uuid}/properties_timeline/`]: {
+            [`/api/environments/${MOCK_TEAM_ID}/persons/${examplePerson.uuid}/properties_timeline/`]: {
                 points: [
                     {
                         timestamp: '2021-01-01T00:00:00.000Z',

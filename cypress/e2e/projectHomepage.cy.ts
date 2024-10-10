@@ -1,6 +1,6 @@
 describe('Project Homepage', () => {
     beforeEach(() => {
-        cy.intercept('GET', /\/api\/projects\/\d+\/dashboards\/\d+\//).as('getDashboard')
+        cy.intercept('GET', /\/api\/environments\/\d+\/dashboards\/\d+\//).as('getDashboard')
         cy.clickNavMenu('projecthomepage')
     })
 

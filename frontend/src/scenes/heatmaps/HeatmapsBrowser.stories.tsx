@@ -21,7 +21,7 @@ const meta: Meta = {
                 '/api/projects/:team_id/integrations': {},
             },
             post: {
-                '/api/projects/:team_id/query': async (req, res, ctx) => {
+                '/api/environments/:team_id/query': async (req, res, ctx) => {
                     const qry = (await req.clone().json()).query.query
                     // top urls query
                     if (qry.startsWith('SELECT properties.$current_url AS url, count()')) {

@@ -3,9 +3,9 @@ import { randomString } from '../support/random'
 
 describe('Dashboard', () => {
     beforeEach(() => {
-        cy.intercept('GET', /api\/projects\/\d+\/insights\/\?.*/).as('loadInsightList')
-        cy.intercept('PATCH', /api\/projects\/\d+\/insights\/\d+\/.*/).as('patchInsight')
-        cy.intercept('POST', /\/api\/projects\/\d+\/dashboards/).as('createDashboard')
+        cy.intercept('GET', /api\/environments\/\d+\/insights\/\?.*/).as('loadInsightList')
+        cy.intercept('PATCH', /api\/environments\/\d+\/insights\/\d+\/.*/).as('patchInsight')
+        cy.intercept('POST', /\/api\/environments\/\d+\/dashboards/).as('createDashboard')
 
         cy.clickNavMenu('dashboards')
         cy.location('pathname').should('include', '/dashboard')

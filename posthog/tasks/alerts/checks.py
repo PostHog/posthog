@@ -274,6 +274,7 @@ def check_alert_atomically(alert: AlertConfiguration) -> None:
 
                 calculation_result = calculate_for_query_based_insight(
                     insight,
+                    team=alert.team,
                     execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
                     user=None,
                     filters_override=filters_override,

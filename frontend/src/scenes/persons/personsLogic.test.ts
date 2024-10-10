@@ -15,7 +15,7 @@ describe('personsLogic', () => {
     beforeEach(() => {
         useMocks({
             get: {
-                '/api/projects/:team_id/persons/': (req) => {
+                '/api/environments/:team_id/persons/': (req) => {
                     if (['+', 'abc', 'xyz'].includes(req.url.searchParams.get('distinct_id') ?? '')) {
                         return [200, { results: ['person from api'] }]
                     }
@@ -103,7 +103,10 @@ describe('personsLogic', () => {
             await expectLogic(logic, () => {
                 logic.actions.loadPerson('+')
                 // has encoded from + in the action to %2B in the API call
-                expect(api.get).toHaveBeenCalledWith(`api/projects/${MOCK_TEAM_ID}/persons?distinct_id=%2B`, undefined)
+                expect(api.get).toHaveBeenCalledWith(
+                    `api/environments/${MOCK_TEAM_ID}/persons?distinct_id=%2B`,
+                    undefined
+                )
             })
                 .toDispatchActions(['loadPerson', 'loadPersonSuccess'])
                 .toMatchValues({
