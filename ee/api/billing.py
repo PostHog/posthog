@@ -285,7 +285,8 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             )
 
         organization = self._get_org_required()
-        res = BillingManager(license).authorize(organization)
+        billing_manager = self.get_billing_manager()
+        res = billing_manager.authorize(organization)
         return Response(res, status=status.HTTP_200_OK)
 
     @action(methods=["POST"], detail=False, url_path="activate/authorize/status")
@@ -298,7 +299,8 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             )
 
         organization = self._get_org_required()
-        res = BillingManager(license).authorize_status(organization, request.data)
+        billing_manager = self.get_billing_manager()
+        res = billing_manager.authorize_status(organization, request.data)
         return Response(res, status=status.HTTP_200_OK)
 
     @action(methods=["PATCH"], detail=False)
@@ -317,10 +319,10 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
         license = License(key=serializer.validated_data["license"])
-
+        billing_manager = self.get_billing_manager()
         res = requests.get(
             f"{BILLING_SERVICE_URL}/api/billing",
-            headers=BillingManager(license).get_auth_headers(organization),
+            headers=billing_manager.get_auth_headers(organization),
         )
 
         if res.status_code != 200:
@@ -330,7 +332,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 }
             )
         data = res.json()
-        BillingManager(license).update_license_details(data)
+        billing_manager.update_license_details(data)
         return Response({"success": True})
 
     def _get_org(self) -> Optional[Organization]:
