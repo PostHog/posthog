@@ -13,6 +13,7 @@ import { ACTIVITY_PAGE_SIZE } from 'lib/constants'
 import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
 import { cohortActivityDescriber } from 'scenes/cohorts/activityDescriptions'
 import { dataManagementActivityDescriber } from 'scenes/data-management/dataManagementDescribers'
+import { errorTrackingActivityDescriber } from 'scenes/error-tracking/errorTrackingActivityDescriber'
 import { flagActivityDescriber } from 'scenes/feature-flags/activityDescriptions'
 import { notebookActivityDescriber } from 'scenes/notebooks/Notebook/notebookActivityDescriber'
 import { personActivityDescriber } from 'scenes/persons/activityDescriptions'
@@ -53,6 +54,8 @@ export const describerFor = (logItem?: ActivityLogItem): Describer | undefined =
             return teamActivityDescriber
         case ActivityScope.SURVEY:
             return surveyActivityDescriber
+        case ActivityScope.ERROR_TRACKING_GROUP:
+            return errorTrackingActivityDescriber
         default:
             return (logActivity, asNotification) => defaultDescriber(logActivity, asNotification)
     }
