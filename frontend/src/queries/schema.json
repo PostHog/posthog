@@ -4908,14 +4908,20 @@
         "ExperimentVariantTrendResult": {
             "additionalProperties": false,
             "properties": {
+                "absolute_exposure": {
+                    "type": "number"
+                },
                 "count": {
                     "type": "number"
                 },
                 "exposure": {
                     "type": "number"
+                },
+                "key": {
+                    "type": "string"
                 }
             },
-            "required": ["count", "exposure"],
+            "required": ["key", "count", "exposure", "absolute_exposure"],
             "type": "object"
         },
         "ExperimentalAITrendsQuery": {

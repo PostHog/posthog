@@ -1591,8 +1591,10 @@ export type InsightQueryNode =
     | LifecycleQuery
 
 export interface ExperimentVariantTrendResult {
+    key: string
     count: number
     exposure: number
+    absolute_exposure: number
 }
 
 export interface ExperimentVariantFunnelResult {
