@@ -2,7 +2,9 @@ from datetime import date, datetime, timedelta
 from typing import cast
 
 from zoneinfo import ZoneInfo
+
 from freezegun.api import freeze_time
+from parameterized import parameterized
 
 from posthog.constants import INSIGHT_FUNNELS, TRENDS_LINEAR, FunnelOrderType
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
@@ -292,7 +294,11 @@ class BaseTestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(2, len(results))
         self.assertEqual([person["distinct_ids"] for person in persons], [["user_one"]])
 
-    def test_month_interval(self):
+    @parameterized.expand(["US/Pacific", "UTC"])
+    def test_month_interval(self, timezone):
+        self.team.timezone = timezone
+        self.team.save()
+
         filters = {
             "insight": INSIGHT_FUNNELS,
             "funnel_viz_type": "trends",
@@ -344,15 +350,15 @@ class BaseTestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
                     "timestamp": date(2020, 3, 1),
                 },
                 {
-                    "conversion_rate": 0.0,
-                    "reached_from_step_count": 0,
-                    "reached_to_step_count": 0,
+                    "conversion_rate": 100.0 if timezone == "US/Pacific" else 0.0,
+                    "reached_from_step_count": 1 if timezone == "US/Pacific" else 0,
+                    "reached_to_step_count": 1 if timezone == "US/Pacific" else 0,
                     "timestamp": date(2020, 4, 1),
                 },
                 {
-                    "conversion_rate": 100.0,
-                    "reached_from_step_count": 1,
-                    "reached_to_step_count": 1,
+                    "conversion_rate": 100.0 if timezone == "UTC" else 0.0,
+                    "reached_from_step_count": 1 if timezone == "UTC" else 0,
+                    "reached_to_step_count": 1 if timezone == "UTC" else 0,
                     "timestamp": date(2020, 5, 1),
                 },
                 {
@@ -369,8 +375,8 @@ class BaseTestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
                 },
             ],
         )
-
-        persons = self._get_actors_at_step(filters, "2020-05-01 00:00:00", False)
+        entrance_period_start = "2020-05-01 00:00:00" if timezone == "UTC" else "2020-04-01 00:00:00"
+        persons = self._get_actors_at_step(filters, entrance_period_start, False)
 
         self.assertEqual([person["distinct_ids"] for person in persons], [["user_one"]])
 
