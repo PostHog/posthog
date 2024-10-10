@@ -3836,6 +3836,36 @@ export enum ActivityScope {
     TEAM = 'Team',
 }
 
+export const ACTIVITY_LOG_ITEM_ACTIVITIES = [
+    'activity',
+    'attachment_created',
+    'attachment_deleted',
+    'attachment_updated',
+    'changed',
+    'commented',
+    'config_updated',
+    'created',
+    'deleted',
+    'delete_property',
+    'disabled',
+    'enabled',
+    'exported',
+    'export_fail',
+    'export_success',
+    'installed',
+    'job_triggered',
+    'order_changed',
+    'people_merged_into',
+    'sharing disabled',
+    'sharing enabled',
+    'split_person',
+    'uninstalled',
+    'updated',
+    'was_merged_into_person',
+] as const
+
+export type ActivityLogItemActivity = (typeof ACTIVITY_LOG_ITEM_ACTIVITIES)[number]
+
 export type CommentType = {
     id: string
     content: string
@@ -4472,6 +4502,8 @@ export interface HogFunctionFiltersType {
     bytecode_error?: string
 }
 
+export type HogFunctionTriggerType = 'event' | 'activity_log' | 'alert'
+
 export type HogFunctionType = {
     id: string
     icon_url?: string
@@ -4482,6 +4514,7 @@ export type HogFunctionType = {
     updated_at: string
     enabled: boolean
     hog: string
+    trigger?: HogFunctionTriggerType
 
     inputs_schema?: HogFunctionInputSchemaType[]
     inputs?: Record<string, HogFunctionInputType> | null

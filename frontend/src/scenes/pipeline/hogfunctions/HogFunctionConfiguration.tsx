@@ -262,43 +262,45 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
 
                             <HogFunctionFilters />
 
-                            <div className="relative border bg-bg-light rounded p-3 space-y-2">
-                                <LemonLabel>Expected volume</LemonLabel>
-                                {sparkline && !sparklineLoading ? (
-                                    <>
-                                        {sparkline.count > EVENT_THRESHOLD_ALERT_LEVEL ? (
-                                            <LemonBanner type="warning">
-                                                <b>Warning:</b> This destination would have triggered{' '}
-                                                <strong>
-                                                    {sparkline.count ?? 0} time{sparkline.count !== 1 ? 's' : ''}
-                                                </strong>{' '}
-                                                in the last 7 days. Consider the impact of this function on your
-                                                destination.
-                                            </LemonBanner>
-                                        ) : (
-                                            <p>
-                                                This destination would have triggered{' '}
-                                                <strong>
-                                                    {sparkline.count ?? 0} time{sparkline.count !== 1 ? 's' : ''}
-                                                </strong>{' '}
-                                                in the last 7 days.
-                                            </p>
-                                        )}
-                                        <Sparkline
-                                            type="bar"
-                                            className="w-full h-20"
-                                            data={sparkline.data}
-                                            labels={sparkline.labels}
-                                        />
-                                    </>
-                                ) : sparklineLoading ? (
-                                    <div className="min-h-20">
-                                        <SpinnerOverlay />
-                                    </div>
-                                ) : (
-                                    <p>The expected volume could not be calculated</p>
-                                )}
-                            </div>
+                            {configuration.trigger === 'event' && (
+                                <div className="relative border bg-bg-light rounded p-3 space-y-2">
+                                    <LemonLabel>Expected volume</LemonLabel>
+                                    {sparkline && !sparklineLoading ? (
+                                        <>
+                                            {sparkline.count > EVENT_THRESHOLD_ALERT_LEVEL ? (
+                                                <LemonBanner type="warning">
+                                                    <b>Warning:</b> This destination would have triggered{' '}
+                                                    <strong>
+                                                        {sparkline.count ?? 0} time{sparkline.count !== 1 ? 's' : ''}
+                                                    </strong>{' '}
+                                                    in the last 7 days. Consider the impact of this function on your
+                                                    destination.
+                                                </LemonBanner>
+                                            ) : (
+                                                <p>
+                                                    This destination would have triggered{' '}
+                                                    <strong>
+                                                        {sparkline.count ?? 0} time{sparkline.count !== 1 ? 's' : ''}
+                                                    </strong>{' '}
+                                                    in the last 7 days.
+                                                </p>
+                                            )}
+                                            <Sparkline
+                                                type="bar"
+                                                className="w-full h-20"
+                                                data={sparkline.data}
+                                                labels={sparkline.labels}
+                                            />
+                                        </>
+                                    ) : sparklineLoading ? (
+                                        <div className="min-h-20">
+                                            <SpinnerOverlay />
+                                        </div>
+                                    ) : (
+                                        <p>The expected volume could not be calculated</p>
+                                    )}
+                                </div>
+                            )}
                         </div>
 
                         <div className="flex-2 min-w-100 space-y-4">
