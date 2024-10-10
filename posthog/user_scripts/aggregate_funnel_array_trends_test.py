@@ -1,6 +1,5 @@
 #!/usr/bin/python3
 
-from aggregate_funnel_trends import calculate_funnel_trends_from_user_events, parse_args
 import sys
 import json
 

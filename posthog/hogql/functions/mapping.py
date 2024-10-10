@@ -2,8 +2,6 @@ from dataclasses import dataclass
 from itertools import chain
 from typing import Optional
 
-from jsonschema.exceptions import UnknownType
-
 from posthog.cloud_utils import is_cloud, is_ci
 from posthog.hogql import ast
 from posthog.hogql.ast import (
