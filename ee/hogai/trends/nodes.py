@@ -1,3 +1,4 @@
+import xml.etree.ElementTree as ET
 from typing import Literal, Union, cast
 
 from langchain.agents.format_scratchpad import format_log_to_str
@@ -16,14 +17,14 @@ from ee.hogai.utils import (
     AssistantNode,
     AssistantNodeName,
     AssistantState,
-    generate_xml_tag,
     llm_gpt_4o,
     remove_line_breaks,
 )
 from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
+from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.team.team import Team
-from posthog.schema import CachedTeamTaxonomyQueryResponse
+from posthog.schema import CachedTeamTaxonomyQueryResponse, TeamTaxonomyQuery
 
 
 class CreateTrendsPlanNode(AssistantNode):
@@ -35,12 +36,13 @@ class CreateTrendsPlanNode(AssistantNode):
             "$identify": "Identifies an anonymous user. This event doesn't show how many users you have but rather how many users used an account."
         }
 
-        response = TeamTaxonomyQueryRunner(ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE, team).run()
+        response = TeamTaxonomyQueryRunner(TeamTaxonomyQuery(), team).run(
+            ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
+        )
 
-        if "results" not in response:
+        if not isinstance(response, CachedTeamTaxonomyQueryResponse):
             raise ValueError("Failed to generate events prompt.")
 
-        response = cast(CachedTeamTaxonomyQueryResponse, response)
         events = [item.event for item in response.results]
 
         # default for null in the schema
@@ -58,8 +60,15 @@ class CreateTrendsPlanNode(AssistantNode):
                     event_tag += f" Examples: {data['examples']}."
             tags.append(remove_line_breaks(event_tag))
 
-        tag_name = "list of available events for filtering"
-        return generate_xml_tag(tag_name, "\n".join(tags)).strip()
+        root = ET.Element("list of available events for filtering")
+        root.text = "\n" + "\n".join(tags) + "\n"
+        return ET.tostring(root, encoding="unicode")
+
+    @classmethod
+    def _retrieve_group_types(cls, team: Team) -> list[str]:
+        return list(
+            GroupTypeMapping.objects.filter(team=team).order_by("group_type_index").values_list("group_type", flat=True)
+        )
 
     @classmethod
     def router(
@@ -75,7 +84,8 @@ class CreateTrendsPlanNode(AssistantNode):
             raise ValueError("Invalid state.")
 
         # The plan was generated.
-        if state["agent_state"]["intermediate_steps"][-1][1] is not None:
+        action, _ = state["agent_state"]["intermediate_steps"][-1]
+        if action.tool == "final_answer":
             return AssistantNodeName.GENERATE_TRENDS
 
         return AssistantNodeName.CREATE_TRENDS_PLAN_TOOLS
@@ -104,6 +114,7 @@ class CreateTrendsPlanNode(AssistantNode):
             )
         ).partial(
             events=cls._generate_events_prompt(team),
+            groups=cls._retrieve_group_types(team),
         )
 
         toolkit = TrendsAgentToolkit(team)
@@ -138,12 +149,6 @@ class CreateTrendsPlanNode(AssistantNode):
         if isinstance(result, AgentFinish):
             # Exceptional case
             return state
-
-        try:
-            TrendsAgentToolModel(name=result.tool, argument=result.tool_input)
-        except Exception:
-            # validate
-            raise ValueError("Invalid tool call.")
 
         return {
             **state,
@@ -183,12 +188,12 @@ class CreateTrendsPlanToolsNode(AssistantNode):
         elif input.name == "retrieve_event_properties_tool":
             output = toolkit.retrieve_event_properties(input.argument)
         else:
-            output = toolkit.retrieve_event_properties(input.argument)
+            output = toolkit.retrieve_property_values_tool(input.argument)
 
         return {
             **state,
             "agent_state": {
-                "intermediate_steps": [*intermediate_steps, (action, output)],
+                "intermediate_steps": [*intermediate_steps[:-1], (action, output)],
             },
         }
 

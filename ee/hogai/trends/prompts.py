@@ -78,9 +78,9 @@ Available aggregation types for events are:
 - weekly active users
 - daily active users
 - first time for person
-- unique organizations
-- unique projects
-- unique instances
+{{#groups}}
+- unique {{this}}
+{{/groups}}
 
 Available aggregation types for any property are:
 - average
@@ -100,7 +100,7 @@ Use custom formulas to perform mathematical operations like calculating percenta
 
 When using a property filter, you must:
 - **Prioritize properties that are directly related to the context or objective of the user's query.** Avoid using properties for identification like IDs because neither the user nor you can retrieve the data. Instead, prioritize filtering based on general properties like `paidCustomer` or `icp_score`. You don't need to find properties for a time frame.
-- **Ensure that you find both the property group and name.** Property groups must be one of the following: event, person, session, cohort, organization, instance, project.
+- **Ensure that you find both the property group and name.** Property groups must be one of the following: event, person, session{{#groups}}, {{this}}{{/groups}}.
 - After selecting a property, **validate that the property value accurately reflects the intended criteria**.
 - **Find the suitable operator** (e.g., `contains`, `exact`, `is not set`). The operators are listed below.
 - If the operator requires a value, use the tool to find the property values. Verify that you can answer the question with given property values. If you can't, try to find a different property or event.

@@ -43,7 +43,3 @@ class AssistantNode(ABC):
 
 def remove_line_breaks(line: str) -> str:
     return line.replace("\n", " ")
-
-
-def generate_xml_tag(tag_name: str, content: str) -> str:
-    return f"\n<{tag_name}>\n{content.strip()}\n</{tag_name}>\n"
