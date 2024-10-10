@@ -22,11 +22,12 @@ class ToolkitTool(TypedDict):
 
 class TrendsAgentToolModel(BaseModel):
     name: Literal[
-        "retrieve_entity_properties_tool",
-        "retrieve_event_properties_tool",
-        "retrieve_property_values_tool",
-        "handle_incorrect_response",
+        "retrieve_entity_properties",
+        "retrieve_event_properties",
+        "retrieve_event_property_values",
+        "retrieve_entity_property_values",
         "final_answer",
+        "handle_incorrect_response",
     ]
     argument: str
 
@@ -67,88 +68,100 @@ class TrendsAgentToolkit:
             {**tool, "description": dedent(tool["description"])}
             for tool in [
                 {
-                    "name": f"retrieve_entity_properties_tool",
-                    "signature": f"(entity: Literal[{stringified_entities}])",
-                    "description": """
-                    Use this tool to retrieve property names for a property group (entity) that the user has in their taxonomy. You will receive a list of properties and their value types or a message that properties have not been found.
-
-                    - **Infer the property groups from the user's request.**
-                    - **Try other entities** if the tool doesn't return any properties.
-                    - **Prioritize properties that are directly related to the context or objective of the user's query.**
-                    - **Avoid using ambiguous properties** unless their relevance is explicitly confirmed.
-
-                    Args:
-                        entity: The type of the entity that you want to retrieve properties for.
-                """,
-                },
-                {
-                    "name": "retrieve_event_properties_tool",
+                    "name": "retrieve_event_properties",
                     "signature": "(event_name: str)",
                     "description": """
-                    Use this tool to retrieve property names of an event that the user has in their taxonomy. You will receive a list of properties, their value types and example values or a message that properties have not been found.
+                        Use this tool to retrieve property names of an event that the user has in their taxonomy. You will receive a list of properties, their value types and example values or a message that properties have not been found.
 
-                    - **Try other events** if the tool doesn't return any properties.
-                    - **Prioritize properties that are directly related to the context or objective of the user's query.**
-                    - **Avoid using ambiguous properties** unless their relevance is explicitly confirmed.
+                        - **Try other events** if the tool doesn't return any properties.
+                        - **Prioritize properties that are directly related to the context or objective of the user's query.**
+                        - **Avoid using ambiguous properties** unless their relevance is explicitly confirmed.
 
-                    Args:
-                        event_name: The name of the event that you want to retrieve properties for.
-                """,
+                        Args:
+                            event_name: The name of the event that you want to retrieve properties for.
+                    """,
                 },
                 {
-                    "name": "retrieve_property_values_tool",
-                    "signature": "(property_name: str)",
+                    "name": "retrieve_event_property_values",
+                    "signature": "(event_name: str, property_name: str)",
                     "description": """
-                    Use this tool to retrieve property values for a property name that the user has in their taxonomy. Adjust filters to these values. You will receive a list of property values or a message that property values have not been found. Some properties can have many values, so the output will be truncated. Use your judgement to find a proper value.
+                        Use this tool to retrieve property values for an event that the user has in their taxonomy. Adjust filters to these values. You will receive a list of property values or a message that property values have not been found. Some properties can have many values, so the output will be truncated. Use your judgement to find a proper value.
 
-                    Args:
-                        property_name: The name of the property that you want to retrieve values for.
-                """,
+                        Args:
+                            event_name: The name of the event that you want to retrieve values for.
+                            property_name: The name of the property that you want to retrieve values for.
+                    """,
+                },
+                {
+                    "name": f"retrieve_entity_properties",
+                    "signature": f"(entity: Literal[{stringified_entities}])",
+                    "description": """
+                        Use this tool to retrieve property names for a property group (entity) that the user has in their taxonomy. You will receive a list of properties and their value types or a message that properties have not been found.
+
+                        - **Infer the property groups from the user's request.**
+                        - **Try other entities** if the tool doesn't return any properties.
+                        - **Prioritize properties that are directly related to the context or objective of the user's query.**
+                        - **Avoid using ambiguous properties** unless their relevance is explicitly confirmed.
+
+                        Args:
+                            entity: The type of the entity that you want to retrieve properties for.
+                    """,
+                },
+                {
+                    "name": "retrieve_entity_property_values",
+                    "signature": f"(entity: Literal[{stringified_entities}], property_name: str)",
+                    "description": """
+                        Use this tool to retrieve property values for a property name that the user has in their taxonomy. Adjust filters to these values. You will receive a list of property values or a message that property values have not been found. Some properties can have many values, so the output will be truncated. Use your judgement to find a proper value.
+
+                        Args:
+                            entity: The type of the entity that you want to retrieve properties for.
+                            property_name: The name of the property that you want to retrieve values for.
+                    """,
                 },
                 {
                     "name": "final_answer",
                     "signature": "(final_response: str)",
                     "description": """
-                    Use this tool to provide the final answer to the user's question.
+                        Use this tool to provide the final answer to the user's question.
 
-                    Answer in the following format:
-                    ```
-                    Events:
-                    - event 1
-                        - math operation: total
-                        - property filter 1:
+                        Answer in the following format:
+                        ```
+                        Events:
+                        - event 1
+                            - math operation: total
+                            - property filter 1:
+                                - entity
+                                - property name
+                                - property type
+                                - operator
+                                - property value
+                            - property filter 2... Repeat for each property filter.
+                        - event 2
+                            - math operation: average by `property name`.
+                            - property filter 1:
+                                - entity
+                                - property name
+                                - property type
+                                - operator
+                                - property value
+                            - property filter 2... Repeat for each property filter.
+                        - Repeat for each event.
+
+                        (if a formula is used)
+                        Formula:
+                        `A/B`, where `A` is the first event and `B` is the second event.
+
+                        (if a breakdown is used)
+                        Breakdown by:
+                        - breakdown 1:
                             - entity
                             - property name
-                            - property type
-                            - operator
-                            - property value
-                        - property filter 2... Repeat for each property filter.
-                    - event 2
-                        - math operation: average by `property name`.
-                        - property filter 1:
-                            - entity
-                            - property name
-                            - property type
-                            - operator
-                            - property value
-                        - property filter 2... Repeat for each property filter.
-                    - Repeat for each event.
+                        - Repeat for each breakdown.
+                        ```
 
-                    (if a formula is used)
-                    Formula:
-                    `A/B`, where `A` is the first event and `B` is the second event.
-
-                    (if a breakdown is used)
-                    Breakdown by:
-                    - breakdown 1:
-                        - entity
-                        - property name
-                    - Repeat for each breakdown.
-                    ```
-
-                    Args:
-                        final_response: List all events, actions, and properties that you want to use to answer the question.
-                """,
+                        Args:
+                            final_response: List all events, actions, and properties that you want to use to answer the question.
+                    """,
                 },
             ]
         ]
@@ -243,9 +256,13 @@ class TrendsAgentToolkit:
             ]
         )
 
-    def retrieve_property_values_tool(self, property_name: str) -> str:
+    def retrieve_event_property_values(self, property_name: str) -> str:
         # output values here with quotes for strings
-        pass
+        return "No values have been found."
+
+    def retrieve_entity_property_values(self, property_name: str) -> str:
+        # output values here with quotes for strings
+        return "No values have been found."
 
     def handle_incorrect_response(self, response: str) -> str:
         """

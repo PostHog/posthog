@@ -191,12 +191,14 @@ class CreateTrendsPlanToolsNode(AssistantNode):
             }
 
         output = ""
-        if input.name == "retrieve_entity_properties_tool":
-            output = toolkit.retrieve_entity_properties(input.argument)
-        elif input.name == "retrieve_event_properties_tool":
+        if input.name == "retrieve_event_properties":
             output = toolkit.retrieve_event_properties(input.argument)
-        elif input.name == "retrieve_property_values_tool":
-            output = toolkit.retrieve_property_values_tool(input.argument)
+        elif input.name == "retrieve_event_property_values":
+            output = toolkit.retrieve_event_property_values(input.argument)
+        elif input.name == "retrieve_entity_properties":
+            output = toolkit.retrieve_entity_properties(input.argument)
+        elif input.name == "retrieve_entity_property_values":
+            output = toolkit.retrieve_entity_property_values(input.argument)
         else:
             output = toolkit.handle_incorrect_response(input.argument)
 
