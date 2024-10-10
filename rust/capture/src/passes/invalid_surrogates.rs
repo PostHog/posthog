@@ -16,6 +16,7 @@ pub struct InvalidSurrogatesPass<'a> {
     last_seen: LastSeen,
     pending_output: Vec<char>,
     pending_ptr: usize,
+    escape_seq_buf: String,
 }
 
 impl<'a> Iterator for InvalidSurrogatesPass<'a> {
@@ -36,8 +37,9 @@ impl<'a> InvalidSurrogatesPass<'a> {
         Self {
             input,
             last_seen: LastSeen::Char,
-            pending_output: Vec::with_capacity(8),
+            pending_output: Vec::with_capacity(32),
             pending_ptr: 0,
+            escape_seq_buf: String::with_capacity(32),
         }
     }
 
@@ -101,13 +103,10 @@ impl<'a> InvalidSurrogatesPass<'a> {
             return None;
         };
 
-        // We need a small string buffer to collect hex escape sequences into
-        let mut buf = String::with_capacity(32);
-
         match (self.last_seen, c) {
             (LastSeen::Escape, 'u') => {
-                buf.clear();
-                if collect_n_chars(&mut buf, &mut self.input, 4) < 4 {
+                self.escape_seq_buf.clear();
+                if collect_n_chars(&mut self.escape_seq_buf, &mut self.input, 4) < 4 {
                     // We didn't get enough characters to form a valid hex escape sequence
                     self.queue_str(REPLACEMENT);
                     return self.pop();
@@ -115,12 +114,12 @@ impl<'a> InvalidSurrogatesPass<'a> {
 
                 // We have to assert these characters are hex digits, because we're going to parse them as such.
                 // Because these are utf8 chars, they could be emojis like 🤡, or anything else.
-                if buf.chars().any(|c| !c.is_ascii_hexdigit()) {
+                if self.escape_seq_buf.chars().any(|c| !c.is_ascii_hexdigit()) {
                     self.queue_str(REPLACEMENT);
                     return self.pop();
                 }
                 // Unwrap safe because of the above
-                let first_code_point = u16::from_str_radix(&buf, 16).unwrap();
+                let first_code_point = u16::from_str_radix(&self.escape_seq_buf, 16).unwrap();
 
                 // Now, we try to get the second member of the surrogate pair, since we require surrogates to be paired
                 match self.input.next() {
@@ -150,18 +149,18 @@ impl<'a> InvalidSurrogatesPass<'a> {
                 }
 
                 // Try to get the next hex sequence
-                buf.clear();
-                if collect_n_chars(&mut buf, &mut self.input, 4) < 4 {
+                self.escape_seq_buf.clear();
+                if collect_n_chars(&mut self.escape_seq_buf, &mut self.input, 4) < 4 {
                     self.queue_str(REPLACEMENT);
                     self.queue_str(REPLACEMENT);
                     return self.pop();
                 }
-                if buf.chars().any(|c| !c.is_ascii_hexdigit()) {
+                if self.escape_seq_buf.chars().any(|c| !c.is_ascii_hexdigit()) {
                     self.queue_str(REPLACEMENT);
                     self.queue_str(REPLACEMENT);
                     return self.pop();
                 }
-                let second_code_point = u16::from_str_radix(&buf, 16).unwrap();
+                let second_code_point = u16::from_str_radix(&self.escape_seq_buf, 16).unwrap();
 
                 if HIGH_SURROGATE_RANGE.contains(&first_code_point)
                     && LOW_SURROGATE_RANGE.contains(&second_code_point)
