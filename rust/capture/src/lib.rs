@@ -1,7 +1,6 @@
 pub mod api;
 pub mod config;
 pub mod limiters;
-pub mod passes;
 pub mod prometheus;
 pub mod redis;
 pub mod router;
