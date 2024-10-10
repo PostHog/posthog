@@ -10,6 +10,7 @@ enum LastSeen {
 const REPLACEMENT: &str = "uFFFD";
 const HIGH_SURROGATE_RANGE: std::ops::Range<u16> = 0xD800..0xDBFF;
 const LOW_SURROGATE_RANGE: std::ops::Range<u16> = 0xDC00..0xDFFF;
+const HEX_ESCAPE_LENGTH: usize = 4;
 
 pub struct InvalidSurrogatesPass<'a> {
     input: Chars<'a>,
@@ -101,7 +102,7 @@ impl<'a> InvalidSurrogatesPass<'a> {
         match (self.last_seen, c) {
             (LastSeen::Escape, 'u') => {
                 self.escape_seq_buf.clear();
-                if collect_n_chars(&mut self.escape_seq_buf, &mut self.input, 4) < 4 {
+                if !collect_n_chars(&mut self.escape_seq_buf, &mut self.input, HEX_ESCAPE_LENGTH) {
                     // We didn't get enough characters to form a valid hex escape sequence
                     self.queue_str(REPLACEMENT);
                     return self.pop();
@@ -145,7 +146,7 @@ impl<'a> InvalidSurrogatesPass<'a> {
 
                 // Try to get the next hex sequence
                 self.escape_seq_buf.clear();
-                if collect_n_chars(&mut self.escape_seq_buf, &mut self.input, 4) < 4 {
+                if !collect_n_chars(&mut self.escape_seq_buf, &mut self.input, HEX_ESCAPE_LENGTH) {
                     self.queue_str(REPLACEMENT);
                     self.queue_str(REPLACEMENT);
                     return self.pop();
@@ -189,20 +190,21 @@ impl<'a> InvalidSurrogatesPass<'a> {
     }
 }
 
-// Collects up to limit chars into a string, returning the number of chars collected
+// Collects up to limit chars into a string. Returns false if the
+// iterator is exhausted before limit chars are collected.
 fn collect_n_chars(
     string: &mut String,
     iter: &mut dyn Iterator<Item = char>,
     limit: usize,
-) -> usize {
-    for i in 0..limit {
+) -> bool {
+    for _ in 0..limit {
         if let Some(c) = iter.next() {
             string.push(c);
         } else {
-            return i;
+            return false;
         }
     }
-    limit
+    true
 }
 
 #[cfg(test)]
