@@ -146,7 +146,7 @@ export class SessionRecordingIngester {
     topic: string
     consumerGroupId: string
     totalNumPartitions = 0
-    isStopping = false
+    stoppingPromise: Promise<PromiseSettledResult<any>[]> | undefined = undefined
 
     private promises: Set<Promise<any>> = new Set()
     // if ingestion is lagging on a single partition it is often hard to identify _why_,
@@ -350,6 +350,12 @@ export class SessionRecordingIngester {
     }
 
     public async handleEachBatch(messages: Message[], heartbeat: () => void): Promise<void> {
+        if (this.stoppingPromise) {
+            // If we are stopping we don't want to process any more messages even though we might still be connected
+            await this.stoppingPromise
+            return
+        }
+
         heartbeat()
 
         if (messages.length !== 0) {
@@ -578,32 +584,35 @@ export class SessionRecordingIngester {
     }
 
     public async stop(): Promise<PromiseSettledResult<any>[]> {
-        status.info('🔁', 'blob_ingester_consumer - stopping')
-        this.isStopping = true
+        if (!this.stoppingPromise) {
+            status.info('🔁', 'blob_ingester_consumer - stopping')
+            this.stoppingPromise = (async () => {
+                // NOTE: We have to get the partitions before we stop the consumer as it throws if disconnected
+                const assignedPartitions = this.assignedTopicPartitions
 
-        // NOTE: We have to get the partitions before we stop the consumer as it throws if disconnected
-        const assignedPartitions = this.assignedTopicPartitions
-        // Mark as stopping so that we don't actually process any more incoming messages, but still keep the process alive
-        await this.batchConsumer?.stop()
+                // There is a race between the revoke callback and this function - Either way one of them gets there and covers the revocations
+                void this.scheduleWork(this.realtimeManager.unsubscribe())
+                void this.scheduleWork(this.flushPartitions(assignedPartitions.map((x) => x.partition)))
 
-        // Simulate a revoke command to try and flush all sessions
-        // There is a race between the revoke callback and this function - Either way one of them gets there and covers the revocations
-        void this.scheduleWork(this.onRevokePartitions(assignedPartitions))
-        void this.scheduleWork(this.realtimeManager.unsubscribe())
+                const promiseResults = await Promise.allSettled(this.promises)
 
-        const promiseResults = await Promise.allSettled(this.promises)
+                await this.batchConsumer?.stop()
 
-        if (this.sharedClusterProducerWrapper) {
-            await this.sharedClusterProducerWrapper.disconnect()
+                if (this.sharedClusterProducerWrapper) {
+                    await this.sharedClusterProducerWrapper.disconnect()
+                }
+
+                // Finally we clear up redis once we are sure everything else has been handled
+                await this.redisPool.drain()
+                await this.redisPool.clear()
+
+                status.info('👍', 'blob_ingester_consumer - stopped!')
+
+                return promiseResults
+            })()
         }
 
-        // Finally we clear up redis once we are sure everything else has been handled
-        await this.redisPool.drain()
-        await this.redisPool.clear()
-
-        status.info('👍', 'blob_ingester_consumer - stopped!')
-
-        return promiseResults
+        return this.stoppingPromise
     }
 
     public isHealthy() {
@@ -661,64 +670,7 @@ export class SessionRecordingIngester {
             return
         }
 
-        const sessionsToDrop: SessionManager[] = []
-        const partitionsToDrop: Record<number, PartitionMetrics> = {}
-
-        // First we pull out all sessions that are being dropped. This way if we get reassigned and start consuming, we don't accidentally destroy them
-        Object.entries(this.sessions).forEach(([key, sessionManager]) => {
-            if (revokedPartitions.includes(sessionManager.partition)) {
-                sessionsToDrop.push(sessionManager)
-                delete this.sessions[key]
-            }
-        })
-
-        // Reset all metrics for the revoked partitions
-        topicPartitions.forEach((topicPartition: TopicPartition) => {
-            const partition = topicPartition.partition
-            partitionsToDrop[partition] = this.partitionMetrics[partition] ?? {}
-            delete this.partitionMetrics[partition]
-
-            // Revoke the high watermark for this partition, so we are essentially "reset"
-            this.sessionHighWaterMarker.revoke(topicPartition)
-            this.persistentHighWaterMarker.revoke(topicPartition)
-        })
-
-        gaugeSessionsRevoked.set(sessionsToDrop.length)
-        gaugeSessionsHandled.remove()
-
-        const startTime = Date.now()
-        await runInstrumentedFunction({
-            statsKey: `recordingingester.onRevokePartitions.revokeSessions`,
-            timeout: SHUTDOWN_FLUSH_TIMEOUT_MS, // same as the partition lock
-            func: async () => {
-                if (this.config.SESSION_RECORDING_PARTITION_REVOKE_OPTIMIZATION) {
-                    // Extend our claim on these partitions to give us time to flush
-                    status.info(
-                        '🔁',
-                        `blob_ingester_consumer - flushing ${sessionsToDrop.length} sessions on revoke...`
-                    )
-
-                    const sortedSessions = sessionsToDrop.sort((x) => x.buffer.oldestKafkaTimestamp ?? Infinity)
-
-                    // Flush all the sessions we are supposed to drop - until a timeout
-                    await allSettledWithConcurrency(
-                        this.config.SESSION_RECORDING_MAX_PARALLEL_FLUSHES,
-                        sortedSessions,
-                        async (sessionManager, ctx) => {
-                            if (startTime + SHUTDOWN_FLUSH_TIMEOUT_MS < Date.now()) {
-                                return ctx.break()
-                            }
-
-                            await sessionManager.flush('partition_shutdown')
-                        }
-                    )
-
-                    await this.commitAllOffsets(partitionsToDrop, sessionsToDrop)
-                }
-
-                await Promise.allSettled(sessionsToDrop.map((x) => x.destroy()))
-            },
-        })
+        await this.flushPartitions(revokedPartitions)
     }
 
     async flushAllReadySessions(heartbeat: () => void): Promise<void> {
@@ -731,8 +683,8 @@ export class SessionRecordingIngester {
             async ([key, sessionManager], ctx) => {
                 heartbeat()
 
-                if (this.isStopping) {
-                    // We can end up with a large number of flushes. We want to stop early if we hit shutdown
+                if (this.stoppingPromise) {
+                    // Stopping does its own flushing so we want to intercept to not get in the way of it
                     return ctx.break()
                 }
 
@@ -781,6 +733,73 @@ export class SessionRecordingIngester {
         )
     }
 
+    async flushPartitions(partitions: number[]): Promise<void> {
+        await runInstrumentedFunction({
+            statsKey: `recordingingester.flushPartitions`,
+            timeout: SHUTDOWN_FLUSH_TIMEOUT_MS, // same as the partition lock
+            func: async () => {
+                const sessionsToDrop: SessionManager[] = []
+                const partitionsToDrop: Record<number, PartitionMetrics> = {}
+
+                // First we pull out all sessions that are being dropped. This way if we get reassigned and start consuming, we don't accidentally destroy them
+                Object.entries(this.sessions).forEach(([key, sessionManager]) => {
+                    if (partitions.includes(sessionManager.partition)) {
+                        sessionsToDrop.push(sessionManager)
+                        delete this.sessions[key]
+                    }
+                })
+
+                // Reset all metrics for the revoked partitions
+                partitions.forEach((partition) => {
+                    partitionsToDrop[partition] = this.partitionMetrics[partition] ?? {}
+                    delete this.partitionMetrics[partition]
+
+                    // Revoke the high watermark for this partition, so we are essentially "reset"
+                    this.sessionHighWaterMarker.revoke({ topic: this.topic, partition })
+                    // TODO: We might want to remove this as it will be used by the committer
+                    this.persistentHighWaterMarker.revoke({ topic: this.topic, partition })
+                })
+
+                gaugeSessionsRevoked.set(sessionsToDrop.length)
+                gaugeSessionsHandled.remove()
+
+                const startTime = Date.now()
+
+                // First we pull out all sessions that are being dropped. This way if we get reassigned and start consuming, we don't accidentally destroy them
+                Object.entries(this.sessions).forEach(([key, sessionManager]) => {
+                    if (partitions.includes(sessionManager.partition)) {
+                        sessionsToDrop.push(sessionManager)
+                        delete this.sessions[key]
+                    }
+                })
+
+                if (!this.config.SESSION_RECORDING_PARTITION_REVOKE_OPTIMIZATION) {
+                    return
+                }
+
+                status.info('🔁', `blob_ingester_consumer - flushing ${sessionsToDrop.length} sessions on revoke...`)
+
+                const sortedSessions = sessionsToDrop.sort((x) => x.buffer.oldestKafkaTimestamp ?? Infinity)
+
+                // Flush all the sessions we are supposed to drop - until a timeout
+                await allSettledWithConcurrency(
+                    this.config.SESSION_RECORDING_MAX_PARALLEL_FLUSHES,
+                    sortedSessions,
+                    async (sessionManager, ctx) => {
+                        if (startTime + SHUTDOWN_FLUSH_TIMEOUT_MS < Date.now()) {
+                            status.warn('🔁', `blob_ingester_consumer - flushing partitions timed out`)
+                            return ctx.break()
+                        }
+
+                        await sessionManager.flush('partition_shutdown')
+                    }
+                )
+
+                await this.commitAllOffsets(partitionsToDrop, sessionsToDrop)
+            },
+        })
+    }
+
     public async commitAllOffsets(
         partitions: Record<number, PartitionMetrics>,
         blockingSessions: SessionManager[]
@@ -799,12 +818,6 @@ export class SessionRecordingIngester {
                     topic: this.topic,
                     partition,
                 }
-
-                // status.info('🔁', `blob_ingester_consumer - committing offset for partition`, {
-                //     ...tp,
-                //     partitionBlockingSessions,
-                // })
-
                 let potentiallyBlockingSession: SessionManager | undefined
 
                 let activeSessionsOnThisPartition = 0
