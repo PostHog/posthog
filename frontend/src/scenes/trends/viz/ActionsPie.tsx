@@ -56,12 +56,7 @@ export function ActionsPie({ inSharedMode, showPersonsModal = true, context }: C
                 actions: indexedResults.map((item) => item.action),
                 breakdownValues: indexedResults.map((item) => item.breakdown_value),
                 breakdownLabels: indexedResults.map((item) => {
-                    return formatBreakdownLabel(
-                        item.breakdown_value,
-                        breakdownFilter,
-                        cohorts,
-                        formatPropertyValueForDisplay
-                    )
+                    return formatBreakdownLabel(item.label, breakdownFilter, cohorts, formatPropertyValueForDisplay)
                 }),
                 compareLabels: indexedResults.map((item) => item.compare_label),
                 personsValues: indexedResults.map((item) => item.persons),

@@ -48,12 +48,7 @@ export function ActionsHorizontalBar({ showPersonsModal = true }: ChartParams): 
                 personsValues: _data.map((item) => item.persons),
                 breakdownValues: _data.map((item) => item.breakdown_value),
                 breakdownLabels: _data.map((item) => {
-                    return formatBreakdownLabel(
-                        item.breakdown_value,
-                        breakdownFilter,
-                        cohorts,
-                        formatPropertyValueForDisplay
-                    )
+                    return formatBreakdownLabel(item.label, breakdownFilter, cohorts, formatPropertyValueForDisplay)
                 }),
                 compareLabels: _data.map((item) => item.compare_label),
                 backgroundColor: colorList,
