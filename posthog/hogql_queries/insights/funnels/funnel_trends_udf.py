@@ -85,7 +85,7 @@ class FunnelTrendsUDF(FunnelTrends):
                     '{breakdown_attribution_string}',
                     '{self.context.funnelsFilter.funnelOrderType}',
                     {prop_vals},
-                    arraySort(t -> t.1, groupArray(tuple(toFloat(timestamp), _toUInt64(toTimeZone(toDateTime({get_start_of_interval_hogql_str(self.context.interval.value, team=self.context.team, source='timestamp')}), 'UTC')), {prop_selector}, arrayFilter((x) -> x != 0, [{steps}{exclusions}]))))
+                    arraySort(t -> t.1, groupArray(tuple(toFloat(timestamp), _toUInt64(toDateTime({get_start_of_interval_hogql_str(self.context.interval.value, team=self.context.team, source='timestamp')})), {prop_selector}, arrayFilter((x) -> x != 0, [{steps}{exclusions}]))))
                 )) as af_tuple,
                 toTimeZone(toDateTime(_toUInt64(af_tuple.1)), '{self.context.team.timezone}') as entrance_period_start,
                 af_tuple.2 as success_bool,

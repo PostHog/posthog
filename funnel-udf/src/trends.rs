@@ -151,7 +151,6 @@ impl AggregateFunnelRow {
                     let already_reached_this_step = entered_timestamp[step].timestamp == entered_timestamp[step - 1].timestamp;
                     if in_match_window && !already_reached_this_step {
                         if exclusion {
-                            // self.results.push(Result(-1, prop_val.clone(), vec![], vec![]));
                             return false;
                         }
                         let is_unmatched_step_attribution = self.breakdown_step.map(|breakdown_step| step == breakdown_step - 1).unwrap_or(false) && *prop_val != event.breakdown;
@@ -164,15 +163,12 @@ impl AggregateFunnelRow {
                                     timings
                                 },
                             };
-                            //if vars.event_uuids[step - 1].len() < MAX_REPLAY_EVENTS - 1 {
-                            //    vars.event_uuids[step - 1].push(event.uuid);
-                            //}
-                            //if step > vars.max_step.0 {
-                            //    vars.max_step = (step, vars.entered_timestamp[step].clone());
-                            //}
                             // check if we have hit the goal. if we have, remove it from the list and add it to the successful_timestamps
                             if entered_timestamp[args.num_steps].timestamp != 0.0 {
-                                self.results.insert(entered_timestamp[0].timestamp as u64, ResultStruct(entered_timestamp[0].timestamp as u64, 1, prop_val.clone()));
+                                self.results.insert(
+                                    entered_timestamp[0].timestamp as u64,
+                                    ResultStruct(entered_timestamp[0].timestamp as u64, 1, prop_val.clone())
+                                );
                             } else if step == args.from_step + 1 {
                                 entered_timestamp[0].timings.push(1.0)
                             }
