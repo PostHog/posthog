@@ -27,7 +27,6 @@ export function DashboardItems(): JSX.Element {
         refreshStatus,
         canEditDashboard,
         itemsLoading,
-        temporaryFilters,
     } = useValues(dashboardLogic)
     const {
         updateLayouts,
@@ -153,7 +152,6 @@ export function DashboardItems(): JSX.Element {
                                     showDetailsControls={placement != DashboardPlacement.Export}
                                     placement={placement}
                                     loadPriority={smLayout ? smLayout.y * 1000 + smLayout.x : undefined}
-                                    filtersOverride={temporaryFilters}
                                     {...commonTileProps}
                                 />
                             )

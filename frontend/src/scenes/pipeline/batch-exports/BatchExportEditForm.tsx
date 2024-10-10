@@ -411,7 +411,6 @@ export function BatchExportsEditFields({
                                     { value: 'varchar', label: 'VARCHAR(65535)' },
                                     { value: 'super', label: 'SUPER' },
                                 ]}
-                                value="varchar"
                             />
                         </LemonField>
 

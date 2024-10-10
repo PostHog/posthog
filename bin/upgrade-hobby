@@ -60,9 +60,10 @@ fi
 # we introduced ENCRYPTION_SALT_KEYS and so if there isn't one, need to add it
 # check for it in the .env file
 if ! grep -q "ENCRYPTION_SALT_KEYS" .env; then
-    ENCRYPTION_KEY=$(head -c 32 /dev/urandom | base64 | tr +/ -_ | tr -d =)
+    ENCRYPTION_KEY=$(openssl rand -hex 16)
     echo "ENCRYPTION_SALT_KEYS=$ENCRYPTION_KEY" >> .env
     echo "Added missing ENCRYPTION_SALT_KEYS to .env file"
+    source .env
 else
     # Read the existing key
     EXISTING_KEY=$(grep "ENCRYPTION_SALT_KEYS" .env | cut -d '=' -f2)
