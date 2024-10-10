@@ -101,21 +101,24 @@ impl<'a> InvalidSurrogatesPass<'a> {
 
         match (self.last_seen, c) {
             (LastSeen::Escape, 'u') => {
-                self.escape_seq_buf.clear();
-                if !collect_n_chars(&mut self.escape_seq_buf, &mut self.input, HEX_ESCAPE_LENGTH) {
-                    // We didn't get enough characters to form a valid hex escape sequence
-                    self.queue_str(REPLACEMENT);
-                    return self.pop();
-                }
-
-                // We have to assert these characters are hex digits, because we're going to parse them as such.
-                // Because these are utf8 chars, they could be emojis like 🤡, or anything else.
-                if self.escape_seq_buf.chars().any(|c| !c.is_ascii_hexdigit()) {
-                    self.queue_str(REPLACEMENT);
-                    return self.pop();
-                }
-                // Unwrap safe because of the above
-                let first_code_point = u16::from_str_radix(&self.escape_seq_buf, 16).unwrap();
+                let first_code_point =
+                    match collect_escape_sequence(&mut self.escape_seq_buf, &mut self.input) {
+                        Ok(code_point) => code_point,
+                        Err(None) => {
+                            // We ran out of chars. Push a replacement, push the collected chars, and return.
+                            // We drop the collected chars here because, if we'd encountered a syntactically
+                            // important one, it would have been caught as non-hex earlier and returned in
+                            // the branch below.
+                            self.queue_str(REPLACEMENT);
+                            return self.pop();
+                        }
+                        Err(Some(c)) => {
+                            // We encountered an invalid char. Push the replacement, push the invalid char, and return
+                            self.queue_str(REPLACEMENT);
+                            self.queue(c);
+                            return self.pop();
+                        }
+                    };
 
                 // Now, we try to get the second member of the surrogate pair, since we require surrogates to be paired
                 match self.input.next() {
@@ -135,29 +138,34 @@ impl<'a> InvalidSurrogatesPass<'a> {
                     Some('u') => {}
                     Some(c) => {
                         self.queue_str(REPLACEMENT);
+                        self.queue('\\');
                         self.queue(c);
                         return self.pop();
                     }
                     None => {
                         self.queue_str(REPLACEMENT);
+                        self.queue('\\');
                         return self.pop();
                     }
                 }
 
-                // Try to get the next hex sequence
-                self.escape_seq_buf.clear();
-                if !collect_n_chars(&mut self.escape_seq_buf, &mut self.input, HEX_ESCAPE_LENGTH) {
-                    self.queue_str(REPLACEMENT);
-                    self.queue_str(REPLACEMENT);
-                    return self.pop();
-                }
-                if self.escape_seq_buf.chars().any(|c| !c.is_ascii_hexdigit()) {
-                    self.queue_str(REPLACEMENT);
-                    self.queue_str(REPLACEMENT);
-                    return self.pop();
-                }
-                let second_code_point = u16::from_str_radix(&self.escape_seq_buf, 16).unwrap();
-
+                let second_code_point =
+                    match collect_escape_sequence(&mut self.escape_seq_buf, &mut self.input) {
+                        Ok(code_point) => code_point,
+                        Err(None) => {
+                            self.queue_str(REPLACEMENT);
+                            self.queue('\\');
+                            self.queue_str(REPLACEMENT);
+                            return self.pop();
+                        }
+                        Err(Some(c)) => {
+                            self.queue_str(REPLACEMENT);
+                            self.queue('\\');
+                            self.queue_str(REPLACEMENT);
+                            self.queue(c);
+                            return self.pop();
+                        }
+                    };
                 if HIGH_SURROGATE_RANGE.contains(&first_code_point)
                     && LOW_SURROGATE_RANGE.contains(&second_code_point)
                 {
@@ -166,12 +174,13 @@ impl<'a> InvalidSurrogatesPass<'a> {
                     // allocation format! implies, but I'm not gonna work it out
                     // right now - we expect this to be /extremely/ rare
                     self.queue_str(&format!(
-                        "\\u{:04X}\\u{:04X}",
+                        "u{:04X}\\u{:04X}", // First backslash is put in the buffer due to last_seen
                         first_code_point, second_code_point
                     ));
                 } else {
                     // We didn't get a valid pair, so we just drop the pair entirely
                     self.queue_str(REPLACEMENT);
+                    self.queue('\\');
                     self.queue_str(REPLACEMENT);
                 }
             }
@@ -190,21 +199,25 @@ impl<'a> InvalidSurrogatesPass<'a> {
     }
 }
 
-// Collects up to limit chars into a string. Returns false if the
-// iterator is exhausted before limit chars are collected.
-fn collect_n_chars(
-    string: &mut String,
+// Collects 4 chars into a hex escape sequence, returning the first char that couldn't be part of
+// one, if one was found. If we run out of input, we return Result::Err(None)
+fn collect_escape_sequence(
+    buf: &mut String,
     iter: &mut dyn Iterator<Item = char>,
-    limit: usize,
-) -> bool {
-    for _ in 0..limit {
-        if let Some(c) = iter.next() {
-            string.push(c);
-        } else {
-            return false;
+) -> Result<u16, Option<char>> {
+    buf.clear();
+    for _ in 0..HEX_ESCAPE_LENGTH {
+        let Some(c) = iter.next() else {
+            return Err(None);
+        };
+        // If this character couldn't be part of a hex escape sequence, we return it
+        if !c.is_ascii_hexdigit() {
+            return Err(Some(c));
         }
+        buf.push(c);
     }
-    true
+    // Unwrap safe due to the checking above
+    Ok(u16::from_str_radix(buf, 16).unwrap())
 }
 
 #[cfg(test)]
@@ -219,5 +232,77 @@ mod test {
         let data = pass.collect::<String>();
         let res = serde_json::from_str::<RawEvent>(&data);
         assert!(res.is_ok())
+    }
+
+    #[test]
+    fn test_unpaired_high_surrogate() {
+        let raw_data = r#"{"event":"\uD800"}"#;
+        let pass = super::InvalidSurrogatesPass::new(raw_data.chars());
+        let data = pass.collect::<String>();
+        assert_eq!(data, r#"{"event":"\uFFFD"}"#);
+    }
+
+    #[test]
+    fn test_unpaired_low_surrogate() {
+        let raw_data = r#"{"event":"\uDC00"}"#;
+        let pass = super::InvalidSurrogatesPass::new(raw_data.chars());
+        let data = pass.collect::<String>();
+        assert_eq!(data, r#"{"event":"\uFFFD"}"#);
+    }
+
+    #[test]
+    fn test_wrong_order_surrogate_pair() {
+        let raw_data = r#"{"event":"\uDC00\uD800"}"#;
+        let pass = super::InvalidSurrogatesPass::new(raw_data.chars());
+        let data = pass.collect::<String>();
+        assert_eq!(data, r#"{"event":"\uFFFD\uFFFD"}"#);
+    }
+
+    #[test]
+    fn test_trailing_escape() {
+        let raw_data = r#"{"event":"\u"}"#;
+        let pass = super::InvalidSurrogatesPass::new(raw_data.chars());
+        let data = pass.collect::<String>();
+        assert_eq!(data, r#"{"event":"\uFFFD"}"#);
+    }
+
+    #[test]
+    fn test_trailing_escape_pair() {
+        let raw_data = r#"{"event":"\u\u"}"#;
+        let pass = super::InvalidSurrogatesPass::new(raw_data.chars());
+        let data = pass.collect::<String>();
+        assert_eq!(data, r#"{"event":"\uFFFD\uFFFD"}"#);
+    }
+
+    #[test]
+    fn test_trailing_escape_pair_high_surrogate() {
+        let raw_data = r#"{"event":"\uD800\u"}"#;
+        let pass = super::InvalidSurrogatesPass::new(raw_data.chars());
+        let data = pass.collect::<String>();
+        assert_eq!(data, r#"{"event":"\uFFFD\uFFFD"}"#);
+    }
+
+    #[test]
+    fn test_trailing_escape_pair_low_surrogate() {
+        let raw_data = r#"{"event":"\uDC00\u"}"#;
+        let pass = super::InvalidSurrogatesPass::new(raw_data.chars());
+        let data = pass.collect::<String>();
+        assert_eq!(data, r#"{"event":"\uFFFD\uFFFD"}"#);
+    }
+
+    #[test]
+    fn test_trailing_escape_char() {
+        let raw_data = r#"{"event":"\uD800\"#;
+        let pass = super::InvalidSurrogatesPass::new(raw_data.chars());
+        let data = pass.collect::<String>();
+        assert_eq!(data, r#"{"event":"\uFFFD\"#);
+    }
+
+    #[test]
+    fn test_valid_pair_trailing_slash() {
+        let raw_data = r#"{"event":"\uD800\uDC00\"#;
+        let pass = super::InvalidSurrogatesPass::new(raw_data.chars());
+        let data = pass.collect::<String>();
+        assert_eq!(data, r#"{"event":"\uD800\uDC00\"#);
     }
 }
