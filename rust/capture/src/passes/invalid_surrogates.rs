@@ -105,7 +105,7 @@ impl<'a> InvalidSurrogatesPass<'a> {
                     match collect_escape_sequence(&mut self.escape_seq_buf, &mut self.input) {
                         Ok(code_point) => code_point,
                         Err(None) => {
-                            // We ran out of chars. Push a replacement, push the collected chars, and return.
+                            // We ran out of chars. Push a replacement, and return.
                             // We drop the collected chars here because, if we'd encountered a syntactically
                             // important one, it would have been caught as non-hex earlier and returned in
                             // the branch below.
@@ -122,7 +122,11 @@ impl<'a> InvalidSurrogatesPass<'a> {
 
                 // Now, we try to get the second member of the surrogate pair, since we require surrogates to be paired
                 match self.input.next() {
-                    Some('\\') => {}
+                    Some('\\') => {
+                        // We don't push a backslash here because we're already in an escape sequence,
+                        // and it would cause us to exit it - but the specific characters we're going
+                        // to emit isn't known yet, so we can't push those and then a backslash either
+                    }
                     Some(c) => {
                         self.queue_str(REPLACEMENT);
                         self.queue(c);
@@ -138,13 +142,13 @@ impl<'a> InvalidSurrogatesPass<'a> {
                     Some('u') => {}
                     Some(c) => {
                         self.queue_str(REPLACEMENT);
-                        self.queue('\\');
+                        self.queue('\\'); // We have to handle that we've already consumed a backslash
                         self.queue(c);
                         return self.pop();
                     }
                     None => {
                         self.queue_str(REPLACEMENT);
-                        self.queue('\\');
+                        self.queue('\\'); // As above
                         return self.pop();
                     }
                 }
@@ -174,7 +178,7 @@ impl<'a> InvalidSurrogatesPass<'a> {
                     // allocation format! implies, but I'm not gonna work it out
                     // right now - we expect this to be /extremely/ rare
                     self.queue_str(&format!(
-                        "u{:04X}\\u{:04X}", // First backslash is put in the buffer due to last_seen
+                        "u{:04X}\\u{:04X}", // First backslash is already in the buffer due to last_seen
                         first_code_point, second_code_point
                     ));
                 } else {
