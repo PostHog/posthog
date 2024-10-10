@@ -6,7 +6,7 @@ import React from 'react'
 import { urls } from 'scenes/urls'
 
 import { Query } from '~/queries/Query/Query'
-import { InsightVizNode, NodeKind } from '~/queries/schema'
+import { InsightQueryNode, InsightVizNode, NodeKind } from '~/queries/schema'
 
 import { maxLogic } from './maxLogic'
 
@@ -54,7 +54,7 @@ export function Thread(): JSX.Element | null {
                                     type="primary"
                                     to={urls.insightNew(undefined, undefined, {
                                         kind: NodeKind.InsightVizNode,
-                                        source: message.content.answer,
+                                        source: message.content.answer as InsightQueryNode,
                                     } as InsightVizNode)}
                                     sideIcon={<IconOpenInNew />}
                                     targetBlank
