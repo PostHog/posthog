@@ -157,7 +157,7 @@ export function EditAlertModal({
                                                 <LemonSelect
                                                     fullWidth
                                                     className="w-40"
-                                                    data-attr="alertForm-calculation-interval"
+                                                    data-attr="alertForm-condition"
                                                     options={[
                                                         {
                                                             label: 'has value',
