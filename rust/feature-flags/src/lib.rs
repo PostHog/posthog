@@ -7,12 +7,14 @@ pub mod flag_definitions;
 pub mod flag_matching;
 pub mod flag_request;
 pub mod geoip;
+pub mod metrics_consts;
 pub mod property_matching;
 pub mod redis;
 pub mod request_handler;
 pub mod router;
 pub mod server;
 pub mod team;
+pub mod utils;
 pub mod v0_endpoint;
 
 // Test modules don't need to be compiled with main binary

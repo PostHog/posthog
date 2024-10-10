@@ -3,9 +3,12 @@ use crate::{
     database::Client as DatabaseClient,
     feature_flag_match_reason::FeatureFlagMatchReason,
     flag_definitions::{FeatureFlag, FeatureFlagList, FlagGroupType, PropertyFilter},
+    metrics_consts::{FLAG_EVALUATION_ERROR_COUNTER, FLAG_HASH_KEY_WRITES_COUNTER},
     property_matching::match_property,
+    utils::parse_exception_for_prometheus_label,
 };
 use anyhow::Result;
+use common_metrics::inc;
 use serde_json::Value;
 use sha1::{Digest, Sha1};
 use sqlx::{postgres::PgQueryResult, Acquire, FromRow};
@@ -99,6 +102,7 @@ impl GroupTypeMappingCache {
             Ok(mapping) if !mapping.is_empty() => mapping,
             Ok(_) => {
                 self.failed_to_fetch_flags = true;
+                // TODO add the `"Failed to fetch group"` type of lable.  See posthog/models/feature_flag/flag_matching.py:parse_exception_for_error_message
                 return Err(FlagError::NoGroupTypeMappings);
             }
             Err(e) => {
@@ -126,6 +130,7 @@ impl GroupTypeMappingCache {
             self.group_indexes_to_types.clone_from(&result);
             Ok(result)
         } else {
+            // TODO add the `"Failed to fetch group"` type of lable.  See posthog/models/feature_flag/flag_matching.py:parse_exception_for_error_message
             Err(FlagError::NoGroupTypeMappings)
         }
     }
@@ -154,6 +159,7 @@ impl GroupTypeMappingCache {
             .collect();
 
         if mapping.is_empty() {
+            // TODO add the `"Failed to fetch group"` type of lable.  See posthog/models/feature_flag/flag_matching.py:parse_exception_for_error_message
             Err(FlagError::NoGroupTypeMappings)
         } else {
             Ok(mapping)
@@ -237,6 +243,16 @@ impl FeatureFlagMatcher {
             (None, false)
         };
 
+        // If there was an initial error in processing hash key overrides, increment the error counter
+        if initial_error {
+            let reason = "hash_key_override_error";
+            common_metrics::inc(
+                FLAG_EVALUATION_ERROR_COUNTER,
+                &[("reason".to_string(), reason.to_string())],
+                1,
+            );
+        }
+
         let flags_response = self
             .evaluate_flags_with_overrides(
                 feature_flags,
@@ -272,9 +288,17 @@ impl FeatureFlagMatcher {
                     "Failed to check if hash key override should be written: {:?}",
                     e
                 );
+                let reason = parse_exception_for_prometheus_label(&e);
+                inc(
+                    FLAG_EVALUATION_ERROR_COUNTER,
+                    &[("reason".to_string(), reason.to_string())],
+                    1,
+                );
                 return (None, true);
             }
         };
+
+        let mut writing_hash_key_override = false;
 
         if should_write {
             if let Err(e) = set_feature_flag_hash_key_overrides(
@@ -282,14 +306,35 @@ impl FeatureFlagMatcher {
                 self.postgres_writer.clone(),
                 self.team_id,
                 target_distinct_ids.clone(),
-                hash_key,
+                hash_key.clone(),
             )
             .await
             {
                 error!("Failed to set feature flag hash key overrides: {:?}", e);
+                // Increment the counter for failed write
+                let reason = parse_exception_for_prometheus_label(&e);
+                inc(
+                    FLAG_EVALUATION_ERROR_COUNTER,
+                    &[("reason".to_string(), reason.to_string())],
+                    1,
+                );
                 return (None, true);
             }
+            writing_hash_key_override = true;
         }
+
+        // TODO I'm not sure if this is the right place to increment this counter
+        inc(
+            FLAG_HASH_KEY_WRITES_COUNTER,
+            &[
+                ("team_id".to_string(), self.team_id.to_string()),
+                (
+                    "successful_write".to_string(),
+                    writing_hash_key_override.to_string(),
+                ),
+            ],
+            1,
+        );
 
         match get_feature_flag_hash_key_overrides(
             self.postgres_reader.clone(),
@@ -301,6 +346,12 @@ impl FeatureFlagMatcher {
             Ok(overrides) => (Some(overrides), false),
             Err(e) => {
                 error!("Failed to get feature flag hash key overrides: {:?}", e);
+                let reason = parse_exception_for_prometheus_label(&e);
+                common_metrics::inc(
+                    FLAG_EVALUATION_ERROR_COUNTER,
+                    &[("reason".to_string(), reason.to_string())],
+                    1,
+                );
                 (None, true)
             }
         }
@@ -345,6 +396,12 @@ impl FeatureFlagMatcher {
                         "Error evaluating feature flag '{}' with overrides for distinct_id '{}': {:?}",
                         flag.key, self.distinct_id, e
                     );
+                    let reason = parse_exception_for_prometheus_label(&e);
+                    inc(
+                        FLAG_EVALUATION_ERROR_COUNTER,
+                        &[("reason".to_string(), reason.to_string())],
+                        1,
+                    );
                 }
             }
         }
@@ -374,6 +431,12 @@ impl FeatureFlagMatcher {
                     error_while_computing_flags = true;
                     // TODO add sentry exception tracking
                     error!("Error fetching properties: {:?}", e);
+                    let reason = parse_exception_for_prometheus_label(&e);
+                    inc(
+                        FLAG_EVALUATION_ERROR_COUNTER,
+                        &[("reason".to_string(), reason.to_string())],
+                        1,
+                    );
                 }
             }
 
@@ -396,6 +459,12 @@ impl FeatureFlagMatcher {
                         error!(
                             "Error evaluating feature flag '{}' for distinct_id '{}': {:?}",
                             flag.key, self.distinct_id, e
+                        );
+                        let reason = parse_exception_for_prometheus_label(&e);
+                        inc(
+                            FLAG_EVALUATION_ERROR_COUNTER,
+                            &[("reason".to_string(), reason.to_string())],
+                            1,
                         );
                     }
                 }
@@ -1210,7 +1279,7 @@ async fn get_feature_flag_hash_key_overrides(
 }
 
 async fn set_feature_flag_hash_key_overrides(
-    postgres_writer: PostgresReader,
+    postgres_writer: PostgresWriter,
     team_id: TeamId,
     distinct_ids: Vec<String>,
     hash_key_override: String,
