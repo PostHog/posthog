@@ -62,7 +62,7 @@ def calculate_funnel_trends_from_user_events(
             if breakdown_attribution_type == "all_events"
             else events
         )
-        list_of_entered_timestamps = []
+        interval_start_to_entered_timestamps = {}
 
         for timestamp, interval_start, breakdown, steps in filtered_events:
             for step in reversed(steps):
@@ -73,15 +73,17 @@ def calculate_funnel_trends_from_user_events(
                 # Special code to handle the first step
                 # Potential Optimization: we could skip tracking here if the user has already completed the funnel for this interval
                 if step == 1:
-                    entered_timestamp = [default_entered_timestamp] * (num_steps + 1)
-                    # Set the interval start at 0, which is what we want to return if this works.
-                    # For strict funnels, we need to track if the "from_step" has been hit
-                    # Abuse the timings field on the 0th index entered_timestamp to have the elt True if we have
-                    entered_timestamp[0] = EnteredTimestamp(interval_start, [True] if from_step == 0 else [])
-                    entered_timestamp[1] = EnteredTimestamp(timestamp, [timestamp])
-                    list_of_entered_timestamps.append(entered_timestamp)
+                    if interval_start not in interval_start_to_entered_timestamps and interval_start not in results:
+                        entered_timestamp = [default_entered_timestamp] * (num_steps + 1)
+                        # Set the interval start at 0, which is what we want to return if this works.
+                        # For strict funnels, we need to track if the "from_step" has been hit
+                        # Abuse the timings field on the 0th index entered_timestamp to have the elt True if we have
+                        entered_timestamp[0] = EnteredTimestamp(interval_start, [True] if from_step == 0 else [])
+                        entered_timestamp[1] = EnteredTimestamp(timestamp, [timestamp])
+                        interval_start_to_entered_timestamps[interval_start] = entered_timestamp
+                        # list_of_entered_timestamps.append(entered_timestamp)
                 else:
-                    for entered_timestamp in list_of_entered_timestamps[:]:
+                    for entered_timestamp in interval_start_to_entered_timestamps.values():
                         in_match_window = (
                             timestamp - entered_timestamp[step - 1].timestamp <= conversion_window_limit_seconds
                         )
@@ -103,20 +105,20 @@ def calculate_funnel_trends_from_user_events(
                                 # check if we have hit the goal. if we have, remove it from the list and add it to the successful_timestamps
                                 if entered_timestamp[num_steps].timestamp > 0:
                                     results[entered_timestamp[0].timestamp] = (1, prop_val)
-                                    list_of_entered_timestamps.remove(entered_timestamp)
+                                    # interval_start_to_entered_timestamps[entered_timestamp[0].timestamp] = None
                                 # If we have hit the from_step threshold, record it (abuse the timings field)
                                 elif step == from_step + 1:
                                     entered_timestamp[0].timings.append(True)
 
             # At the end of the event, clear all steps that weren't done by that event
             if funnel_order_type == "strict":
-                for entered_timestamp in list_of_entered_timestamps[:]:
+                for entered_timestamp in interval_start_to_entered_timestamps.values():
                     for i in range(1, len(entered_timestamp)):
                         if i not in steps:
                             entered_timestamp[i] = default_entered_timestamp
 
         # At this point, everything left in entered_timestamps is a failure, if it has made it to from_step
-        for entered_timestamp in list_of_entered_timestamps:
+        for entered_timestamp in interval_start_to_entered_timestamps.values():
             if entered_timestamp[0].timestamp not in results and len(entered_timestamp[0].timings) > 0:
                 results[entered_timestamp[0].timestamp] = (-1, prop_val)
 
