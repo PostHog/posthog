@@ -1,3 +1,5 @@
+use std::str::Chars;
+
 #[derive(Debug, PartialEq, Clone, Copy)]
 enum LastSeen {
     Char,   // Any regular character
@@ -9,43 +11,43 @@ const REPLACEMENT: &str = "uFFFD";
 const HIGH_SURROGATE_RANGE: std::ops::Range<u16> = 0xD800..0xDBFF;
 const LOW_SURROGATE_RANGE: std::ops::Range<u16> = 0xDC00..0xDFFF;
 
-// This could be an iterator, that wraps a Chars<'_> and emits the correct characters. I'm
-// /almost/ tempted to implement it, but I've already spent too long on this.
-
-pub struct InvalidSurrogatesPass {
-    // Clippy gives out because this this implies two layers of ptr indirection, but
-    // in Self::run I'm partially moving Self, and this lets me do that without a clone
-    #[allow(clippy::box_collection)]
-    input: Box<String>,
+pub struct InvalidSurrogatesPass<'a> {
+    input: Chars<'a>,
     last_seen: LastSeen,
-    output: Option<String>,
+    pending_output: Vec<char>,
+    pending_ptr: usize,
 }
 
-impl InvalidSurrogatesPass {
-    pub fn new(input: String) -> Self {
-        // Try to be a /little/ clever here, because this is in the path of
-        // every request
-        let output = if input.contains("\\u") {
-            Some(String::with_capacity(input.len()))
-        } else {
-            None
-        };
+impl<'a> Iterator for InvalidSurrogatesPass<'a> {
+    type Item = char;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.step()
+    }
+}
+
+impl<'a> InvalidSurrogatesPass<'a> {
+    // This is a simple heuristic to determine if we need to run this pass
+    pub fn needed(input: &str) -> bool {
+        input.contains("\\u")
+    }
+
+    pub fn new(input: Chars<'a>) -> Self {
         Self {
-            input: Box::new(input),
+            input,
             last_seen: LastSeen::Char,
-            output,
+            pending_output: Vec::with_capacity(8),
+            pending_ptr: 0,
         }
     }
 
-    fn emit(&mut self, c: char) {
-        // Unwrap - this is only called by Self::run, which early-exits if output is None
-        let output = self.output.as_mut().unwrap();
+    fn queue(&mut self, c: char) {
         if self.last_seen == LastSeen::Escape {
             // When we enter an escape sequence, we swallow the backslash,
             // to avoid having to backtrack if we drop an invalid escape sequence.
             // So we have to emit it here.
-            output.push('\\');
-            output.push(c);
+            self.pending_output.push('\\');
+            self.pending_output.push(c);
             self.last_seen = LastSeen::Char;
         } else if c == '\\' {
             // If we're not already in an escape sequence, enter one, dropping the char to
@@ -54,117 +56,130 @@ impl InvalidSurrogatesPass {
         } else {
             // If we're not in an escape sequence, and not entering one, just push
             self.last_seen = LastSeen::Char;
-            output.push(c);
+            self.pending_output.push(c);
         }
     }
 
-    fn emit_str(&mut self, s: &str) {
+    fn queue_str(&mut self, s: &str) {
         for c in s.chars() {
-            self.emit(c);
+            self.queue(c);
         }
     }
 
-    pub fn run(mut self) -> String {
-        if self.output.is_none() {
-            return *self.input;
+    fn pop(&mut self) -> Option<char> {
+        // We push chars into the buffer reading left-to-right, and need to emit them
+        // in the same order, so we have to track our stack index, and reset it when we
+        // run out of chars to pop.
+        if self.pending_ptr < self.pending_output.len() {
+            let c = self.pending_output[self.pending_ptr];
+            self.pending_ptr += 1;
+            Some(c)
+        } else {
+            self.pending_output.clear();
+            self.pending_ptr = 0;
+            None
+        }
+    }
+
+    pub fn step(&mut self) -> Option<char> {
+        if let Some(c) = self.pop() {
+            return Some(c);
         }
 
-        // We need to mutably borrow self while emitting, and Chars<'_> immutably borrows from
-        // the string it's iterating over, so we need to take the input out of self
-        let input = std::mem::take(&mut *self.input);
-        let mut chars = input.chars(); // We're iterating utf8 chars here, not bytes
+        // We're out of input, and we've go no pending output, so we're done
+        let c = self.input.next()?;
 
+        // We need a small string buffer to collect hex escape sequences into
         let mut buf = String::with_capacity(32);
 
-        while let Some(c) = chars.next() {
-            match (self.last_seen, c) {
-                (LastSeen::Escape, 'u') => {
-                    buf.clear();
-                    if collect_n_chars(&mut buf, &mut chars, 4) < 4 {
-                        // We didn't get enough characters to form a valid hex escape sequence
-                        self.emit_str(REPLACEMENT);
-                        continue;
-                    }
+        match (self.last_seen, c) {
+            (LastSeen::Escape, 'u') => {
+                buf.clear();
+                if collect_n_chars(&mut buf, &mut self.input, 4) < 4 {
+                    // We didn't get enough characters to form a valid hex escape sequence
+                    self.queue_str(REPLACEMENT);
+                    return self.pop();
+                }
 
-                    // We have to assert these characters are hex digits, because we're going to parse them as such.
-                    // Because these are utf8 chars, they could be emojis like 🤡, or anything else.
-                    if buf.chars().any(|c| !c.is_ascii_hexdigit()) {
-                        self.emit_str(REPLACEMENT);
-                        continue;
-                    }
-                    // Unwrap safe because of the above
-                    let first_code_point = u16::from_str_radix(&buf, 16).unwrap();
+                // We have to assert these characters are hex digits, because we're going to parse them as such.
+                // Because these are utf8 chars, they could be emojis like 🤡, or anything else.
+                if buf.chars().any(|c| !c.is_ascii_hexdigit()) {
+                    self.queue_str(REPLACEMENT);
+                    return self.pop();
+                }
+                // Unwrap safe because of the above
+                let first_code_point = u16::from_str_radix(&buf, 16).unwrap();
 
-                    // Now, we try to get the second member of the surrogate pair, since we require surrogates to be paired
-                    match chars.next() {
-                        Some('\\') => {}
-                        Some(c) => {
-                            self.emit_str(REPLACEMENT);
-                            self.emit(c);
-                            continue;
-                        }
-                        None => {
-                            // We didn't get a second escape sequence, so we just drop the first one
-                            self.emit_str(REPLACEMENT);
-                            continue;
-                        }
+                // Now, we try to get the second member of the surrogate pair, since we require surrogates to be paired
+                match self.input.next() {
+                    Some('\\') => {}
+                    Some(c) => {
+                        self.queue_str(REPLACEMENT);
+                        self.queue(c);
+                        return self.pop();
                     }
-                    match chars.next() {
-                        Some('u') => {}
-                        Some(c) => {
-                            self.emit_str(REPLACEMENT);
-                            self.emit(c);
-                            continue;
-                        }
-                        None => {
-                            self.emit_str(REPLACEMENT);
-                            continue;
-                        }
-                    }
-
-                    // Try to get the next hex sequence
-                    buf.clear();
-                    if collect_n_chars(&mut buf, &mut chars, 4) < 4 {
-                        self.emit_str(REPLACEMENT);
-                        self.emit_str(REPLACEMENT);
-                        continue;
-                    }
-                    if buf.chars().any(|c| !c.is_ascii_hexdigit()) {
-                        self.emit_str(REPLACEMENT);
-                        self.emit_str(REPLACEMENT);
-                        continue;
-                    }
-                    let second_code_point = u16::from_str_radix(&buf, 16).unwrap();
-
-                    if HIGH_SURROGATE_RANGE.contains(&first_code_point)
-                        && LOW_SURROGATE_RANGE.contains(&second_code_point)
-                    {
-                        // We have a valid pair of hex escapes, so we should push them.
-                        // TODO - there's way to do this that doesn't require the
-                        // allocation format! implies, but I'm not gonna work it out
-                        // right now - we expect this to be /extremely/ rare
-                        self.emit_str(&format!(
-                            "\\u{:04X}\\u{:04X}",
-                            first_code_point, second_code_point
-                        ));
-                    } else {
-                        // We didn't get a valid pair, so we just drop the pair entirely
-                        self.emit_str(REPLACEMENT);
-                        self.emit_str(REPLACEMENT);
+                    None => {
+                        // We didn't get a second escape sequence, so we just drop the first one
+                        self.queue_str(REPLACEMENT);
+                        return self.pop();
                     }
                 }
-                (LastSeen::Char | LastSeen::Escape, c) => {
-                    // emit handles the transition between escape and char for us,
-                    // so we just unconditionally emit here if the last thing we saw
-                    // was a char, or the last thing we saw was an escape, AND the
-                    // current char is not a 'u' (the case above)
-                    self.emit(c);
+                match self.input.next() {
+                    Some('u') => {}
+                    Some(c) => {
+                        self.queue_str(REPLACEMENT);
+                        self.queue(c);
+                        return self.pop();
+                    }
+                    None => {
+                        self.queue_str(REPLACEMENT);
+                        return self.pop();
+                    }
                 }
+
+                // Try to get the next hex sequence
+                buf.clear();
+                if collect_n_chars(&mut buf, &mut self.input, 4) < 4 {
+                    self.queue_str(REPLACEMENT);
+                    self.queue_str(REPLACEMENT);
+                    return self.pop();
+                }
+                if buf.chars().any(|c| !c.is_ascii_hexdigit()) {
+                    self.queue_str(REPLACEMENT);
+                    self.queue_str(REPLACEMENT);
+                    return self.pop();
+                }
+                let second_code_point = u16::from_str_radix(&buf, 16).unwrap();
+
+                if HIGH_SURROGATE_RANGE.contains(&first_code_point)
+                    && LOW_SURROGATE_RANGE.contains(&second_code_point)
+                {
+                    // We have a valid pair of hex escapes, so we should push them.
+                    // TODO - there's way to do this that doesn't require the
+                    // allocation format! implies, but I'm not gonna work it out
+                    // right now - we expect this to be /extremely/ rare
+                    self.queue_str(&format!(
+                        "\\u{:04X}\\u{:04X}",
+                        first_code_point, second_code_point
+                    ));
+                } else {
+                    // We didn't get a valid pair, so we just drop the pair entirely
+                    self.queue_str(REPLACEMENT);
+                    self.queue_str(REPLACEMENT);
+                }
+            }
+            (LastSeen::Char | LastSeen::Escape, c) => {
+                // emit handles the transition between escape and char for us,
+                // so we just unconditionally emit here if the last thing we saw
+                // was a char, or the last thing we saw was an escape, AND the
+                // current char is not a 'u' (the case above)
+                self.queue(c);
             }
         }
 
-        // Unwrap - at the top of this function, we check for none, and return if it's found
-        self.output.unwrap()
+        // Because we swallow escape chars to avoid backtracking, we have to recurse
+        // here to handle the case where we just entered an escape squeuence
+        self.next()
     }
 }
 
@@ -192,8 +207,8 @@ mod test {
 
     #[test]
     fn test() {
-        let pass = super::InvalidSurrogatesPass::new(RAW_DATA.to_string());
-        let data = pass.run();
+        let pass = super::InvalidSurrogatesPass::new(RAW_DATA.chars());
+        let data = pass.collect::<String>();
         let res = serde_json::from_str::<RawEvent>(&data);
         assert!(res.is_ok())
     }
