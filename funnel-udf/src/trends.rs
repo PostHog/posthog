@@ -1,10 +1,8 @@
 use std::collections::HashMap;
-use std::iter::repeat;
 use std::str::FromStr;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use uuid::Uuid;
 use crate::PropVal;
 
 fn deserialize_number_from_string<'de, D>(deserializer: D) -> Result<u64, D::Error>
@@ -45,9 +43,6 @@ struct Args {
 struct ResultStruct(u64, i8, PropVal);
 
 struct Vars {
-    max_step: (usize, EnteredTimestamp),
-    event_uuids: Vec<Vec<Uuid>>,
-    entered_timestamp: Vec<EnteredTimestamp>,
     interval_start_to_entered_timestamps: HashMap<u64, Vec<EnteredTimestamp>>,
 }
 
@@ -55,8 +50,6 @@ struct AggregateFunnelRow {
     breakdown_step: Option<usize>,
     results: HashMap<u64, ResultStruct>,
 }
-
-const MAX_REPLAY_EVENTS: usize = 10;
 
 const DEFAULT_ENTERED_TIMESTAMP: EnteredTimestamp = EnteredTimestamp {
     timestamp: 0.0,
@@ -92,9 +85,6 @@ impl AggregateFunnelRow {
     #[inline(always)]
     fn loop_prop_val(&mut self, args: &Args, prop_val: &PropVal) {
         let mut vars = Vars {
-            max_step: (0, DEFAULT_ENTERED_TIMESTAMP.clone()),
-            event_uuids: repeat(Vec::new()).take(args.num_steps).collect(),
-            entered_timestamp: vec![DEFAULT_ENTERED_TIMESTAMP.clone(); args.num_steps + 1],
             interval_start_to_entered_timestamps: HashMap::new(),
         };
 
@@ -129,16 +119,6 @@ impl AggregateFunnelRow {
                 self.results.insert(entered_timestamp[0].timestamp as u64, ResultStruct(entered_timestamp[0].timestamp as u64, -1, prop_val.clone() ));
             }
         }
-
-        /*
-        self.results.push(Result(
-            final_index as i8 - 1,
-            prop_val.clone(),
-            final_value.timings.windows(2).map(|w| w[1] - w[0]).collect(),
-            vars.event_uuids,
-        ))
-
-         */
     }
 
     #[inline(always)]
@@ -167,9 +147,8 @@ impl AggregateFunnelRow {
                 }
             } else {
                 for entered_timestamp in vars.interval_start_to_entered_timestamps.values_mut() {
-                    let in_match_window = (event.timestamp - vars.entered_timestamp[step - 1].timestamp) <= args.conversion_window_limit as f64;
-                    let already_reached_this_step = vars.entered_timestamp[step].timestamp == vars.entered_timestamp[step - 1].timestamp
-                        && vars.entered_timestamp[step].timestamp != 0.0;
+                    let in_match_window = (event.timestamp - entered_timestamp[step - 1].timestamp) <= args.conversion_window_limit as f64;
+                    let already_reached_this_step = entered_timestamp[step].timestamp == entered_timestamp[step - 1].timestamp;
                     if in_match_window && !already_reached_this_step {
                         if exclusion {
                             // self.results.push(Result(-1, prop_val.clone(), vec![], vec![]));
@@ -177,10 +156,10 @@ impl AggregateFunnelRow {
                         }
                         let is_unmatched_step_attribution = self.breakdown_step.map(|breakdown_step| step == breakdown_step - 1).unwrap_or(false) && *prop_val != event.breakdown;
                         if !is_unmatched_step_attribution {
-                            vars.entered_timestamp[step] = EnteredTimestamp {
-                                timestamp: vars.entered_timestamp[step - 1].timestamp,
+                            entered_timestamp[step] = EnteredTimestamp {
+                                timestamp: entered_timestamp[step - 1].timestamp,
                                 timings: {
-                                    let mut timings = vars.entered_timestamp[step - 1].timings.clone();
+                                    let mut timings = entered_timestamp[step - 1].timings.clone();
                                     timings.push(event.timestamp);
                                     timings
                                 },
@@ -192,7 +171,7 @@ impl AggregateFunnelRow {
                             //    vars.max_step = (step, vars.entered_timestamp[step].clone());
                             //}
                             // check if we have hit the goal. if we have, remove it from the list and add it to the successful_timestamps
-                            if entered_timestamp[args.num_steps].timestamp > 0.0 {
+                            if entered_timestamp[args.num_steps].timestamp != 0.0 {
                                 self.results.insert(entered_timestamp[0].timestamp as u64, ResultStruct(entered_timestamp[0].timestamp as u64, 1, prop_val.clone()));
                             } else if step == args.from_step + 1 {
                                 entered_timestamp[0].timings.push(1.0)
@@ -201,15 +180,14 @@ impl AggregateFunnelRow {
                     }
                 }
             }
-
-            // If a strict funnel, clear all of the steps that we didn't match to
-            // If we are processing multiple events, skip this step, because ordering makes it complicated
-            if args.funnel_order_type == "strict" {
-                for entered_timestamp in vars.interval_start_to_entered_timestamps.values_mut() {
-                    for i in 1..entered_timestamp.len() {
-                        if !event.steps.contains(&(i as i8)) {
-                            entered_timestamp[i] = DEFAULT_ENTERED_TIMESTAMP;
-                        }
+        }
+        // If a strict funnel, clear all of the steps that we didn't match to
+        // If we are processing multiple events, skip this step, because ordering makes it complicated
+        if args.funnel_order_type == "strict" {
+            for entered_timestamp in vars.interval_start_to_entered_timestamps.values_mut() {
+                for i in 1..entered_timestamp.len() {
+                    if !event.steps.contains(&(i as i8)) {
+                        entered_timestamp[i] = DEFAULT_ENTERED_TIMESTAMP;
                     }
                 }
             }
