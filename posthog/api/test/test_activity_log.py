@@ -298,7 +298,7 @@ class TestActivityLog(APIBaseTest, QueryMatchingTest):
                 user=user, defaults={"last_viewed_activity_date": f"2023-0{i}-17T04:36:50Z"}
             )
 
-            with self.assertNumQueries(FuzzyInt(37, 37)):
+            with self.assertNumQueries(FuzzyInt(39, 39)):
                 self.client.get(f"/api/projects/{self.team.id}/activity_log/important_changes")
 
     def test_can_list_all_activity(self) -> None:

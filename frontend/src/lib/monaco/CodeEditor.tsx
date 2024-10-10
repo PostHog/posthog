@@ -6,12 +6,10 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
 import { codeEditorLogicType } from 'lib/monaco/codeEditorLogicType'
 import { findNextFocusableElement, findPreviousFocusableElement } from 'lib/monaco/domUtils'
-import { hogQLAutocompleteProvider } from 'lib/monaco/hogQLAutocompleteProvider'
-import { hogQLMetadataProvider } from 'lib/monaco/hogQLMetadataProvider'
-import * as hog from 'lib/monaco/languages/hog'
-import * as hogJson from 'lib/monaco/languages/hogJson'
-import * as hogQL from 'lib/monaco/languages/hogQL'
-import * as hogTemplate from 'lib/monaco/languages/hogTemplate'
+import { initHogLanguage } from 'lib/monaco/languages/hog'
+import { initHogJsonLanguage } from 'lib/monaco/languages/hogJson'
+import { initHogQLLanguage } from 'lib/monaco/languages/hogQL'
+import { initHogTemplateLanguage } from 'lib/monaco/languages/hogTemplate'
 import { inStorybookTestRunner } from 'lib/utils'
 import { editor, editor as importedEditor, IDisposable } from 'monaco-editor'
 import * as monaco from 'monaco-editor'
@@ -47,61 +45,16 @@ function initEditor(
     ;(model as any).codeEditorLogic = builtCodeEditorLogic
 
     if (editorProps?.language === 'hog') {
-        if (!monaco.languages.getLanguages().some(({ id }) => id === 'hog')) {
-            monaco.languages.register({ id: 'hog', extensions: ['.hog'], mimetypes: ['application/hog'] })
-            monaco.languages.setLanguageConfiguration('hog', hog.conf())
-            monaco.languages.setMonarchTokensProvider('hog', hog.language())
-            monaco.languages.registerCompletionItemProvider('hog', hogQLAutocompleteProvider(HogLanguage.hog))
-            monaco.languages.registerCodeActionProvider('hog', hogQLMetadataProvider())
-        }
+        initHogLanguage(monaco)
     }
     if (editorProps?.language === 'hogQL' || editorProps?.language === 'hogQLExpr') {
-        const language: HogLanguage = editorProps.language as HogLanguage
-        if (!monaco.languages.getLanguages().some(({ id }) => id === language)) {
-            monaco.languages.register(
-                language === 'hogQL'
-                    ? {
-                          id: language,
-                          extensions: ['.sql', '.hogql'],
-                          mimetypes: ['application/hogql'],
-                      }
-                    : {
-                          id: language,
-                          mimetypes: ['application/hogql+expr'],
-                      }
-            )
-            monaco.languages.setLanguageConfiguration(language, hogQL.conf())
-            monaco.languages.setMonarchTokensProvider(language, hogQL.language())
-            monaco.languages.registerCompletionItemProvider(language, hogQLAutocompleteProvider(language))
-            monaco.languages.registerCodeActionProvider(language, hogQLMetadataProvider())
-        }
+        initHogQLLanguage(monaco, editorProps.language as HogLanguage)
     }
     if (editorProps?.language === 'hogTemplate') {
-        if (!monaco.languages.getLanguages().some(({ id }) => id === 'hogTemplate')) {
-            monaco.languages.register({
-                id: 'hogTemplate',
-                mimetypes: ['application/hog+template'],
-            })
-            monaco.languages.setLanguageConfiguration('hogTemplate', hogTemplate.conf())
-            monaco.languages.setMonarchTokensProvider('hogTemplate', hogTemplate.language())
-            monaco.languages.registerCompletionItemProvider(
-                'hogTemplate',
-                hogQLAutocompleteProvider(HogLanguage.hogTemplate)
-            )
-            monaco.languages.registerCodeActionProvider('hogTemplate', hogQLMetadataProvider())
-        }
+        initHogTemplateLanguage(monaco)
     }
     if (editorProps?.language === 'hogJson') {
-        if (!monaco.languages.getLanguages().some(({ id }) => id === 'hogJson')) {
-            monaco.languages.register({
-                id: 'hogJson',
-                mimetypes: ['application/hog+json'],
-            })
-            monaco.languages.setLanguageConfiguration('hogJson', hogJson.conf())
-            monaco.languages.setMonarchTokensProvider('hogJson', hogJson.language())
-            monaco.languages.registerCompletionItemProvider('hogJson', hogQLAutocompleteProvider(HogLanguage.hogJson))
-            monaco.languages.registerCodeActionProvider('hogJson', hogQLMetadataProvider())
-        }
+        initHogJsonLanguage(monaco)
     }
     if (options.tabFocusMode) {
         editor.onKeyDown((evt) => {

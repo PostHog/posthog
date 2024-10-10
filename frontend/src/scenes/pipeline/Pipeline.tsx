@@ -39,7 +39,10 @@ export function Pipeline(): JSX.Element {
         tabs.push({ key: PipelineTab.AppsManagement, content: <AppsManagement /> })
     }
 
-    tabs.push({ key: PipelineTab.History, content: <ActivityLog scope={ActivityScope.PLUGIN} /> })
+    tabs.push({
+        key: PipelineTab.History,
+        content: <ActivityLog scope={[ActivityScope.PLUGIN, ActivityScope.HOG_FUNCTION]} />,
+    })
 
     return (
         <div className="pipeline-scene">

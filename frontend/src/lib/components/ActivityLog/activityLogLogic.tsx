@@ -16,13 +16,14 @@ import { dataManagementActivityDescriber } from 'scenes/data-management/dataMana
 import { flagActivityDescriber } from 'scenes/feature-flags/activityDescriptions'
 import { notebookActivityDescriber } from 'scenes/notebooks/Notebook/notebookActivityDescriber'
 import { personActivityDescriber } from 'scenes/persons/activityDescriptions'
+import { hogFunctionActivityDescriber } from 'scenes/pipeline/hogfunctions/activityDescriptions'
 import { pluginActivityDescriber } from 'scenes/pipeline/pipelinePluginActivityDescriptions'
 import { insightActivityDescriber } from 'scenes/saved-insights/activityDescriptions'
 import { surveyActivityDescriber } from 'scenes/surveys/surveyActivityDescriber'
 import { teamActivityDescriber } from 'scenes/teamActivityDescriber'
 import { urls } from 'scenes/urls'
 
-import { ActivityScope } from '~/types'
+import { ActivityScope, PipelineNodeTab, PipelineStage, PipelineTab } from '~/types'
 
 import type { activityLogLogicType } from './activityLogLogicType'
 
@@ -38,6 +39,8 @@ export const describerFor = (logItem?: ActivityLogItem): Describer | undefined =
         case ActivityScope.PLUGIN:
         case ActivityScope.PLUGIN_CONFIG:
             return pluginActivityDescriber
+        case ActivityScope.HOG_FUNCTION:
+            return hogFunctionActivityDescriber
         case ActivityScope.COHORT:
             return cohortActivityDescriber
         case ActivityScope.INSIGHT:
@@ -59,14 +62,14 @@ export const describerFor = (logItem?: ActivityLogItem): Describer | undefined =
 }
 
 export type ActivityLogLogicProps = {
-    scope: ActivityScope
+    scope: ActivityScope | ActivityScope[]
     // if no id is provided, the list is not scoped by id and shows all activity ordered by time
     id?: number | string
 }
 
 export const activityLogLogic = kea<activityLogLogicType>([
     props({} as ActivityLogLogicProps),
-    key(({ scope, id }) => `activity/${scope}/${id || 'all'}`),
+    key(({ scope, id }) => `activity/${Array.isArray(scope) ? scope.join(',') : scope}/${id || 'all'}`),
     path((key) => ['lib', 'components', 'ActivityLog', 'activitylog', 'logic', key]),
     actions({
         setPage: (page: number) => ({ page }),
@@ -128,6 +131,7 @@ export const activityLogLogic = kea<activityLogLogicType>([
             forceUsePageParam?: boolean
         ): void => {
             const pageInURL = searchParams['page']
+            const firstScope = Array.isArray(props.scope) ? props.scope[0] : props.scope
 
             const shouldPage =
                 forceUsePageParam ||
@@ -135,7 +139,7 @@ export const activityLogLogic = kea<activityLogLogicType>([
                 ([ActivityScope.FEATURE_FLAG, ActivityScope.INSIGHT, ActivityScope.PLUGIN].includes(pageScope) &&
                     searchParams['tab'] === 'history')
 
-            if (shouldPage && pageInURL && pageInURL !== values.page && pageScope === props.scope) {
+            if (shouldPage && pageInURL && pageInURL !== values.page && pageScope === firstScope) {
                 actions.setPage(pageInURL)
             }
 
@@ -161,6 +165,13 @@ export const activityLogLogic = kea<activityLogLogicType>([
                 onPageChange(searchParams, hashParams, ActivityScope.INSIGHT),
             [urls.featureFlag(':id')]: (_, searchParams, hashParams) =>
                 onPageChange(searchParams, hashParams, ActivityScope.FEATURE_FLAG, true),
+            [urls.pipelineNode(PipelineStage.Destination, ':id', PipelineNodeTab.History)]: (
+                _,
+                searchParams,
+                hashParams
+            ) => onPageChange(searchParams, hashParams, ActivityScope.HOG_FUNCTION),
+            [urls.pipeline(PipelineTab.History)]: (_, searchParams, hashParams) =>
+                onPageChange(searchParams, hashParams, ActivityScope.PLUGIN),
         }
     }),
     events(({ actions }) => ({

@@ -11,7 +11,7 @@ from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.models import ActivityLog, FeatureFlag, Insight, NotificationViewed, User, Cohort
+from posthog.models import ActivityLog, FeatureFlag, Insight, NotificationViewed, User, Cohort, HogFunction
 from posthog.models.comment import Comment
 from posthog.models.notebook.notebook import Notebook
 
@@ -41,7 +41,7 @@ class ActivityLogSerializer(serializers.ModelSerializer):
             return bookmark_date < obj.created_at.replace(microsecond=obj.created_at.microsecond // 1000 * 1000)
 
 
-class ActivityLogPagination(pagination.CursorPagination):
+class ActivityLogPagination(pagination.PageNumberPagination):
     ordering = "-created_at"
     page_size = 100
 
@@ -85,6 +85,9 @@ class ActivityLogViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, mixins
             queryset = queryset.filter(user=params.get("user"))
         if params.get("scope"):
             queryset = queryset.filter(scope=params.get("scope"))
+        if params.get("scopes", None):
+            scopes = str(params.get("scopes", "")).split(",")
+            queryset = queryset.filter(scope__in=scopes)
         if params.get("item_id"):
             queryset = queryset.filter(item_id=params.get("item_id"))
 
@@ -116,6 +119,9 @@ class ActivityLogViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, mixins
                 Comment.objects.filter(created_by=user, team_id=self.team.pk).values_list("id", flat=True)
             )
             my_cohorts = list(Cohort.objects.filter(created_by=user, team_id=self.team.pk).values_list("id", flat=True))
+            my_hog_functions = list(
+                HogFunction.objects.filter(created_by=user, team_id=self.team.pk).values_list("id", flat=True)
+            )
 
             # then things they edited
             interesting_changes = [
@@ -181,6 +187,17 @@ class ActivityLogViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, mixins
                 .values_list("item_id", flat=True)
             )
 
+            my_changed_hog_functions = list(
+                ActivityLog.objects.filter(
+                    team_id=self.team.id,
+                    activity__in=interesting_changes,
+                    user_id=user.pk,
+                    scope="HogFunction",
+                )
+                .exclude(item_id__in=my_hog_functions)
+                .values_list("item_id", flat=True)
+            )
+
             last_read_date = (
                 NotificationViewed.objects.filter(user=user).values_list("last_viewed_activity_date", flat=True).first()
             )
@@ -234,6 +251,7 @@ class ActivityLogViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, mixins
                         )
                         | Q(Q(scope="Comment") & Q(item_id__in=my_comments))
                         | Q(Q(scope="Cohort") & Q(item_id__in=my_cohorts))
+                        | Q(Q(scope="HogFunction") & Q(item_id__in=my_hog_functions))
                     )
                     | Q(
                         # don't want to see creation of these things since that was before the user edited these things
@@ -248,6 +266,7 @@ class ActivityLogViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, mixins
                             )
                             | Q(Q(scope="Comment") & Q(item_id__in=my_changed_comments))
                             | Q(Q(scope="Cohort") & Q(item_id__in=my_changed_cohorts))
+                            | Q(Q(scope="HogFunction") & Q(item_id__in=my_changed_hog_functions))
                         )
                     )
                 )
