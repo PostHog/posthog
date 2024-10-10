@@ -15,8 +15,6 @@ import { urls } from 'scenes/urls'
 
 import { ActivityScope, TeamType } from '~/types'
 
-import { TeamSurveyConfig } from '../../../.yalc/posthog-js'
-
 const teamActionsMapping: Record<
     keyof TeamType,
     (change?: ActivityChange, logItem?: ActivityLogItem) => ChangeMapping | null
@@ -38,45 +36,6 @@ const teamActionsMapping: Record<
                 </>,
             ],
         }
-    },
-    survey_config: (change: ActivityChange | undefined): ChangeMapping | null => {
-        const before = change!.before as TeamSurveyConfig
-        const after = change!.after as TeamSurveyConfig
-        const descriptions = []
-        const preamble = 'Survey Configuration : '
-        if (before === undefined) {
-            descriptions.push('Survey Configuration was enabled')
-        }
-
-        const propertyChangeDesc = (name: string, callback: (config: TeamSurveyConfig) => string | undefined): void => {
-            if (callback(before) !== callback(after)) {
-                descriptions.push(`${preamble}: ${name} was changed from "${callback(before)}" to "${callback(after)}"`)
-            }
-        }
-
-        if (before?.appearance?.whiteLabel !== after?.appearance?.whiteLabel) {
-            descriptions.push(
-                `${preamble}: Survey White labeling was ${after?.appearance?.whiteLabel ? 'enabled' : 'disabled'}`
-            )
-        }
-
-        if (before?.appearance?.displayThankYouMessage !== after?.appearance?.displayThankYouMessage) {
-            descriptions.push(
-                `${preamble}: displayThankYouMessage was ${after?.appearance?.whiteLabel ? 'enabled' : 'disabled'}`
-            )
-        }
-
-        propertyChangeDesc('backgroundColor', (c) => c?.appearance?.backgroundColor)
-        propertyChangeDesc('submitButtonColor', (c) => c?.appearance?.submitButtonColor)
-        propertyChangeDesc('submitButtonTextColor', (c) => c?.appearance?.submitButtonTextColor)
-        propertyChangeDesc('ratingButtonColor', (c) => c?.appearance?.ratingButtonColor)
-        propertyChangeDesc('ratingButtonActiveColor', (c) => c?.appearance?.ratingButtonActiveColor)
-        propertyChangeDesc('borderColor', (c) => c?.appearance?.borderColor)
-        propertyChangeDesc('placeholder', (c) => c?.appearance?.placeholder)
-        propertyChangeDesc('thankYouMessageHeader', (c) => c?.appearance?.thankYouMessageHeader)
-        propertyChangeDesc('position', (c) => c?.appearance?.position)
-
-        return { description: descriptions }
     },
     capture_console_log_opt_in(change: ActivityChange | undefined): ChangeMapping | null {
         return { description: [<>{change?.after ? 'enabled' : 'disabled'} console log capture in session replay</>] }
