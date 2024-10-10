@@ -292,8 +292,9 @@ class TrendsActorsQueryBuilder:
     def _event_or_action_where_expr(self) -> ast.Expr | None:
         if isinstance(self.entity, ActionsNode):
             # Actions
+            assert self.team.project_id is not None
             try:
-                action = Action.objects.get(pk=int(self.entity.id), team=self.team)
+                action = Action.objects.get(pk=int(self.entity.id), team__project_id=self.team.project_id)
                 return action_to_expr(action)
             except Action.DoesNotExist:
                 # If an action doesn't exist, we want to return no events
