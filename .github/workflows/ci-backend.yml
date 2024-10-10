@@ -151,7 +151,6 @@ jobs:
               # tach enforces module boundaries: https://docs.gauge.sh/getting-started/why-tach
               run: tach check
 
-
     check-migrations:
         needs: changes
         if: needs.changes.outputs.backend == 'true'
