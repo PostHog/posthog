@@ -581,6 +581,12 @@ class FunnelLayout(StrEnum):
     VERTICAL = "vertical"
 
 
+class FunnelMathType(StrEnum):
+    TOTAL = "total"
+    FIRST_TIME_FOR_USER = "first_time_for_user"
+    FIRST_TIME_FOR_USER_WITH_FILTERS = "first_time_for_user_with_filters"
+
+
 class FunnelPathType(StrEnum):
     FUNNEL_PATH_BEFORE_STEP = "funnel_path_before_step"
     FUNNEL_PATH_BETWEEN_STEPS = "funnel_path_between_steps"
@@ -4190,7 +4196,14 @@ class DataWarehouseNode(BaseModel):
     id_field: str
     kind: Literal["DataWarehouseNode"] = "DataWarehouseNode"
     math: Optional[
-        Union[BaseMathType, PropertyMathType, CountPerActorMathType, Literal["unique_group"], Literal["hogql"]]
+        Union[
+            BaseMathType,
+            FunnelMathType,
+            PropertyMathType,
+            CountPerActorMathType,
+            Literal["unique_group"],
+            Literal["hogql"],
+        ]
     ] = None
     math_group_type_index: Optional[MathGroupTypeIndex] = None
     math_hogql: Optional[str] = None
@@ -4273,7 +4286,14 @@ class EntityNode(BaseModel):
     )
     kind: NodeKind
     math: Optional[
-        Union[BaseMathType, PropertyMathType, CountPerActorMathType, Literal["unique_group"], Literal["hogql"]]
+        Union[
+            BaseMathType,
+            FunnelMathType,
+            PropertyMathType,
+            CountPerActorMathType,
+            Literal["unique_group"],
+            Literal["hogql"],
+        ]
     ] = None
     math_group_type_index: Optional[MathGroupTypeIndex] = None
     math_hogql: Optional[str] = None
@@ -4344,7 +4364,14 @@ class EventsNode(BaseModel):
     kind: Literal["EventsNode"] = "EventsNode"
     limit: Optional[int] = None
     math: Optional[
-        Union[BaseMathType, PropertyMathType, CountPerActorMathType, Literal["unique_group"], Literal["hogql"]]
+        Union[
+            BaseMathType,
+            FunnelMathType,
+            PropertyMathType,
+            CountPerActorMathType,
+            Literal["unique_group"],
+            Literal["hogql"],
+        ]
     ] = None
     math_group_type_index: Optional[MathGroupTypeIndex] = None
     math_hogql: Optional[str] = None
@@ -4405,7 +4432,14 @@ class FunnelExclusionActionsNode(BaseModel):
     id: int
     kind: Literal["ActionsNode"] = "ActionsNode"
     math: Optional[
-        Union[BaseMathType, PropertyMathType, CountPerActorMathType, Literal["unique_group"], Literal["hogql"]]
+        Union[
+            BaseMathType,
+            FunnelMathType,
+            PropertyMathType,
+            CountPerActorMathType,
+            Literal["unique_group"],
+            Literal["hogql"],
+        ]
     ] = None
     math_group_type_index: Optional[MathGroupTypeIndex] = None
     math_hogql: Optional[str] = None
@@ -4466,7 +4500,14 @@ class FunnelExclusionEventsNode(BaseModel):
     kind: Literal["EventsNode"] = "EventsNode"
     limit: Optional[int] = None
     math: Optional[
-        Union[BaseMathType, PropertyMathType, CountPerActorMathType, Literal["unique_group"], Literal["hogql"]]
+        Union[
+            BaseMathType,
+            FunnelMathType,
+            PropertyMathType,
+            CountPerActorMathType,
+            Literal["unique_group"],
+            Literal["hogql"],
+        ]
     ] = None
     math_group_type_index: Optional[MathGroupTypeIndex] = None
     math_hogql: Optional[str] = None
@@ -4738,7 +4779,14 @@ class AIActionsNode(BaseModel):
     ] = None
     kind: Literal["EventsNode"] = "EventsNode"
     math: Optional[
-        Union[BaseMathType, PropertyMathType, CountPerActorMathType, Literal["unique_group"], Literal["hogql"]]
+        Union[
+            BaseMathType,
+            FunnelMathType,
+            PropertyMathType,
+            CountPerActorMathType,
+            Literal["unique_group"],
+            Literal["hogql"],
+        ]
     ] = None
     math_group_type_index: Optional[MathGroupTypeIndex] = None
     math_property: Optional[str] = None
@@ -4779,7 +4827,14 @@ class AIEventsNode(BaseModel):
     ] = None
     kind: Literal["EventsNode"] = "EventsNode"
     math: Optional[
-        Union[BaseMathType, PropertyMathType, CountPerActorMathType, Literal["unique_group"], Literal["hogql"]]
+        Union[
+            BaseMathType,
+            FunnelMathType,
+            PropertyMathType,
+            CountPerActorMathType,
+            Literal["unique_group"],
+            Literal["hogql"],
+        ]
     ] = None
     math_group_type_index: Optional[MathGroupTypeIndex] = None
     math_property: Optional[str] = None
@@ -4830,7 +4885,14 @@ class ActionsNode(BaseModel):
     id: int
     kind: Literal["ActionsNode"] = "ActionsNode"
     math: Optional[
-        Union[BaseMathType, PropertyMathType, CountPerActorMathType, Literal["unique_group"], Literal["hogql"]]
+        Union[
+            BaseMathType,
+            FunnelMathType,
+            PropertyMathType,
+            CountPerActorMathType,
+            Literal["unique_group"],
+            Literal["hogql"],
+        ]
     ] = None
     math_group_type_index: Optional[MathGroupTypeIndex] = None
     math_hogql: Optional[str] = None

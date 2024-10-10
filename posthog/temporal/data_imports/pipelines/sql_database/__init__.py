@@ -15,6 +15,8 @@ from dlt.common.schema.typing import TColumnSchema
 from dlt.sources.credentials import ConnectionStringCredentials
 from urllib.parse import quote
 
+from posthog.settings.utils import get_from_env
+from posthog.utils import str_to_bool
 from posthog.warehouse.types import IncrementalFieldType
 from posthog.warehouse.models.external_data_source import ExternalDataSource
 from sqlalchemy.sql import text
@@ -68,7 +70,12 @@ def sql_source_for_type(
             f"postgresql://{user}:{password}@{host}:{port}/{database}?sslmode={sslmode}"
         )
     elif source_type == ExternalDataSource.Type.MYSQL:
-        credentials = ConnectionStringCredentials(f"mysql+pymysql://{user}:{password}@{host}:{port}/{database}")
+        # We have to get DEBUG in temporal workers cos we're not loading Django in the same way as the app
+        is_debug = get_from_env("DEBUG", False, type_cast=str_to_bool)
+        ssl_ca = "/etc/ssl/cert.pem" if is_debug else "/etc/ssl/certs/ca-certificates.crt"
+        credentials = ConnectionStringCredentials(
+            f"mysql+pymysql://{user}:{password}@{host}:{port}/{database}?ssl_ca={ssl_ca}"
+        )
     elif source_type == ExternalDataSource.Type.MSSQL:
         credentials = ConnectionStringCredentials(
             f"mssql+pyodbc://{user}:{password}@{host}:{port}/{database}?driver=ODBC+Driver+18+for+SQL+Server&TrustServerCertificate=yes"
