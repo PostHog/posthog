@@ -45,8 +45,8 @@ def calculate_cohorts(parallel_count: int) -> None:
 
     # calculate exponential backoff
     backoff_duration = ExpressionWrapper(
-        timedelta(minutes=30) * (2 ** F("errors_calculating")),
-        output_field=DurationField(),  # type: ignore
+        timedelta(minutes=30) * (2 ** F("errors_calculating")),  # type: ignore
+        output_field=DurationField(),
     )
 
     for cohort in (
