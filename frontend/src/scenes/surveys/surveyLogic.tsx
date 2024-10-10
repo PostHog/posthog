@@ -29,7 +29,7 @@ import {
     SurveyUrlMatchType,
 } from '~/types'
 
-import { defaultSurveyFieldValues, NEW_SURVEY, NewSurvey } from './constants'
+import { defaultSurveyAppearance, defaultSurveyFieldValues, NEW_SURVEY, NewSurvey } from './constants'
 import type { surveyLogicType } from './surveyLogicType'
 import { surveysLogic } from './surveysLogic'
 import { sanitizeHTML } from './utils'
@@ -198,12 +198,21 @@ export const surveyLogic = kea<surveyLogicType>([
                 }
                 if (props.id === 'new' && router.values.hashParams.fromTemplate) {
                     const templatedSurvey = values.survey
-                    templatedSurvey.appearance = teamLogic.values.currentTeam?.survey_config?.appearance || null
+                    templatedSurvey.appearance = {
+                        ...defaultSurveyAppearance,
+                        ...teamLogic.values.currentTeam?.survey_config?.appearance,
+                        ...templatedSurvey.appearance,
+                    }
                     return templatedSurvey
                 }
 
                 const newSurvey = NEW_SURVEY
-                newSurvey.appearance = teamLogic.values.currentTeam?.survey_config?.appearance || null
+                newSurvey.appearance = {
+                    ...defaultSurveyAppearance,
+                    ...teamLogic.values.currentTeam?.survey_config?.appearance,
+                    ...newSurvey.appearance,
+                }
+
                 return newSurvey
             },
             createSurvey: async (surveyPayload: Partial<Survey>) => {

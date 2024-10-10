@@ -28,7 +28,6 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
-import { teamLogic } from 'scenes/teamLogic'
 
 import {
     ActionType,
@@ -79,11 +78,6 @@ export default function SurveyEdit(): JSX.Element {
         surveysEventsAvailable,
         surveysActionsAvailable,
     } = useValues(surveysLogic)
-    const { currentTeam } = useValues(teamLogic)
-
-    const surveyAppearance = {
-        ...currentTeam?.survey_config?.appearance,
-    }
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const sortedItemIds = survey.questions.map((_, idx) => idx.toString())
     const { thankYouMessageDescriptionContentType = null } = survey.appearance ?? {}
@@ -140,11 +134,7 @@ export default function SurveyEdit(): JSX.Element {
                                                     value={SurveyType.Popover}
                                                 >
                                                     <div className="scale-[0.8] absolute -top-4 -left-4">
-                                                        <SurveyAppearancePreview
-                                                            surveyAppearance={surveyAppearance}
-                                                            survey={survey}
-                                                            previewPageIndex={0}
-                                                        />
+                                                        <SurveyAppearancePreview survey={survey} previewPageIndex={0} />
                                                     </div>
                                                 </PresentationTypeCard>
                                                 <PresentationTypeCard
@@ -479,6 +469,16 @@ export default function SurveyEdit(): JSX.Element {
                                                                   Feedback button customization
                                                               </div>
                                                               <WidgetCustomization
+                                                                  hasBranchingLogic={hasBranchingLogic}
+                                                                  deleteBranchingLogic={deleteBranchingLogic}
+                                                                  customizeRatingButtons={
+                                                                      survey.questions[0].type ===
+                                                                      SurveyQuestionType.Rating
+                                                                  }
+                                                                  customizePlaceholderText={
+                                                                      survey.questions[0].type ===
+                                                                      SurveyQuestionType.Open
+                                                                  }
                                                                   appearance={value || defaultSurveyAppearance}
                                                                   onAppearanceChange={(appearance) => {
                                                                       onChange(appearance)
@@ -489,7 +489,7 @@ export default function SurveyEdit(): JSX.Element {
                                                           </>
                                                       )}
                                                       <Customization
-                                                          appearance={survey.appearance}
+                                                          appearance={value || defaultSurveyAppearance}
                                                           hasBranchingLogic={hasBranchingLogic}
                                                           deleteBranchingLogic={deleteBranchingLogic}
                                                           customizeRatingButtons={
