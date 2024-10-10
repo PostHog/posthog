@@ -97,7 +97,7 @@
          if(ifNull(greater(reached_from_step_count, 0), 0), round(multiply(divide(reached_to_step_count, reached_from_step_count), 100), 2), 0) AS conversion_rate,
          data.breakdown AS prop
   FROM
-    (SELECT arrayJoin(aggregate_funnel_array_trends_v0(0, 3, 1209600, 'first_touch', 'ordered', [[]], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), toUInt64(toTimeZone(toDateTime(toStartOfWeek(timestamp, 0), 'UTC'), 'UTC')), [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))))) AS af_tuple,
+    (SELECT arrayJoin(aggregate_funnel_array_trends_v0(0, 3, 1209600, 'first_touch', 'ordered', [[]], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), toUInt64(toDateTime(toStartOfWeek(timestamp, 0), 'UTC')), [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))))) AS af_tuple,
             toTimeZone(toDateTime(toUInt64(af_tuple.1), 'UTC'), 'UTC') AS entrance_period_start,
             af_tuple.2 AS success_bool,
             af_tuple.3 AS breakdown
