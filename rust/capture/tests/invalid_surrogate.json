@@ -7,10 +7,7 @@
                 "data": {
                     "payload": {
                         "level": "warn",
-                        "payload": [
-                            "\\\\\\\",\\\\\\\"emoji_flag\\\\\\\":\\\\\\\"\ud83c\ud83c...[truncated]",
-                            "\"test\""
-                        ],
+                        "payload": ["\\\\\\\",\\\\\\\"emoji_flag\\\\\\\":\\\\\\\"\ud83c...[truncated]", "\"test\""],
                         "trace": [
                             "q/< (https://internal-t.posthog.com/static/recorder.js?v=1.166.0:1:19808)",
                             "q (https://internal-t.posthog.com/static/recorder.js?v=1.166.0:1:20042)",
