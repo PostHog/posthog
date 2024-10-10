@@ -519,7 +519,7 @@ describe('Hog Executor', () => {
             ])
         })
 
-        it('ignores events that have already used their posthogCapture', () => {
+        it('ignores events that have already used their postHogCapture', () => {
             const fn = createHogFunction({
                 ...HOG_EXAMPLES.posthog_capture,
                 ...HOG_INPUTS_EXAMPLES.simple_fetch,

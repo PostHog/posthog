@@ -23,7 +23,7 @@ class BaseHogFunctionTemplateTest(BaseTest):
             side_effect=lambda *args: print("[DEBUG HogFunctionFetch]", *args) or self.mock_fetch_response(*args)  # noqa: T201
         )
         self.mock_posthog_capture = MagicMock(
-            side_effect=lambda *args: print("[DEBUG HogFunctionPosthogCapture]", *args)  # noqa: T201
+            side_effect=lambda *args: print("[DEBUG HogFunctionPostHogCapture]", *args)  # noqa: T201
         )
 
     mock_fetch_response = lambda *args: {"status": 200, "body": {}}
