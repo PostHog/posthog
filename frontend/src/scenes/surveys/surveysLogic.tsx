@@ -165,6 +165,10 @@ export const surveysLogic = kea<surveysLogicType>([
             (s) => [s.hasAvailableFeature],
             (hasAvailableFeature) => hasAvailableFeature(AvailableFeature.SURVEYS_STYLING),
         ],
+        surveysConfigAvailable: [
+            (s) => [s.hasAvailableFeature],
+            (hasAvailableFeature) => hasAvailableFeature(AvailableFeature.SURVEYS_STYLING),
+        ],
         surveysHTMLAvailable: [
             (s) => [s.hasAvailableFeature],
             (hasAvailableFeature) => hasAvailableFeature(AvailableFeature.SURVEYS_TEXT_HTML),

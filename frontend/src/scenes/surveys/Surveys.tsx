@@ -59,6 +59,7 @@ export function Surveys(): JSX.Element {
         filters,
         showSurveysDisabledBanner,
         tab,
+        surveysConfigAvailable,
     } = useValues(surveysLogic)
 
     const { deleteSurvey, updateSurvey, setSearchTerm, setSurveysFilters, setTab } = useActions(surveysLogic)
@@ -122,7 +123,7 @@ export function Surveys(): JSX.Element {
                     { key: SurveysTabs.Archived, label: 'Archived' },
                     showLinkedHogFunctions ? { key: SurveysTabs.Notifications, label: 'Notifications' } : null,
                     { key: SurveysTabs.History, label: 'History' },
-                    { key: SurveysTabs.Settings, label: 'Settings' },
+                    surveysConfigAvailable ? { key: SurveysTabs.Settings, label: 'Settings' } : null,
                 ]}
             />
             {tab === SurveysTabs.Settings && (
@@ -148,6 +149,7 @@ export function Surveys(): JSX.Element {
                     </div>
                     <div className="flex flex-col overflow-hidden flex-1">
                         <LemonCollapse
+                            activeKey="Appearance"
                             panels={[
                                 {
                                     key: 'Appearance',

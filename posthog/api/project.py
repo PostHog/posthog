@@ -264,6 +264,26 @@ class ProjectSerializer(ProjectBasicSerializer, UserPermissionsSerializerMixin):
             if validated_data.get("survey_config") is None:
                 del team_before_update["survey_config"]
 
+            survey_config_changes_between = dict_changes_between(
+                "Survey",
+                team_before_update["survey_config"],
+                validated_data["survey_config"],
+                use_field_exclusions=True,
+            )
+            if survey_config_changes_between:
+                log_activity(
+                    organization_id=cast(UUIDT, instance.organization_id),
+                    team_id=instance.pk,
+                    user=cast(User, self.context["request"].user),
+                    was_impersonated=is_impersonated_session(request),
+                    scope="Survey",
+                    item_id="#",
+                    activity="updated",
+                    detail=Detail(
+                        name="Survey Config",
+                        changes=survey_config_changes_between,
+                    ),
+                )
 
         if (
             "session_replay_config" in validated_data

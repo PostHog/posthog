@@ -28,12 +28,14 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
+import { teamLogic } from 'scenes/teamLogic'
 
 import {
     ActionType,
     LinkSurveyQuestion,
     RatingSurveyQuestion,
-    SurveyQuestion, SurveyQuestionType,
+    SurveyQuestion,
+    SurveyQuestionType,
     SurveyType,
     SurveyUrlMatchType,
 } from '~/types'
@@ -47,7 +49,6 @@ import { SurveyEditQuestionGroup, SurveyEditQuestionHeader } from './SurveyEditQ
 import { SurveyFormAppearance } from './SurveyFormAppearance'
 import { ScheduleType, SurveyEditSection, surveyLogic } from './surveyLogic'
 import { surveysLogic } from './surveysLogic'
-import {teamLogic} from "scenes/teamLogic";
 
 export default function SurveyEdit(): JSX.Element {
     const {
@@ -83,7 +84,6 @@ export default function SurveyEdit(): JSX.Element {
     const surveyAppearance = {
         ...currentTeam?.survey_config?.appearance,
     }
-    console.log(`surveyAppearance is `, surveyAppearance , ` team.survey_config is `, currentTeam?.survey_config?.appearance, ' end')
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const sortedItemIds = survey.questions.map((_, idx) => idx.toString())
     const { thankYouMessageDescriptionContentType = null } = survey.appearance ?? {}
@@ -94,9 +94,6 @@ export default function SurveyEdit(): JSX.Element {
     if (survey.iteration_count && survey.iteration_count > 0) {
         setSchedule('recurring')
     }
-
-
-
 
     function onSortEnd({ oldIndex, newIndex }: { oldIndex: number; newIndex: number }): void {
         function move(arr: SurveyQuestion[], from: number, to: number): SurveyQuestion[] {
@@ -143,7 +140,11 @@ export default function SurveyEdit(): JSX.Element {
                                                     value={SurveyType.Popover}
                                                 >
                                                     <div className="scale-[0.8] absolute -top-4 -left-4">
-                                                        <SurveyAppearancePreview surveyAppearance={surveyAppearance} survey={survey} previewPageIndex={0} />
+                                                        <SurveyAppearancePreview
+                                                            surveyAppearance={surveyAppearance}
+                                                            survey={survey}
+                                                            previewPageIndex={0}
+                                                        />
                                                     </div>
                                                 </PresentationTypeCard>
                                                 <PresentationTypeCard
@@ -488,9 +489,13 @@ export default function SurveyEdit(): JSX.Element {
                                                           </>
                                                       )}
                                                       <Customization
-                                                          appearance={value || defaultSurveyAppearance}
-                                                          customizeRatingButtons = {survey.questions[0].type === SurveyQuestionType.Rating}
-                                                          customizePlaceholderText = {survey.questions[0].type === SurveyQuestionType.Open}
+                                                          appearance={survey.appearance}
+                                                          customizeRatingButtons={
+                                                              survey.questions[0].type === SurveyQuestionType.Rating
+                                                          }
+                                                          customizePlaceholderText={
+                                                              survey.questions[0].type === SurveyQuestionType.Open
+                                                          }
                                                           onAppearanceChange={(appearance) => {
                                                               onChange(appearance)
                                                           }}

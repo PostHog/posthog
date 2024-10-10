@@ -2651,6 +2651,13 @@ export interface SetInsightOptions {
     fromPersistentApi?: boolean
 }
 
+export interface SurveyTemplateConfig {
+    type: SurveyType
+    templateType: string
+    questions: SurveyQuestion[]
+    description: string
+}
+
 export interface Survey {
     /** UUID */
     id: string
@@ -3802,6 +3809,7 @@ export enum ActivityScope {
     INSIGHT = 'Insight',
     PLUGIN = 'Plugin',
     PLUGIN_CONFIG = 'PluginConfig',
+    PROJECT = 'Project',
     DATA_MANAGEMENT = 'DataManagement',
     EVENT_DEFINITION = 'EventDefinition',
     PROPERTY_DEFINITION = 'PropertyDefinition',
