@@ -416,7 +416,7 @@ def cancel_running_batch_export_run(temporal: Client, batch_export_run: BatchExp
     async_to_sync(handle.cancel)()
 
     batch_export_run.status = BatchExportRun.Status.CANCELLED
-    async_to_sync(batch_export_run.asave)()
+    batch_export_run.save()
 
 
 @dataclass
