@@ -169,10 +169,10 @@ export class EventsProcessor {
         if (processPerson) {
             // Adds group_0 etc values to properties
             properties = await addGroupProperties(team.id, properties, this.groupTypeManager)
-
-            if (event === '$groupidentify') {
-                await this.upsertGroup(team.id, properties, timestamp)
-            }
+        } else if (event === '$groupidentify') {
+            // This is mutually exclusive with the above - we don't want to do person processing if
+            // group identify is used
+            await this.upsertGroup(team.id, properties, timestamp)
         }
 
         return {
