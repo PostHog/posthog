@@ -105,7 +105,6 @@ def calculate_funnel_trends_from_user_events(
                                 # check if we have hit the goal. if we have, remove it from the list and add it to the successful_timestamps
                                 if entered_timestamp[num_steps].timestamp > 0:
                                     results[entered_timestamp[0].timestamp] = (1, prop_val)
-                                    # interval_start_to_entered_timestamps[entered_timestamp[0].timestamp] = None
                                 # If we have hit the from_step threshold, record it (abuse the timings field)
                                 elif step == from_step + 1:
                                     entered_timestamp[0].timings.append(True)
