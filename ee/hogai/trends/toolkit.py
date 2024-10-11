@@ -73,6 +73,22 @@ class TrendsAgentToolkit:
         return GroupTypeMapping.objects.filter(team=self._team).order_by("group_type_index")
 
     @cached_property
+    def _entity_names(self) -> list[str]:
+        """
+        The schemas use `group_type_index` for groups complicating things for the agent. Instead, we use groups' names,
+        so the generation step will handle their indexes. Tools would need to support multiple arguments, or we would need
+        to create various tools for different group types. Since we don't use function calling here, we want to limit the
+        number of tools because non-function calling models can't handle many tools.
+        """
+        entities = [
+            "person",
+            "session",
+            # "cohort", # not supported yet
+            *[group.group_type for group in self.groups],
+        ]
+        return entities
+
+    @cached_property
     def tools(self) -> list[ToolkitTool]:
         """
         Our ReAct agent doesn't use function calling. Instead, it uses tools in natural language to decide next steps. The agent expects the following format:
@@ -86,13 +102,7 @@ class TrendsAgentToolkit:
         TODO: refactor to langchain's tools.
         """
 
-        entities = [
-            "person",
-            "session",
-            # "cohort", # not supported yet
-            *[group.group_type for group in self.groups],
-        ]
-        stringified_entities = ", ".join([f"'{entity}'" for entity in entities])
+        stringified_entities = ", ".join([f"'{entity}'" for entity in self._entity_names])
 
         tools: list[ToolkitTool] = [
             {**tool, "description": dedent(tool["description"])}
@@ -309,7 +319,7 @@ class TrendsAgentToolkit:
             return f"The property {property_name} does not exist in the taxonomy for the event {event_name}."
 
         # Add quotes to the String type, so the LLM can easily infer a type.
-        # Strings like "true" or "10" are interpreted as booleans or numbers without quotes.
+        # Strings like "true" or "10" are interpreted as booleans or numbers without quotes, so the schema generation fails.
         prop_values = ", ".join(
             [
                 f'"{value}"' if property_definition.property_type == PropertyType.String else value
@@ -324,6 +334,9 @@ class TrendsAgentToolkit:
         return prop_values
 
     def retrieve_entity_property_values(self, entity: str, property_name: str) -> str:
+        if entity not in self._entity_names:
+            return f"Entity {entity} does not exist in the taxonomy. You must use one of the following: {', '.join(self._entity_names)}."
+
         # output values here with quotes for strings
         return "No values have been found."
 
