@@ -24,9 +24,6 @@
     <max_connections>4096</max_connections>
     <keep_alive_timeout>3</keep_alive_timeout>
 
-    <!-- Disable experimental analyzer -->
-    <allow_experimental_analyzer>0</allow_experimental_analyzer>
-
     <openSSL>
         <server>
             <certificateFile>/etc/clickhouse-server/server.crt</certificateFile>
@@ -254,7 +251,7 @@
         <database>system</database>
         <table>text_log</table>
         <flush_interval_milliseconds>7500</flush_interval_milliseconds>
-        <level></level>
+        <level>trace</level>
     </text_log>
 
     <!-- Metric log contains rows with current values of ProfileEvents, CurrentMetrics collected
