@@ -208,13 +208,9 @@
                 },
                 "response": {
                     "$ref": "#/definitions/ActorsPropertyTaxonomyQueryResponse"
-                },
-                "type": {
-                    "enum": ["group", "person"],
-                    "type": "string"
                 }
             },
-            "required": ["kind", "property", "type"],
+            "required": ["kind", "property"],
             "type": "object"
         },
         "ActorsPropertyTaxonomyQueryResponse": {

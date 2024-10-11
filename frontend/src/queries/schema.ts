@@ -30,7 +30,6 @@ import {
     LogEntryPropertyFilter,
     PathsFilterType,
     PersonPropertyFilter,
-    PropertyDefinitionType,
     PropertyGroupFilter,
     PropertyMathType,
     RetentionFilterType,
@@ -2032,7 +2031,6 @@ export interface ActorsPropertyTaxonomyResponse {
 
 export interface ActorsPropertyTaxonomyQuery extends DataNode<ActorsPropertyTaxonomyQueryResponse> {
     kind: NodeKind.ActorsPropertyTaxonomyQuery
-    type: PropertyDefinitionType.Group | PropertyDefinitionType.Person
     property: string
     group_type_index?: integer
 }

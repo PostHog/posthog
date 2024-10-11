@@ -1,7 +1,6 @@
 from typing import Optional
 
 from posthog.hogql import ast
-from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.ai.utils import TaxonomyCacheMixin
@@ -62,21 +61,24 @@ class ActorsPropertyTaxonomyQueryRunner(TaxonomyCacheMixin, QueryRunner):
         return query
 
     @property
+    def _actor_type(self) -> str:
+        if self.query.group_type_index is not None:
+            return "group"
+        return "person"
+
+    @property
     def _origin(self) -> str:
-        if self.query.type == "person":
+        if self._actor_type == "person":
             return "persons"
         return "groups"
 
     def _subquery_filter(self) -> Optional[ast.Expr]:
-        if self.query.type == "group" and not isinstance(self.query.group_type_index, int):
-            raise ExposedHogQLError("group_type_index must be an integer.")
-
         field_filter = ast.Call(
             name="isNotNull",
             args=[ast.Field(chain=["prop"])],
         )
 
-        if self.query.type == "group":
+        if self._actor_type == "group":
             return ast.And(
                 exprs=[
                     field_filter,

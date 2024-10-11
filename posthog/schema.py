@@ -27,11 +27,6 @@ class ActionConversionGoal(BaseModel):
     actionId: int
 
 
-class Type(StrEnum):
-    GROUP = "group"
-    PERSON = "person"
-
-
 class ActorsPropertyTaxonomyResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -323,7 +318,7 @@ class DatabaseSchemaSource(BaseModel):
     status: str
 
 
-class Type1(StrEnum):
+class Type(StrEnum):
     POSTHOG = "posthog"
     DATA_WAREHOUSE = "data_warehouse"
     VIEW = "view"
@@ -2728,7 +2723,7 @@ class DatabaseSchemaTableCommon(BaseModel):
     fields: dict[str, DatabaseSchemaField]
     id: str
     name: str
-    type: Type1
+    type: Type
 
 
 class ElementPropertyFilter(BaseModel):
@@ -4065,7 +4060,6 @@ class ActorsPropertyTaxonomyQuery(BaseModel):
     )
     property: str
     response: Optional[ActorsPropertyTaxonomyQueryResponse] = None
-    type: Type
 
 
 class AnyResponseType(
