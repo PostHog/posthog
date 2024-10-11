@@ -2,6 +2,7 @@ import './FeatureFlag.scss'
 
 import { IconCopy, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonInput, LemonSelect, LemonSnack, Link } from '@posthog/lemon-ui'
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
@@ -298,6 +299,11 @@ export function FeatureFlagReleaseConditions({
                                         suffix={<span>%</span>}
                                     />
                                 </LemonField.Pure>{' '}
+                                <div
+                                    className={clsx(
+                                        propertySelectErrors?.[index]?.rollout_percentage ? 'basis-full h-0' : ''
+                                    )}
+                                />
                                 of <b>{aggregationTargetName}</b> in this set. Will match approximately{' '}
                                 {affectedUsers[index] !== undefined ? (
                                     <b>
@@ -455,9 +461,8 @@ export function FeatureFlagReleaseConditions({
                                                 {' '}
                                                 Cohort-based targeting{' '}
                                                 <Link to="https://posthog.com/docs/data/cohorts#can-you-use-a-dynamic-behavioral-cohort-as-a-feature-flag-target">
-                                                    doesn't support dynamic behavioral cohorts
+                                                    doesn't support dynamic behavioral cohorts.
                                                 </Link>{' '}
-                                                (excluded from filters).
                                             </>
                                         )}
                                     </div>
