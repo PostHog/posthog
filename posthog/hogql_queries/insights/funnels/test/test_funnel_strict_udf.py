@@ -7,6 +7,7 @@ from hogql_parser import parse_expr
 from posthog.constants import INSIGHT_FUNNELS, FunnelOrderType
 from posthog.hogql.constants import HogQLGlobalSettings, MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY
 from posthog.hogql.query import execute_hogql_query
+from posthog.hogql_queries.insights.funnels.funnel_udf import udf_event_array_filter
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
 from posthog.hogql_queries.insights.funnels.test.test_funnel_strict import (
     BaseTestFunnelStrictStepsBreakdown,
@@ -49,7 +50,9 @@ class TestFunnelStrictStepsUDF(BaseTestFunnelStrictSteps):
         query = cast(FunnelsQuery, filter_to_query(filters))
         runner = FunnelsQueryRunner(query=query, team=self.team)
         inner_aggregation_query = runner.funnel_class._inner_aggregation_query()
-        inner_aggregation_query.select.append(parse_expr(f"{runner.funnel_class._array_filter()} AS filtered_array"))
+        inner_aggregation_query.select.append(
+            parse_expr(f"{udf_event_array_filter(FunnelOrderType.STRICT)} AS filtered_array")
+        )
         inner_aggregation_query.having = None
         response = execute_hogql_query(
             query_type="FunnelsQuery",
@@ -91,6 +94,7 @@ class TestFunnelStrictStepsUDF(BaseTestFunnelStrictSteps):
         assert all(result["breakdown"] == ["one"] for result in results[0])
 
         # All events attribution
+        assert funnels_query.funnelsFilter is not None
         funnels_query.funnelsFilter.breakdownAttributionType = BreakdownAttributionType.ALL_EVENTS
         results = FunnelsQueryRunner(query=funnels_query, team=self.team).calculate().results
 

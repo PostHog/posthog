@@ -167,6 +167,7 @@ class TestFunnelTrendsUDF(BaseTestFunnelTrends):
         )
 
         # All events attribution
+        assert funnels_query.funnelsFilter is not None
         funnels_query.funnelsFilter.breakdownAttributionType = BreakdownAttributionType.ALL_EVENTS
         results = FunnelsQueryRunner(query=funnels_query, team=self.team).calculate().results
 
