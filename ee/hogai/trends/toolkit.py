@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field, RootModel
 from posthog.hogql_queries.ai.event_taxonomy_query_runner import EventTaxonomyQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.group_type_mapping import GroupTypeMapping
-from posthog.models.property_definition import PropertyDefinition
+from posthog.models.property_definition import PropertyDefinition, PropertyType
 from posthog.models.team.team import Team
 from posthog.schema import CachedEventTaxonomyQueryResponse, EventTaxonomyQuery, ExperimentalAITrendsQuery
 
@@ -287,8 +287,41 @@ class TrendsAgentToolkit:
         )
 
     def retrieve_event_property_values(self, event_name: str, property_name: str) -> str:
-        # output values here with quotes for strings
-        return "No values have been found."
+        try:
+            property_definition = PropertyDefinition.objects.get(
+                team=self._team, name=property_name, type=PropertyDefinition.Type.EVENT
+            )
+        except PropertyDefinition.DoesNotExist:
+            return f"The property {property_name} does not exist in the taxonomy."
+
+        runner = EventTaxonomyQueryRunner(EventTaxonomyQuery(event=event_name), self._team)
+        response = runner.run(ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
+
+        # TODO: incorrect response handling. Should it be retried?
+        if not isinstance(response, CachedEventTaxonomyQueryResponse):
+            return f"The event {event_name} does not exist in the taxonomy."
+
+        if not response.results:
+            return f"Properties do not exist in the taxonomy for the event {event_name}."
+
+        prop = next((item for item in response.results if item.property == property_name), None)
+        if not prop:
+            return f"The property {property_name} does not exist in the taxonomy for the event {event_name}."
+
+        # Add quotes to the String type, so the LLM can easily infer a type.
+        # Strings like "true" or "10" are interpreted as booleans or numbers without quotes.
+        prop_values = ", ".join(
+            [
+                f'"{value}"' if property_definition.property_type == PropertyType.String else value
+                for value in prop.sample_values
+            ]
+        )
+
+        # If there wasn't an exact match with the user's search, we provide a hint that LLM can use an arbitrary value.
+        if prop.sample_count > len(prop.sample_values):
+            return f"{prop_values} and {prop.sample_count - len(prop.sample_values)} more distinct values."
+
+        return prop_values
 
     def retrieve_entity_property_values(self, entity: str, property_name: str) -> str:
         # output values here with quotes for strings
