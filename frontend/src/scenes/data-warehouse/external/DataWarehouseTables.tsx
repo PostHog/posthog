@@ -54,9 +54,10 @@ export const DataWarehouseTables = ({ insightProps }: DataWarehousetTablesProps)
 
 interface DatabaseTableTreeProps {
     inline?: boolean
+    collapsible?: boolean
 }
 
-export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): JSX.Element => {
+export const DatabaseTableTreeWithItems = ({ inline, collapsible = true }: DatabaseTableTreeProps): JSX.Element => {
     const {
         dataWarehouseTablesBySourceType,
         posthogTables,
@@ -221,22 +222,22 @@ export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): 
                 },
                 ...(featureFlags[FEATURE_FLAGS.DATA_MODELING]
                     ? [
-                          {
-                              name: 'Materialized views',
-                              items: materializedViews.map((table) => ({
-                                  name: table.name,
-                                  table: table,
-                                  dropdownOverlay: dropdownOverlay(table),
-                                  items: Object.values(table.fields).map((column) => ({
-                                      name: column.name,
-                                      type: column.type,
-                                      icon: <IconDatabase />,
-                                  })),
-                              })),
-                              emptyLabel: <span className="text-muted">No materialized views found</span>,
-                              isLoading: databaseLoading || dataWarehouseSavedQueriesLoading,
-                          },
-                      ]
+                        {
+                            name: 'Materialized views',
+                            items: materializedViews.map((table) => ({
+                                name: table.name,
+                                table: table,
+                                dropdownOverlay: dropdownOverlay(table),
+                                items: Object.values(table.fields).map((column) => ({
+                                    name: column.name,
+                                    type: column.type,
+                                    icon: <IconDatabase />,
+                                })),
+                            })),
+                            emptyLabel: <span className="text-muted">No materialized views found</span>,
+                            isLoading: databaseLoading || dataWarehouseSavedQueriesLoading,
+                        },
+                    ]
                     : []),
             ]
 
@@ -275,16 +276,16 @@ export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): 
             },
             ...(featureFlags[FEATURE_FLAGS.DATA_MODELING]
                 ? [
-                      {
-                          name: 'Materialized views',
-                          items: materializedViews.map((table) => ({
-                              table: table,
-                              icon: <IconBrackets />,
-                          })),
-                          emptyLabel: <span className="text-muted">No materialized views found</span>,
-                          isLoading: databaseLoading || dataWarehouseSavedQueriesLoading,
-                      },
-                  ]
+                    {
+                        name: 'Materialized views',
+                        items: materializedViews.map((table) => ({
+                            table: table,
+                            icon: <IconBrackets />,
+                        })),
+                        emptyLabel: <span className="text-muted">No materialized views found</span>,
+                        isLoading: databaseLoading || dataWarehouseSavedQueriesLoading,
+                    },
+                ]
                 : []),
         ]
 
@@ -301,7 +302,7 @@ export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): 
             {collapsed ? (
                 <LemonButton icon={<IconDatabase />} onClick={() => setCollapsed(false)} />
             ) : (
-                <>
+                (collapsible ? <>
                     <LemonButton
                         size="xsmall"
                         onClick={() => setCollapsed(true)}
@@ -312,7 +313,10 @@ export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): 
                         <span className="uppercase text-muted-alt tracking-wider">Sources</span>
                     </LemonButton>
                     <DatabaseTableTree onSelectRow={selectRow} items={treeItems()} selectedRow={selectedRow} />
-                </>
+                </> : <>
+                    <span className="text-muted-alt tracking-wider font-normal">Sources</span>
+                    <DatabaseTableTree onSelectRow={selectRow} items={treeItems()} selectedRow={selectedRow} />
+                </>)
             )}
             <LemonModal
                 width="50rem"

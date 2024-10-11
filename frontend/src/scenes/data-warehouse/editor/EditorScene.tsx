@@ -2,7 +2,7 @@ import { BindLogic } from 'kea'
 import { useRef } from 'react'
 
 import { editorSizingLogic } from './editorSizingLogic'
-import { QueryTabs } from './QueryTabs'
+import { QueryWindow } from './QueryWindow'
 import { SourceNavigator } from './SourceNavigator'
 
 export function EditorScene(): JSX.Element {
@@ -27,9 +27,9 @@ export function EditorScene(): JSX.Element {
 
     return (
         <BindLogic logic={editorSizingLogic} props={editorSizingLogicProps}>
-            <div className="w-full h-full flex flex-row" ref={ref}>
+            <div className="w-full h-full flex flex-row overflow-hidden" ref={ref}>
                 <SourceNavigator />
-                <QueryTabs />
+                <QueryWindow />
             </div>
         </BindLogic>
     )
