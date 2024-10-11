@@ -247,6 +247,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             value,
             allVariables: values.variables,
         }),
+        resetVariables: () => ({ variables: values.insightVariables }),
     })),
 
     loaders(({ actions, props, values }) => ({
@@ -262,7 +263,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         const apiUrl = values.apiUrl(
                             refresh || 'async',
                             action === 'preview' ? values.temporaryFilters : undefined,
-                            action === 'preview' ? values.variableOverrides : undefined
+                            action === 'preview' ? values.temporaryVariables : undefined
                         )
                         const dashboardResponse: Response = await api.getResponse(apiUrl)
                         const dashboard: DashboardType<InsightModel> | null = await getJSONOrNull(dashboardResponse)
@@ -311,7 +312,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             `api/projects/${values.currentTeamId}/dashboards/${props.id}`,
                             {
                                 filters: values.filters,
-                                variables: values.variableOverrides,
+                                variables: values.insightVariables,
                                 tiles: layoutsToUpdate,
                             }
                         )
@@ -408,37 +409,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
         ],
     })),
     reducers(({ props }) => ({
-        variableOverrides: [
-            {} as Record<string, HogQLVariable>,
-            {
-                overrideVariableValue: (state, { variableId, value, allVariables }) => {
-                    const foundExistingVar = allVariables.find((n) => n.id === variableId)
-                    if (!foundExistingVar) {
-                        return state
-                    }
-
-                    return {
-                        ...state,
-                        [variableId]: { code_name: foundExistingVar.code_name, variableId: foundExistingVar.id, value },
-                    }
-                },
-                setDashboardMode: (state, { mode, source }) => {
-                    if (mode === null && source === DashboardEventSource.DashboardHeaderDiscardChanges) {
-                        return {}
-                    }
-
-                    return state
-                },
-                loadDashboardSuccess: (state, { dashboard, payload }) =>
-                    dashboard
-                        ? {
-                              ...state,
-                              // don't update filters if we're previewing
-                              ...(payload?.action === 'preview' ? {} : dashboard.variables ?? {}),
-                          }
-                        : state,
-            },
-        ],
         _dashboardLoading: [
             false,
             {
@@ -476,6 +446,48 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
                     return tileIdToLayouts
                 },
+            },
+        ],
+        temporaryVariables: [
+            {} as Record<string, HogQLVariable>,
+            {
+                overrideVariableValue: (state, { variableId, value, allVariables }) => {
+                    const foundExistingVar = allVariables.find((n) => n.id === variableId)
+                    if (!foundExistingVar) {
+                        return state
+                    }
+
+                    return {
+                        ...state,
+                        [variableId]: { code_name: foundExistingVar.code_name, variableId: foundExistingVar.id, value },
+                    }
+                },
+                resetVariables: (_, { variables }) => ({ ...variables }),
+                loadDashboardSuccess: (state, { dashboard, payload }) =>
+                    dashboard
+                        ? {
+                              ...state,
+                              // don't update filters if we're previewing
+                              ...(payload?.action === 'preview' ? {} : dashboard.variables ?? {}),
+                          }
+                        : state,
+            },
+        ],
+        insightVariables: [
+            {} as Record<string, HogQLVariable>,
+            {
+                setFiltersAndLayoutsAndVariables: (state, { variables }) => ({
+                    ...state,
+                    ...variables,
+                }),
+                loadDashboardSuccess: (state, { dashboard, payload }) =>
+                    dashboard
+                        ? {
+                              ...state,
+                              // don't update filters if we're previewing
+                              ...(payload?.action === 'preview' ? {} : dashboard.variables ?? {}),
+                          }
+                        : state,
             },
         ],
         temporaryFilters: [
@@ -736,11 +748,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
     })),
     selectors(() => ({
         dashboardVariables: [
-            (s) => [s.dashboard, s.variables, s.variableOverrides],
+            (s) => [s.dashboard, s.variables, s.temporaryVariables],
             (
                 dashboard: DashboardType,
                 allVariables: Variable[],
-                variableOverrides: Record<string, HogQLVariable>
+                temporaryVariables: Record<string, HogQLVariable>
             ): Variable[] => {
                 const dataVizNodes = dashboard.tiles
                     .map((n) => n.insight?.query)
@@ -760,7 +772,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             return null
                         }
 
-                        const overridenValue = variableOverrides[v.variableId]?.value
+                        const overridenValue = temporaryVariables[v.variableId]?.value
 
                         // Overwrite the variable `value` from the insight
                         const resultVar: Variable = {
@@ -1138,7 +1150,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     'force_async',
                     undefined,
                     undefined,
-                    values.variableOverrides
+                    values.temporaryVariables
                 )
                 dashboardsModel.actions.updateDashboardInsight(refreshedInsight!)
                 // Start polling for results
@@ -1231,7 +1243,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             'force_cache',
                             methodOptions,
                             action === 'preview' ? values.temporaryFilters : undefined,
-                            values.variableOverrides
+                            action === 'preview' ? values.temporaryVariables : undefined
                         )
 
                         if (action === 'preview' && polledInsight!.dashboard_tiles) {
@@ -1296,12 +1308,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     // reset filters to that before previewing
                     actions.setDates(values.filters.date_from ?? null, values.filters.date_to ?? null)
                     actions.setProperties(values.filters.properties ?? null)
+                    actions.resetVariables()
 
                     // also reset layout to that we stored in dashboardLayouts
                     // this is done in the reducer for dashboard
                 } else if (source === DashboardEventSource.DashboardHeaderSaveDashboard) {
                     // save edit mode changes
-                    actions.setFiltersAndLayoutsAndVariables(values.temporaryFilters, values.variableOverrides)
+                    actions.setFiltersAndLayoutsAndVariables(values.temporaryFilters, values.temporaryVariables)
                 }
             }
 

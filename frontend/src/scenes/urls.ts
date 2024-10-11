@@ -3,7 +3,7 @@ import { AlertType } from 'lib/components/Alerts/types'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 
 import { ExportOptions } from '~/exporter/types'
-import { DashboardFilter, HogQLFilters, Node } from '~/queries/schema'
+import { DashboardFilter, HogQLFilters, HogQLVariable, Node } from '~/queries/schema'
 import {
     ActionType,
     ActivityTab,
@@ -91,12 +91,20 @@ export const urls = {
             }
         ).url,
     insightEdit: (id: InsightShortId): string => `/insights/${id}/edit`,
-    insightView: (id: InsightShortId, filtersOverride?: DashboardFilter): string =>
-        `/insights/${id}${
-            filtersOverride !== undefined
-                ? `?filters_override=${encodeURIComponent(JSON.stringify(filtersOverride))}`
-                : ''
-        }`,
+    insightView: (
+        id: InsightShortId,
+        filtersOverride?: DashboardFilter,
+        variablesOverride?: Record<string, HogQLVariable>
+    ): string => {
+        const params = [
+            { param: 'filters_override', value: filtersOverride },
+            { param: 'variables_override', value: variablesOverride },
+        ]
+            .filter((n) => Boolean(n.value))
+            .map((n) => `${n.param}=${encodeURIComponent(JSON.stringify(n.value))}`)
+            .join('&')
+        return `/insights/${id}${params.length ? `?${params}` : ''}`
+    },
     insightSubcriptions: (id: InsightShortId): string => `/insights/${id}/subscriptions`,
     insightSubcription: (id: InsightShortId, subscriptionId: string): string =>
         `/insights/${id}/subscriptions/${subscriptionId}`,

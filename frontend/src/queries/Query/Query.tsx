@@ -113,6 +113,7 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
                 uniqueKey={uniqueKey}
                 context={queryContext}
                 readOnly={readOnly}
+                variablesOverride={props.variablesOverride}
             />
         )
     } else if (isSavedInsightNode(query)) {

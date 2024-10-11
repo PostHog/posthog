@@ -6020,6 +6020,7 @@ class QueryRequest(BaseModel):
             " `query_status` response field."
         ),
     )
+    variables_override: Optional[dict[str, dict[str, Any]]] = None
 
 
 class QuerySchemaRoot(

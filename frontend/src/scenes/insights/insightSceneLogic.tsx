@@ -18,7 +18,7 @@ import { ActivityFilters } from '~/layout/navigation-3000/sidepanel/panels/activ
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { getDefaultQuery } from '~/queries/nodes/InsightViz/utils'
-import { DashboardFilter, Node } from '~/queries/schema'
+import { DashboardFilter, HogQLVariable, Node } from '~/queries/schema'
 import { ActivityScope, Breadcrumb, InsightShortId, InsightType, ItemMode } from '~/types'
 
 import { insightDataLogic } from './insightDataLogic'
@@ -49,13 +49,15 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             insightMode: ItemMode,
             itemId: string | undefined,
             alertId: AlertType['id'] | undefined,
-            filtersOverride: DashboardFilter | undefined
+            filtersOverride: DashboardFilter | undefined,
+            variablesOverride: Record<string, HogQLVariable> | undefined
         ) => ({
             insightId,
             insightMode,
             itemId,
             alertId,
             filtersOverride,
+            variablesOverride,
         }),
         setInsightLogicRef: (logic: BuiltLogic<insightLogicType> | null, unmount: null | (() => void)) => ({
             logic,
@@ -103,6 +105,13 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             null as null | DashboardFilter,
             {
                 setSceneState: (_, { filtersOverride }) => (filtersOverride !== undefined ? filtersOverride : null),
+            },
+        ],
+        variablesOverride: [
+            null as null | Record<string, HogQLVariable>,
+            {
+                setSceneState: (_, { variablesOverride }) =>
+                    variablesOverride !== undefined ? variablesOverride : null,
             },
         ],
         insightLogicRef: [
@@ -180,7 +189,11 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 const oldRef = values.insightLogicRef // free old logic after mounting new one
                 const oldRef2 = values.insightDataLogicRef // free old logic after mounting new one
                 if (insightId) {
-                    const insightProps = { dashboardItemId: insightId, filtersOverride: values.filtersOverride }
+                    const insightProps = {
+                        dashboardItemId: insightId,
+                        filtersOverride: values.filtersOverride,
+                        variablesOverride: values.variablesOverride,
+                    }
 
                     const logic = insightLogic.build(insightProps)
                     const unmount = logic.mount()
@@ -200,7 +213,11 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                     oldRef2.unmount()
                 }
             } else if (insightId) {
-                values.insightLogicRef?.logic.actions.loadInsight(insightId as InsightShortId, values.filtersOverride)
+                values.insightLogicRef?.logic.actions.loadInsight(
+                    insightId as InsightShortId,
+                    values.filtersOverride,
+                    values.variablesOverride
+                )
             }
         },
     })),
@@ -249,9 +266,17 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 insightMode !== values.insightMode ||
                 itemId !== values.itemId ||
                 alert_id !== values.alertId ||
-                !objectsEqual(searchParams['filters_override'], values.filtersOverride)
+                !objectsEqual(searchParams['filters_override'], values.filtersOverride) ||
+                !objectsEqual(searchParams['variables_override'], values.variablesOverride)
             ) {
-                actions.setSceneState(insightId, insightMode, itemId, alert_id, searchParams['filters_override'])
+                actions.setSceneState(
+                    insightId,
+                    insightMode,
+                    itemId,
+                    alert_id,
+                    searchParams['filters_override'],
+                    searchParams['variables_override']
+                )
             }
 
             let queryFromUrl: Node | null = null

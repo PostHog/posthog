@@ -1205,6 +1205,7 @@ export interface QueryRequest {
      */
     query: QuerySchema
     filters_override?: DashboardFilter
+    variables_override?: Record<string, Record<string, any>>
 }
 
 /**

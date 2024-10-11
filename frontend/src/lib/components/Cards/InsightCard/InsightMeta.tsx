@@ -45,6 +45,7 @@ interface InsightMetaProps
         | 'showDetailsControls'
         | 'moreButtons'
         | 'filtersOverride'
+        | 'variablesOverride'
     > {
     insight: QueryBasedInsightModel
     areDetailsShown?: boolean
@@ -57,6 +58,7 @@ export function InsightMeta({
     dashboardId,
     updateColor,
     filtersOverride,
+    variablesOverride,
     removeFromDashboard,
     deleteWithUndo,
     refresh,
@@ -100,7 +102,7 @@ export function InsightMeta({
             topHeading={<TopHeading insight={insight} />}
             meta={
                 <>
-                    <Link to={urls.insightView(short_id, filtersOverride)}>
+                    <Link to={urls.insightView(short_id, filtersOverride, variablesOverride)}>
                         <h4 title={name} data-attr="insight-card-title">
                             {name || <i>{summary}</i>}
                             {loading && (
@@ -132,7 +134,7 @@ export function InsightMeta({
             moreButtons={
                 <>
                     <>
-                        <LemonButton to={urls.insightView(short_id, filtersOverride)} fullWidth>
+                        <LemonButton to={urls.insightView(short_id, filtersOverride, variablesOverride)} fullWidth>
                             View
                         </LemonButton>
                         {refresh && (

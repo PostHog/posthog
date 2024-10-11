@@ -1,6 +1,6 @@
 import { actions, afterMount, connect, kea, key, path, props, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
-import { getVariablesFromQuery } from 'scenes/insights/utils/queryUtils'
+import { getVariablesFromQuery, haveVariablesOrFiltersChanged } from 'scenes/insights/utils/queryUtils'
 
 import { DataVisualizationNode, HogQLVariable } from '~/queries/schema'
 
@@ -110,6 +110,11 @@ export const variablesLogic = kea<variablesLogicType>([
                         return acc
                     }, {} as Record<string, HogQLVariable>),
                 },
+            }
+
+            const queryVarsHaveChanged = haveVariablesOrFiltersChanged(query, values.query)
+            if (!queryVarsHaveChanged) {
+                return
             }
 
             if (props.readOnly) {

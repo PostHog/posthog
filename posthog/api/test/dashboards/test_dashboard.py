@@ -13,6 +13,7 @@ from posthog.api.test.dashboards import DashboardAPI
 from posthog.constants import AvailableFeature
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 from posthog.models import Dashboard, DashboardTile, Filter, Insight, Team, User
+from posthog.models.insight_variable import InsightVariable
 from posthog.models.organization import Organization
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.signals import mute_selected_signals
@@ -1361,3 +1362,52 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         for item in response["tiles"]:
             self.assertNotEqual(item.get("dashboard", None), existing_dashboard.pk)
+
+    def test_dashboard_variables(self):
+        variable = InsightVariable.objects.create(
+            team=self.team, name="Test 1", code_name="test_1", default_value="some_default_value", type="String"
+        )
+        dashboard = Dashboard.objects.create(
+            team=self.team,
+            name="dashboard 1",
+            created_by=self.user,
+            variables={
+                str(variable.id): {
+                    "code_name": variable.code_name,
+                    "variableId": str(variable.id),
+                    "value": "some override value",
+                }
+            },
+        )
+        insight = Insight.objects.create(
+            filters={},
+            query={
+                "kind": "DataVisualizationNode",
+                "source": {
+                    "kind": "HogQLQuery",
+                    "query": "select {variables.test_1}",
+                    "variables": {
+                        str(variable.id): {
+                            "code_name": variable.code_name,
+                            "variableId": str(variable.id),
+                        }
+                    },
+                },
+                "chartSettings": {},
+                "tableSettings": {},
+            },
+            team=self.team,
+            last_refresh=now(),
+        )
+        DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+
+        response_data = self.dashboard_api.get_dashboard(dashboard.pk)
+
+        assert response_data["variables"] is not None
+        assert isinstance(response_data["variables"], dict)
+        assert len(response_data["variables"].keys()) == 1
+        for key, value in response_data["variables"].items():
+            assert key == str(variable.id)
+            assert value["code_name"] == variable.code_name
+            assert value["variableId"] == str(variable.id)
+            assert value["value"] == "some override value"

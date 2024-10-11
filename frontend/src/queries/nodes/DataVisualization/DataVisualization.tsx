@@ -17,7 +17,14 @@ import { HogQLBoldNumber } from 'scenes/insights/views/BoldNumber/BoldNumber'
 import { urls } from 'scenes/urls'
 
 import { insightVizDataCollectionId, insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
-import { AnyResponseType, DataVisualizationNode, HogQLQuery, HogQLQueryResponse, NodeKind } from '~/queries/schema'
+import {
+    AnyResponseType,
+    DataVisualizationNode,
+    HogQLQuery,
+    HogQLQueryResponse,
+    HogQLVariable,
+    NodeKind,
+} from '~/queries/schema'
 import { QueryContext } from '~/queries/types'
 import { ChartDisplayType, ExporterFormat, InsightLogicProps } from '~/types'
 
@@ -46,6 +53,8 @@ interface DataTableVisualizationProps {
     the data node logic becomes read only implicitly */
     cachedResults?: AnyResponseType
     readOnly?: boolean
+    /** Dashboard variables to override the ones in the query */
+    variablesOverride?: Record<string, HogQLVariable> | null
 }
 
 let uniqueNode = 0
@@ -57,6 +66,7 @@ export function DataTableVisualization({
     context,
     cachedResults,
     readOnly,
+    variablesOverride,
 }: DataTableVisualizationProps): JSX.Element {
     const [key] = useState(`DataVisualizationNode.${uniqueKey ?? uniqueNode++}`)
     const insightProps: InsightLogicProps<DataVisualizationNode> = context?.insightProps || {
@@ -73,6 +83,7 @@ export function DataTableVisualization({
         insightLogicProps: insightProps,
         setQuery,
         cachedResults,
+        variablesOverride,
     }
 
     const dataNodeLogicProps: DataNodeLogicProps = {
@@ -81,6 +92,7 @@ export function DataTableVisualization({
         cachedResults,
         loadPriority: insightProps.loadPriority,
         dataNodeCollectionId: insightVizDataCollectionId(insightProps, key),
+        variablesOverride,
     }
 
     return (

@@ -16,6 +16,7 @@ import {
     ChartSettingsFormatting,
     ConditionalFormattingRule,
     DataVisualizationNode,
+    HogQLVariable,
 } from '~/queries/schema'
 import { QueryContext } from '~/queries/types'
 import { ChartDisplayType, InsightLogicProps, ItemMode } from '~/types'
@@ -68,6 +69,8 @@ export interface DataVisualizationLogicProps {
     context?: QueryContext<DataVisualizationNode>
     cachedResults?: AnyResponseType
     insightLoading?: boolean
+    /** Dashboard variables to override the ones in the query */
+    variablesOverride?: Record<string, HogQLVariable> | null
 }
 
 export interface SelectedYAxis {
@@ -222,6 +225,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 query: props.query.source,
                 dataNodeCollectionId: insightVizDataCollectionId(props.insightLogicProps, props.key),
                 loadPriority: props.insightLogicProps.loadPriority,
+                variablesOverride: props.variablesOverride,
             }),
             ['response', 'responseLoading', 'responseError', 'queryCancelled'],
             themeLogic,
@@ -234,6 +238,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 query: props.query.source,
                 dataNodeCollectionId: insightVizDataCollectionId(props.insightLogicProps, props.key),
                 loadPriority: props.insightLogicProps.loadPriority,
+                variablesOverride: props.variablesOverride,
             }),
             ['loadData'],
         ],
