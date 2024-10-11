@@ -202,7 +202,7 @@ class CreateTrendsPlanToolsNode(AssistantNode):
         else:
             output = toolkit.handle_incorrect_response(input.arguments)
 
-        return {"intermediate_steps": [*intermediate_steps, (action, output)]}
+        return {"intermediate_steps": [*intermediate_steps[:-1], (action, output)]}
 
 
 class GenerateTrendsNode(AssistantNode):
