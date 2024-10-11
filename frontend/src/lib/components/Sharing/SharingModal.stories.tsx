@@ -36,9 +36,9 @@ const Template = (args: Partial<SharingModalProps> & { licensed?: boolean }): JS
     useStorybookMocks({
         get: {
             ...[
-                '/api/projects/:id/insights/:insight_id/sharing/',
-                '/api/projects/:id/dashboards/:dashboard_id/sharing/',
-                '/api/projects/:id/session_recordings/:recording_id/sharing/',
+                '/api/environments/:id/insights/:insight_id/sharing/',
+                '/api/environments/:id/dashboards/:dashboard_id/sharing/',
+                '/api/environments/:id/session_recordings/:recording_id/sharing/',
             ].reduce(
                 (acc, url) => ({
                     ...acc,
