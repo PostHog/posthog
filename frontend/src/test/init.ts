@@ -9,18 +9,22 @@ import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { initKea } from '~/initKea'
-import { AppContext } from '~/types'
+import { AppContext, ProjectType, TeamType } from '~/types'
 
 process.on('unhandledRejection', (err) => {
     console.warn(err)
 })
 
-export function initKeaTests(mountCommonLogic = true): void {
+export function initKeaTests(
+    mountCommonLogic = true,
+    teamForWindowContext: TeamType = MOCK_DEFAULT_TEAM,
+    projectForWindowContext: ProjectType = MOCK_DEFAULT_PROJECT
+): void {
     dayjs.tz.setDefault('UTC')
     window.POSTHOG_APP_CONTEXT = {
         ...window.POSTHOG_APP_CONTEXT,
-        current_team: MOCK_DEFAULT_TEAM,
-        current_project: MOCK_DEFAULT_PROJECT,
+        current_team: teamForWindowContext,
+        current_project: projectForWindowContext,
     } as unknown as AppContext
     posthog.init('no token', {
         autocapture: false,
