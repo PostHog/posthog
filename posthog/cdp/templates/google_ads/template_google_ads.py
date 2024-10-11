@@ -8,10 +8,10 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     icon_url="/static/services/google-ads.png",
     category=["Advertisement"],
     hog="""
-let res := fetch(f'https://googleads.googleapis.com/v17/customers/{inputs.customerId}:uploadClickConversions', {
+let res := fetch(f'https://googleads.googleapis.com/v17/customers/{replaceAll(inputs.customerId, '-', '')}:uploadClickConversions', {
     'method': 'POST',
     'headers': {
-        'Authorization': f'Bearer {inputs.auth.access_token}',
+        'Authorization': f'Bearer {inputs.oauth.access_token}',
         'Content-Type': 'application/json',
         'developer-token': inputs.developerToken
     },
@@ -19,11 +19,11 @@ let res := fetch(f'https://googleads.googleapis.com/v17/customers/{inputs.custom
         'conversions': [
             {
                 'gclid': inputs.gclid,
-                'conversionAction': f'customers/{inputs.customerId}/conversionActions/{inputs.conversionActionId}',
+                'conversionAction': f'customers/{replaceAll(inputs.customerId, '-', '')}/conversionActions/{replaceAll(inputs.conversionActionId, 'AW-', '')}',
                 'conversionDateTime': inputs.conversionDateTime
             }
         ],
-        'partialFailure': true,
+        'partialFailure': false,
         'validateOnly': true
     }
 })
