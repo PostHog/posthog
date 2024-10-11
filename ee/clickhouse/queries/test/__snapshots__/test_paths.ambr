@@ -91,9 +91,8 @@
                                  OR step_2 = 1) ))))
               WHERE step_0 = 1 ))
         GROUP BY aggregation_target,
-                 steps,
-                 max_steps
-        HAVING steps = max_steps)
+                 steps
+        HAVING steps = max(max_steps))
      WHERE steps = 1
      ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
                                           max_expanded_ast_elements=1000000)
@@ -273,9 +272,8 @@
                                  OR step_2 = 1) ))))
               WHERE step_0 = 1 ))
         GROUP BY aggregation_target,
-                 steps,
-                 max_steps
-        HAVING steps = max_steps)
+                 steps
+        HAVING steps = max(max_steps))
      WHERE steps = 1
      ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
                                           max_expanded_ast_elements=1000000)
@@ -450,9 +448,8 @@
                                  OR step_2 = 1) ))))
               WHERE step_0 = 1 ))
         GROUP BY aggregation_target,
-                 steps,
-                 max_steps
-        HAVING steps = max_steps)
+                 steps
+        HAVING steps = max(max_steps))
      WHERE steps = 1
      ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
                                           max_expanded_ast_elements=1000000)
@@ -627,9 +624,8 @@
                                  OR step_2 = 1) ))))
               WHERE step_0 = 1 ))
         GROUP BY aggregation_target,
-                 steps,
-                 max_steps
-        HAVING steps = max_steps)
+                 steps
+        HAVING steps = max(max_steps))
      WHERE steps = 1
      ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
                                           max_expanded_ast_elements=1000000)
@@ -804,9 +800,8 @@
                                  OR step_2 = 1) ))))
               WHERE step_0 = 1 ))
         GROUP BY aggregation_target,
-                 steps,
-                 max_steps
-        HAVING steps = max_steps)
+                 steps
+        HAVING steps = max(max_steps))
      WHERE steps = 1
      ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
                                           max_expanded_ast_elements=1000000)
@@ -981,9 +976,8 @@
                                  OR step_2 = 1) ))))
               WHERE step_0 = 1 ))
         GROUP BY aggregation_target,
-                 steps,
-                 max_steps
-        HAVING steps = max_steps)
+                 steps
+        HAVING steps = max(max_steps))
      WHERE steps = 1
      ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
                                           max_expanded_ast_elements=1000000)
@@ -1171,9 +1165,8 @@
                                  OR step_2 = 1) ))))
               WHERE step_0 = 1 ))
         GROUP BY aggregation_target,
-                 steps,
-                 max_steps
-        HAVING steps = max_steps)
+                 steps
+        HAVING steps = max(max_steps))
      WHERE steps = 1
      ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
                                           max_expanded_ast_elements=1000000)
@@ -1356,9 +1349,8 @@
                                  OR step_2 = 1) ))))
               WHERE step_0 = 1 ))
         GROUP BY aggregation_target,
-                 steps,
-                 max_steps
-        HAVING steps = max_steps)
+                 steps
+        HAVING steps = max(max_steps))
      WHERE steps = 1
      ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
                                           max_expanded_ast_elements=1000000)
@@ -1541,9 +1533,8 @@
                                  OR step_2 = 1) ))))
               WHERE step_0 = 1 ))
         GROUP BY aggregation_target,
-                 steps,
-                 max_steps
-        HAVING steps = max_steps)
+                 steps
+        HAVING steps = max(max_steps))
      WHERE steps = 1
      ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
                                           max_expanded_ast_elements=1000000)
@@ -1726,9 +1717,8 @@
                                  OR step_2 = 1) ))))
               WHERE step_0 = 1 ))
         GROUP BY aggregation_target,
-                 steps,
-                 max_steps
-        HAVING steps = max_steps)
+                 steps
+        HAVING steps = max(max_steps))
      WHERE steps = 1
      ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
                                           max_expanded_ast_elements=1000000)
@@ -1911,9 +1901,8 @@
                                  OR step_2 = 1) ))))
               WHERE step_0 = 1 ))
         GROUP BY aggregation_target,
-                 steps,
-                 max_steps
-        HAVING steps = max_steps)
+                 steps
+        HAVING steps = max(max_steps))
      WHERE steps IN [2, 3]
      ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
                                           max_expanded_ast_elements=1000000)
@@ -2093,9 +2082,8 @@
                                  OR step_2 = 1) ))))
               WHERE step_0 = 1 ))
         GROUP BY aggregation_target,
-                 steps,
-                 max_steps
-        HAVING steps = max_steps)
+                 steps
+        HAVING steps = max(max_steps))
      WHERE steps IN [2, 3]
      ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
                                           max_expanded_ast_elements=1000000)
@@ -2275,9 +2263,8 @@
                                  OR step_2 = 1) ))))
               WHERE step_0 = 1 ))
         GROUP BY aggregation_target,
-                 steps,
-                 max_steps
-        HAVING steps = max_steps)
+                 steps
+        HAVING steps = max(max_steps))
      WHERE steps = 2
      ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
                                           max_expanded_ast_elements=1000000)
@@ -2457,9 +2444,8 @@
                                  OR step_2 = 1) ))))
               WHERE step_0 = 1 ))
         GROUP BY aggregation_target,
-                 steps,
-                 max_steps
-        HAVING steps = max_steps)
+                 steps
+        HAVING steps = max(max_steps))
      WHERE steps IN [2, 3]
      ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
                                           max_expanded_ast_elements=1000000)
@@ -2639,9 +2625,8 @@
                                  OR step_2 = 1) ))))
               WHERE step_0 = 1 ))
         GROUP BY aggregation_target,
-                 steps,
-                 max_steps
-        HAVING steps = max_steps)
+                 steps
+        HAVING steps = max(max_steps))
      WHERE steps IN [2, 3]
      ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
                                           max_expanded_ast_elements=1000000)
@@ -2823,9 +2808,8 @@
                                  OR step_2 = 1) ))))
               WHERE step_0 = 1 ))
         GROUP BY aggregation_target,
-                 steps,
-                 max_steps
-        HAVING steps = max_steps)
+                 steps
+        HAVING steps = max(max_steps))
      WHERE steps IN [2, 3]
      ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
                                           max_expanded_ast_elements=1000000)
@@ -3002,9 +2986,8 @@
                                  OR step_2 = 1) ))))
               WHERE step_0 = 1 ))
         GROUP BY aggregation_target,
-                 steps,
-                 max_steps
-        HAVING steps = max_steps)
+                 steps
+        HAVING steps = max(max_steps))
      WHERE steps IN [2, 3]
      ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
                                           max_expanded_ast_elements=1000000)
@@ -3181,9 +3164,8 @@
                                  OR step_2 = 1) ))))
               WHERE step_0 = 1 ))
         GROUP BY aggregation_target,
-                 steps,
-                 max_steps
-        HAVING steps = max_steps)
+                 steps
+        HAVING steps = max(max_steps))
      WHERE steps IN [2, 3]
      ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
                                           max_expanded_ast_elements=1000000)
@@ -3360,9 +3342,8 @@
                                  OR step_2 = 1) ))))
               WHERE step_0 = 1 ))
         GROUP BY aggregation_target,
-                 steps,
-                 max_steps
-        HAVING steps = max_steps)
+                 steps
+        HAVING steps = max(max_steps))
      WHERE steps IN [2, 3]
      ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
                                           max_expanded_ast_elements=1000000)
@@ -3539,9 +3520,8 @@
                                  OR step_2 = 1) ))))
               WHERE step_0 = 1 ))
         GROUP BY aggregation_target,
-                 steps,
-                 max_steps
-        HAVING steps = max_steps)
+                 steps
+        HAVING steps = max(max_steps))
      WHERE steps IN [2, 3]
      ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
                                           max_expanded_ast_elements=1000000)

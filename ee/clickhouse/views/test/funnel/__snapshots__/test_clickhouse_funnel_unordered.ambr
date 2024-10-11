@@ -74,9 +74,8 @@
                         OR step_1 = 1) ))
            WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
-              steps,
-              max_steps
-     HAVING steps = max_steps)
+              steps
+     HAVING steps = max(max_steps))
   '''
 # ---
 # name: ClickhouseTestUnorderedFunnelGroups.test_unordered_funnel_with_groups.1
@@ -153,9 +152,8 @@
                         OR step_1 = 1) ))
            WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
-              steps,
-              max_steps
-     HAVING steps = max_steps)
+              steps
+     HAVING steps = max(max_steps))
   WHERE steps IN [1, 2]
   ORDER BY aggregation_target
   LIMIT 100
