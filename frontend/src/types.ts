@@ -167,6 +167,7 @@ type AvailableFeatureUnion = `${AvailableFeature}`
 export enum ProductKey {
     COHORTS = 'cohorts',
     ACTIONS = 'actions',
+    ALERTS = 'alerts',
     EXPERIMENTS = 'experiments',
     FEATURE_FLAGS = 'feature_flags',
     ANNOTATIONS = 'annotations',
@@ -188,6 +189,7 @@ export enum ProductKey {
     INTEGRATIONS = 'integrations',
     PLATFORM_AND_SUPPORT = 'platform_and_support',
     TEAMS = 'teams',
+    WEB_ANALYTICS = 'web_analytics',
 }
 
 type ProductKeyUnion = `${ProductKey}`
@@ -1404,6 +1406,13 @@ export interface SessionRecordingType {
     ongoing?: boolean
 }
 
+export interface SessionRecordingUpdateType {
+    viewed?: boolean
+    analyzed?: boolean
+    player_metadata?: Record<string, any> | null
+    durations?: Record<string, any> | null
+}
+
 export interface SessionRecordingPropertiesType {
     id: string
     properties?: Record<string, any>
@@ -1558,6 +1567,7 @@ export type BillingFeatureType = {
         dark: string
     } | null
     icon_key?: string | null
+    entitlement_only?: boolean
     type?: 'primary' | 'secondary' | null
 }
 
@@ -3209,6 +3219,7 @@ export interface Experiment {
         feature_flag_variants: MultivariateFlagVariant[]
         custom_exposure_filter?: FilterType
         aggregation_group_type_index?: integer
+        variant_screenshot_media_ids?: Record<string, string>
     }
     start_date?: string | null
     end_date?: string | null
@@ -3352,7 +3363,6 @@ export interface AppContext {
     year_in_hog_url?: string
     /** Support flow aid: a staff-only list of users who may be impersonated to access this resource. */
     suggested_users_with_access?: UserBasicType[]
-    is_region_blocked?: boolean
 }
 
 export type StoredMetricMathOperations = 'max' | 'min' | 'sum'
@@ -3502,6 +3512,12 @@ export interface InstanceSetting {
     description?: string
     editable: boolean
     is_secret: boolean
+}
+
+export enum FunnelMathType {
+    AnyMatch = 'total',
+    FirstTimeForUser = 'first_time_for_user',
+    FirstTimeForUserWithFilters = 'first_time_for_user_with_filters',
 }
 
 export enum BaseMathType {
@@ -4290,6 +4306,7 @@ export enum SidePanelTab {
     Discussion = 'discussion',
     Status = 'status',
     Exports = 'exports',
+    ExperimentFeatureFlag = 'experiment-feature-flag',
 }
 
 export interface SourceFieldOauthConfig {
@@ -4382,6 +4399,7 @@ export type AvailableOnboardingProducts = Pick<
     | ProductKey.FEATURE_FLAGS
     | ProductKey.SURVEYS
     | ProductKey.DATA_WAREHOUSE
+    | ProductKey.WEB_ANALYTICS
 >
 
 export type OnboardingProduct = {

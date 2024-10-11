@@ -6,6 +6,7 @@ import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { objectClean, toParams } from 'lib/utils'
 import posthog from 'posthog-js'
 import { stringifiedFingerprint } from 'scenes/error-tracking/utils'
+import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
 
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
@@ -98,6 +99,7 @@ import {
     SessionRecordingSnapshotParams,
     SessionRecordingSnapshotResponse,
     SessionRecordingType,
+    SessionRecordingUpdateType,
     SharingConfigurationType,
     SlackChannelType,
     SubscriptionType,
@@ -1805,6 +1807,12 @@ const api = {
         ): Promise<SessionRecordingType> {
             return await new ApiRequest().recording(recordingId).withQueryString(toParams(params)).get()
         },
+        async update(
+            recordingId: SessionRecordingType['id'],
+            data: Partial<SessionRecordingUpdateType>
+        ): Promise<SessionRecordingType> {
+            return await new ApiRequest().recording(recordingId).update({ data })
+        },
 
         async persist(recordingId: SessionRecordingType['id']): Promise<{ success: boolean }> {
             return await new ApiRequest().recording(recordingId).withAction('persist').create()
@@ -1956,6 +1964,13 @@ const api = {
             }
 
             return await apiRequest.withQueryString(queryParams).get()
+        },
+        async recordingComments(recordingId: string): Promise<{ results: RecordingComment[] }> {
+            return await new ApiRequest()
+                .notebooks()
+                .withAction('recording_comments')
+                .withQueryString({ recording_id: recordingId })
+                .get()
         },
         async create(data?: Pick<NotebookType, 'content' | 'text_content' | 'title'>): Promise<NotebookType> {
             return await new ApiRequest().notebooks().create({ data })

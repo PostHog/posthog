@@ -1,8 +1,9 @@
 import re
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
 from django.core.exceptions import ValidationError
 from django.db import models
+from django.conf import settings
 
 from posthog.hogql import ast
 from posthog.hogql.database.database import Database
@@ -16,6 +17,9 @@ from posthog.warehouse.models.util import (
     clean_type,
     remove_named_tuples,
 )
+from posthog.hogql.database.s3_table import S3Table
+from posthog.warehouse.util import database_sync_to_async
+from dlt.common.normalizers.naming.snake_case import NamingConvention
 
 
 def validate_saved_query_name(value):
@@ -42,6 +46,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
         """Possible states of this SavedQuery."""
 
         CANCELLED = "Cancelled"
+        MODIFIED = "Modified"  # if the model definition has changed and hasn't been materialized since
         COMPLETED = "Completed"
         FAILED = "Failed"
         RUNNING = "Running"
@@ -63,6 +68,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
         null=True,
         help_text="The timestamp of this SavedQuery's last run (if any).",
     )
+    table = models.ForeignKey("posthog.DataWarehouseTable", on_delete=models.SET_NULL, null=True, blank=True)
 
     class Meta:
         constraints = [
@@ -127,7 +133,16 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
 
         return list(table_collector.tables)
 
-    def hogql_definition(self, modifiers: Optional[HogQLQueryModifiers] = None) -> SavedQuery:
+    @property
+    def folder_path(self):
+        return f"team_{self.team.pk}_model_{self.id.hex}/modeling"
+
+    @property
+    def url_pattern(self):
+        normalized_name = NamingConvention().normalize_identifier(self.name)
+        return f"https://{settings.AIRBYTE_BUCKET_DOMAIN}/dlt/team_{self.team.pk}_model_{self.id.hex}/modeling/{normalized_name}"
+
+    def hogql_definition(self, modifiers: Optional[HogQLQueryModifiers] = None) -> Union[SavedQuery, S3Table]:
         from posthog.warehouse.models.table import CLICKHOUSE_HOGQL_MAPPING
 
         columns = self.columns or {}
@@ -165,9 +180,36 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
 
             fields[column] = hogql_type(name=column)
 
-        return SavedQuery(
-            id=str(self.id),
-            name=self.name,
-            query=self.query["query"],
-            fields=fields,
-        )
+        if (
+            self.table is not None
+            and (self.status == DataWarehouseSavedQuery.Status.COMPLETED or self.last_run_at is not None)
+            and modifiers is not None
+            and modifiers.useMaterializedViews
+        ):
+            return self.table.hogql_definition(modifiers)
+        else:
+            return SavedQuery(
+                id=str(self.id),
+                name=self.name,
+                query=self.query["query"],
+                fields=fields,
+            )
+
+
+@database_sync_to_async
+def aget_saved_query_by_id(saved_query_id: str, team_id: int) -> DataWarehouseSavedQuery | None:
+    return (
+        DataWarehouseSavedQuery.objects.prefetch_related("team")
+        .exclude(deleted=True)
+        .get(id=saved_query_id, team_id=team_id)
+    )
+
+
+@database_sync_to_async
+def asave_saved_query(saved_query: DataWarehouseSavedQuery) -> None:
+    saved_query.save()
+
+
+@database_sync_to_async
+def aget_table_by_saved_query_id(saved_query_id: str, team_id: int):
+    return DataWarehouseSavedQuery.objects.get(id=saved_query_id, team_id=team_id).table

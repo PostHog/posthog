@@ -15,7 +15,7 @@ from posthog.schema import FunnelsQuery, FunnelsQueryResponse
 class TestFunnelTrendsUDF(BaseTestFunnelTrends):
     __test__ = True
 
-    def test_assert_trends_flag_is_on(self):
+    def test_assert_udf_flag_is_working(self):
         filters = {
             "insight": INSIGHT_FUNNELS,
             "funnel_viz_type": "trends",

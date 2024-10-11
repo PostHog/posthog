@@ -783,6 +783,11 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                 })
                             }}
                             label="Enabled"
+                            disabledReason={
+                                !featureFlag.can_edit
+                                    ? "You only have view access to this feature flag. To make changes, contact the flag's creator."
+                                    : null
+                            }
                             checked={featureFlag.active}
                         />
                         <span className="card-secondary mt-4">Type</span>

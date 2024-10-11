@@ -17,6 +17,7 @@ import {
     FeaturePropertyFilter,
     FilterLogicalOperator,
     FilterType,
+    FunnelMathType,
     FunnelsFilterType,
     GroupMathType,
     GroupPropertyFilter,
@@ -104,6 +105,10 @@ export enum NodeKind {
 
     // Database metadata
     DatabaseSchemaQuery = 'DatabaseSchemaQuery',
+
+    // AI queries
+    TeamTaxonomyQuery = 'TeamTaxonomyQuery',
+    EventTaxonomyQuery = 'EventTaxonomyQuery',
 }
 
 export type AnyDataNode =
@@ -228,6 +233,7 @@ export interface HogQLQueryModifiers {
     bounceRatePageViewMode?: 'count_pageviews' | 'uniq_urls' | 'uniq_page_screen_autocaptures'
     sessionTableVersion?: 'auto' | 'v1' | 'v2'
     propertyGroupsMode?: 'enabled' | 'disabled' | 'optimized'
+    useMaterializedViews?: boolean
 }
 
 export interface DataWarehouseEventsModifier {
@@ -322,6 +328,7 @@ export interface RecordingsQuery extends DataNode<RecordingsQueryResponse> {
         | 'mouse_activity_count'
     limit?: integer
     offset?: integer
+    user_modified_filters?: Record<string, any>
 }
 
 export interface HogQLNotice {
@@ -454,7 +461,13 @@ export interface HogQLAutocomplete extends DataNode<HogQLAutocompleteResponse> {
     endPosition: integer
 }
 
-export type MathType = BaseMathType | PropertyMathType | CountPerActorMathType | GroupMathType | HogQLMathType
+export type MathType =
+    | BaseMathType
+    | FunnelMathType
+    | PropertyMathType
+    | CountPerActorMathType
+    | GroupMathType
+    | HogQLMathType
 
 export interface EntityNode extends Node {
     name?: string
@@ -1593,10 +1606,14 @@ export interface ExperimentTrendQueryResponse {
     results: Record<string, ExperimentVariantTrendResult>
 }
 
+export type CachedExperimentTrendQueryResponse = CachedQueryResponse<ExperimentTrendQueryResponse>
+
 export interface ExperimentFunnelQueryResponse {
     insight: InsightType.FUNNELS
     results: Record<string, ExperimentVariantFunnelResult>
 }
+
+export type CachedExperimentFunnelQueryResponse = CachedQueryResponse<ExperimentFunnelQueryResponse>
 
 export interface ExperimentFunnelQuery extends DataNode<ExperimentFunnelQueryResponse> {
     kind: NodeKind.ExperimentFunnelQuery
@@ -1973,3 +1990,35 @@ export interface TrendsAlertConfig {
 export interface HogCompileResponse {
     bytecode: any[]
 }
+
+export interface TeamTaxonomyItem {
+    event: string
+    count: integer
+}
+
+export type TeamTaxonomyResponse = TeamTaxonomyItem[]
+
+export interface TeamTaxonomyQuery extends DataNode<TeamTaxonomyQueryResponse> {
+    kind: NodeKind.TeamTaxonomyQuery
+}
+
+export type TeamTaxonomyQueryResponse = AnalyticsQueryResponseBase<TeamTaxonomyResponse>
+
+export type CachedTeamTaxonomyQueryResponse = CachedQueryResponse<TeamTaxonomyQueryResponse>
+
+export interface EventTaxonomyItem {
+    property: string
+    sample_values: string[]
+    sample_count: integer
+}
+
+export type EventTaxonomyResponse = EventTaxonomyItem[]
+
+export interface EventTaxonomyQuery extends DataNode<EventTaxonomyQueryResponse> {
+    kind: NodeKind.EventTaxonomyQuery
+    event: string
+}
+
+export type EventTaxonomyQueryResponse = AnalyticsQueryResponseBase<EventTaxonomyResponse>
+
+export type CachedEventTaxonomyQueryResponse = CachedQueryResponse<EventTaxonomyQueryResponse>

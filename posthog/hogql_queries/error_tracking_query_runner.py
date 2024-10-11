@@ -1,3 +1,4 @@
+import re
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
@@ -130,31 +131,49 @@ class ErrorTrackingQueryRunner(QueryRunner):
 
         if self.query.searchQuery:
             # TODO: Refine this so it only searches the frames inside $exception_list
-            # TODO: Split out spaces and search for each word separately
-            # TODO: Add support for searching for specific properties
+            # TODO: We'd eventually need a more efficient searching strategy
             # TODO: Add fuzzy search support
-            props_to_search = ["$exception_list", "$exception_stack_trace_raw", "$exception_type", "$exception_message"]
-            or_exprs: list[ast.Expr] = []
-            for prop in props_to_search:
-                or_exprs.append(
-                    ast.CompareOperation(
-                        op=ast.CompareOperationOp.Gt,
-                        left=ast.Call(
-                            name="position",
-                            args=[
-                                ast.Call(name="lower", args=[ast.Field(chain=["properties", prop])]),
-                                ast.Call(name="lower", args=[ast.Constant(value=self.query.searchQuery)]),
-                            ],
-                        ),
-                        right=ast.Constant(value=0),
+
+            # first parse the search query to split it into words, except for quoted strings
+            # then search for each word in the exception properties
+            tokens = search_tokenizer(self.query.searchQuery)
+            and_exprs: list[ast.Expr] = []
+
+            if len(tokens) > 10:
+                raise ValueError("Too many search tokens")
+
+            for token in tokens:
+                if not token:
+                    continue
+
+                or_exprs: list[ast.Expr] = []
+                props_to_search = [
+                    "$exception_list",
+                    "$exception_stack_trace_raw",
+                    "$exception_type",
+                    "$exception_message",
+                ]
+                for prop in props_to_search:
+                    or_exprs.append(
+                        ast.CompareOperation(
+                            op=ast.CompareOperationOp.Gt,
+                            left=ast.Call(
+                                name="position",
+                                args=[
+                                    ast.Call(name="lower", args=[ast.Field(chain=["properties", prop])]),
+                                    ast.Call(name="lower", args=[ast.Constant(value=token)]),
+                                ],
+                            ),
+                            right=ast.Constant(value=0),
+                        )
+                    )
+
+                and_exprs.append(
+                    ast.Or(
+                        exprs=or_exprs,
                     )
                 )
-
-            exprs.append(
-                ast.Or(
-                    exprs=or_exprs,
-                )
-            )
+            exprs.append(ast.And(exprs=and_exprs))
 
         return ast.And(exprs=exprs)
 
@@ -252,11 +271,25 @@ class ErrorTrackingQueryRunner(QueryRunner):
     @cached_property
     def error_tracking_groups(self):
         queryset = ErrorTrackingGroup.objects.filter(team=self.team)
+        # :TRICKY: Ideally we'd have no null characters in the fingerprint, but if something made it into the pipeline with null characters
+        # (because rest of the system supports it), try cleaning it up here. Make sure this cleaning is consistent with the rest of the system.
+        cleaned_fingerprint = [part.replace("\x00", "\ufffd") for part in self.query.fingerprint or []]
         queryset = (
-            queryset.filter(fingerprint=self.query.fingerprint)
+            queryset.filter(fingerprint=cleaned_fingerprint)
             if self.query.fingerprint
             else queryset.filter(status__in=[ErrorTrackingGroup.Status.ACTIVE])
         )
         queryset = queryset.filter(assignee=self.query.assignee) if self.query.assignee else queryset
         groups = queryset.values("fingerprint", "merged_fingerprints", "status", "assignee")
         return {str(item["fingerprint"]): item for item in groups}
+
+
+def search_tokenizer(query: str) -> list[str]:
+    # parse the search query to split it into words, except for quoted strings. Strip quotes from quoted strings.
+    # Example: 'This is a "quoted string" and this is \'another one\' with some words'
+    # Output: ['This', 'is', 'a', 'quoted string', 'and', 'this', 'is', 'another one', 'with', 'some', 'words']
+    # This doesn't handle nested quotes, and some complex edge cases, but we don't really need that for now.
+    # If requirements do change, consider using a proper parser like `pyparsing`
+    pattern = r'"[^"]*"|\'[^\']*\'|\S+'
+    tokens = re.findall(pattern, query)
+    return [token.strip("'\"") for token in tokens]

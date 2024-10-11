@@ -18,12 +18,24 @@ export const FilterGroup = (): JSX.Element => {
 
     return (
         <div className="flex flex-1 items-center justify-between space-x-2">
-            <div className="flex items-center gap-2">
-                <LemonInput type="search" placeholder="Search..." value={searchQuery} onChange={setSearchQuery} />
+            <div className="flex flex-1 items-center gap-2 mx-2">
+                <LemonInput
+                    type="search"
+                    placeholder="Search..."
+                    value={searchQuery}
+                    onChange={setSearchQuery}
+                    className="flex-grow max-w-none"
+                    size="small"
+                />
                 <UniversalFilters
                     rootKey="error-tracking"
                     group={filterGroup}
-                    taxonomicGroupTypes={[TaxonomicFilterGroupType.PersonProperties, TaxonomicFilterGroupType.Cohorts]}
+                    // TODO: Probably makes sense to create a new taxonomic group for exception-specific event property filters only, keep it clean.
+                    taxonomicGroupTypes={[
+                        TaxonomicFilterGroupType.EventProperties,
+                        TaxonomicFilterGroupType.PersonProperties,
+                        TaxonomicFilterGroupType.Cohorts,
+                    ]}
                     onChange={setFilterGroup}
                 >
                     <RecordingsUniversalFilterGroup />
@@ -74,8 +86,8 @@ const RecordingsUniversalFilterGroup = (): JSX.Element => {
     )
 }
 
-export const Options = ({ showOrder = true }: { showOrder?: boolean }): JSX.Element => {
-    const { dateRange, assignee } = useValues(errorTrackingLogic)
+export const Options = ({ isGroup = false }: { isGroup?: boolean }): JSX.Element => {
+    const { dateRange, assignee, hasGroupActions } = useValues(errorTrackingLogic)
     const { setDateRange, setAssignee } = useActions(errorTrackingLogic)
     const { order } = useValues(errorTrackingSceneLogic)
     const { setOrder } = useActions(errorTrackingSceneLogic)
@@ -94,7 +106,7 @@ export const Options = ({ showOrder = true }: { showOrder?: boolean }): JSX.Elem
                         size="small"
                     />
                 </div>
-                {showOrder && (
+                {!isGroup && (
                     <div className="flex items-center gap-1">
                         <span>Sort by:</span>
                         <LemonSelect
@@ -128,15 +140,17 @@ export const Options = ({ showOrder = true }: { showOrder?: boolean }): JSX.Elem
                     </div>
                 )}
             </div>
-            <div className="flex items-center gap-1">
-                <span>Assigned to:</span>
-                <MemberSelect
-                    value={assignee}
-                    onChange={(user) => {
-                        setAssignee(user?.id || null)
-                    }}
-                />
-            </div>
+            {hasGroupActions && !isGroup && (
+                <div className="flex items-center gap-1">
+                    <span>Assigned to:</span>
+                    <MemberSelect
+                        value={assignee}
+                        onChange={(user) => {
+                            setAssignee(user?.id || null)
+                        }}
+                    />
+                </div>
+            )}
         </div>
     )
 }

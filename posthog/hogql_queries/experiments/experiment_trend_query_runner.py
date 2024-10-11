@@ -8,6 +8,7 @@ from posthog.queries.trends.util import ALL_SUPPORTED_MATH_FUNCTIONS
 from posthog.schema import (
     BaseMathType,
     BreakdownFilter,
+    CachedExperimentTrendQueryResponse,
     ChartDisplayType,
     EventPropertyFilter,
     EventsNode,
@@ -25,6 +26,8 @@ import threading
 
 class ExperimentTrendQueryRunner(QueryRunner):
     query: ExperimentTrendQuery
+    response: ExperimentTrendQueryResponse
+    cached_response: CachedExperimentTrendQueryResponse
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

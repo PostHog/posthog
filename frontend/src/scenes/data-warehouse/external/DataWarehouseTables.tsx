@@ -81,7 +81,7 @@ export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): 
             return <></>
         }
 
-        if (table.type === 'view' || table.type === 'data_warehouse') {
+        if (table.type === 'view' || table.type === 'materialized_view') {
             return (
                 <LemonButton
                     data-attr="schema-list-item-delete"
@@ -95,10 +95,6 @@ export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): 
                     Delete
                 </LemonButton>
             )
-        }
-
-        if (table.type === 'posthog') {
-            return <></>
         }
 
         return <></>
@@ -135,7 +131,7 @@ export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): 
             >
                 Add join
             </LemonButton>
-            {table.type == 'view' && (
+            {(table.type == 'view' || table.type == 'materialized_view') && (
                 <LemonButton
                     onClick={() => {
                         router.actions.push(urls.dataWarehouseView(table.id))
@@ -336,7 +332,7 @@ export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): 
                     setIsOpen={setIsDeleteModalOpen}
                     onDelete={() => {
                         if (selectedRow) {
-                            if (selectedRow.type === 'view') {
+                            if (selectedRow.type === 'view' || selectedRow.type === 'materialized_view') {
                                 deleteDataWarehouseSavedQuery(selectedRow.id)
                             } else {
                                 deleteDataWarehouseTable(selectedRow.id)
