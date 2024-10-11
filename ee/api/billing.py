@@ -319,10 +319,9 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
         license = License(key=serializer.validated_data["license"])
-        billing_manager = self.get_billing_manager()
         res = requests.get(
             f"{BILLING_SERVICE_URL}/api/billing",
-            headers=billing_manager.get_auth_headers(organization),
+            headers=BillingManager(license).get_auth_headers(organization),
         )
 
         if res.status_code != 200:
@@ -332,7 +331,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 }
             )
         data = res.json()
-        billing_manager.update_license_details(data)
+        BillingManager(license).update_license_details(data)
         return Response({"success": True})
 
     def _get_org(self) -> Optional[Organization]:
