@@ -1056,18 +1056,26 @@
                        AND timestamp < now()
                        AND ((event = 'insight viewed'
                              AND (has(['RETENTION'], replaceRegexpAll(JSONExtractRaw(properties, 'insight'), '^"|"$', ''))
-                                  AND person_id IN
-                                    (SELECT id
-                                     FROM person
-                                     WHERE team_id = 2
-                                       AND id IN
+                                  AND distinct_id IN
+                                    (SELECT distinct_id
+                                     FROM
+                                       (SELECT distinct_id, argMax(person_id, version) as person_id
+                                        FROM person_distinct_id2
+                                        WHERE team_id = 2
+                                        GROUP BY distinct_id
+                                        HAVING argMax(is_deleted, version) = 0)
+                                     WHERE person_id IN
                                          (SELECT id
                                           FROM person
                                           WHERE team_id = 2
-                                            AND ((has(['http://example.com'], replaceRegexpAll(JSONExtractRaw(properties, '$pageview'), '^"|"$', '')))) )
-                                     GROUP BY id
-                                     HAVING max(is_deleted) = 0
-                                     AND ((has(['http://example.com'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$pageview'), '^"|"$', '')))) SETTINGS optimize_aggregation_in_order = 1)))
+                                            AND id IN
+                                              (SELECT id
+                                               FROM person
+                                               WHERE team_id = 2
+                                                 AND ((has(['http://example.com'], replaceRegexpAll(JSONExtractRaw(properties, '$pageview'), '^"|"$', '')))) )
+                                          GROUP BY id
+                                          HAVING max(is_deleted) = 0
+                                          AND ((has(['http://example.com'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$pageview'), '^"|"$', '')))) SETTINGS optimize_aggregation_in_order = 1) )))
                             OR (event = 'insight viewed'
                                 AND (toFloat64OrNull(replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(JSONExtractRaw(properties, 'filters_count'), '^"|"$', ''), ' ', ''), '^"|"$', '')) > '1'))
                             OR (match(replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', ''), '/123')
