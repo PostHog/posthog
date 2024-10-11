@@ -2,9 +2,9 @@ import json
 import xml.etree.ElementTree as ET
 from functools import cached_property
 from textwrap import dedent
-from typing import Any, Literal, Optional, TypedDict
+from typing import Any, Literal, Optional, TypedDict, Union
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, RootModel
 
 from posthog.hogql_queries.ai.event_taxonomy_query_runner import EventTaxonomyQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
@@ -20,16 +20,46 @@ class ToolkitTool(TypedDict):
     description: str
 
 
-class TrendsAgentToolModel(BaseModel):
+class RetrieveEntityPropertiesValuesArgsModel(BaseModel):
+    entity: str
+    property_name: str
+
+
+class RetrieveEntityPropertiesValuesModel(BaseModel):
+    name: Literal["retrieve_entity_property_values"]
+    arguments: RetrieveEntityPropertiesValuesArgsModel
+
+
+class RetrieveEventPropertiesValuesArgsModel(BaseModel):
+    event_name: str
+    property_name: str
+
+
+class RetrieveEventPropertiesValuesModel(BaseModel):
+    name: Literal["retrieve_event_property_values"]
+    arguments: RetrieveEventPropertiesValuesArgsModel
+
+
+class SingleArgumentTrendsAgentToolModel(BaseModel):
     name: Literal[
         "retrieve_entity_properties",
         "retrieve_event_properties",
-        "retrieve_event_property_values",
-        "retrieve_entity_property_values",
         "final_answer",
         "handle_incorrect_response",
     ]
-    argument: str
+    arguments: str
+
+
+class TrendsAgentToolModel(
+    RootModel[
+        Union[
+            SingleArgumentTrendsAgentToolModel, RetrieveEntityPropertiesValuesModel, RetrieveEventPropertiesValuesModel
+        ]
+    ]
+):
+    root: Union[
+        SingleArgumentTrendsAgentToolModel, RetrieveEntityPropertiesValuesModel, RetrieveEventPropertiesValuesModel
+    ] = Field(..., discriminator="name")
 
 
 class TrendsAgentToolkit:
@@ -256,11 +286,11 @@ class TrendsAgentToolkit:
             ]
         )
 
-    def retrieve_event_property_values(self, property_name: str) -> str:
+    def retrieve_event_property_values(self, event_name: str, property_name: str) -> str:
         # output values here with quotes for strings
         return "No values have been found."
 
-    def retrieve_entity_property_values(self, property_name: str) -> str:
+    def retrieve_entity_property_values(self, entity: str, property_name: str) -> str:
         # output values here with quotes for strings
         return "No values have been found."
 

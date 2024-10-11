@@ -178,7 +178,7 @@ class CreateTrendsPlanToolsNode(AssistantNode):
         action, _ = intermediate_steps[-1]
 
         try:
-            input = TrendsAgentToolModel(name=action.tool, argument=action.tool_input)
+            input = TrendsAgentToolModel(name=action.tool, arguments=action.tool_input).root
         except ValidationError as e:
             feedback = f"Invalid tool call. Pydantic exception: {e.errors(include_url=False)}"
             return {"intermediate_steps": [*intermediate_steps, (action, feedback)]}
@@ -186,21 +186,21 @@ class CreateTrendsPlanToolsNode(AssistantNode):
         # The plan has been found. Move to the generation.
         if input.name == "final_answer":
             return {
-                "plan": input.argument,
+                "plan": input.arguments,
                 "intermediate_steps": None,
             }
 
         output = ""
         if input.name == "retrieve_event_properties":
-            output = toolkit.retrieve_event_properties(input.argument)
+            output = toolkit.retrieve_event_properties(input.arguments)
         elif input.name == "retrieve_event_property_values":
-            output = toolkit.retrieve_event_property_values(input.argument)
+            output = toolkit.retrieve_event_property_values(input.arguments.event_name, input.arguments.property_name)
         elif input.name == "retrieve_entity_properties":
-            output = toolkit.retrieve_entity_properties(input.argument)
+            output = toolkit.retrieve_entity_properties(input.arguments)
         elif input.name == "retrieve_entity_property_values":
-            output = toolkit.retrieve_entity_property_values(input.argument)
+            output = toolkit.retrieve_entity_property_values(input.arguments.entity, input.arguments.property_name)
         else:
-            output = toolkit.handle_incorrect_response(input.argument)
+            output = toolkit.handle_incorrect_response(input.arguments)
 
         return {"intermediate_steps": [*intermediate_steps, (action, output)]}
 
