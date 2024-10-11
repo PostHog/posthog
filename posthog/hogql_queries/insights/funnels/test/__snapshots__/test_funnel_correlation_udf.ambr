@@ -22,7 +22,7 @@
             first_timestamp
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
-               arrayJoin(aggregate_funnel_array(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
+               arrayJoin(aggregate_funnel_array_v0(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
                af_tuple.1 AS step_reached,
                plus(af_tuple.1, 1) AS steps,
                af_tuple.2 AS breakdown,
@@ -70,7 +70,7 @@
             first_timestamp
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
-               arrayJoin(aggregate_funnel_array(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
+               arrayJoin(aggregate_funnel_array_v0(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
                af_tuple.1 AS step_reached,
                plus(af_tuple.1, 1) AS steps,
                af_tuple.2 AS breakdown,
@@ -129,7 +129,7 @@
                first_timestamp
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
-                  arrayJoin(aggregate_funnel_array(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
+                  arrayJoin(aggregate_funnel_array_v0(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
                   af_tuple.1 AS step_reached,
                   plus(af_tuple.1, 1) AS steps,
                   af_tuple.2 AS breakdown,
@@ -190,7 +190,7 @@
             first_timestamp
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
-               arrayJoin(aggregate_funnel_array(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
+               arrayJoin(aggregate_funnel_array_v0(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
                af_tuple.1 AS step_reached,
                plus(af_tuple.1, 1) AS steps,
                af_tuple.2 AS breakdown,
@@ -249,7 +249,7 @@
                first_timestamp
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
-                  arrayJoin(aggregate_funnel_array(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
+                  arrayJoin(aggregate_funnel_array_v0(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
                   af_tuple.1 AS step_reached,
                   plus(af_tuple.1, 1) AS steps,
                   af_tuple.2 AS breakdown,
@@ -303,7 +303,7 @@
                                                    FROM
                                                      (SELECT aggregation_target AS actor_id, matched_events_array[plus(step_reached, 1)] AS matching_events, (matched_events_array[1][1]).1 AS timestamp, nullIf((matched_events_array[2][1]).1, 0) AS final_timestamp, (matched_events_array[1][1]).1 AS first_timestamp, steps AS steps, final_timestamp, first_timestamp
                                                       FROM
-                                                        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array, arrayJoin(aggregate_funnel_array(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple, af_tuple.1 AS step_reached, plus(af_tuple.1, 1) AS steps, af_tuple.2 AS breakdown, af_tuple.3 AS timings, af_tuple.4 AS matched_event_uuids_array_array, groupArray(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS user_events, mapFromArrays(arrayMap(x -> x.2, user_events), user_events) AS user_events_map, arrayMap(matched_event_uuids_array -> arrayMap(event_uuid -> user_events_map[event_uuid], arrayDistinct(matched_event_uuids_array)), matched_event_uuids_array_array) AS matched_events_array, aggregation_target AS aggregation_target
+                                                        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array, arrayJoin(aggregate_funnel_array_v0(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple, af_tuple.1 AS step_reached, plus(af_tuple.1, 1) AS steps, af_tuple.2 AS breakdown, af_tuple.3 AS timings, af_tuple.4 AS matched_event_uuids_array_array, groupArray(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS user_events, mapFromArrays(arrayMap(x -> x.2, user_events), user_events) AS user_events_map, arrayMap(matched_event_uuids_array -> arrayMap(event_uuid -> user_events_map[event_uuid], arrayDistinct(matched_event_uuids_array)), matched_event_uuids_array_array) AS matched_events_array, aggregation_target AS aggregation_target
                                                          FROM
                                                            (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp, if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target, e.uuid AS uuid, e.`$session_id` AS `$session_id`, e.`$window_id` AS `$window_id`, if(equals(e.event, 'user signed up'), 1, 0) AS step_0, if(equals(e.event, 'paid'), 1, 0) AS step_1
                                                             FROM events AS e
@@ -376,7 +376,7 @@
                first_timestamp
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
-                  arrayJoin(aggregate_funnel_array(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
+                  arrayJoin(aggregate_funnel_array_v0(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
                   af_tuple.1 AS step_reached,
                   plus(af_tuple.1, 1) AS steps,
                   af_tuple.2 AS breakdown,
@@ -430,7 +430,7 @@
                                                    FROM
                                                      (SELECT aggregation_target AS actor_id, matched_events_array[plus(step_reached, 1)] AS matching_events, (matched_events_array[1][1]).1 AS timestamp, nullIf((matched_events_array[2][1]).1, 0) AS final_timestamp, (matched_events_array[1][1]).1 AS first_timestamp, steps AS steps, final_timestamp, first_timestamp
                                                       FROM
-                                                        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array, arrayJoin(aggregate_funnel_array(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple, af_tuple.1 AS step_reached, plus(af_tuple.1, 1) AS steps, af_tuple.2 AS breakdown, af_tuple.3 AS timings, af_tuple.4 AS matched_event_uuids_array_array, groupArray(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS user_events, mapFromArrays(arrayMap(x -> x.2, user_events), user_events) AS user_events_map, arrayMap(matched_event_uuids_array -> arrayMap(event_uuid -> user_events_map[event_uuid], arrayDistinct(matched_event_uuids_array)), matched_event_uuids_array_array) AS matched_events_array, aggregation_target AS aggregation_target
+                                                        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array, arrayJoin(aggregate_funnel_array_v0(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple, af_tuple.1 AS step_reached, plus(af_tuple.1, 1) AS steps, af_tuple.2 AS breakdown, af_tuple.3 AS timings, af_tuple.4 AS matched_event_uuids_array_array, groupArray(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS user_events, mapFromArrays(arrayMap(x -> x.2, user_events), user_events) AS user_events_map, arrayMap(matched_event_uuids_array -> arrayMap(event_uuid -> user_events_map[event_uuid], arrayDistinct(matched_event_uuids_array)), matched_event_uuids_array_array) AS matched_events_array, aggregation_target AS aggregation_target
                                                          FROM
                                                            (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp, if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target, e.uuid AS uuid, e.`$session_id` AS `$session_id`, e.`$window_id` AS `$window_id`, if(equals(e.event, 'user signed up'), 1, 0) AS step_0, if(equals(e.event, 'paid'), 1, 0) AS step_1
                                                             FROM events AS e
@@ -503,7 +503,7 @@
                first_timestamp
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
-                  arrayJoin(aggregate_funnel_array(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
+                  arrayJoin(aggregate_funnel_array_v0(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
                   af_tuple.1 AS step_reached,
                   plus(af_tuple.1, 1) AS steps,
                   af_tuple.2 AS breakdown,
@@ -557,7 +557,7 @@
                                                    FROM
                                                      (SELECT aggregation_target AS actor_id, matched_events_array[plus(step_reached, 1)] AS matching_events, (matched_events_array[1][1]).1 AS timestamp, nullIf((matched_events_array[2][1]).1, 0) AS final_timestamp, (matched_events_array[1][1]).1 AS first_timestamp, steps AS steps, final_timestamp, first_timestamp
                                                       FROM
-                                                        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array, arrayJoin(aggregate_funnel_array(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple, af_tuple.1 AS step_reached, plus(af_tuple.1, 1) AS steps, af_tuple.2 AS breakdown, af_tuple.3 AS timings, af_tuple.4 AS matched_event_uuids_array_array, groupArray(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS user_events, mapFromArrays(arrayMap(x -> x.2, user_events), user_events) AS user_events_map, arrayMap(matched_event_uuids_array -> arrayMap(event_uuid -> user_events_map[event_uuid], arrayDistinct(matched_event_uuids_array)), matched_event_uuids_array_array) AS matched_events_array, aggregation_target AS aggregation_target
+                                                        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array, arrayJoin(aggregate_funnel_array_v0(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple, af_tuple.1 AS step_reached, plus(af_tuple.1, 1) AS steps, af_tuple.2 AS breakdown, af_tuple.3 AS timings, af_tuple.4 AS matched_event_uuids_array_array, groupArray(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS user_events, mapFromArrays(arrayMap(x -> x.2, user_events), user_events) AS user_events_map, arrayMap(matched_event_uuids_array -> arrayMap(event_uuid -> user_events_map[event_uuid], arrayDistinct(matched_event_uuids_array)), matched_event_uuids_array_array) AS matched_events_array, aggregation_target AS aggregation_target
                                                          FROM
                                                            (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp, if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target, e.uuid AS uuid, e.`$session_id` AS `$session_id`, e.`$window_id` AS `$window_id`, if(equals(e.event, 'user signed up'), 1, 0) AS step_0, if(equals(e.event, 'paid'), 1, 0) AS step_1
                                                             FROM events AS e
@@ -630,7 +630,7 @@
                first_timestamp
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
-                  arrayJoin(aggregate_funnel_array(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
+                  arrayJoin(aggregate_funnel_array_v0(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
                   af_tuple.1 AS step_reached,
                   plus(af_tuple.1, 1) AS steps,
                   af_tuple.2 AS breakdown,
@@ -684,7 +684,7 @@
                                                    FROM
                                                      (SELECT aggregation_target AS actor_id, matched_events_array[plus(step_reached, 1)] AS matching_events, (matched_events_array[1][1]).1 AS timestamp, nullIf((matched_events_array[2][1]).1, 0) AS final_timestamp, (matched_events_array[1][1]).1 AS first_timestamp, steps AS steps, final_timestamp, first_timestamp
                                                       FROM
-                                                        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array, arrayJoin(aggregate_funnel_array(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple, af_tuple.1 AS step_reached, plus(af_tuple.1, 1) AS steps, af_tuple.2 AS breakdown, af_tuple.3 AS timings, af_tuple.4 AS matched_event_uuids_array_array, groupArray(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS user_events, mapFromArrays(arrayMap(x -> x.2, user_events), user_events) AS user_events_map, arrayMap(matched_event_uuids_array -> arrayMap(event_uuid -> user_events_map[event_uuid], arrayDistinct(matched_event_uuids_array)), matched_event_uuids_array_array) AS matched_events_array, aggregation_target AS aggregation_target
+                                                        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array, arrayJoin(aggregate_funnel_array_v0(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple, af_tuple.1 AS step_reached, plus(af_tuple.1, 1) AS steps, af_tuple.2 AS breakdown, af_tuple.3 AS timings, af_tuple.4 AS matched_event_uuids_array_array, groupArray(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS user_events, mapFromArrays(arrayMap(x -> x.2, user_events), user_events) AS user_events_map, arrayMap(matched_event_uuids_array -> arrayMap(event_uuid -> user_events_map[event_uuid], arrayDistinct(matched_event_uuids_array)), matched_event_uuids_array_array) AS matched_events_array, aggregation_target AS aggregation_target
                                                          FROM
                                                            (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp, if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target, e.uuid AS uuid, e.`$session_id` AS `$session_id`, e.`$window_id` AS `$window_id`, if(equals(e.event, 'user signed up'), 1, 0) AS step_0, if(equals(e.event, 'paid'), 1, 0) AS step_1
                                                             FROM events AS e
@@ -757,7 +757,7 @@
                first_timestamp
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
-                  arrayJoin(aggregate_funnel_array(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
+                  arrayJoin(aggregate_funnel_array_v0(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
                   af_tuple.1 AS step_reached,
                   plus(af_tuple.1, 1) AS steps,
                   af_tuple.2 AS breakdown,
@@ -818,7 +818,7 @@
             first_timestamp
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
-               arrayJoin(aggregate_funnel_array(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
+               arrayJoin(aggregate_funnel_array_v0(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
                af_tuple.1 AS step_reached,
                plus(af_tuple.1, 1) AS steps,
                af_tuple.2 AS breakdown,
@@ -877,7 +877,7 @@
                first_timestamp
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
-                  arrayJoin(aggregate_funnel_array(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
+                  arrayJoin(aggregate_funnel_array_v0(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
                   af_tuple.1 AS step_reached,
                   plus(af_tuple.1, 1) AS steps,
                   af_tuple.2 AS breakdown,
@@ -931,7 +931,7 @@
                                                    FROM
                                                      (SELECT aggregation_target AS actor_id, matched_events_array[plus(step_reached, 1)] AS matching_events, (matched_events_array[1][1]).1 AS timestamp, nullIf((matched_events_array[2][1]).1, 0) AS final_timestamp, (matched_events_array[1][1]).1 AS first_timestamp, steps AS steps, final_timestamp, first_timestamp
                                                       FROM
-                                                        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array, arrayJoin(aggregate_funnel_array(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple, af_tuple.1 AS step_reached, plus(af_tuple.1, 1) AS steps, af_tuple.2 AS breakdown, af_tuple.3 AS timings, af_tuple.4 AS matched_event_uuids_array_array, groupArray(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS user_events, mapFromArrays(arrayMap(x -> x.2, user_events), user_events) AS user_events_map, arrayMap(matched_event_uuids_array -> arrayMap(event_uuid -> user_events_map[event_uuid], arrayDistinct(matched_event_uuids_array)), matched_event_uuids_array_array) AS matched_events_array, aggregation_target AS aggregation_target
+                                                        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array, arrayJoin(aggregate_funnel_array_v0(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple, af_tuple.1 AS step_reached, plus(af_tuple.1, 1) AS steps, af_tuple.2 AS breakdown, af_tuple.3 AS timings, af_tuple.4 AS matched_event_uuids_array_array, groupArray(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS user_events, mapFromArrays(arrayMap(x -> x.2, user_events), user_events) AS user_events_map, arrayMap(matched_event_uuids_array -> arrayMap(event_uuid -> user_events_map[event_uuid], arrayDistinct(matched_event_uuids_array)), matched_event_uuids_array_array) AS matched_events_array, aggregation_target AS aggregation_target
                                                          FROM
                                                            (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp, if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target, e.uuid AS uuid, e.`$session_id` AS `$session_id`, e.`$window_id` AS `$window_id`, if(equals(e.event, 'user signed up'), 1, 0) AS step_0, if(equals(e.event, 'paid'), 1, 0) AS step_1
                                                             FROM events AS e
@@ -1004,7 +1004,7 @@
                first_timestamp
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
-                  arrayJoin(aggregate_funnel_array(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
+                  arrayJoin(aggregate_funnel_array_v0(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
                   af_tuple.1 AS step_reached,
                   plus(af_tuple.1, 1) AS steps,
                   af_tuple.2 AS breakdown,
@@ -1058,7 +1058,7 @@
                                                    FROM
                                                      (SELECT aggregation_target AS actor_id, matched_events_array[plus(step_reached, 1)] AS matching_events, (matched_events_array[1][1]).1 AS timestamp, nullIf((matched_events_array[2][1]).1, 0) AS final_timestamp, (matched_events_array[1][1]).1 AS first_timestamp, steps AS steps, final_timestamp, first_timestamp
                                                       FROM
-                                                        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array, arrayJoin(aggregate_funnel_array(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple, af_tuple.1 AS step_reached, plus(af_tuple.1, 1) AS steps, af_tuple.2 AS breakdown, af_tuple.3 AS timings, af_tuple.4 AS matched_event_uuids_array_array, groupArray(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS user_events, mapFromArrays(arrayMap(x -> x.2, user_events), user_events) AS user_events_map, arrayMap(matched_event_uuids_array -> arrayMap(event_uuid -> user_events_map[event_uuid], arrayDistinct(matched_event_uuids_array)), matched_event_uuids_array_array) AS matched_events_array, aggregation_target AS aggregation_target
+                                                        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array, arrayJoin(aggregate_funnel_array_v0(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple, af_tuple.1 AS step_reached, plus(af_tuple.1, 1) AS steps, af_tuple.2 AS breakdown, af_tuple.3 AS timings, af_tuple.4 AS matched_event_uuids_array_array, groupArray(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS user_events, mapFromArrays(arrayMap(x -> x.2, user_events), user_events) AS user_events_map, arrayMap(matched_event_uuids_array -> arrayMap(event_uuid -> user_events_map[event_uuid], arrayDistinct(matched_event_uuids_array)), matched_event_uuids_array_array) AS matched_events_array, aggregation_target AS aggregation_target
                                                          FROM
                                                            (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp, if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target, e.uuid AS uuid, e.`$session_id` AS `$session_id`, e.`$window_id` AS `$window_id`, if(equals(e.event, 'user signed up'), 1, 0) AS step_0, if(equals(e.event, 'paid'), 1, 0) AS step_1
                                                             FROM events AS e
@@ -1131,7 +1131,7 @@
                first_timestamp
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
-                  arrayJoin(aggregate_funnel_array(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
+                  arrayJoin(aggregate_funnel_array_v0(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
                   af_tuple.1 AS step_reached,
                   plus(af_tuple.1, 1) AS steps,
                   af_tuple.2 AS breakdown,
@@ -1185,7 +1185,7 @@
                                                    FROM
                                                      (SELECT aggregation_target AS actor_id, matched_events_array[plus(step_reached, 1)] AS matching_events, (matched_events_array[1][1]).1 AS timestamp, nullIf((matched_events_array[2][1]).1, 0) AS final_timestamp, (matched_events_array[1][1]).1 AS first_timestamp, steps AS steps, final_timestamp, first_timestamp
                                                       FROM
-                                                        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array, arrayJoin(aggregate_funnel_array(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple, af_tuple.1 AS step_reached, plus(af_tuple.1, 1) AS steps, af_tuple.2 AS breakdown, af_tuple.3 AS timings, af_tuple.4 AS matched_event_uuids_array_array, groupArray(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS user_events, mapFromArrays(arrayMap(x -> x.2, user_events), user_events) AS user_events_map, arrayMap(matched_event_uuids_array -> arrayMap(event_uuid -> user_events_map[event_uuid], arrayDistinct(matched_event_uuids_array)), matched_event_uuids_array_array) AS matched_events_array, aggregation_target AS aggregation_target
+                                                        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array, arrayJoin(aggregate_funnel_array_v0(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple, af_tuple.1 AS step_reached, plus(af_tuple.1, 1) AS steps, af_tuple.2 AS breakdown, af_tuple.3 AS timings, af_tuple.4 AS matched_event_uuids_array_array, groupArray(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS user_events, mapFromArrays(arrayMap(x -> x.2, user_events), user_events) AS user_events_map, arrayMap(matched_event_uuids_array -> arrayMap(event_uuid -> user_events_map[event_uuid], arrayDistinct(matched_event_uuids_array)), matched_event_uuids_array_array) AS matched_events_array, aggregation_target AS aggregation_target
                                                          FROM
                                                            (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp, if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target, e.uuid AS uuid, e.`$session_id` AS `$session_id`, e.`$window_id` AS `$window_id`, if(equals(e.event, 'user signed up'), 1, 0) AS step_0, if(equals(e.event, 'paid'), 1, 0) AS step_1
                                                             FROM events AS e
@@ -1258,7 +1258,7 @@
                first_timestamp
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
-                  arrayJoin(aggregate_funnel_array(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
+                  arrayJoin(aggregate_funnel_array_v0(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
                   af_tuple.1 AS step_reached,
                   plus(af_tuple.1, 1) AS steps,
                   af_tuple.2 AS breakdown,
@@ -1312,7 +1312,7 @@
                                                    FROM
                                                      (SELECT aggregation_target AS actor_id, matched_events_array[plus(step_reached, 1)] AS matching_events, (matched_events_array[1][1]).1 AS timestamp, nullIf((matched_events_array[2][1]).1, 0) AS final_timestamp, (matched_events_array[1][1]).1 AS first_timestamp, steps AS steps, final_timestamp, first_timestamp
                                                       FROM
-                                                        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array, arrayJoin(aggregate_funnel_array(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple, af_tuple.1 AS step_reached, plus(af_tuple.1, 1) AS steps, af_tuple.2 AS breakdown, af_tuple.3 AS timings, af_tuple.4 AS matched_event_uuids_array_array, groupArray(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS user_events, mapFromArrays(arrayMap(x -> x.2, user_events), user_events) AS user_events_map, arrayMap(matched_event_uuids_array -> arrayMap(event_uuid -> user_events_map[event_uuid], arrayDistinct(matched_event_uuids_array)), matched_event_uuids_array_array) AS matched_events_array, aggregation_target AS aggregation_target
+                                                        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array, arrayJoin(aggregate_funnel_array_v0(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple, af_tuple.1 AS step_reached, plus(af_tuple.1, 1) AS steps, af_tuple.2 AS breakdown, af_tuple.3 AS timings, af_tuple.4 AS matched_event_uuids_array_array, groupArray(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS user_events, mapFromArrays(arrayMap(x -> x.2, user_events), user_events) AS user_events_map, arrayMap(matched_event_uuids_array -> arrayMap(event_uuid -> user_events_map[event_uuid], arrayDistinct(matched_event_uuids_array)), matched_event_uuids_array_array) AS matched_events_array, aggregation_target AS aggregation_target
                                                          FROM
                                                            (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp, if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target, e.uuid AS uuid, e.`$session_id` AS `$session_id`, e.`$window_id` AS `$window_id`, if(equals(e.event, 'user signed up'), 1, 0) AS step_0, if(equals(e.event, 'paid'), 1, 0) AS step_1
                                                             FROM events AS e
@@ -1387,7 +1387,7 @@
                first_timestamp
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
-                  arrayJoin(aggregate_funnel_array(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
+                  arrayJoin(aggregate_funnel_array_v0(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
                   af_tuple.1 AS step_reached,
                   plus(af_tuple.1, 1) AS steps,
                   af_tuple.2 AS breakdown,
@@ -1430,7 +1430,7 @@
             first_timestamp
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
-               arrayJoin(aggregate_funnel_array(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
+               arrayJoin(aggregate_funnel_array_v0(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
                af_tuple.1 AS step_reached,
                plus(af_tuple.1, 1) AS steps,
                af_tuple.2 AS breakdown,
@@ -1484,7 +1484,7 @@
                first_timestamp
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
-                  arrayJoin(aggregate_funnel_array(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
+                  arrayJoin(aggregate_funnel_array_v0(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
                   af_tuple.1 AS step_reached,
                   plus(af_tuple.1, 1) AS steps,
                   af_tuple.2 AS breakdown,
@@ -1527,7 +1527,7 @@
             first_timestamp
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
-               arrayJoin(aggregate_funnel_array(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
+               arrayJoin(aggregate_funnel_array_v0(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
                af_tuple.1 AS step_reached,
                plus(af_tuple.1, 1) AS steps,
                af_tuple.2 AS breakdown,
@@ -1576,7 +1576,7 @@
             first_timestamp
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
-               arrayJoin(aggregate_funnel_array(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
+               arrayJoin(aggregate_funnel_array_v0(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
                af_tuple.1 AS step_reached,
                plus(af_tuple.1, 1) AS steps,
                af_tuple.2 AS breakdown,
@@ -1617,7 +1617,7 @@
             first_timestamp
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
-               arrayJoin(aggregate_funnel_array(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
+               arrayJoin(aggregate_funnel_array_v0(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
                af_tuple.1 AS step_reached,
                plus(af_tuple.1, 1) AS steps,
                af_tuple.2 AS breakdown,
@@ -1668,7 +1668,7 @@
                first_timestamp
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
-                  arrayJoin(aggregate_funnel_array(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
+                  arrayJoin(aggregate_funnel_array_v0(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
                   af_tuple.1 AS step_reached,
                   plus(af_tuple.1, 1) AS steps,
                   af_tuple.2 AS breakdown,
@@ -1731,7 +1731,7 @@
                first_timestamp
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
-                  arrayJoin(aggregate_funnel_array(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
+                  arrayJoin(aggregate_funnel_array_v0(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
                   af_tuple.1 AS step_reached,
                   plus(af_tuple.1, 1) AS steps,
                   af_tuple.2 AS breakdown,
@@ -1794,7 +1794,7 @@
                first_timestamp
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
-                  arrayJoin(aggregate_funnel_array(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
+                  arrayJoin(aggregate_funnel_array_v0(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
                   af_tuple.1 AS step_reached,
                   plus(af_tuple.1, 1) AS steps,
                   af_tuple.2 AS breakdown,
@@ -1857,7 +1857,7 @@
                first_timestamp
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
-                  arrayJoin(aggregate_funnel_array(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
+                  arrayJoin(aggregate_funnel_array_v0(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
                   af_tuple.1 AS step_reached,
                   plus(af_tuple.1, 1) AS steps,
                   af_tuple.2 AS breakdown,
@@ -1918,7 +1918,7 @@
             first_timestamp
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
-               arrayJoin(aggregate_funnel_array(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
+               arrayJoin(aggregate_funnel_array_v0(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
                af_tuple.1 AS step_reached,
                plus(af_tuple.1, 1) AS steps,
                af_tuple.2 AS breakdown,
@@ -1967,7 +1967,7 @@
             first_timestamp
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
-               arrayJoin(aggregate_funnel_array(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
+               arrayJoin(aggregate_funnel_array_v0(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
                af_tuple.1 AS step_reached,
                plus(af_tuple.1, 1) AS steps,
                af_tuple.2 AS breakdown,
@@ -2026,7 +2026,7 @@
                first_timestamp
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
-                  arrayJoin(aggregate_funnel_array(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
+                  arrayJoin(aggregate_funnel_array_v0(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
                   af_tuple.1 AS step_reached,
                   plus(af_tuple.1, 1) AS steps,
                   af_tuple.2 AS breakdown,
@@ -2089,7 +2089,7 @@
                first_timestamp
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
-                  arrayJoin(aggregate_funnel_array(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
+                  arrayJoin(aggregate_funnel_array_v0(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
                   af_tuple.1 AS step_reached,
                   plus(af_tuple.1, 1) AS steps,
                   af_tuple.2 AS breakdown,
@@ -2150,7 +2150,7 @@
             first_timestamp
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
-               arrayJoin(aggregate_funnel_array(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
+               arrayJoin(aggregate_funnel_array_v0(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
                af_tuple.1 AS step_reached,
                plus(af_tuple.1, 1) AS steps,
                af_tuple.2 AS breakdown,
@@ -2191,7 +2191,7 @@
             first_timestamp
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
-               arrayJoin(aggregate_funnel_array(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
+               arrayJoin(aggregate_funnel_array_v0(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
                af_tuple.1 AS step_reached,
                plus(af_tuple.1, 1) AS steps,
                af_tuple.2 AS breakdown,
@@ -2242,7 +2242,7 @@
                first_timestamp
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
-                  arrayJoin(aggregate_funnel_array(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
+                  arrayJoin(aggregate_funnel_array_v0(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
                   af_tuple.1 AS step_reached,
                   plus(af_tuple.1, 1) AS steps,
                   af_tuple.2 AS breakdown,
@@ -2305,7 +2305,7 @@
                first_timestamp
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
-                  arrayJoin(aggregate_funnel_array(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
+                  arrayJoin(aggregate_funnel_array_v0(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
                   af_tuple.1 AS step_reached,
                   plus(af_tuple.1, 1) AS steps,
                   af_tuple.2 AS breakdown,
@@ -2368,7 +2368,7 @@
                first_timestamp
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
-                  arrayJoin(aggregate_funnel_array(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
+                  arrayJoin(aggregate_funnel_array_v0(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
                   af_tuple.1 AS step_reached,
                   plus(af_tuple.1, 1) AS steps,
                   af_tuple.2 AS breakdown,
@@ -2431,7 +2431,7 @@
                first_timestamp
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
-                  arrayJoin(aggregate_funnel_array(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
+                  arrayJoin(aggregate_funnel_array_v0(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
                   af_tuple.1 AS step_reached,
                   plus(af_tuple.1, 1) AS steps,
                   af_tuple.2 AS breakdown,
@@ -2492,7 +2492,7 @@
             first_timestamp
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
-               arrayJoin(aggregate_funnel_array(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
+               arrayJoin(aggregate_funnel_array_v0(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
                af_tuple.1 AS step_reached,
                plus(af_tuple.1, 1) AS steps,
                af_tuple.2 AS breakdown,
@@ -2541,7 +2541,7 @@
             first_timestamp
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
-               arrayJoin(aggregate_funnel_array(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
+               arrayJoin(aggregate_funnel_array_v0(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
                af_tuple.1 AS step_reached,
                plus(af_tuple.1, 1) AS steps,
                af_tuple.2 AS breakdown,
@@ -2600,7 +2600,7 @@
                first_timestamp
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
-                  arrayJoin(aggregate_funnel_array(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
+                  arrayJoin(aggregate_funnel_array_v0(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
                   af_tuple.1 AS step_reached,
                   plus(af_tuple.1, 1) AS steps,
                   af_tuple.2 AS breakdown,
@@ -2663,7 +2663,7 @@
                first_timestamp
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
-                  arrayJoin(aggregate_funnel_array(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
+                  arrayJoin(aggregate_funnel_array_v0(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
                   af_tuple.1 AS step_reached,
                   plus(af_tuple.1, 1) AS steps,
                   af_tuple.2 AS breakdown,
@@ -2727,7 +2727,7 @@
                first_timestamp
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
-                  arrayJoin(aggregate_funnel_array(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
+                  arrayJoin(aggregate_funnel_array_v0(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
                   af_tuple.1 AS step_reached,
                   plus(af_tuple.1, 1) AS steps,
                   af_tuple.2 AS breakdown,
@@ -2780,7 +2780,7 @@
             first_timestamp
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
-               arrayJoin(aggregate_funnel_array(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
+               arrayJoin(aggregate_funnel_array_v0(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
                af_tuple.1 AS step_reached,
                plus(af_tuple.1, 1) AS steps,
                af_tuple.2 AS breakdown,
@@ -2830,7 +2830,7 @@
                first_timestamp
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
-                  arrayJoin(aggregate_funnel_array(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
+                  arrayJoin(aggregate_funnel_array_v0(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
                   af_tuple.1 AS step_reached,
                   plus(af_tuple.1, 1) AS steps,
                   af_tuple.2 AS breakdown,
@@ -2900,7 +2900,7 @@
                first_timestamp
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
-                  arrayJoin(aggregate_funnel_array(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
+                  arrayJoin(aggregate_funnel_array_v0(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
                   af_tuple.1 AS step_reached,
                   plus(af_tuple.1, 1) AS steps,
                   af_tuple.2 AS breakdown,
@@ -2970,7 +2970,7 @@
                first_timestamp
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
-                  arrayJoin(aggregate_funnel_array(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
+                  arrayJoin(aggregate_funnel_array_v0(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
                   af_tuple.1 AS step_reached,
                   plus(af_tuple.1, 1) AS steps,
                   af_tuple.2 AS breakdown,
@@ -3040,7 +3040,7 @@
                first_timestamp
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
-                  arrayJoin(aggregate_funnel_array(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
+                  arrayJoin(aggregate_funnel_array_v0(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
                   af_tuple.1 AS step_reached,
                   plus(af_tuple.1, 1) AS steps,
                   af_tuple.2 AS breakdown,
@@ -3112,7 +3112,7 @@
                first_timestamp
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
-                  arrayJoin(aggregate_funnel_array(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
+                  arrayJoin(aggregate_funnel_array_v0(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
                   af_tuple.1 AS step_reached,
                   plus(af_tuple.1, 1) AS steps,
                   af_tuple.2 AS breakdown,
@@ -3165,7 +3165,7 @@
             first_timestamp
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
-               arrayJoin(aggregate_funnel_array(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
+               arrayJoin(aggregate_funnel_array_v0(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
                af_tuple.1 AS step_reached,
                plus(af_tuple.1, 1) AS steps,
                af_tuple.2 AS breakdown,
@@ -3217,7 +3217,7 @@
                first_timestamp
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
-                  arrayJoin(aggregate_funnel_array(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
+                  arrayJoin(aggregate_funnel_array_v0(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
                   af_tuple.1 AS step_reached,
                   plus(af_tuple.1, 1) AS steps,
                   af_tuple.2 AS breakdown,
@@ -3270,7 +3270,7 @@
             first_timestamp
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
-               arrayJoin(aggregate_funnel_array(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
+               arrayJoin(aggregate_funnel_array_v0(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
                af_tuple.1 AS step_reached,
                plus(af_tuple.1, 1) AS steps,
                af_tuple.2 AS breakdown,
@@ -3320,7 +3320,7 @@
                first_timestamp
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
-                  arrayJoin(aggregate_funnel_array(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
+                  arrayJoin(aggregate_funnel_array_v0(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
                   af_tuple.1 AS step_reached,
                   plus(af_tuple.1, 1) AS steps,
                   af_tuple.2 AS breakdown,
@@ -3390,7 +3390,7 @@
                first_timestamp
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
-                  arrayJoin(aggregate_funnel_array(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
+                  arrayJoin(aggregate_funnel_array_v0(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
                   af_tuple.1 AS step_reached,
                   plus(af_tuple.1, 1) AS steps,
                   af_tuple.2 AS breakdown,
@@ -3460,7 +3460,7 @@
                first_timestamp
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
-                  arrayJoin(aggregate_funnel_array(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
+                  arrayJoin(aggregate_funnel_array_v0(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
                   af_tuple.1 AS step_reached,
                   plus(af_tuple.1, 1) AS steps,
                   af_tuple.2 AS breakdown,
@@ -3530,7 +3530,7 @@
                first_timestamp
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
-                  arrayJoin(aggregate_funnel_array(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
+                  arrayJoin(aggregate_funnel_array_v0(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
                   af_tuple.1 AS step_reached,
                   plus(af_tuple.1, 1) AS steps,
                   af_tuple.2 AS breakdown,
@@ -3602,7 +3602,7 @@
                first_timestamp
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
-                  arrayJoin(aggregate_funnel_array(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
+                  arrayJoin(aggregate_funnel_array_v0(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
                   af_tuple.1 AS step_reached,
                   plus(af_tuple.1, 1) AS steps,
                   af_tuple.2 AS breakdown,
@@ -3655,7 +3655,7 @@
             first_timestamp
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
-               arrayJoin(aggregate_funnel_array(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
+               arrayJoin(aggregate_funnel_array_v0(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
                af_tuple.1 AS step_reached,
                plus(af_tuple.1, 1) AS steps,
                af_tuple.2 AS breakdown,
@@ -3707,7 +3707,7 @@
                first_timestamp
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
-                  arrayJoin(aggregate_funnel_array(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
+                  arrayJoin(aggregate_funnel_array_v0(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
                   af_tuple.1 AS step_reached,
                   plus(af_tuple.1, 1) AS steps,
                   af_tuple.2 AS breakdown,
@@ -3760,7 +3760,7 @@
             first_timestamp
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
-               arrayJoin(aggregate_funnel_array(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
+               arrayJoin(aggregate_funnel_array_v0(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
                af_tuple.1 AS step_reached,
                plus(af_tuple.1, 1) AS steps,
                af_tuple.2 AS breakdown,
@@ -3810,7 +3810,7 @@
                first_timestamp
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
-                  arrayJoin(aggregate_funnel_array(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
+                  arrayJoin(aggregate_funnel_array_v0(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
                   af_tuple.1 AS step_reached,
                   plus(af_tuple.1, 1) AS steps,
                   af_tuple.2 AS breakdown,
@@ -3880,7 +3880,7 @@
                first_timestamp
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
-                  arrayJoin(aggregate_funnel_array(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
+                  arrayJoin(aggregate_funnel_array_v0(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
                   af_tuple.1 AS step_reached,
                   plus(af_tuple.1, 1) AS steps,
                   af_tuple.2 AS breakdown,
@@ -3950,7 +3950,7 @@
                first_timestamp
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
-                  arrayJoin(aggregate_funnel_array(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
+                  arrayJoin(aggregate_funnel_array_v0(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
                   af_tuple.1 AS step_reached,
                   plus(af_tuple.1, 1) AS steps,
                   af_tuple.2 AS breakdown,
@@ -4020,7 +4020,7 @@
                first_timestamp
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
-                  arrayJoin(aggregate_funnel_array(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
+                  arrayJoin(aggregate_funnel_array_v0(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
                   af_tuple.1 AS step_reached,
                   plus(af_tuple.1, 1) AS steps,
                   af_tuple.2 AS breakdown,
@@ -4092,7 +4092,7 @@
                first_timestamp
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
-                  arrayJoin(aggregate_funnel_array(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
+                  arrayJoin(aggregate_funnel_array_v0(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
                   af_tuple.1 AS step_reached,
                   plus(af_tuple.1, 1) AS steps,
                   af_tuple.2 AS breakdown,
@@ -4145,7 +4145,987 @@
             first_timestamp
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
-               arrayJoin(aggregate_funnel_array(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
+               arrayJoin(aggregate_funnel_array_v0(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
+               af_tuple.1 AS step_reached,
+               plus(af_tuple.1, 1) AS steps,
+               af_tuple.2 AS breakdown,
+               af_tuple.3 AS timings,
+               af_tuple.4 AS matched_event_uuids_array_array,
+               groupArray(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS user_events,
+               mapFromArrays(arrayMap(x -> x.2, user_events), user_events) AS user_events_map,
+               arrayMap(matched_event_uuids_array -> arrayMap(event_uuid -> user_events_map[event_uuid], arrayDistinct(matched_event_uuids_array)), matched_event_uuids_array_array) AS matched_events_array,
+               aggregation_target AS aggregation_target
+        FROM
+          (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                  e.`$group_0` AS aggregation_target,
+                  e.uuid AS uuid,
+                  e.`$session_id` AS `$session_id`,
+                  e.`$window_id` AS `$window_id`,
+                  if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
+                  if(equals(e.event, 'paid'), 1, 0) AS step_1
+           FROM events AS e
+           WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
+        GROUP BY aggregation_target
+        HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
+     WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
+     ORDER BY aggregation_target ASC) AS funnel_actors
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0
+  '''
+# ---
+# name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups_person_on_events_materialized
+  '''
+  SELECT concat(ifNull(toString((aggregation_target_with_props.prop).1), ''), '::', ifNull(toString((aggregation_target_with_props.prop).2), '')) AS name,
+         countDistinctIf(aggregation_target_with_props.actor_id, ifNull(equals(aggregation_target_with_props.steps, 2), 0)) AS success_count,
+         countDistinctIf(aggregation_target_with_props.actor_id, ifNull(notEquals(aggregation_target_with_props.steps, 2), 1)) AS failure_count
+  FROM
+    (SELECT funnel_actors.actor_id AS actor_id,
+            funnel_actors.steps AS steps,
+            arrayJoin(arrayZip(['industry'], [JSONExtractString(groups_0.properties, 'industry')])) AS prop
+     FROM
+       (SELECT aggregation_target AS actor_id,
+               (matched_events_array[1][1]).1 AS timestamp,
+               nullIf((matched_events_array[2][1]).1, 0) AS final_timestamp,
+               (matched_events_array[1][1]).1 AS first_timestamp,
+               steps AS steps,
+               final_timestamp,
+               first_timestamp
+        FROM
+          (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
+                  arrayJoin(aggregate_funnel_array_v0(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
+                  af_tuple.1 AS step_reached,
+                  plus(af_tuple.1, 1) AS steps,
+                  af_tuple.2 AS breakdown,
+                  af_tuple.3 AS timings,
+                  af_tuple.4 AS matched_event_uuids_array_array,
+                  groupArray(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS user_events,
+                  mapFromArrays(arrayMap(x -> x.2, user_events), user_events) AS user_events_map,
+                  arrayMap(matched_event_uuids_array -> arrayMap(event_uuid -> user_events_map[event_uuid], arrayDistinct(matched_event_uuids_array)), matched_event_uuids_array_array) AS matched_events_array,
+                  aggregation_target AS aggregation_target
+           FROM
+             (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                     e.`$group_0` AS aggregation_target,
+                     e.uuid AS uuid,
+                     e.`$session_id` AS `$session_id`,
+                     e.`$window_id` AS `$window_id`,
+                     if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
+                     if(equals(e.event, 'paid'), 1, 0) AS step_1
+              FROM events AS e
+              WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
+           GROUP BY aggregation_target
+           HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
+        WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
+        ORDER BY aggregation_target ASC) AS funnel_actors
+     LEFT JOIN
+       (SELECT groups.key AS key,
+               groups.properties AS properties
+        FROM
+          (SELECT argMax(groups.group_properties, toTimeZone(groups._timestamp, 'UTC')) AS properties,
+                  groups.group_type_index AS index,
+                  groups.group_key AS key
+           FROM groups
+           WHERE equals(groups.team_id, 2)
+           GROUP BY groups.group_type_index,
+                    groups.group_key) AS groups
+        WHERE ifNull(equals(groups.index, 0), 0)) AS groups_0 ON equals(funnel_actors.actor_id, groups_0.key)) AS aggregation_target_with_props
+  GROUP BY (aggregation_target_with_props.prop).1, (aggregation_target_with_props.prop).2
+  HAVING ifNull(notIn((aggregation_target_with_props.prop).1, []), 0)
+  LIMIT 100
+  UNION ALL
+  SELECT 'Total_Values_In_Query' AS name,
+         countDistinctIf(funnel_actors.actor_id, ifNull(equals(funnel_actors.steps, 2), 0)) AS success_count,
+         countDistinctIf(funnel_actors.actor_id, ifNull(notEquals(funnel_actors.steps, 2), 1)) AS failure_count
+  FROM
+    (SELECT aggregation_target AS actor_id,
+            (matched_events_array[1][1]).1 AS timestamp,
+            nullIf((matched_events_array[2][1]).1, 0) AS final_timestamp,
+            (matched_events_array[1][1]).1 AS first_timestamp,
+            steps AS steps,
+            final_timestamp,
+            first_timestamp
+     FROM
+       (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
+               arrayJoin(aggregate_funnel_array_v0(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
+               af_tuple.1 AS step_reached,
+               plus(af_tuple.1, 1) AS steps,
+               af_tuple.2 AS breakdown,
+               af_tuple.3 AS timings,
+               af_tuple.4 AS matched_event_uuids_array_array,
+               groupArray(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS user_events,
+               mapFromArrays(arrayMap(x -> x.2, user_events), user_events) AS user_events_map,
+               arrayMap(matched_event_uuids_array -> arrayMap(event_uuid -> user_events_map[event_uuid], arrayDistinct(matched_event_uuids_array)), matched_event_uuids_array_array) AS matched_events_array,
+               aggregation_target AS aggregation_target
+        FROM
+          (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                  e.`$group_0` AS aggregation_target,
+                  e.uuid AS uuid,
+                  e.`$session_id` AS `$session_id`,
+                  e.`$window_id` AS `$window_id`,
+                  if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
+                  if(equals(e.event, 'paid'), 1, 0) AS step_1
+           FROM events AS e
+           WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
+        GROUP BY aggregation_target
+        HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
+     WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
+     ORDER BY aggregation_target ASC) AS funnel_actors
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0
+  '''
+# ---
+# name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups_person_on_events_materialized.1
+  '''
+  SELECT source.actor_id AS actor_id
+  FROM
+    (SELECT funnel_actors.actor_id AS actor_id,
+            any(funnel_actors.matching_events) AS matching_events
+     FROM
+       (SELECT aggregation_target AS actor_id,
+               matched_events_array[plus(step_reached, 1)] AS matching_events,
+               (matched_events_array[1][1]).1 AS timestamp,
+               nullIf((matched_events_array[2][1]).1, 0) AS final_timestamp,
+               (matched_events_array[1][1]).1 AS first_timestamp,
+               steps AS steps,
+               final_timestamp,
+               first_timestamp
+        FROM
+          (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
+                  arrayJoin(aggregate_funnel_array_v0(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
+                  af_tuple.1 AS step_reached,
+                  plus(af_tuple.1, 1) AS steps,
+                  af_tuple.2 AS breakdown,
+                  af_tuple.3 AS timings,
+                  af_tuple.4 AS matched_event_uuids_array_array,
+                  groupArray(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS user_events,
+                  mapFromArrays(arrayMap(x -> x.2, user_events), user_events) AS user_events_map,
+                  arrayMap(matched_event_uuids_array -> arrayMap(event_uuid -> user_events_map[event_uuid], arrayDistinct(matched_event_uuids_array)), matched_event_uuids_array_array) AS matched_events_array,
+                  aggregation_target AS aggregation_target
+           FROM
+             (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                     e.`$group_0` AS aggregation_target,
+                     e.uuid AS uuid,
+                     e.`$session_id` AS `$session_id`,
+                     e.`$window_id` AS `$window_id`,
+                     if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
+                     if(equals(e.event, 'paid'), 1, 0) AS step_1
+              FROM events AS e
+              LEFT JOIN
+                (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+                        groups.group_type_index AS index,
+                        groups.group_key AS key
+                 FROM groups
+                 WHERE and(equals(groups.team_id, 2), equals(index, 0))
+                 GROUP BY groups.group_type_index,
+                          groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
+              WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'positive'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
+           GROUP BY aggregation_target
+           HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
+        WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
+        ORDER BY aggregation_target ASC) AS funnel_actors
+     WHERE ifNull(equals(funnel_actors.steps, 2), 0)
+     GROUP BY funnel_actors.actor_id
+     ORDER BY funnel_actors.actor_id ASC) AS source
+  INNER JOIN
+    (SELECT groups.group_type_index AS index,
+            groups.group_key AS key
+     FROM groups
+     WHERE equals(groups.team_id, 2)
+     GROUP BY groups.group_type_index,
+              groups.group_key) AS groups ON equals(groups.key, source.actor_id)
+  ORDER BY source.actor_id ASC
+  LIMIT 101
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0
+  '''
+# ---
+# name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups_person_on_events_materialized.2
+  '''
+  SELECT source.actor_id AS actor_id
+  FROM
+    (SELECT funnel_actors.actor_id AS actor_id,
+            any(funnel_actors.matching_events) AS matching_events
+     FROM
+       (SELECT aggregation_target AS actor_id,
+               matched_events_array[plus(step_reached, 1)] AS matching_events,
+               (matched_events_array[1][1]).1 AS timestamp,
+               nullIf((matched_events_array[2][1]).1, 0) AS final_timestamp,
+               (matched_events_array[1][1]).1 AS first_timestamp,
+               steps AS steps,
+               final_timestamp,
+               first_timestamp
+        FROM
+          (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
+                  arrayJoin(aggregate_funnel_array_v0(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
+                  af_tuple.1 AS step_reached,
+                  plus(af_tuple.1, 1) AS steps,
+                  af_tuple.2 AS breakdown,
+                  af_tuple.3 AS timings,
+                  af_tuple.4 AS matched_event_uuids_array_array,
+                  groupArray(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS user_events,
+                  mapFromArrays(arrayMap(x -> x.2, user_events), user_events) AS user_events_map,
+                  arrayMap(matched_event_uuids_array -> arrayMap(event_uuid -> user_events_map[event_uuid], arrayDistinct(matched_event_uuids_array)), matched_event_uuids_array_array) AS matched_events_array,
+                  aggregation_target AS aggregation_target
+           FROM
+             (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                     e.`$group_0` AS aggregation_target,
+                     e.uuid AS uuid,
+                     e.`$session_id` AS `$session_id`,
+                     e.`$window_id` AS `$window_id`,
+                     if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
+                     if(equals(e.event, 'paid'), 1, 0) AS step_1
+              FROM events AS e
+              LEFT JOIN
+                (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+                        groups.group_type_index AS index,
+                        groups.group_key AS key
+                 FROM groups
+                 WHERE and(equals(groups.team_id, 2), equals(index, 0))
+                 GROUP BY groups.group_type_index,
+                          groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
+              WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'positive'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
+           GROUP BY aggregation_target
+           HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
+        WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
+        ORDER BY aggregation_target ASC) AS funnel_actors
+     WHERE ifNull(notEquals(funnel_actors.steps, 2), 1)
+     GROUP BY funnel_actors.actor_id
+     ORDER BY funnel_actors.actor_id ASC) AS source
+  INNER JOIN
+    (SELECT groups.group_type_index AS index,
+            groups.group_key AS key
+     FROM groups
+     WHERE equals(groups.team_id, 2)
+     GROUP BY groups.group_type_index,
+              groups.group_key) AS groups ON equals(groups.key, source.actor_id)
+  ORDER BY source.actor_id ASC
+  LIMIT 101
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0
+  '''
+# ---
+# name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups_person_on_events_materialized.3
+  '''
+  SELECT source.actor_id AS actor_id
+  FROM
+    (SELECT funnel_actors.actor_id AS actor_id,
+            any(funnel_actors.matching_events) AS matching_events
+     FROM
+       (SELECT aggregation_target AS actor_id,
+               matched_events_array[plus(step_reached, 1)] AS matching_events,
+               (matched_events_array[1][1]).1 AS timestamp,
+               nullIf((matched_events_array[2][1]).1, 0) AS final_timestamp,
+               (matched_events_array[1][1]).1 AS first_timestamp,
+               steps AS steps,
+               final_timestamp,
+               first_timestamp
+        FROM
+          (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
+                  arrayJoin(aggregate_funnel_array_v0(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
+                  af_tuple.1 AS step_reached,
+                  plus(af_tuple.1, 1) AS steps,
+                  af_tuple.2 AS breakdown,
+                  af_tuple.3 AS timings,
+                  af_tuple.4 AS matched_event_uuids_array_array,
+                  groupArray(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS user_events,
+                  mapFromArrays(arrayMap(x -> x.2, user_events), user_events) AS user_events_map,
+                  arrayMap(matched_event_uuids_array -> arrayMap(event_uuid -> user_events_map[event_uuid], arrayDistinct(matched_event_uuids_array)), matched_event_uuids_array_array) AS matched_events_array,
+                  aggregation_target AS aggregation_target
+           FROM
+             (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                     e.`$group_0` AS aggregation_target,
+                     e.uuid AS uuid,
+                     e.`$session_id` AS `$session_id`,
+                     e.`$window_id` AS `$window_id`,
+                     if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
+                     if(equals(e.event, 'paid'), 1, 0) AS step_1
+              FROM events AS e
+              LEFT JOIN
+                (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+                        groups.group_type_index AS index,
+                        groups.group_key AS key
+                 FROM groups
+                 WHERE and(equals(groups.team_id, 2), equals(index, 0))
+                 GROUP BY groups.group_type_index,
+                          groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
+              WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'negative'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
+           GROUP BY aggregation_target
+           HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
+        WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
+        ORDER BY aggregation_target ASC) AS funnel_actors
+     WHERE ifNull(equals(funnel_actors.steps, 2), 0)
+     GROUP BY funnel_actors.actor_id
+     ORDER BY funnel_actors.actor_id ASC) AS source
+  INNER JOIN
+    (SELECT groups.group_type_index AS index,
+            groups.group_key AS key
+     FROM groups
+     WHERE equals(groups.team_id, 2)
+     GROUP BY groups.group_type_index,
+              groups.group_key) AS groups ON equals(groups.key, source.actor_id)
+  ORDER BY source.actor_id ASC
+  LIMIT 101
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0
+  '''
+# ---
+# name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups_person_on_events_materialized.4
+  '''
+  SELECT source.actor_id AS actor_id
+  FROM
+    (SELECT funnel_actors.actor_id AS actor_id,
+            any(funnel_actors.matching_events) AS matching_events
+     FROM
+       (SELECT aggregation_target AS actor_id,
+               matched_events_array[plus(step_reached, 1)] AS matching_events,
+               (matched_events_array[1][1]).1 AS timestamp,
+               nullIf((matched_events_array[2][1]).1, 0) AS final_timestamp,
+               (matched_events_array[1][1]).1 AS first_timestamp,
+               steps AS steps,
+               final_timestamp,
+               first_timestamp
+        FROM
+          (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
+                  arrayJoin(aggregate_funnel_array_v0(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
+                  af_tuple.1 AS step_reached,
+                  plus(af_tuple.1, 1) AS steps,
+                  af_tuple.2 AS breakdown,
+                  af_tuple.3 AS timings,
+                  af_tuple.4 AS matched_event_uuids_array_array,
+                  groupArray(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS user_events,
+                  mapFromArrays(arrayMap(x -> x.2, user_events), user_events) AS user_events_map,
+                  arrayMap(matched_event_uuids_array -> arrayMap(event_uuid -> user_events_map[event_uuid], arrayDistinct(matched_event_uuids_array)), matched_event_uuids_array_array) AS matched_events_array,
+                  aggregation_target AS aggregation_target
+           FROM
+             (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                     e.`$group_0` AS aggregation_target,
+                     e.uuid AS uuid,
+                     e.`$session_id` AS `$session_id`,
+                     e.`$window_id` AS `$window_id`,
+                     if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
+                     if(equals(e.event, 'paid'), 1, 0) AS step_1
+              FROM events AS e
+              LEFT JOIN
+                (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+                        groups.group_type_index AS index,
+                        groups.group_key AS key
+                 FROM groups
+                 WHERE and(equals(groups.team_id, 2), equals(index, 0))
+                 GROUP BY groups.group_type_index,
+                          groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
+              WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'negative'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
+           GROUP BY aggregation_target
+           HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
+        WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
+        ORDER BY aggregation_target ASC) AS funnel_actors
+     WHERE ifNull(notEquals(funnel_actors.steps, 2), 1)
+     GROUP BY funnel_actors.actor_id
+     ORDER BY funnel_actors.actor_id ASC) AS source
+  INNER JOIN
+    (SELECT groups.group_type_index AS index,
+            groups.group_key AS key
+     FROM groups
+     WHERE equals(groups.team_id, 2)
+     GROUP BY groups.group_type_index,
+              groups.group_key) AS groups ON equals(groups.key, source.actor_id)
+  ORDER BY source.actor_id ASC
+  LIMIT 101
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0
+  '''
+# ---
+# name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups_person_on_events_materialized.5
+  '''
+  SELECT concat(ifNull(toString((aggregation_target_with_props.prop).1), ''), '::', ifNull(toString((aggregation_target_with_props.prop).2), '')) AS name,
+         countDistinctIf(aggregation_target_with_props.actor_id, ifNull(equals(aggregation_target_with_props.steps, 2), 0)) AS success_count,
+         countDistinctIf(aggregation_target_with_props.actor_id, ifNull(notEquals(aggregation_target_with_props.steps, 2), 1)) AS failure_count
+  FROM
+    (SELECT funnel_actors.actor_id AS actor_id,
+            funnel_actors.steps AS steps,
+            arrayJoin(JSONExtractKeysAndValues(groups_0.properties, 'String')) AS prop
+     FROM
+       (SELECT aggregation_target AS actor_id,
+               (matched_events_array[1][1]).1 AS timestamp,
+               nullIf((matched_events_array[2][1]).1, 0) AS final_timestamp,
+               (matched_events_array[1][1]).1 AS first_timestamp,
+               steps AS steps,
+               final_timestamp,
+               first_timestamp
+        FROM
+          (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
+                  arrayJoin(aggregate_funnel_array_v0(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
+                  af_tuple.1 AS step_reached,
+                  plus(af_tuple.1, 1) AS steps,
+                  af_tuple.2 AS breakdown,
+                  af_tuple.3 AS timings,
+                  af_tuple.4 AS matched_event_uuids_array_array,
+                  groupArray(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS user_events,
+                  mapFromArrays(arrayMap(x -> x.2, user_events), user_events) AS user_events_map,
+                  arrayMap(matched_event_uuids_array -> arrayMap(event_uuid -> user_events_map[event_uuid], arrayDistinct(matched_event_uuids_array)), matched_event_uuids_array_array) AS matched_events_array,
+                  aggregation_target AS aggregation_target
+           FROM
+             (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                     e.`$group_0` AS aggregation_target,
+                     e.uuid AS uuid,
+                     e.`$session_id` AS `$session_id`,
+                     e.`$window_id` AS `$window_id`,
+                     if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
+                     if(equals(e.event, 'paid'), 1, 0) AS step_1
+              FROM events AS e
+              WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
+           GROUP BY aggregation_target
+           HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
+        WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
+        ORDER BY aggregation_target ASC) AS funnel_actors
+     LEFT JOIN
+       (SELECT groups.key AS key,
+               groups.properties AS properties
+        FROM
+          (SELECT argMax(groups.group_properties, toTimeZone(groups._timestamp, 'UTC')) AS properties,
+                  groups.group_type_index AS index,
+                  groups.group_key AS key
+           FROM groups
+           WHERE equals(groups.team_id, 2)
+           GROUP BY groups.group_type_index,
+                    groups.group_key) AS groups
+        WHERE ifNull(equals(groups.index, 0), 0)) AS groups_0 ON equals(funnel_actors.actor_id, groups_0.key)) AS aggregation_target_with_props
+  GROUP BY (aggregation_target_with_props.prop).1, (aggregation_target_with_props.prop).2
+  HAVING ifNull(notIn((aggregation_target_with_props.prop).1, []), 0)
+  LIMIT 100
+  UNION ALL
+  SELECT 'Total_Values_In_Query' AS name,
+         countDistinctIf(funnel_actors.actor_id, ifNull(equals(funnel_actors.steps, 2), 0)) AS success_count,
+         countDistinctIf(funnel_actors.actor_id, ifNull(notEquals(funnel_actors.steps, 2), 1)) AS failure_count
+  FROM
+    (SELECT aggregation_target AS actor_id,
+            (matched_events_array[1][1]).1 AS timestamp,
+            nullIf((matched_events_array[2][1]).1, 0) AS final_timestamp,
+            (matched_events_array[1][1]).1 AS first_timestamp,
+            steps AS steps,
+            final_timestamp,
+            first_timestamp
+     FROM
+       (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
+               arrayJoin(aggregate_funnel_array_v0(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
+               af_tuple.1 AS step_reached,
+               plus(af_tuple.1, 1) AS steps,
+               af_tuple.2 AS breakdown,
+               af_tuple.3 AS timings,
+               af_tuple.4 AS matched_event_uuids_array_array,
+               groupArray(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS user_events,
+               mapFromArrays(arrayMap(x -> x.2, user_events), user_events) AS user_events_map,
+               arrayMap(matched_event_uuids_array -> arrayMap(event_uuid -> user_events_map[event_uuid], arrayDistinct(matched_event_uuids_array)), matched_event_uuids_array_array) AS matched_events_array,
+               aggregation_target AS aggregation_target
+        FROM
+          (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                  e.`$group_0` AS aggregation_target,
+                  e.uuid AS uuid,
+                  e.`$session_id` AS `$session_id`,
+                  e.`$window_id` AS `$window_id`,
+                  if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
+                  if(equals(e.event, 'paid'), 1, 0) AS step_1
+           FROM events AS e
+           WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
+        GROUP BY aggregation_target
+        HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
+     WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
+     ORDER BY aggregation_target ASC) AS funnel_actors
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0
+  '''
+# ---
+# name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups_person_on_events_poe_v2
+  '''
+  SELECT concat(ifNull(toString((aggregation_target_with_props.prop).1), ''), '::', ifNull(toString((aggregation_target_with_props.prop).2), '')) AS name,
+         countDistinctIf(aggregation_target_with_props.actor_id, ifNull(equals(aggregation_target_with_props.steps, 2), 0)) AS success_count,
+         countDistinctIf(aggregation_target_with_props.actor_id, ifNull(notEquals(aggregation_target_with_props.steps, 2), 1)) AS failure_count
+  FROM
+    (SELECT funnel_actors.actor_id AS actor_id,
+            funnel_actors.steps AS steps,
+            arrayJoin(arrayZip(['industry'], [JSONExtractString(groups_0.properties, 'industry')])) AS prop
+     FROM
+       (SELECT aggregation_target AS actor_id,
+               (matched_events_array[1][1]).1 AS timestamp,
+               nullIf((matched_events_array[2][1]).1, 0) AS final_timestamp,
+               (matched_events_array[1][1]).1 AS first_timestamp,
+               steps AS steps,
+               final_timestamp,
+               first_timestamp
+        FROM
+          (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
+                  arrayJoin(aggregate_funnel_array_v0(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
+                  af_tuple.1 AS step_reached,
+                  plus(af_tuple.1, 1) AS steps,
+                  af_tuple.2 AS breakdown,
+                  af_tuple.3 AS timings,
+                  af_tuple.4 AS matched_event_uuids_array_array,
+                  groupArray(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS user_events,
+                  mapFromArrays(arrayMap(x -> x.2, user_events), user_events) AS user_events_map,
+                  arrayMap(matched_event_uuids_array -> arrayMap(event_uuid -> user_events_map[event_uuid], arrayDistinct(matched_event_uuids_array)), matched_event_uuids_array_array) AS matched_events_array,
+                  aggregation_target AS aggregation_target
+           FROM
+             (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                     e.`$group_0` AS aggregation_target,
+                     e.uuid AS uuid,
+                     e.`$session_id` AS `$session_id`,
+                     e.`$window_id` AS `$window_id`,
+                     if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
+                     if(equals(e.event, 'paid'), 1, 0) AS step_1
+              FROM events AS e
+              WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
+           GROUP BY aggregation_target
+           HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
+        WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
+        ORDER BY aggregation_target ASC) AS funnel_actors
+     LEFT JOIN
+       (SELECT groups.key AS key,
+               groups.properties AS properties
+        FROM
+          (SELECT argMax(groups.group_properties, toTimeZone(groups._timestamp, 'UTC')) AS properties,
+                  groups.group_type_index AS index,
+                  groups.group_key AS key
+           FROM groups
+           WHERE equals(groups.team_id, 2)
+           GROUP BY groups.group_type_index,
+                    groups.group_key) AS groups
+        WHERE ifNull(equals(groups.index, 0), 0)) AS groups_0 ON equals(funnel_actors.actor_id, groups_0.key)) AS aggregation_target_with_props
+  GROUP BY (aggregation_target_with_props.prop).1, (aggregation_target_with_props.prop).2
+  HAVING ifNull(notIn((aggregation_target_with_props.prop).1, []), 0)
+  LIMIT 100
+  UNION ALL
+  SELECT 'Total_Values_In_Query' AS name,
+         countDistinctIf(funnel_actors.actor_id, ifNull(equals(funnel_actors.steps, 2), 0)) AS success_count,
+         countDistinctIf(funnel_actors.actor_id, ifNull(notEquals(funnel_actors.steps, 2), 1)) AS failure_count
+  FROM
+    (SELECT aggregation_target AS actor_id,
+            (matched_events_array[1][1]).1 AS timestamp,
+            nullIf((matched_events_array[2][1]).1, 0) AS final_timestamp,
+            (matched_events_array[1][1]).1 AS first_timestamp,
+            steps AS steps,
+            final_timestamp,
+            first_timestamp
+     FROM
+       (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
+               arrayJoin(aggregate_funnel_array_v0(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
+               af_tuple.1 AS step_reached,
+               plus(af_tuple.1, 1) AS steps,
+               af_tuple.2 AS breakdown,
+               af_tuple.3 AS timings,
+               af_tuple.4 AS matched_event_uuids_array_array,
+               groupArray(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS user_events,
+               mapFromArrays(arrayMap(x -> x.2, user_events), user_events) AS user_events_map,
+               arrayMap(matched_event_uuids_array -> arrayMap(event_uuid -> user_events_map[event_uuid], arrayDistinct(matched_event_uuids_array)), matched_event_uuids_array_array) AS matched_events_array,
+               aggregation_target AS aggregation_target
+        FROM
+          (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                  e.`$group_0` AS aggregation_target,
+                  e.uuid AS uuid,
+                  e.`$session_id` AS `$session_id`,
+                  e.`$window_id` AS `$window_id`,
+                  if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
+                  if(equals(e.event, 'paid'), 1, 0) AS step_1
+           FROM events AS e
+           WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
+        GROUP BY aggregation_target
+        HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
+     WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
+     ORDER BY aggregation_target ASC) AS funnel_actors
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0
+  '''
+# ---
+# name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups_person_on_events_poe_v2.1
+  '''
+  SELECT source.actor_id AS actor_id
+  FROM
+    (SELECT funnel_actors.actor_id AS actor_id,
+            any(funnel_actors.matching_events) AS matching_events
+     FROM
+       (SELECT aggregation_target AS actor_id,
+               matched_events_array[plus(step_reached, 1)] AS matching_events,
+               (matched_events_array[1][1]).1 AS timestamp,
+               nullIf((matched_events_array[2][1]).1, 0) AS final_timestamp,
+               (matched_events_array[1][1]).1 AS first_timestamp,
+               steps AS steps,
+               final_timestamp,
+               first_timestamp
+        FROM
+          (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
+                  arrayJoin(aggregate_funnel_array_v0(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
+                  af_tuple.1 AS step_reached,
+                  plus(af_tuple.1, 1) AS steps,
+                  af_tuple.2 AS breakdown,
+                  af_tuple.3 AS timings,
+                  af_tuple.4 AS matched_event_uuids_array_array,
+                  groupArray(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS user_events,
+                  mapFromArrays(arrayMap(x -> x.2, user_events), user_events) AS user_events_map,
+                  arrayMap(matched_event_uuids_array -> arrayMap(event_uuid -> user_events_map[event_uuid], arrayDistinct(matched_event_uuids_array)), matched_event_uuids_array_array) AS matched_events_array,
+                  aggregation_target AS aggregation_target
+           FROM
+             (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                     e.`$group_0` AS aggregation_target,
+                     e.uuid AS uuid,
+                     e.`$session_id` AS `$session_id`,
+                     e.`$window_id` AS `$window_id`,
+                     if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
+                     if(equals(e.event, 'paid'), 1, 0) AS step_1
+              FROM events AS e
+              LEFT JOIN
+                (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+                        groups.group_type_index AS index,
+                        groups.group_key AS key
+                 FROM groups
+                 WHERE and(equals(groups.team_id, 2), equals(index, 0))
+                 GROUP BY groups.group_type_index,
+                          groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
+              WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'positive'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
+           GROUP BY aggregation_target
+           HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
+        WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
+        ORDER BY aggregation_target ASC) AS funnel_actors
+     WHERE ifNull(equals(funnel_actors.steps, 2), 0)
+     GROUP BY funnel_actors.actor_id
+     ORDER BY funnel_actors.actor_id ASC) AS source
+  INNER JOIN
+    (SELECT groups.group_type_index AS index,
+            groups.group_key AS key
+     FROM groups
+     WHERE equals(groups.team_id, 2)
+     GROUP BY groups.group_type_index,
+              groups.group_key) AS groups ON equals(groups.key, source.actor_id)
+  ORDER BY source.actor_id ASC
+  LIMIT 101
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0
+  '''
+# ---
+# name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups_person_on_events_poe_v2.2
+  '''
+  SELECT source.actor_id AS actor_id
+  FROM
+    (SELECT funnel_actors.actor_id AS actor_id,
+            any(funnel_actors.matching_events) AS matching_events
+     FROM
+       (SELECT aggregation_target AS actor_id,
+               matched_events_array[plus(step_reached, 1)] AS matching_events,
+               (matched_events_array[1][1]).1 AS timestamp,
+               nullIf((matched_events_array[2][1]).1, 0) AS final_timestamp,
+               (matched_events_array[1][1]).1 AS first_timestamp,
+               steps AS steps,
+               final_timestamp,
+               first_timestamp
+        FROM
+          (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
+                  arrayJoin(aggregate_funnel_array_v0(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
+                  af_tuple.1 AS step_reached,
+                  plus(af_tuple.1, 1) AS steps,
+                  af_tuple.2 AS breakdown,
+                  af_tuple.3 AS timings,
+                  af_tuple.4 AS matched_event_uuids_array_array,
+                  groupArray(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS user_events,
+                  mapFromArrays(arrayMap(x -> x.2, user_events), user_events) AS user_events_map,
+                  arrayMap(matched_event_uuids_array -> arrayMap(event_uuid -> user_events_map[event_uuid], arrayDistinct(matched_event_uuids_array)), matched_event_uuids_array_array) AS matched_events_array,
+                  aggregation_target AS aggregation_target
+           FROM
+             (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                     e.`$group_0` AS aggregation_target,
+                     e.uuid AS uuid,
+                     e.`$session_id` AS `$session_id`,
+                     e.`$window_id` AS `$window_id`,
+                     if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
+                     if(equals(e.event, 'paid'), 1, 0) AS step_1
+              FROM events AS e
+              LEFT JOIN
+                (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+                        groups.group_type_index AS index,
+                        groups.group_key AS key
+                 FROM groups
+                 WHERE and(equals(groups.team_id, 2), equals(index, 0))
+                 GROUP BY groups.group_type_index,
+                          groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
+              WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'positive'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
+           GROUP BY aggregation_target
+           HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
+        WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
+        ORDER BY aggregation_target ASC) AS funnel_actors
+     WHERE ifNull(notEquals(funnel_actors.steps, 2), 1)
+     GROUP BY funnel_actors.actor_id
+     ORDER BY funnel_actors.actor_id ASC) AS source
+  INNER JOIN
+    (SELECT groups.group_type_index AS index,
+            groups.group_key AS key
+     FROM groups
+     WHERE equals(groups.team_id, 2)
+     GROUP BY groups.group_type_index,
+              groups.group_key) AS groups ON equals(groups.key, source.actor_id)
+  ORDER BY source.actor_id ASC
+  LIMIT 101
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0
+  '''
+# ---
+# name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups_person_on_events_poe_v2.3
+  '''
+  SELECT source.actor_id AS actor_id
+  FROM
+    (SELECT funnel_actors.actor_id AS actor_id,
+            any(funnel_actors.matching_events) AS matching_events
+     FROM
+       (SELECT aggregation_target AS actor_id,
+               matched_events_array[plus(step_reached, 1)] AS matching_events,
+               (matched_events_array[1][1]).1 AS timestamp,
+               nullIf((matched_events_array[2][1]).1, 0) AS final_timestamp,
+               (matched_events_array[1][1]).1 AS first_timestamp,
+               steps AS steps,
+               final_timestamp,
+               first_timestamp
+        FROM
+          (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
+                  arrayJoin(aggregate_funnel_array_v0(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
+                  af_tuple.1 AS step_reached,
+                  plus(af_tuple.1, 1) AS steps,
+                  af_tuple.2 AS breakdown,
+                  af_tuple.3 AS timings,
+                  af_tuple.4 AS matched_event_uuids_array_array,
+                  groupArray(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS user_events,
+                  mapFromArrays(arrayMap(x -> x.2, user_events), user_events) AS user_events_map,
+                  arrayMap(matched_event_uuids_array -> arrayMap(event_uuid -> user_events_map[event_uuid], arrayDistinct(matched_event_uuids_array)), matched_event_uuids_array_array) AS matched_events_array,
+                  aggregation_target AS aggregation_target
+           FROM
+             (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                     e.`$group_0` AS aggregation_target,
+                     e.uuid AS uuid,
+                     e.`$session_id` AS `$session_id`,
+                     e.`$window_id` AS `$window_id`,
+                     if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
+                     if(equals(e.event, 'paid'), 1, 0) AS step_1
+              FROM events AS e
+              LEFT JOIN
+                (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+                        groups.group_type_index AS index,
+                        groups.group_key AS key
+                 FROM groups
+                 WHERE and(equals(groups.team_id, 2), equals(index, 0))
+                 GROUP BY groups.group_type_index,
+                          groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
+              WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'negative'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
+           GROUP BY aggregation_target
+           HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
+        WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
+        ORDER BY aggregation_target ASC) AS funnel_actors
+     WHERE ifNull(equals(funnel_actors.steps, 2), 0)
+     GROUP BY funnel_actors.actor_id
+     ORDER BY funnel_actors.actor_id ASC) AS source
+  INNER JOIN
+    (SELECT groups.group_type_index AS index,
+            groups.group_key AS key
+     FROM groups
+     WHERE equals(groups.team_id, 2)
+     GROUP BY groups.group_type_index,
+              groups.group_key) AS groups ON equals(groups.key, source.actor_id)
+  ORDER BY source.actor_id ASC
+  LIMIT 101
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0
+  '''
+# ---
+# name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups_person_on_events_poe_v2.4
+  '''
+  SELECT source.actor_id AS actor_id
+  FROM
+    (SELECT funnel_actors.actor_id AS actor_id,
+            any(funnel_actors.matching_events) AS matching_events
+     FROM
+       (SELECT aggregation_target AS actor_id,
+               matched_events_array[plus(step_reached, 1)] AS matching_events,
+               (matched_events_array[1][1]).1 AS timestamp,
+               nullIf((matched_events_array[2][1]).1, 0) AS final_timestamp,
+               (matched_events_array[1][1]).1 AS first_timestamp,
+               steps AS steps,
+               final_timestamp,
+               first_timestamp
+        FROM
+          (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
+                  arrayJoin(aggregate_funnel_array_v0(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
+                  af_tuple.1 AS step_reached,
+                  plus(af_tuple.1, 1) AS steps,
+                  af_tuple.2 AS breakdown,
+                  af_tuple.3 AS timings,
+                  af_tuple.4 AS matched_event_uuids_array_array,
+                  groupArray(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS user_events,
+                  mapFromArrays(arrayMap(x -> x.2, user_events), user_events) AS user_events_map,
+                  arrayMap(matched_event_uuids_array -> arrayMap(event_uuid -> user_events_map[event_uuid], arrayDistinct(matched_event_uuids_array)), matched_event_uuids_array_array) AS matched_events_array,
+                  aggregation_target AS aggregation_target
+           FROM
+             (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                     e.`$group_0` AS aggregation_target,
+                     e.uuid AS uuid,
+                     e.`$session_id` AS `$session_id`,
+                     e.`$window_id` AS `$window_id`,
+                     if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
+                     if(equals(e.event, 'paid'), 1, 0) AS step_1
+              FROM events AS e
+              LEFT JOIN
+                (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+                        groups.group_type_index AS index,
+                        groups.group_key AS key
+                 FROM groups
+                 WHERE and(equals(groups.team_id, 2), equals(index, 0))
+                 GROUP BY groups.group_type_index,
+                          groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
+              WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'negative'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
+           GROUP BY aggregation_target
+           HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
+        WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
+        ORDER BY aggregation_target ASC) AS funnel_actors
+     WHERE ifNull(notEquals(funnel_actors.steps, 2), 1)
+     GROUP BY funnel_actors.actor_id
+     ORDER BY funnel_actors.actor_id ASC) AS source
+  INNER JOIN
+    (SELECT groups.group_type_index AS index,
+            groups.group_key AS key
+     FROM groups
+     WHERE equals(groups.team_id, 2)
+     GROUP BY groups.group_type_index,
+              groups.group_key) AS groups ON equals(groups.key, source.actor_id)
+  ORDER BY source.actor_id ASC
+  LIMIT 101
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0
+  '''
+# ---
+# name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups_person_on_events_poe_v2.5
+  '''
+  SELECT concat(ifNull(toString((aggregation_target_with_props.prop).1), ''), '::', ifNull(toString((aggregation_target_with_props.prop).2), '')) AS name,
+         countDistinctIf(aggregation_target_with_props.actor_id, ifNull(equals(aggregation_target_with_props.steps, 2), 0)) AS success_count,
+         countDistinctIf(aggregation_target_with_props.actor_id, ifNull(notEquals(aggregation_target_with_props.steps, 2), 1)) AS failure_count
+  FROM
+    (SELECT funnel_actors.actor_id AS actor_id,
+            funnel_actors.steps AS steps,
+            arrayJoin(JSONExtractKeysAndValues(groups_0.properties, 'String')) AS prop
+     FROM
+       (SELECT aggregation_target AS actor_id,
+               (matched_events_array[1][1]).1 AS timestamp,
+               nullIf((matched_events_array[2][1]).1, 0) AS final_timestamp,
+               (matched_events_array[1][1]).1 AS first_timestamp,
+               steps AS steps,
+               final_timestamp,
+               first_timestamp
+        FROM
+          (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
+                  arrayJoin(aggregate_funnel_array_v0(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
+                  af_tuple.1 AS step_reached,
+                  plus(af_tuple.1, 1) AS steps,
+                  af_tuple.2 AS breakdown,
+                  af_tuple.3 AS timings,
+                  af_tuple.4 AS matched_event_uuids_array_array,
+                  groupArray(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS user_events,
+                  mapFromArrays(arrayMap(x -> x.2, user_events), user_events) AS user_events_map,
+                  arrayMap(matched_event_uuids_array -> arrayMap(event_uuid -> user_events_map[event_uuid], arrayDistinct(matched_event_uuids_array)), matched_event_uuids_array_array) AS matched_events_array,
+                  aggregation_target AS aggregation_target
+           FROM
+             (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                     e.`$group_0` AS aggregation_target,
+                     e.uuid AS uuid,
+                     e.`$session_id` AS `$session_id`,
+                     e.`$window_id` AS `$window_id`,
+                     if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
+                     if(equals(e.event, 'paid'), 1, 0) AS step_1
+              FROM events AS e
+              WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
+           GROUP BY aggregation_target
+           HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
+        WHERE ifNull(greaterOrEquals(step_reached, 0), 0)
+        ORDER BY aggregation_target ASC) AS funnel_actors
+     LEFT JOIN
+       (SELECT groups.key AS key,
+               groups.properties AS properties
+        FROM
+          (SELECT argMax(groups.group_properties, toTimeZone(groups._timestamp, 'UTC')) AS properties,
+                  groups.group_type_index AS index,
+                  groups.group_key AS key
+           FROM groups
+           WHERE equals(groups.team_id, 2)
+           GROUP BY groups.group_type_index,
+                    groups.group_key) AS groups
+        WHERE ifNull(equals(groups.index, 0), 0)) AS groups_0 ON equals(funnel_actors.actor_id, groups_0.key)) AS aggregation_target_with_props
+  GROUP BY (aggregation_target_with_props.prop).1, (aggregation_target_with_props.prop).2
+  HAVING ifNull(notIn((aggregation_target_with_props.prop).1, []), 0)
+  LIMIT 100
+  UNION ALL
+  SELECT 'Total_Values_In_Query' AS name,
+         countDistinctIf(funnel_actors.actor_id, ifNull(equals(funnel_actors.steps, 2), 0)) AS success_count,
+         countDistinctIf(funnel_actors.actor_id, ifNull(notEquals(funnel_actors.steps, 2), 1)) AS failure_count
+  FROM
+    (SELECT aggregation_target AS actor_id,
+            (matched_events_array[1][1]).1 AS timestamp,
+            nullIf((matched_events_array[2][1]).1, 0) AS final_timestamp,
+            (matched_events_array[1][1]).1 AS first_timestamp,
+            steps AS steps,
+            final_timestamp,
+            first_timestamp
+     FROM
+       (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
+               arrayJoin(aggregate_funnel_array_v0(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
                af_tuple.1 AS step_reached,
                plus(af_tuple.1, 1) AS steps,
                af_tuple.2 AS breakdown,
