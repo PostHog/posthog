@@ -23,7 +23,7 @@
     AND event IN ['user did things', 'user signed up']
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2012-01-08 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
-    AND (and(ifNull(less(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'int_value'), ''), 'null'), '^"|"$', ''), 'Int64'), 10), 0), 1))
+    AND (and(ifNull(less(accurateCastOrDefault(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'int_value'), ''), 'null'), '^"|"$', ''), 'Int64'), 10), 0), 1))
   GROUP BY value
   ORDER BY count DESC, value DESC
   LIMIT 26
@@ -107,7 +107,7 @@
                       AND event IN ['user did things', 'user signed up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2012-01-08 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
-                      AND (and(ifNull(less(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'int_value'), ''), 'null'), '^"|"$', ''), 'Int64'), 10), 0), 1))
+                      AND (and(ifNull(less(accurateCastOrDefault(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'int_value'), ''), 'null'), '^"|"$', ''), 'Int64'), 10), 0), 1))
                       AND (step_0 = 1
                            OR step_1 = 1) )))
            WHERE step_0 = 1 ))
@@ -182,7 +182,7 @@
                    AND event IN ['user did things', 'user signed up']
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2012-01-08 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
-                   AND ((and(ifNull(less(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'int_value'), ''), 'null'), '^"|"$', ''), 'Int64'), 10), 0), 1))
+                   AND ((and(ifNull(less(accurateCastOrDefault(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'int_value'), ''), 'null'), '^"|"$', ''), 'Int64'), 10), 0), 1))
                         AND (ifNull(like(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_props, 'fish'), ''), 'null'), '^"|"$', ''), '%fish%'), 0)))
                    AND (step_0 = 1
                         OR step_1 = 1) ))
@@ -227,11 +227,11 @@
                         if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                         person.person_props as person_props,
                         if(event = 'user signed up'
-                           AND (and(ifNull(less(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'int_value'), ''), 'null'), '^"|"$', ''), 'Int64'), 10), 0), 1)
+                           AND (and(ifNull(less(accurateCastOrDefault(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'int_value'), ''), 'null'), '^"|"$', ''), 'Int64'), 10), 0), 1)
                                 AND ifNull(like(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_props, 'fish'), ''), 'null'), '^"|"$', ''), '%fish%'), 0)), 1, 0) as step_0,
                         if(step_0 = 1, timestamp, null) as latest_0,
                         if(event = 'user did things'
-                           AND (and(ifNull(less(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'int_value'), ''), 'null'), '^"|"$', ''), 'Int64'), 10), 0), 1)
+                           AND (and(ifNull(less(accurateCastOrDefault(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'int_value'), ''), 'null'), '^"|"$', ''), 'Int64'), 10), 0), 1)
                                 AND ifNull(like(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_props, 'fish'), ''), 'null'), '^"|"$', ''), '%fish%'), 0)), 1, 0) as step_1,
                         if(step_1 = 1, timestamp, null) as latest_1
                  FROM events e
@@ -271,7 +271,7 @@
 # name: TestInsight.test_insight_trend_hogql_breakdown
   '''
   /* user_id:0 request:_snapshot_ */
-  SELECT if(ifNull(less(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'int_value'), ''), 'null'), '^"|"$', ''), 'Int64'), 10), 0), 'le%ss', 'more') AS value,
+  SELECT if(ifNull(less(accurateCastOrDefault(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'int_value'), ''), 'null'), '^"|"$', ''), 'Int64'), 10), 0), 'le%ss', 'more') AS value,
          count(*) as count
   FROM events e
   WHERE team_id = 2
@@ -313,7 +313,7 @@
                     day_start
            UNION ALL SELECT count(*) as total,
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
-                            transform(ifNull(nullIf(if(ifNull(less(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'int_value'), ''), 'null'), '^"|"$', ''), 'Int64'), 10), 0), 'le%ss', 'more'), ''), '$$_posthog_breakdown_null_$$'), (['more', 'le%ss']), (['more', 'le%ss']), '$$_posthog_breakdown_other_$$') as breakdown_value
+                            transform(ifNull(nullIf(if(ifNull(less(accurateCastOrDefault(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'int_value'), ''), 'null'), '^"|"$', ''), 'Int64'), 10), 0), 'le%ss', 'more'), ''), '$$_posthog_breakdown_null_$$'), (['more', 'le%ss']), (['more', 'le%ss']), '$$_posthog_breakdown_other_$$') as breakdown_value
            FROM events e
            WHERE e.team_id = 2
              AND event = '$pageview'
@@ -332,7 +332,7 @@
 # name: TestInsight.test_insight_trend_hogql_breakdown_materialized
   '''
   /* user_id:0 request:_snapshot_ */
-  SELECT if(ifNull(less(accurateCastOrNull(nullIf(nullIf(events.mat_int_value, ''), 'null'), 'Int64'), 10), 0), 'le%ss', 'more') AS value,
+  SELECT if(ifNull(less(accurateCastOrDefault(nullIf(nullIf(events.mat_int_value, ''), 'null'), 'Int64'), 10), 0), 'le%ss', 'more') AS value,
          count(*) as count
   FROM events e
   WHERE team_id = 2
@@ -374,7 +374,7 @@
                     day_start
            UNION ALL SELECT count(*) as total,
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
-                            transform(ifNull(nullIf(if(ifNull(less(accurateCastOrNull(nullIf(nullIf(events.mat_int_value, ''), 'null'), 'Int64'), 10), 0), 'le%ss', 'more'), ''), '$$_posthog_breakdown_null_$$'), (['more', 'le%ss']), (['more', 'le%ss']), '$$_posthog_breakdown_other_$$') as breakdown_value
+                            transform(ifNull(nullIf(if(ifNull(less(accurateCastOrDefault(nullIf(nullIf(events.mat_int_value, ''), 'null'), 'Int64'), 10), 0), 'le%ss', 'more'), ''), '$$_posthog_breakdown_null_$$'), (['more', 'le%ss']), (['more', 'le%ss']), '$$_posthog_breakdown_other_$$') as breakdown_value
            FROM events e
            WHERE e.team_id = 2
              AND event = '$pageview'
@@ -458,7 +458,7 @@
           AND event = '$pageview'
           AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-08 00:00:00', 'UTC')), 'UTC')
           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
-          AND ((and(ifNull(greater(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'int_value'), ''), 'null'), '^"|"$', ''), 'Int64'), 10), 0), 1))
+          AND ((and(ifNull(greater(accurateCastOrDefault(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'int_value'), ''), 'null'), '^"|"$', ''), 'Int64'), 10), 0), 1))
                AND (ifNull(like(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_props, 'fish'), ''), 'null'), '^"|"$', ''), '%fish%'), 0)))
         GROUP BY date)
      GROUP BY day_start
@@ -533,7 +533,7 @@
           AND event = '$pageview'
           AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-08 00:00:00', 'UTC')), 'UTC')
           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
-          AND ((and(ifNull(greater(accurateCastOrNull(nullIf(nullIf(events.mat_int_value, ''), 'null'), 'Int64'), 10), 0), 1))
+          AND ((and(ifNull(greater(accurateCastOrDefault(nullIf(nullIf(events.mat_int_value, ''), 'null'), 'Int64'), 10), 0), 1))
                AND (ifNull(like(nullIf(nullIf(pmat_fish, ''), 'null'), '%fish%'), 0)))
         GROUP BY date)
      GROUP BY day_start
@@ -582,7 +582,7 @@
           AND event = '$pageview'
           AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-08 00:00:00', 'UTC')), 'UTC')
           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
-          AND (and(ifNull(less(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'int_value'), ''), 'null'), '^"|"$', ''), 'Int64'), 10), 0), 1)
+          AND (and(ifNull(less(accurateCastOrDefault(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'int_value'), ''), 'null'), '^"|"$', ''), 'Int64'), 10), 0), 1)
                AND ifNull(like(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_props, 'fish'), ''), 'null'), '^"|"$', ''), '%fish%'), 0))
         GROUP BY date)
      GROUP BY day_start
@@ -631,7 +631,7 @@
           AND event = '$pageview'
           AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-08 00:00:00', 'UTC')), 'UTC')
           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
-          AND (and(ifNull(less(accurateCastOrNull(nullIf(nullIf(events.mat_int_value, ''), 'null'), 'Int64'), 10), 0), 1)
+          AND (and(ifNull(less(accurateCastOrDefault(nullIf(nullIf(events.mat_int_value, ''), 'null'), 'Int64'), 10), 0), 1)
                AND ifNull(like(nullIf(nullIf(pmat_fish, ''), 'null'), '%fish%'), 0))
         GROUP BY date)
      GROUP BY day_start

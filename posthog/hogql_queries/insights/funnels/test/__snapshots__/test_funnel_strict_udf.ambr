@@ -14,7 +14,7 @@
             rowNumberInBlock() AS row_number,
             if(ifNull(less(row_number, 25), 0), breakdown, ['Other']) AS final_prop
      FROM
-       (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, prop, arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
+       (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrDefault(timestamp, 'Float64'), uuid, prop, arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                arrayJoin(aggregate_funnel_array_v0(2, 1209600, 'first_touch', 'strict', groupUniqArray(prop), arrayFilter((x, x2) -> not(and(empty(x.4), empty(x2.4), ifNull(greater(x.1, x2.1), 0))), events_array, arrayRotateRight(events_array, 1)))) AS af_tuple,
                af_tuple.1 AS step_reached,
                plus(af_tuple.1, 1) AS steps,
@@ -83,7 +83,7 @@
             rowNumberInBlock() AS row_number,
             if(ifNull(less(row_number, 25), 0), breakdown, ['Other']) AS final_prop
      FROM
-       (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, prop, arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
+       (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrDefault(timestamp, 'Float64'), uuid, prop, arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                arrayJoin(aggregate_funnel_array_v0(2, 1209600, 'step_1', 'strict', groupUniqArray(prop), arrayFilter((x, x2) -> not(and(empty(x.4), empty(x2.4), ifNull(greater(x.1, x2.1), 0))), events_array, arrayRotateRight(events_array, 1)))) AS af_tuple,
                af_tuple.1 AS step_reached,
                plus(af_tuple.1, 1) AS steps,
@@ -159,7 +159,7 @@
             rowNumberInBlock() AS row_number,
             if(ifNull(less(row_number, 25), 0), breakdown, ['Other']) AS final_prop
      FROM
-       (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, prop, arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
+       (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrDefault(timestamp, 'Float64'), uuid, prop, arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                arrayJoin(aggregate_funnel_array_v0(2, 1209600, 'first_touch', 'strict', groupUniqArray(prop), arrayFilter((x, x2) -> not(and(empty(x.4), empty(x2.4), ifNull(greater(x.1, x2.1), 0))), events_array, arrayRotateRight(events_array, 1)))) AS af_tuple,
                af_tuple.1 AS step_reached,
                plus(af_tuple.1, 1) AS steps,
@@ -233,7 +233,7 @@
             rowNumberInBlock() AS row_number,
             if(ifNull(less(row_number, 25), 0), breakdown, 'Other') AS final_prop
      FROM
-       (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, prop, arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))) AS events_array,
+       (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrDefault(timestamp, 'Float64'), uuid, prop, arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))) AS events_array,
                arrayJoin(aggregate_funnel_v0(3, 1209600, 'first_touch', 'strict', groupUniqArray(prop), arrayFilter((x, x2) -> not(and(empty(x.4), empty(x2.4), ifNull(greater(x.1, x2.1), 0))), events_array, arrayRotateRight(events_array, 1)))) AS af_tuple,
                af_tuple.1 AS step_reached,
                plus(af_tuple.1, 1) AS steps,
@@ -310,7 +310,7 @@
             rowNumberInBlock() AS row_number,
             if(ifNull(less(row_number, 25), 0), breakdown, 'Other') AS final_prop
      FROM
-       (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, prop, arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))) AS events_array,
+       (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrDefault(timestamp, 'Float64'), uuid, prop, arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))) AS events_array,
                arrayJoin(aggregate_funnel_v0(3, 1209600, 'first_touch', 'strict', groupUniqArray(prop), arrayFilter((x, x2) -> not(and(empty(x.4), empty(x2.4), ifNull(greater(x.1, x2.1), 0))), events_array, arrayRotateRight(events_array, 1)))) AS af_tuple,
                af_tuple.1 AS step_reached,
                plus(af_tuple.1, 1) AS steps,
@@ -387,7 +387,7 @@
             rowNumberInBlock() AS row_number,
             if(ifNull(less(row_number, 25), 0), breakdown, 'Other') AS final_prop
      FROM
-       (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, prop, arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))) AS events_array,
+       (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrDefault(timestamp, 'Float64'), uuid, prop, arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))) AS events_array,
                arrayJoin(aggregate_funnel_v0(3, 1209600, 'first_touch', 'strict', groupUniqArray(prop), arrayFilter((x, x2) -> not(and(empty(x.4), empty(x2.4), ifNull(greater(x.1, x2.1), 0))), events_array, arrayRotateRight(events_array, 1)))) AS af_tuple,
                af_tuple.1 AS step_reached,
                plus(af_tuple.1, 1) AS steps,
