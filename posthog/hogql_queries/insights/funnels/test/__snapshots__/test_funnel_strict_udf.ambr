@@ -459,7 +459,7 @@
 # ---
 # name: TestStrictFunnelGroupBreakdownUDF.test_funnel_breakdown_group.1
   '''
-
+  
   SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
          count(*) as count
   FROM events e
@@ -482,7 +482,7 @@
 # ---
 # name: TestStrictFunnelGroupBreakdownUDF.test_funnel_breakdown_group.2
   '''
-
+  
   SELECT aggregation_target AS actor_id
   FROM
     (SELECT aggregation_target,
@@ -580,7 +580,7 @@
 # ---
 # name: TestStrictFunnelGroupBreakdownUDF.test_funnel_breakdown_group.3
   '''
-
+  
   SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
          count(*) as count
   FROM events e
@@ -603,7 +603,7 @@
 # ---
 # name: TestStrictFunnelGroupBreakdownUDF.test_funnel_breakdown_group.4
   '''
-
+  
   SELECT aggregation_target AS actor_id
   FROM
     (SELECT aggregation_target,
@@ -701,7 +701,7 @@
 # ---
 # name: TestStrictFunnelGroupBreakdownUDF.test_funnel_breakdown_group.5
   '''
-
+  
   SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
          count(*) as count
   FROM events e
@@ -724,7 +724,7 @@
 # ---
 # name: TestStrictFunnelGroupBreakdownUDF.test_funnel_breakdown_group.6
   '''
-
+  
   SELECT aggregation_target AS actor_id
   FROM
     (SELECT aggregation_target,
@@ -822,7 +822,7 @@
 # ---
 # name: TestStrictFunnelGroupBreakdownUDF.test_funnel_breakdown_group.7
   '''
-
+  
   SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
          count(*) as count
   FROM events e
@@ -845,7 +845,7 @@
 # ---
 # name: TestStrictFunnelGroupBreakdownUDF.test_funnel_breakdown_group.8
   '''
-
+  
   SELECT aggregation_target AS actor_id
   FROM
     (SELECT aggregation_target,
