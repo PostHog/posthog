@@ -16,7 +16,14 @@ from posthog.hogql_queries.insights.funnels.test.test_funnel_strict import (
     BaseTestFunnelStrictStepsConversionTime,
 )
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
-from posthog.schema import FunnelsQuery, EventsNode, BreakdownFilter, FunnelsFilter, BreakdownAttributionType
+from posthog.schema import (
+    FunnelsQuery,
+    EventsNode,
+    BreakdownFilter,
+    FunnelsFilter,
+    BreakdownAttributionType,
+    StepOrderValue,
+)
 from posthog.test.base import _create_person, _create_event
 
 
@@ -51,7 +58,7 @@ class TestFunnelStrictStepsUDF(BaseTestFunnelStrictSteps):
         runner = FunnelsQueryRunner(query=query, team=self.team)
         inner_aggregation_query = runner.funnel_class._inner_aggregation_query()
         inner_aggregation_query.select.append(
-            parse_expr(f"{udf_event_array_filter(FunnelOrderType.STRICT)} AS filtered_array")
+            parse_expr(f"{udf_event_array_filter(StepOrderValue.STRICT)} AS filtered_array")
         )
         inner_aggregation_query.having = None
         response = execute_hogql_query(
