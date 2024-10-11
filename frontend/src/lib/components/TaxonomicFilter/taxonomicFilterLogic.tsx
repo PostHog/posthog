@@ -473,7 +473,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         searchPlaceholder: 'notebooks',
                         type: TaxonomicFilterGroupType.Notebooks,
                         value: 'notebooks',
-                        endpoint: `api/environments/${teamId}/notebooks/`,
+                        endpoint: `api/projects/${teamId}/notebooks/`,
                         getName: (notebook: NotebookType) => notebook.title || `Notebook ${notebook.short_id}`,
                         getValue: (notebook: NotebookType) => notebook.short_id,
                         getPopoverHeader: () => 'Notebooks',
@@ -505,6 +505,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         valuesEndpoint: (key) => {
                             if (key === 'visited_page') {
                                 return (
+                                    `api/environments/${teamId}/events/values/?key=` +
                                     'api/event/values/?key=' +
                                     encodeURIComponent('$current_url') +
                                     '&event_name=' +

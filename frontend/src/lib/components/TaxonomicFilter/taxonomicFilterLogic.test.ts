@@ -36,7 +36,7 @@ describe('taxonomicFilterLogic', () => {
                         },
                     ]
                 },
-                '/api/projects/:team/sessions/property_definitions': (res) => {
+                '/api/environments/:team/sessions/property_definitions': (res) => {
                     const search = res.url.searchParams.get('search')
                     const results = search
                         ? mockSessionPropertyDefinitions.filter((e) => e.name.includes(search))
