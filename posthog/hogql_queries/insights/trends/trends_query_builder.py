@@ -319,7 +319,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                 _match_date ->
                     arraySum(
                         arraySlice(
-                            groupArray(count),
+                            groupArray(ifNull(count, 0)),
                             indexOf(groupArray(day_start) as _days_for_count, _match_date) as _index,
                             arrayLastIndex(x -> x = _match_date, _days_for_count) - _index + 1
                         )
@@ -629,9 +629,11 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             query.select.append(
                 ast.Alias(
                     alias="breakdown_value",
-                    expr=breakdown_array
-                    if breakdown.is_multiple_breakdown
-                    else parse_expr("{arr}[1]", placeholders={"arr": breakdown_array}),
+                    expr=(
+                        breakdown_array
+                        if breakdown.is_multiple_breakdown
+                        else parse_expr("{arr}[1]", placeholders={"arr": breakdown_array})
+                    ),
                 )
             )
 
