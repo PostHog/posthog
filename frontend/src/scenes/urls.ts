@@ -3,7 +3,7 @@ import { AlertType } from 'lib/components/Alerts/types'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 
 import { ExportOptions } from '~/exporter/types'
-import { DashboardFilter, HogQLFilters, HogQLVariable, Node } from '~/queries/schema'
+import { HogQLFilters, HogQLVariable, Node } from '~/queries/schema'
 import {
     ActionType,
     ActivityTab,
@@ -67,8 +67,6 @@ export const urls = {
     dataManagementHistory: (): string => '/data-management/history',
     database: (): string => '/data-management/database',
     activity: (tab: ActivityTab | ':tab' = ActivityTab.ExploreEvents): string => `/activity/${tab}`,
-    /** @deprecated in favor of /activity */
-    events: (): string => `/events`,
     event: (id: string, timestamp: string): string =>
         `/events/${encodeURIComponent(id)}/${encodeURIComponent(timestamp)}`,
     ingestionWarnings: (): string => '/data-management/ingestion-warnings',
@@ -93,11 +91,11 @@ export const urls = {
     insightEdit: (id: InsightShortId): string => `/insights/${id}/edit`,
     insightView: (
         id: InsightShortId,
-        filtersOverride?: DashboardFilter,
+        dashboardId?: number,
         variablesOverride?: Record<string, HogQLVariable>
     ): string => {
         const params = [
-            { param: 'filters_override', value: filtersOverride },
+            { param: 'dashboard', value: dashboardId },
             { param: 'variables_override', value: variablesOverride },
         ]
             .filter((n) => Boolean(n.value))

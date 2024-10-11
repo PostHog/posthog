@@ -3,9 +3,15 @@ use std::{future::ready, sync::Arc};
 use axum::{routing::get, Router};
 use common_kafka::kafka_consumer::RecvErr;
 use common_metrics::{serve, setup_metrics_routes};
-use cymbal::{app_context::AppContext, config::Config, error::Error};
+use common_types::ClickHouseEvent;
+use cymbal::{
+    app_context::AppContext,
+    config::Config,
+    error::Error,
+    metric_consts::{ERRORS, EVENT_RECEIVED, STACK_PROCESSED},
+    types::{frames::RawFrame, ErrProps},
+};
 use envconfig::Envconfig;
-use serde_json::Value;
 use tokio::task::JoinHandle;
 use tracing::{error, info};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
@@ -57,7 +63,7 @@ async fn main() -> Result<(), Error> {
         context.worker_liveness.report_healthy().await;
         // Just grab the event as a serde_json::Value and immediately drop it,
         // we can work out a real type for it later (once we're deployed etc)
-        let (_, offset): (Value, _) = match context.consumer.json_recv().await {
+        let (event, offset): (ClickHouseEvent, _) = match context.consumer.json_recv().await {
             Ok(r) => r,
             Err(RecvErr::Kafka(e)) => {
                 return Err(e.into()); // Just die if we recieve a Kafka error
@@ -65,14 +71,48 @@ async fn main() -> Result<(), Error> {
             Err(err) => {
                 // If we failed to parse the message, or it was empty, just log and continue, our
                 // consumer has already stored the offset for us.
-                metrics::counter!("error_tracking_errors", "cause" => "recv_err").increment(1);
+                metrics::counter!(ERRORS, "cause" => "recv_err").increment(1);
                 error!("Error receiving message: {:?}", err);
                 continue;
             }
         };
-        metrics::counter!("error_tracking_events_received").increment(1);
+        metrics::counter!(EVENT_RECEIVED).increment(1);
 
-        // This is where the rest of the processing would go
         offset.store().unwrap();
+
+        if event.event != "$exception" {
+            error!("event of type {}", event.event);
+            continue;
+        }
+
+        let Some(properties) = &event.properties else {
+            metrics::counter!(ERRORS, "cause" => "no_properties").increment(1);
+            continue;
+        };
+
+        let properties: ErrProps = match serde_json::from_str(properties) {
+            Ok(r) => r,
+            Err(err) => {
+                metrics::counter!(ERRORS, "cause" => "invalid_exception_properties").increment(1);
+                error!("Error parsing properties: {:?}", err);
+                continue;
+            }
+        };
+
+        let Some(trace) = properties.exception_stack_trace_raw.as_ref() else {
+            metrics::counter!(ERRORS, "cause" => "no_stack_trace").increment(1);
+            continue;
+        };
+
+        let _stack_trace: Vec<RawFrame> = match serde_json::from_str(trace) {
+            Ok(r) => r,
+            Err(err) => {
+                metrics::counter!(ERRORS, "cause" => "invalid_stack_trace").increment(1);
+                error!("Error parsing stack trace: {:?}", err);
+                continue;
+            }
+        };
+
+        metrics::counter!(STACK_PROCESSED).increment(1);
     }
 }

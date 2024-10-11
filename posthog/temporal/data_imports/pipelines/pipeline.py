@@ -11,7 +11,6 @@ import asyncio
 from posthog.settings.base_variables import TEST
 from structlog.typing import FilteringBoundLogger
 from dlt.common.libs.deltalake import get_delta_tables
-from dlt.common.normalizers.naming.snake_case import NamingConvention
 from dlt.load.exceptions import LoadClientJobRetry
 from dlt.sources import DltSource
 from deltalake.exceptions import DeltaError
@@ -104,9 +103,7 @@ class DataImportPipeline:
         job: ExternalDataJob = await get_external_data_job(job_id=self.inputs.run_id)
         schema: ExternalDataSchema = await aget_schema_by_id(self.inputs.schema_id, self.inputs.team_id)
 
-        normalized_schema_name = NamingConvention().normalize_identifier(schema.name)
-
-        prepare_s3_files_for_querying(job.folder_path(), normalized_schema_name, file_uris)
+        prepare_s3_files_for_querying(job.folder_path(), schema.name, file_uris)
 
     def _run(self) -> dict[str, int]:
         if self.refresh_dlt:

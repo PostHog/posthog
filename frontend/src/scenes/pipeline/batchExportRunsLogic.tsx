@@ -4,7 +4,6 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import api, { PaginatedResponse } from 'lib/api'
 import { Dayjs, dayjs } from 'lib/dayjs'
-import { dayjsUtcToTimezone } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { BatchExportRun, GroupedBatchExportRuns, RawBatchExportRun } from '~/types'
@@ -184,12 +183,10 @@ export const batchExportRunsLogic = kea<batchExportRunsLogicType>([
                 return runs.map((run) => {
                     return {
                         ...run,
-                        created_at: dayjsUtcToTimezone(run.created_at, teamLogic.values.timezone),
-                        data_interval_start: dayjsUtcToTimezone(run.data_interval_start, teamLogic.values.timezone),
-                        data_interval_end: dayjsUtcToTimezone(run.data_interval_end, teamLogic.values.timezone),
-                        last_updated_at: run.last_updated_at
-                            ? dayjsUtcToTimezone(run.last_updated_at, teamLogic.values.timezone)
-                            : undefined,
+                        created_at: dayjs(run.created_at),
+                        data_interval_start: dayjs(run.data_interval_start),
+                        data_interval_end: dayjs(run.data_interval_end),
+                        last_updated_at: run.last_updated_at ? dayjs(run.last_updated_at) : undefined,
                     }
                 })
             },
@@ -209,21 +206,19 @@ export const batchExportRunsLogic = kea<batchExportRunsLogicType>([
                     const key = `${run.data_interval_start}-${run.data_interval_end}`
                     if (!groupedRuns[key]) {
                         groupedRuns[key] = {
-                            data_interval_start: dayjsUtcToTimezone(run.data_interval_start, teamLogic.values.timezone),
-                            data_interval_end: dayjsUtcToTimezone(run.data_interval_end, teamLogic.values.timezone),
+                            data_interval_start: dayjs(run.data_interval_start),
+                            data_interval_end: dayjs(run.data_interval_end),
                             runs: [],
-                            last_run_at: dayjsUtcToTimezone(run.created_at, teamLogic.values.timezone),
+                            last_run_at: dayjs(run.created_at),
                         }
                     }
 
                     groupedRuns[key].runs.push({
                         ...run,
-                        created_at: dayjsUtcToTimezone(run.created_at, teamLogic.values.timezone),
-                        data_interval_start: dayjsUtcToTimezone(run.data_interval_start, teamLogic.values.timezone),
-                        data_interval_end: dayjsUtcToTimezone(run.data_interval_end, teamLogic.values.timezone),
-                        last_updated_at: run.last_updated_at
-                            ? dayjsUtcToTimezone(run.last_updated_at, teamLogic.values.timezone)
-                            : undefined,
+                        created_at: dayjs(run.created_at),
+                        data_interval_start: dayjs(run.data_interval_start),
+                        data_interval_end: dayjs(run.data_interval_end),
+                        last_updated_at: run.last_updated_at ? dayjs(run.last_updated_at) : undefined,
                     })
                     groupedRuns[key].runs.sort((a, b) => b.created_at.diff(a.created_at))
                     groupedRuns[key].last_run_at = groupedRuns[key].runs[0].created_at

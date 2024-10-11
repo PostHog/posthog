@@ -2,15 +2,13 @@ import { IconCheck, IconMap, IconMessage, IconStack } from '@posthog/icons'
 import { LemonButton, Link, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { WavingHog } from 'lib/components/hedgehogs'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import posthog from 'posthog-js'
 import React from 'react'
 import { convertLargeNumberToWords } from 'scenes/billing/billing-utils'
 import { billingProductLogic } from 'scenes/billing/billingProductLogic'
 import { ProductPricingModal } from 'scenes/billing/ProductPricingModal'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { getProductIcon } from 'scenes/products/Products'
-import { userLogic } from 'scenes/userLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { BillingFeatureType, BillingProductV2Type, ProductKey } from '~/types'
 
@@ -43,8 +41,7 @@ export const Subfeature = ({ name, description, icon_key }: BillingFeatureType):
 }
 
 const GetStartedButton = ({ product }: { product: BillingProductV2Type }): JSX.Element => {
-    const { user } = useValues(userLogic)
-    const { reportOnboardingProductSelected } = useActions(eventUsageLogic)
+    const { addProductIntent } = useActions(teamLogic)
     const { completeOnboarding, setTeamPropertiesForProduct, goToNextStep } = useActions(onboardingLogic)
     const { isFirstProductOnboarding } = useValues(onboardingLogic)
     const { hasSnippetEvents } = useValues(sdksLogic)
@@ -53,9 +50,6 @@ const GetStartedButton = ({ product }: { product: BillingProductV2Type }): JSX.E
         [ProductKey.FEATURE_FLAGS]: 'Create a feature flag or experiment',
         [ProductKey.SURVEYS]: 'Create a survey',
     }
-    const includeFirstOnboardingProductOnUserProperties = user?.date_joined
-        ? new Date(user?.date_joined) > new Date('2024-01-10T00:00:00Z')
-        : false
 
     return (
         <div className="flex gap-x-4 items-center">
@@ -69,7 +63,10 @@ const GetStartedButton = ({ product }: { product: BillingProductV2Type }): JSX.E
                         className="max-w-max"
                         onClick={() => {
                             setTeamPropertiesForProduct(product.type as ProductKey)
-                            reportOnboardingProductSelected(product.type, includeFirstOnboardingProductOnUserProperties)
+                            addProductIntent({
+                                product_type: product.type as ProductKey,
+                                intent_context: 'onboarding product selected',
+                            })
                             goToNextStep()
                         }}
                     >
@@ -86,8 +83,10 @@ const GetStartedButton = ({ product }: { product: BillingProductV2Type }): JSX.E
                         className="max-w-max"
                         onClick={() => {
                             setTeamPropertiesForProduct(product.type as ProductKey)
-                            reportOnboardingProductSelected(product.type, includeFirstOnboardingProductOnUserProperties)
-                            posthog.capture('product onboarding skipped', { product_key: product.type })
+                            addProductIntent({
+                                product_type: product.type as ProductKey,
+                                intent_context: 'onboarding product selected',
+                            })
                             completeOnboarding()
                         }}
                     >
@@ -99,10 +98,10 @@ const GetStartedButton = ({ product }: { product: BillingProductV2Type }): JSX.E
                             data-attr="start-onboarding-sdk"
                             onClick={() => {
                                 setTeamPropertiesForProduct(product.type as ProductKey)
-                                reportOnboardingProductSelected(
-                                    product.type,
-                                    includeFirstOnboardingProductOnUserProperties
-                                )
+                                addProductIntent({
+                                    product_type: product.type as ProductKey,
+                                    intent_context: 'onboarding product selected',
+                                })
                                 goToNextStep()
                             }}
                         >

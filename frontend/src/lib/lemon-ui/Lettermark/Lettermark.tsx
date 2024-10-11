@@ -36,7 +36,7 @@ export const Lettermark = React.forwardRef<HTMLDivElement, LettermarkProps>(func
     const representation = name
         ? typeof name === 'number'
             ? String(Math.floor(name))
-            : name.toLocaleUpperCase().charAt(0)
+            : String.fromCodePoint(name.codePointAt(0)!).toLocaleUpperCase()
         : '?'
 
     const colorIndex = color ? color : typeof index === 'number' ? (index % NUM_LETTERMARK_STYLES) + 1 : undefined

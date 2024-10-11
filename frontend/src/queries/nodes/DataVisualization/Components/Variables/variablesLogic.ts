@@ -1,5 +1,7 @@
 import { actions, afterMount, connect, kea, key, path, props, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getVariablesFromQuery, haveVariablesOrFiltersChanged } from 'scenes/insights/utils/queryUtils'
 
 import { DataVisualizationNode, HogQLVariable } from '~/queries/schema'
@@ -26,6 +28,8 @@ export const variablesLogic = kea<variablesLogicType>([
             ['query', 'insightLogicProps'],
             variableDataLogic,
             ['variables', 'variablesLoading'],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
     }),
     actions({
@@ -112,6 +116,10 @@ export const variablesLogic = kea<variablesLogicType>([
                 },
             }
 
+            if (!values.featureFlags[FEATURE_FLAGS.INSIGHT_VARIABLES]) {
+                return
+            }
+
             const queryVarsHaveChanged = haveVariablesOrFiltersChanged(query, values.query)
             if (!queryVarsHaveChanged) {
                 return
@@ -146,6 +154,10 @@ export const variablesLogic = kea<variablesLogicType>([
         },
     })),
     afterMount(({ actions, values }) => {
+        if (!values.featureFlags[FEATURE_FLAGS.INSIGHT_VARIABLES]) {
+            return
+        }
+
         actions.getVariables()
 
         Object.values(values.query.source.variables ?? {}).forEach((variable) => {

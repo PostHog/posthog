@@ -663,7 +663,7 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
                     insight,
                     dashboard=dashboard,
                     execution_mode=execution_mode,
-                    user=self.context["request"].user,
+                    user=None if self.context["request"].user.is_anonymous else self.context["request"].user,
                     filters_override=filters_override,
                     variables_override=variables_override,
                 )
