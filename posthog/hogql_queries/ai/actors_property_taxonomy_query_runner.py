@@ -13,7 +13,7 @@ from posthog.schema import (
 )
 
 
-class ActorsPropertyTaxonomyQueryRunner(QueryRunner, TaxonomyCacheMixin):
+class ActorsPropertyTaxonomyQueryRunner(TaxonomyCacheMixin, QueryRunner):
     query: ActorsPropertyTaxonomyQuery
     response: ActorsPropertyTaxonomyQueryResponse
     cached_response: CachedActorsPropertyTaxonomyQueryResponse

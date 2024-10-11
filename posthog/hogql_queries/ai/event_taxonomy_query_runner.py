@@ -14,7 +14,7 @@ from posthog.schema import (
 )
 
 
-class EventTaxonomyQueryRunner(QueryRunner, TaxonomyCacheMixin):
+class EventTaxonomyQueryRunner(TaxonomyCacheMixin, QueryRunner):
     query: EventTaxonomyQuery
     response: EventTaxonomyQueryResponse
     cached_response: CachedEventTaxonomyQueryResponse

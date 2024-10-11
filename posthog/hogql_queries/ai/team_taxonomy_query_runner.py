@@ -12,7 +12,7 @@ from posthog.schema import (
 )
 
 
-class TeamTaxonomyQueryRunner(QueryRunner, TaxonomyCacheMixin):
+class TeamTaxonomyQueryRunner(TaxonomyCacheMixin, QueryRunner):
     """
     Calculates the top events for a team sorted by count. The EventDefinition model doesn't store the count of events,
     so this query mitigates that.
