@@ -1,9 +1,8 @@
 import './SurveyTemplates.scss'
 
-import { LemonBadge, LemonButton } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -36,26 +35,6 @@ export function SurveyTemplates(): JSX.Element {
                     </LemonButton>
                 }
             />
-            {currentTeam?.survey_config?.templates && (
-                <div className="flex items-center min-h-6">
-                    <div className="mr-1">Custom</div>
-                    <LemonBadge.Number
-                        count={Object.keys(defaultSurveyTemplates).length}
-                        size="medium"
-                        maxDigits={Infinity}
-                    />
-                </div>
-            )}
-            <LemonDivider dashed={true} />
-            <div className="flex items-center min-h-6">
-                <div className="mr-1">Default</div>
-                <LemonBadge.Number
-                    count={Object.keys(defaultSurveyTemplates).length}
-                    size="medium"
-                    maxDigits={Infinity}
-                />
-            </div>
-            <LemonDivider />
             <div className="flex flex-row flex-wrap gap-8 mt-8">
                 {defaultSurveyTemplates.map((template, idx) => {
                     return (
@@ -91,7 +70,6 @@ export function SurveyTemplates(): JSX.Element {
                                 <div className="SurveyTemplate">
                                     <SurveyAppearancePreview
                                         key={idx}
-                                        surveyAppearance={surveyAppearance}
                                         survey={
                                             {
                                                 id: `templateMock-${idx}`,

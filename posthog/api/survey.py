@@ -738,7 +738,7 @@ def surveys(request: Request):
         many=True,
     ).data
 
-    serialized_survey_config = {}
+    serialized_survey_config: dict[str, Any] = {}
     if team.survey_config is not None:
         serialized_survey_config = SurveyConfigSerializer(team).data
 
