@@ -223,7 +223,7 @@ export class ApiConfig {
 
     static getCurrentProjectId(): ProjectType['id'] {
         if (!this._currentProjectId) {
-            throw new Error('Team ID is not known.')
+            throw new Error('Project ID is not known.')
         }
         return this._currentProjectId
     }
@@ -743,11 +743,11 @@ class ApiRequest {
 
     // # Subscriptions
     public subscriptions(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('subscriptions')
+        return this.environmentsDetail(teamId).addPathComponent('subscriptions')
     }
 
     public subscription(id: SubscriptionType['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.subscriptions(teamId).addPathComponent(id)
+        return this.environmentsDetail(teamId).addPathComponent(id)
     }
 
     // # Integrations

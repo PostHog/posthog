@@ -223,7 +223,7 @@ describe('insightLogic', () => {
                     200,
                     { id: 12, short_id: Insight12, ...((req.body as any) || {}) },
                 ],
-                '/api/projects/997/insights/cancel/': [201],
+                '/api/environments/997/insights/cancel/': [201],
             },
             patch: {
                 '/api/environments/:team_id/insights/:id': async (req) => {

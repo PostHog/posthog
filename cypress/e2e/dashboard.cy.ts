@@ -306,7 +306,7 @@ describe('Dashboard', () => {
     })
 
     it('Move dashboard item', () => {
-        cy.intercept('PATCH', /api\/projects\/\d+\/dashboards\/\d+\/move_tile.*/).as('moveTile')
+        cy.intercept('PATCH', /api\/environments\/\d+\/dashboards\/\d+\/move_tile.*/).as('moveTile')
 
         const sourceDashboard = randomString('source-dashboard')
         const targetDashboard = randomString('target-dashboard')

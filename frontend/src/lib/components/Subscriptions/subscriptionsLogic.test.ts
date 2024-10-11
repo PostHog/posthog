@@ -62,7 +62,7 @@ describe('subscriptionsLogic', () => {
                     return [200, { results: res }]
                 },
 
-                '/api/projects/:team/subscriptions': (req) => {
+                '/api/environments/:team_id/subscriptions': (req) => {
                     const insightId = req.url.searchParams.get('insight')
                     let results: SubscriptionType[] = []
 
