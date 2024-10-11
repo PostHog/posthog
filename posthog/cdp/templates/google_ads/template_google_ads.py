@@ -23,7 +23,7 @@ let res := fetch(f'https://googleads.googleapis.com/v17/customers/{replaceAll(in
                 'conversionDateTime': inputs.conversionDateTime
             }
         ],
-        'partialFailure': false,
+        'partialFailure': true,
         'validateOnly': true
     }
 })
