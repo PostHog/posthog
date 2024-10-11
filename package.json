@@ -82,6 +82,8 @@
         "@react-hook/size": "^2.1.2",
         "@rrweb/types": "2.0.0-alpha.13",
         "@sentry/react": "7.112.1",
+        "@stripe/react-stripe-js": "^2.8.0",
+        "@stripe/stripe-js": "^4.5.0",
         "@tailwindcss/container-queries": "^0.1.1",
         "@testing-library/dom": ">=7.21.4",
         "@tiptap/core": "^2.1.16",
