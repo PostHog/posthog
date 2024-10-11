@@ -16,7 +16,7 @@ export const WithResults: StoryFn = () => {
     useStorybookMocks({
         get: {
             [EXAMPLE_PERSONS_RESPONSE.initial]: EXAMPLE_PERSONS_RESPONSE,
-            [`/api/environments/:team_id/persons/${EXAMPLE_PERSONS_RESPONSE.results[0].people[0].uuid}/properties_timeline/`]:
+            [`/api/projects/:team_id/persons/${EXAMPLE_PERSONS_RESPONSE.results[0].people[0].uuid}/properties_timeline/`]:
                 {
                     points: [
                         {
@@ -73,7 +73,7 @@ export const WithResults: StoryFn = () => {
 export const Empty: StoryFn = () => {
     useStorybookMocks({
         get: {
-            '/api/environments/:team_id/persons/trends/*': {
+            '/api/projects/:team_id/persons/trends/*': {
                 results: [
                     {
                         people: [],
@@ -94,7 +94,7 @@ export const Empty: StoryFn = () => {
 export const TimeoutError: StoryFn = () => {
     useStorybookMocks({
         get: {
-            '/api/environments/:team_id/persons/trends/*': (_, __, ctx) => [
+            '/api/projects/:team_id/persons/trends/*': (_, __, ctx) => [
                 ctx.delay(200),
                 ctx.status(512),
                 ctx.json({
@@ -115,7 +115,7 @@ export const TimeoutError: StoryFn = () => {
 export const ServerError: StoryFn = () => {
     useStorybookMocks({
         get: {
-            '/api/environments/:team_id/persons/trends/*': (_, __, ctx) => [
+            '/api/projects/:team_id/persons/trends/*': (_, __, ctx) => [
                 ctx.delay(200),
                 ctx.status(500),
                 ctx.json({
