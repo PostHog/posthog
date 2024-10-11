@@ -27,6 +27,19 @@ class ActionConversionGoal(BaseModel):
     actionId: int
 
 
+class Type(StrEnum):
+    GROUP = "group"
+    PERSON = "person"
+
+
+class ActorPropertyTaxonomyResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    sample_count: int
+    sample_values: list[str]
+
+
 class AggregationAxisFormat(StrEnum):
     NUMERIC = "numeric"
     DURATION = "duration"
@@ -310,7 +323,7 @@ class DatabaseSchemaSource(BaseModel):
     status: str
 
 
-class Type(StrEnum):
+class Type1(StrEnum):
     POSTHOG = "posthog"
     DATA_WAREHOUSE = "data_warehouse"
     VIEW = "view"
@@ -857,6 +870,7 @@ class NodeKind(StrEnum):
     DATABASE_SCHEMA_QUERY = "DatabaseSchemaQuery"
     TEAM_TAXONOMY_QUERY = "TeamTaxonomyQuery"
     EVENT_TAXONOMY_QUERY = "EventTaxonomyQuery"
+    ACTOR_TAXONOMY_QUERY = "ActorTaxonomyQuery"
 
 
 class PathCleaningFilter(BaseModel):
@@ -1646,6 +1660,27 @@ class YAxisSettings(BaseModel):
     startAtZero: Optional[bool] = Field(default=None, description="Whether the Y axis should start at zero")
 
 
+class ActorPropertyTaxonomyQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    results: ActorPropertyTaxonomyResponse
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
 class ActorsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1712,6 +1747,36 @@ class CacheMissResponse(BaseModel):
     )
     cache_key: Optional[str] = None
     query_status: Optional[QueryStatus] = None
+
+
+class CachedActorPropertyTaxonomyQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cache_key: str
+    cache_target_age: Optional[AwareDatetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    is_cached: bool
+    last_refresh: AwareDatetime
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    next_allowed_client_refresh: AwareDatetime
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    results: ActorPropertyTaxonomyResponse
+    timezone: str
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
 
 
 class CachedActorsQueryResponse(BaseModel):
@@ -2663,7 +2728,7 @@ class DatabaseSchemaTableCommon(BaseModel):
     fields: dict[str, DatabaseSchemaField]
     id: str
     name: str
-    type: Type
+    type: Type1
 
 
 class ElementPropertyFilter(BaseModel):
@@ -3987,6 +4052,20 @@ class WebTopClicksQuery(BaseModel):
     response: Optional[WebTopClicksQueryResponse] = None
     sampling: Optional[Sampling] = None
     useSessionsTable: Optional[bool] = None
+
+
+class ActorPropertyTaxonomyQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    group_type_index: Optional[int] = None
+    kind: Literal["ActorTaxonomyQuery"] = "ActorTaxonomyQuery"
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    property: str
+    response: Optional[ActorPropertyTaxonomyQueryResponse] = None
+    type: Type
 
 
 class AnyResponseType(

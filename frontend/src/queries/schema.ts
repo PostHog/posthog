@@ -30,6 +30,7 @@ import {
     LogEntryPropertyFilter,
     PathsFilterType,
     PersonPropertyFilter,
+    PropertyDefinitionType,
     PropertyGroupFilter,
     PropertyMathType,
     RetentionFilterType,
@@ -109,6 +110,7 @@ export enum NodeKind {
     // AI queries
     TeamTaxonomyQuery = 'TeamTaxonomyQuery',
     EventTaxonomyQuery = 'EventTaxonomyQuery',
+    ActorTaxonomyQuery = 'ActorTaxonomyQuery',
 }
 
 export type AnyDataNode =
@@ -2022,3 +2024,19 @@ export interface EventTaxonomyQuery extends DataNode<EventTaxonomyQueryResponse>
 export type EventTaxonomyQueryResponse = AnalyticsQueryResponseBase<EventTaxonomyResponse>
 
 export type CachedEventTaxonomyQueryResponse = CachedQueryResponse<EventTaxonomyQueryResponse>
+
+export interface ActorPropertyTaxonomyResponse {
+    sample_values: string[]
+    sample_count: integer
+}
+
+export interface ActorPropertyTaxonomyQuery extends DataNode<ActorPropertyTaxonomyQueryResponse> {
+    kind: NodeKind.ActorTaxonomyQuery
+    type: PropertyDefinitionType.Group | PropertyDefinitionType.Person
+    property: string
+    group_type_index?: integer
+}
+
+export type ActorPropertyTaxonomyQueryResponse = AnalyticsQueryResponseBase<ActorPropertyTaxonomyResponse>
+
+export type CachedActorPropertyTaxonomyQueryResponse = CachedQueryResponse<ActorPropertyTaxonomyQueryResponse>
