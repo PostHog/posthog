@@ -163,7 +163,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                             ],
                         ),
                     ],
-                    properties={"$browser": "Chrome", "prop": 10, "bool_field": True},
+                    properties={"$browser": "Chrome", "prop": 10, "bool_field": True, "nullable_prop": "1.2"},
                 ),
                 SeriesTestData(
                     distinct_id="p2",
@@ -179,7 +179,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                             ],
                         ),
                     ],
-                    properties={"$browser": "Firefox", "prop": 20, "bool_field": False},
+                    properties={"$browser": "Firefox", "prop": 20, "bool_field": False, "nullable_prop": None},
                 ),
                 SeriesTestData(
                     distinct_id="p3",
@@ -1475,6 +1475,29 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
         assert len(response.results) == 1
+        assert response.results[0]["count"] == 10
+
+    def test_trends_aggregation_total_with_null(self):
+        self._create_test_events()
+
+        # need to let property be inferred as a different type first and then override
+        # to get the `toFloat` cast
+        nullable_prop = PropertyDefinition.objects.get(name="nullable_prop")
+        nullable_prop.property_type = "Numeric"
+        nullable_prop.save()
+
+        nullable_prop = PropertyDefinition.objects.get(name="nullable_prop")
+
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-13",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview", math=PropertyMathType.SUM, math_property="nullable_prop")],
+            None,
+            BreakdownFilter(breakdown="$browser", breakdown_type=BreakdownType.EVENT),
+        )
+
+        assert len(response.results) == 2
         assert response.results[0]["count"] == 10
 
     def test_trends_aggregation_dau(self):
