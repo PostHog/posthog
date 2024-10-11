@@ -6,6 +6,8 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { Realm } from '~/types'
+
 import type { settingsLogicType } from './settingsLogicType'
 import { SETTINGS_MAP } from './SettingsMap'
 import { Setting, SettingId, SettingLevelId, SettingSection, SettingSectionId, SettingsLogicProps } from './types'
@@ -156,7 +158,7 @@ export const settingsLogic = kea<settingsLogicType>([
                         return true
                     })
                     .filter((x) => {
-                        if (x.hidden === 'cloud' && preflight?.cloud) {
+                        if (x.hideOn?.includes(Realm.Cloud) && preflight?.cloud) {
                             return false
                         }
                         return true
