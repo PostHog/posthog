@@ -699,6 +699,7 @@ posthog/hogql/database/test/test_s3_table.py:0: error: Argument "dialect" to "pr
 posthog/async_migrations/test/test_runner.py:0: error: Item "None" of "datetime | None" has no attribute "day"  [union-attr]
 posthog/api/test/test_insight.py:0: error: Argument "data" to "get" of "APIClient" has incompatible type "dict[str, object]"; expected "Mapping[str, str | bytes | int | Iterable[str | bytes | int]] | Iterable[tuple[str, str | bytes | int | Iterable[str | bytes | int]]] | None"  [arg-type]
 posthog/api/test/test_insight.py:0: error: Argument "data" to "get" of "APIClient" has incompatible type "dict[str, object]"; expected "Mapping[str, str | bytes | int | Iterable[str | bytes | int]] | Iterable[tuple[str, str | bytes | int | Iterable[str | bytes | int]]] | None"  [arg-type]
+posthog/api/test/test_insight.py:0: error: Argument "data" to "get" of "APIClient" has incompatible type "dict[str, object]"; expected "Mapping[str, str | bytes | int | Iterable[str | bytes | int]] | Iterable[tuple[str, str | bytes | int | Iterable[str | bytes | int]]] | None"  [arg-type]
 posthog/api/test/test_feature_flag.py:0: error: Item "None" of "Dashboard | None" has no attribute "tiles"  [union-attr]
 posthog/api/test/test_feature_flag.py:0: error: Item "None" of "Dashboard | None" has no attribute "name"  [union-attr]
 posthog/api/test/test_feature_flag.py:0: error: Item "None" of "Dashboard | None" has no attribute "description"  [union-attr]
