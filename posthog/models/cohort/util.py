@@ -163,7 +163,9 @@ def get_entity_query(
             action=action,
             prepend="_{}_action".format(group_idx),
             hogql_context=hogql_context,
-            person_properties_mode=person_properties_mode,
+            person_properties_mode=person_properties_mode
+            if person_properties_mode
+            else PersonPropertiesMode.USING_SUBQUERY,
         )
         return action_filter_query, action_params
     else:
