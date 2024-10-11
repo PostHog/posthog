@@ -86,7 +86,7 @@ export const Empty: StoryFn = () => {
 
     return (
         <div className="flex max-h-200">
-            <PersonsModalComponent title="Hello!" url="/api/environments/:team_id/persons/trends/*" inline />
+            <PersonsModalComponent title="Hello!" url="/api/projects/1/persons/trends/" inline />
         </div>
     )
 }
