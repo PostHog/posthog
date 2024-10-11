@@ -418,7 +418,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                             i -> acc[i] + x[i],
                             range(1, length(date) + 1)
                         ),
-                        groupArray(total),
+                        groupArray(ifNull(total, 0)),
                         arrayWithConstant(length(date), reinterpretAsFloat64(0))
                     ) as total,
                     {breakdown_select}
