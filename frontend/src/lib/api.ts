@@ -815,7 +815,7 @@ class ApiRequest {
 
     // Chat
     public chat(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('query').addPathComponent('chat')
+        return this.environmentsDetail(teamId).addPathComponent('query').addPathComponent('chat')
     }
 
     // Notebooks
@@ -829,7 +829,7 @@ class ApiRequest {
 
     // Batch Exports
     public batchExports(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('batch_exports')
+        return this.environmentsDetail(teamId).addPathComponent('batch_exports')
     }
 
     public batchExport(id: BatchExportConfiguration['id'], teamId?: TeamType['id']): ApiRequest {

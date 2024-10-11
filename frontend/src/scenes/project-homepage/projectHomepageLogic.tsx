@@ -36,7 +36,7 @@ export const projectHomepageLogic = kea<projectHomepageLogicType>([
             {
                 loadRecentInsights: async () => {
                     const insights = await api.get<InsightModel[]>(
-                        `api/projects/${values.currentProjectId}/insights/my_last_viewed`
+                        `api/environments/${values.currentProjectId}/insights/my_last_viewed`
                     )
                     return insights.map((legacyInsight) => getQueryBasedInsightModel(legacyInsight))
                 },
