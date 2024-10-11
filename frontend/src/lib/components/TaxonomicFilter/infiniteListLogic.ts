@@ -240,9 +240,13 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
         hasRemoteDataSource: [(s) => [s.remoteEndpoint], (remoteEndpoint) => !!remoteEndpoint],
         rawLocalItems: [
             (selectors) => [
-                (state, props) => {
+                (state, props: InfiniteListLogicProps) => {
                     const taxonomicGroups = selectors.taxonomicGroups(state)
                     const group = taxonomicGroups.find((g) => g.type === props.listGroupType)
+
+                    const isCohortArray = (items: any): items is CohortType[] => {
+                        return Array.isArray(items) && items.every((item) => 'filters' in item)
+                    }
 
                     const filterNonBehavioralCohorts = (items: CohortType[]): CohortType[] => {
                         return items.filter((item: CohortType) => {
@@ -256,8 +260,13 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     }
 
                     if (group?.logic && group?.value) {
-                        const items = group.logic.selectors[group.value]?.(state) || null
-                        return items ? filterNonBehavioralCohorts(items) : null
+                        const items = group.logic.selectors[group.value]?.(state)
+                        if (isCohortArray(items)) {
+                            return filterNonBehavioralCohorts(items)
+                        } else if (Array.isArray(items)) {
+                            return items as (EventDefinition | CohortType)[]
+                        }
+                        return null
                     }
                     if (group?.options) {
                         return group.options
