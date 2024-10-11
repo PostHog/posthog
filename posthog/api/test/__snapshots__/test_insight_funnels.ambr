@@ -83,7 +83,8 @@
                               OR step_2 = 1) ))))
            WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
-              steps
+              steps,
+              max_steps
      HAVING steps = max_steps),
                                           histogram_params AS
     (SELECT ifNull(floor(min(step_1_average_conversion_time_inner)), 0) AS from_seconds,
@@ -191,7 +192,8 @@
                    AND (1=1) ))
            WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
-              steps
+              steps,
+              max_steps
      HAVING steps = max_steps),
                                           histogram_params AS
     (SELECT ifNull(floor(min(step_1_average_conversion_time_inner)), 0) AS from_seconds,
@@ -401,7 +403,8 @@
                         OR step_2 = 1) ))
            WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
-              steps
+              steps,
+              max_steps
      HAVING steps = max_steps),
                                           histogram_params AS
     (SELECT ifNull(floor(min(step_1_average_conversion_time_inner)), 0) AS from_seconds,

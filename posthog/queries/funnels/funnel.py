@@ -32,7 +32,6 @@ class ClickhouseFunnel(ClickhouseFunnelBase):
         max_steps = len(self._filter.entities)
 
         breakdown_clause = self._get_breakdown_prop()
-
         return f"""
         SELECT {self._get_count_columns(max_steps)} {self._get_step_time_avgs(max_steps)} {self._get_step_time_median(max_steps)} {breakdown_clause} FROM (
                 {self.get_step_counts_query()}
@@ -50,7 +49,7 @@ class ClickhouseFunnel(ClickhouseFunnelBase):
                 SELECT aggregation_target, steps, max(steps) over (PARTITION BY aggregation_target {breakdown_clause}) as max_steps {self._get_step_time_names(max_steps)} {self._get_matching_events(max_steps)} {breakdown_clause} {inner_timestamps} {self._get_person_and_group_properties()} FROM (
                         {steps_per_person_query}
                 )
-            ) GROUP BY aggregation_target, steps {breakdown_clause}
+            ) GROUP BY aggregation_target, steps, max_steps {breakdown_clause}
             HAVING steps = max_steps
         """
 
