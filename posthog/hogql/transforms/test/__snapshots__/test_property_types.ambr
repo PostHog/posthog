@@ -19,7 +19,7 @@
 # name: TestPropertyTypes.test_group_boolean_property_types
   '''
   
-  SELECT ifNull(equals(transform(events__group_0.properties___group_boolean, %(hogql_val_2)s, %(hogql_val_3)s, NULL), 1), 0), ifNull(equals(transform(events__group_0.properties___group_boolean, %(hogql_val_4)s, %(hogql_val_5)s, NULL), 0), 0), isNull(transform(events__group_0.properties___group_boolean, %(hogql_val_6)s, %(hogql_val_7)s, NULL)) 
+  SELECT ifNull(equals(transform(toString(events__group_0.properties___group_boolean), %(hogql_val_2)s, %(hogql_val_3)s, NULL), 1), 0), ifNull(equals(transform(toString(events__group_0.properties___group_boolean), %(hogql_val_4)s, %(hogql_val_5)s, NULL), 0), 0), isNull(transform(toString(events__group_0.properties___group_boolean), %(hogql_val_6)s, %(hogql_val_7)s, NULL)) 
   FROM events LEFT JOIN (
   SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, %(hogql_val_1)s)) AS properties___group_boolean, groups.group_type_index AS index, groups.group_key AS key 
   FROM groups 
