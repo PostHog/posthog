@@ -442,21 +442,24 @@ describe('Hog Executor', () => {
 
             // Start the function
             const result1 = executor.execute(invocation)
-            // Run the response one time simulating a successful fetch
-            setupFetchResponse(result1.invocation)
-            const result2 = executor.execute(result1.invocation)
-            expect(result2.finished).toBe(false)
-            expect(result2.error).toBe(undefined)
-            expect(result2.invocation.queue).toBe('fetch')
+
+            for (let i = 0; i < 4; i++) {
+                // Run the response one time simulating a successful fetch
+                setupFetchResponse(result1.invocation)
+                const result2 = executor.execute(result1.invocation)
+                expect(result2.finished).toBe(false)
+                expect(result2.error).toBe(undefined)
+                expect(result2.invocation.queue).toBe('fetch')
+            }
 
             // This time we should see an error for hitting the loop limit
-            setupFetchResponse(result2.invocation)
+            setupFetchResponse(result1.invocation)
             const result3 = executor.execute(result1.invocation)
             expect(result3.finished).toBe(true)
-            expect(result3.error).toEqual('Exceeded maximum number of async steps: 2')
+            expect(result3.error).toEqual('Exceeded maximum number of async steps: 5')
             expect(result3.logs.map((log) => log.message)).toEqual([
                 'Resuming function',
-                'Error executing function: HogVMException: Exceeded maximum number of async steps: 2',
+                'Error executing function: HogVMException: Exceeded maximum number of async steps: 5',
             ])
         })
     })
@@ -480,6 +483,21 @@ describe('Hog Executor', () => {
 
             expect(result.logs.map((log) => log.message)).toEqual([
                 'Executing function',
+                'I AM FIBONACCI',
+                'I AM FIBONACCI',
+                'I AM FIBONACCI',
+                'I AM FIBONACCI',
+                'I AM FIBONACCI',
+                'I AM FIBONACCI',
+                'I AM FIBONACCI',
+                'I AM FIBONACCI',
+                'I AM FIBONACCI',
+                'I AM FIBONACCI',
+                'I AM FIBONACCI',
+                'I AM FIBONACCI',
+                'I AM FIBONACCI',
+                'I AM FIBONACCI',
+                'I AM FIBONACCI',
                 'I AM FIBONACCI',
                 'I AM FIBONACCI',
                 'I AM FIBONACCI',
@@ -519,7 +537,7 @@ describe('Hog Executor', () => {
             ])
         })
 
-        it('ignores events that have already used their posthogCapture', () => {
+        it('ignores events that have already used their postHogCapture', () => {
             const fn = createHogFunction({
                 ...HOG_EXAMPLES.posthog_capture,
                 ...HOG_INPUTS_EXAMPLES.simple_fetch,
