@@ -283,8 +283,8 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
 
             survey_config_changes_between = dict_changes_between(
                 "Survey",
-                team_before_update["survey_config"],
-                validated_data["survey_config"],
+                team_before_update.get("survey_config", {}),
+                validated_data.get("survey_config", {}),
                 use_field_exclusions=True,
             )
             if survey_config_changes_between:

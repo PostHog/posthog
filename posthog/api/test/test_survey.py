@@ -988,7 +988,6 @@ class TestSurvey(APIBaseTest):
             "count": 1,
             "next": None,
             "previous": None,
-            "survey_config": None,
             "results": [
                 {
                     "id": ANY,

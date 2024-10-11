@@ -342,8 +342,8 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
             survey_config_changes_between = dict_changes_between(
                 "Survey",
-                before_update["survey_config"],
-                validated_data["survey_config"],
+                before_update.get("survey_config", {}),
+                validated_data.get("survey_config", {}),
                 use_field_exclusions=True,
             )
 
