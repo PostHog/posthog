@@ -6,6 +6,8 @@ from typing import Any, Literal, Optional, TypedDict, Union
 
 from pydantic import BaseModel, Field, RootModel
 
+from ee.hogai.hardcoded_definitions import hardcoded_prop_defs
+from posthog.hogql.database.schema.channel_type import POSSIBLE_CHANNEL_TYPES
 from posthog.hogql_queries.ai.event_taxonomy_query_runner import EventTaxonomyQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.group_type_mapping import GroupTypeMapping
@@ -296,6 +298,24 @@ class TrendsAgentToolkit:
             ]
         )
 
+    def _format_property_values(
+        self, property_definition: PropertyDefinition, sample_values: list[str], sample_count: Optional[int] = 0
+    ) -> str:
+        # Add quotes to the String type, so the LLM can easily infer a type.
+        # Strings like "true" or "10" are interpreted as booleans or numbers without quotes, so the schema generation fails.
+        if property_definition.property_type == PropertyType.String:
+            sample_values = [f'"{value}"' for value in sample_values]
+
+        prop_values = ", ".join(sample_values)
+
+        # If there wasn't an exact match with the user's search, we provide a hint that LLM can use an arbitrary value.
+        if sample_count is None:
+            return f"{prop_values} and many more distinct values."
+        elif sample_count > len(sample_values):
+            return f"{prop_values} and {sample_count - len(sample_values)} more distinct values."
+
+        return prop_values
+
     def retrieve_event_property_values(self, event_name: str, property_name: str) -> str:
         try:
             property_definition = PropertyDefinition.objects.get(
@@ -312,32 +332,47 @@ class TrendsAgentToolkit:
             return f"The event {event_name} does not exist in the taxonomy."
 
         if not response.results:
-            return f"Properties do not exist in the taxonomy for the event {event_name}."
+            return f"Property values for {property_name} do not exist in the taxonomy for the event {event_name}."
 
         prop = next((item for item in response.results if item.property == property_name), None)
         if not prop:
             return f"The property {property_name} does not exist in the taxonomy for the event {event_name}."
 
-        # Add quotes to the String type, so the LLM can easily infer a type.
-        # Strings like "true" or "10" are interpreted as booleans or numbers without quotes, so the schema generation fails.
-        prop_values = ", ".join(
-            [
-                f'"{value}"' if property_definition.property_type == PropertyType.String else value
-                for value in prop.sample_values
-            ]
-        )
+        return self._format_property_values(property_definition, prop.sample_values, prop.sample_count)
 
-        # If there wasn't an exact match with the user's search, we provide a hint that LLM can use an arbitrary value.
-        if prop.sample_count > len(prop.sample_values):
-            return f"{prop_values} and {prop.sample_count - len(prop.sample_values)} more distinct values."
+    def _retrieve_session_properties(self, property_name: str) -> str:
+        """
+        Sessions properties example property values are hardcoded.
+        """
+        try:
+            property_definition = PropertyDefinition.objects.get(
+                team=self._team, name=property_name, type=PropertyDefinition.Type.SESSION
+            )
+        except PropertyDefinition.DoesNotExist:
+            return f"The property {property_name} does not exist in the taxonomy."
 
-        return prop_values
+        if property_name == "$channel_type":
+            # Not ideal. TODO: replace later.
+            sample_values = POSSIBLE_CHANNEL_TYPES.copy()
+            sample_count = len(sample_values)
+        elif (
+            property_name in hardcoded_prop_defs["session_properties"]
+            and "examples" in hardcoded_prop_defs["session_properties"][property_name]
+        ):
+            sample_values = hardcoded_prop_defs["session_properties"][property_name]["examples"]
+            sample_count = None
+        else:
+            return f"Property values for {property_name} do not exist in the taxonomy for the session entity."
+
+        return self._format_property_values(property_definition, sample_values, sample_count)
 
     def retrieve_entity_property_values(self, entity: str, property_name: str) -> str:
         if entity not in self._entity_names:
-            return f"Entity {entity} does not exist in the taxonomy. You must use one of the following: {', '.join(self._entity_names)}."
+            return f"The entity {entity} does not exist in the taxonomy. You must use one of the following: {', '.join(self._entity_names)}."
 
-        # output values here with quotes for strings
+        if entity == "session":
+            return self._retrieve_session_properties(property_name)
+
         return "No values have been found."
 
     def handle_incorrect_response(self, response: str) -> str:
