@@ -55,6 +55,7 @@ export enum Scene {
     AsyncMigrations = 'AsyncMigrations',
     DeadLetterQueue = 'DeadLetterQueue',
     Billing = 'Billing',
+    BillingAuthorizationStatus = 'BillingAuthorizationStatus',
     SavedInsights = 'SavedInsights',
     ToolbarLaunch = 'ToolbarLaunch',
     Site = 'Site',

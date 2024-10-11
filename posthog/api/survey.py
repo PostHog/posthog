@@ -646,6 +646,12 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return activity_page_response(activity_page, limit, page, request)
 
 
+class SurveyConfigSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Team
+        fields = ["survey_config"]
+
+
 class SurveyAPISerializer(serializers.ModelSerializer):
     """
     Serializer for the exposed /api/surveys endpoint, to be used in posthog-js and for headless APIs.
@@ -732,7 +738,19 @@ def surveys(request: Request):
         many=True,
     ).data
 
-    return cors_response(request, JsonResponse({"surveys": surveys}))
+    serialized_survey_config: dict[str, Any] = {}
+    if team.survey_config is not None:
+        serialized_survey_config = SurveyConfigSerializer(team).data
+
+    return cors_response(
+        request,
+        JsonResponse(
+            {
+                "surveys": surveys,
+                "survey_config": serialized_survey_config.get("survey_config", None),
+            }
+        ),
+    )
 
 
 @contextmanager
