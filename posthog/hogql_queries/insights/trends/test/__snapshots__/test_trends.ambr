@@ -184,7 +184,7 @@
 # name: TestTrends.test_breakdown_by_group_props_person_on_events
   '''
   SELECT groupArray(1)(date)[1] AS date,
-                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
+                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))))), 1))) AS date,
@@ -304,7 +304,7 @@
 # name: TestTrends.test_breakdown_by_group_props_with_person_filter_person_on_events
   '''
   SELECT groupArray(1)(date)[1] AS date,
-                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
+                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))))), 1))) AS date,
@@ -352,7 +352,7 @@
 # name: TestTrends.test_breakdown_filtering_with_properties_in_new_format
   '''
   SELECT groupArray(1)(date)[1] AS date,
-                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
+                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-22 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-22 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'UTC'))))), 1))) AS date,
@@ -392,7 +392,7 @@
 # name: TestTrends.test_breakdown_filtering_with_properties_in_new_format.1
   '''
   SELECT groupArray(1)(date)[1] AS date,
-                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
+                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-22 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-22 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'UTC'))))), 1))) AS date,
@@ -432,7 +432,7 @@
 # name: TestTrends.test_breakdown_filtering_with_properties_in_new_format.2
   '''
   SELECT groupArray(1)(date)[1] AS date,
-                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
+                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       arrayMap(i -> if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', i), breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-22 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-22 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'UTC'))))), 1))) AS date,
@@ -472,7 +472,7 @@
 # name: TestTrends.test_breakdown_filtering_with_properties_in_new_format.3
   '''
   SELECT groupArray(1)(date)[1] AS date,
-                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
+                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       arrayMap(i -> if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', i), breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-22 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-22 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'UTC'))))), 1))) AS date,
@@ -652,7 +652,7 @@
 # name: TestTrends.test_breakdown_weekly_active_users_daily_based_on_action.2
   '''
   SELECT groupArray(1)(date)[1] AS date,
-                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
+                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))))), 1))) AS date,
@@ -728,7 +728,7 @@
 # name: TestTrends.test_breakdown_with_filter_groups_person_on_events
   '''
   SELECT groupArray(1)(date)[1] AS date,
-                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
+                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))))), 1))) AS date,
@@ -785,7 +785,7 @@
 # name: TestTrends.test_breakdown_with_filter_groups_person_on_events_v2.1
   '''
   SELECT groupArray(1)(date)[1] AS date,
-                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
+                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))))), 1))) AS date,
@@ -852,7 +852,7 @@
 # name: TestTrends.test_dau_with_breakdown_filtering_with_sampling.1
   '''
   SELECT groupArray(1)(date)[1] AS date,
-                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
+                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))))), 1))) AS date,
@@ -1111,7 +1111,7 @@
 # name: TestTrends.test_dau_with_breakdown_filtering_with_sampling.2
   '''
   SELECT groupArray(1)(date)[1] AS date,
-                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
+                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))))), 1))) AS date,
@@ -1158,7 +1158,7 @@
 # name: TestTrends.test_dau_with_breakdown_filtering_with_sampling.3
   '''
   SELECT groupArray(1)(date)[1] AS date,
-                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
+                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       arrayMap(i -> if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', i), breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))))), 1))) AS date,
@@ -1205,7 +1205,7 @@
 # name: TestTrends.test_dau_with_breakdown_filtering_with_sampling.4
   '''
   SELECT groupArray(1)(date)[1] AS date,
-                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
+                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       arrayMap(i -> if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', i), breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))))), 1))) AS date,
@@ -1622,7 +1622,7 @@
 # name: TestTrends.test_mau_with_breakdown_filtering_and_prop_filter
   '''
   SELECT groupArray(1)(date)[1] AS date,
-                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
+                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))))), 1))) AS date,
@@ -1696,7 +1696,7 @@
 # name: TestTrends.test_mau_with_breakdown_filtering_and_prop_filter.1
   '''
   SELECT groupArray(1)(date)[1] AS date,
-                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
+                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       arrayMap(i -> if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', i), breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))))), 1))) AS date,
