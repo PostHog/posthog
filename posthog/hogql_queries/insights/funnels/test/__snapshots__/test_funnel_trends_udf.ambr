@@ -139,7 +139,7 @@
 # ---
 # name: TestFunnelTrendsUDF.test_week_interval.1
   '''
-
+  
   SELECT aggregation_target AS actor_id
   FROM
     (SELECT aggregation_target,
