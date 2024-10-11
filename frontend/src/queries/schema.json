@@ -189,7 +189,7 @@
             "required": ["id", "kind"],
             "type": "object"
         },
-        "ActorPropertyTaxonomyQuery": {
+        "ActorsPropertyTaxonomyQuery": {
             "additionalProperties": false,
             "properties": {
                 "group_type_index": {
@@ -207,7 +207,7 @@
                     "type": "string"
                 },
                 "response": {
-                    "$ref": "#/definitions/ActorPropertyTaxonomyQueryResponse"
+                    "$ref": "#/definitions/ActorsPropertyTaxonomyQueryResponse"
                 },
                 "type": {
                     "enum": ["group", "person"],
@@ -217,7 +217,7 @@
             "required": ["kind", "property", "type"],
             "type": "object"
         },
-        "ActorPropertyTaxonomyQueryResponse": {
+        "ActorsPropertyTaxonomyQueryResponse": {
             "additionalProperties": false,
             "description": "All analytics query responses must inherit from this.",
             "properties": {
@@ -238,7 +238,7 @@
                     "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
                 "results": {
-                    "$ref": "#/definitions/ActorPropertyTaxonomyResponse"
+                    "$ref": "#/definitions/ActorsPropertyTaxonomyResponse"
                 },
                 "timings": {
                     "description": "Measured timings for different parts of the query generation process",
@@ -251,7 +251,7 @@
             "required": ["results"],
             "type": "object"
         },
-        "ActorPropertyTaxonomyResponse": {
+        "ActorsPropertyTaxonomyResponse": {
             "additionalProperties": false,
             "properties": {
                 "sample_count": {
@@ -844,7 +844,7 @@
             "required": ["cache_key"],
             "type": "object"
         },
-        "CachedActorPropertyTaxonomyQueryResponse": {
+        "CachedActorsPropertyTaxonomyQueryResponse": {
             "additionalProperties": false,
             "properties": {
                 "cache_key": {
@@ -886,7 +886,7 @@
                     "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
                 "results": {
-                    "$ref": "#/definitions/ActorPropertyTaxonomyResponse"
+                    "$ref": "#/definitions/ActorsPropertyTaxonomyResponse"
                 },
                 "timezone": {
                     "type": "string"

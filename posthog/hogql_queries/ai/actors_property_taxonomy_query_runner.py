@@ -7,23 +7,23 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.ai.utils import TaxonomyCacheMixin
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.schema import (
-    ActorPropertyTaxonomyQuery,
-    ActorPropertyTaxonomyQueryResponse,
-    CachedActorPropertyTaxonomyQueryResponse,
+    ActorsPropertyTaxonomyQuery,
+    ActorsPropertyTaxonomyQueryResponse,
+    CachedActorsPropertyTaxonomyQueryResponse,
 )
 
 
-class ActorPropertyTaxonomyQueryRunner(QueryRunner, TaxonomyCacheMixin):
-    query: ActorPropertyTaxonomyQuery
-    response: ActorPropertyTaxonomyQueryResponse
-    cached_response: CachedActorPropertyTaxonomyQueryResponse
+class ActorsPropertyTaxonomyQueryRunner(QueryRunner, TaxonomyCacheMixin):
+    query: ActorsPropertyTaxonomyQuery
+    response: ActorsPropertyTaxonomyQueryResponse
+    cached_response: CachedActorsPropertyTaxonomyQueryResponse
 
     def calculate(self):
         query = self.to_query()
         hogql = to_printed_hogql(query, self.team)
 
         response = execute_hogql_query(
-            query_type="ActorPropertyTaxonomyQuery",
+            query_type="ActorsPropertyTaxonomyQuery",
             query=query,
             team=self.team,
             timings=self.timings,
@@ -43,7 +43,7 @@ class ActorPropertyTaxonomyQueryRunner(QueryRunner, TaxonomyCacheMixin):
             }
         )
 
-        return ActorPropertyTaxonomyQueryResponse(
+        return ActorsPropertyTaxonomyQueryResponse(
             results=results,
             timings=response.timings,
             hogql=hogql,

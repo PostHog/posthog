@@ -1,10 +1,10 @@
 from django.test import override_settings
 
 from posthog.hogql.errors import ExposedHogQLError
-from posthog.hogql_queries.ai.actor_property_taxonomy_query_runner import ActorPropertyTaxonomyQueryRunner
+from posthog.hogql_queries.ai.actors_property_taxonomy_query_runner import ActorsPropertyTaxonomyQueryRunner
 from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
-from posthog.schema import ActorPropertyTaxonomyQuery
+from posthog.schema import ActorsPropertyTaxonomyQuery
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -14,7 +14,7 @@ from posthog.test.base import (
 
 
 @override_settings(IN_UNIT_TESTING=True)
-class TestActorTaxonomyTaxonomyQueryRunner(ClickhouseTestMixin, APIBaseTest):
+class TestActorsPropertyTaxonomyQueryRunner(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
     def test_person_property_taxonomy_query_runner(self):
         _create_person(
@@ -34,8 +34,8 @@ class TestActorTaxonomyTaxonomyQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
         # regular person property
-        results = ActorPropertyTaxonomyQueryRunner(
-            team=self.team, query=ActorPropertyTaxonomyQuery(type="person", property="email")
+        results = ActorsPropertyTaxonomyQueryRunner(
+            team=self.team, query=ActorsPropertyTaxonomyQuery(type="person", property="email")
         ).calculate()
         self.assertEqual(len(results.results.sample_values), 3)
         self.assertEqual(
@@ -44,15 +44,15 @@ class TestActorTaxonomyTaxonomyQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(results.results.sample_count, 3)
 
         # does not exist
-        results = ActorPropertyTaxonomyQueryRunner(
-            team=self.team, query=ActorPropertyTaxonomyQuery(type="person", property="does not exist")
+        results = ActorsPropertyTaxonomyQueryRunner(
+            team=self.team, query=ActorsPropertyTaxonomyQuery(type="person", property="does not exist")
         ).calculate()
         self.assertEqual(len(results.results.sample_values), 0)
         self.assertEqual(results.results.sample_count, 0)
 
         # Ensure only distinct values are returned
-        results = ActorPropertyTaxonomyQueryRunner(
-            team=self.team, query=ActorPropertyTaxonomyQuery(type="person", property="age")
+        results = ActorsPropertyTaxonomyQueryRunner(
+            team=self.team, query=ActorsPropertyTaxonomyQuery(type="person", property="age")
         ).calculate()
         self.assertEqual(len(results.results.sample_values), 1)
         self.assertEqual(results.results.sample_count, 1)
@@ -82,25 +82,25 @@ class TestActorTaxonomyTaxonomyQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
         # regular group property
-        results = ActorPropertyTaxonomyQueryRunner(
-            team=self.team, query=ActorPropertyTaxonomyQuery(type="group", property="industry", group_type_index=0)
+        results = ActorsPropertyTaxonomyQueryRunner(
+            team=self.team, query=ActorsPropertyTaxonomyQuery(type="group", property="industry", group_type_index=0)
         ).calculate()
         self.assertEqual(len(results.results.sample_values), 3)
         self.assertEqual(set(results.results.sample_values), {"tech", "energy", "ecommerce"})
         self.assertEqual(results.results.sample_count, 3)
 
         # does not exist
-        results = ActorPropertyTaxonomyQueryRunner(
+        results = ActorsPropertyTaxonomyQueryRunner(
             team=self.team,
-            query=ActorPropertyTaxonomyQuery(type="group", property="does not exist", group_type_index=0),
+            query=ActorsPropertyTaxonomyQuery(type="group", property="does not exist", group_type_index=0),
         ).calculate()
         self.assertEqual(len(results.results.sample_values), 0)
         self.assertEqual(results.results.sample_count, 0)
 
         # Ensure only distinct values are returned
-        results = ActorPropertyTaxonomyQueryRunner(
+        results = ActorsPropertyTaxonomyQueryRunner(
             team=self.team,
-            query=ActorPropertyTaxonomyQuery(type="group", property="employee_count", group_type_index=0),
+            query=ActorsPropertyTaxonomyQuery(type="group", property="employee_count", group_type_index=0),
         ).calculate()
         self.assertEqual(len(results.results.sample_values), 1)
         self.assertEqual(results.results.sample_count, 1)
@@ -109,8 +109,8 @@ class TestActorTaxonomyTaxonomyQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     def test_group_property_taxonomy_query_runner_with_none_group_type_index(self):
         with self.assertRaises(ExposedHogQLError) as context:
-            ActorPropertyTaxonomyQueryRunner(
+            ActorsPropertyTaxonomyQueryRunner(
                 team=self.team,
-                query=ActorPropertyTaxonomyQuery(type="group", property="industry"),
+                query=ActorsPropertyTaxonomyQuery(type="group", property="industry"),
             ).calculate()
         self.assertEqual(str(context.exception), "group_type_index must be an integer.")

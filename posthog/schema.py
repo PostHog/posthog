@@ -32,7 +32,7 @@ class Type(StrEnum):
     PERSON = "person"
 
 
-class ActorPropertyTaxonomyResponse(BaseModel):
+class ActorsPropertyTaxonomyResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1660,7 +1660,7 @@ class YAxisSettings(BaseModel):
     startAtZero: Optional[bool] = Field(default=None, description="Whether the Y axis should start at zero")
 
 
-class ActorPropertyTaxonomyQueryResponse(BaseModel):
+class ActorsPropertyTaxonomyQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1675,7 +1675,7 @@ class ActorPropertyTaxonomyQueryResponse(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
-    results: ActorPropertyTaxonomyResponse
+    results: ActorsPropertyTaxonomyResponse
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
@@ -1749,7 +1749,7 @@ class CacheMissResponse(BaseModel):
     query_status: Optional[QueryStatus] = None
 
 
-class CachedActorPropertyTaxonomyQueryResponse(BaseModel):
+class CachedActorsPropertyTaxonomyQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1772,7 +1772,7 @@ class CachedActorPropertyTaxonomyQueryResponse(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
-    results: ActorPropertyTaxonomyResponse
+    results: ActorsPropertyTaxonomyResponse
     timezone: str
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
@@ -4054,7 +4054,7 @@ class WebTopClicksQuery(BaseModel):
     useSessionsTable: Optional[bool] = None
 
 
-class ActorPropertyTaxonomyQuery(BaseModel):
+class ActorsPropertyTaxonomyQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -4064,7 +4064,7 @@ class ActorPropertyTaxonomyQuery(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     property: str
-    response: Optional[ActorPropertyTaxonomyQueryResponse] = None
+    response: Optional[ActorsPropertyTaxonomyQueryResponse] = None
     type: Type
 
 

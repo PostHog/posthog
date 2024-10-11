@@ -2025,18 +2025,18 @@ export type EventTaxonomyQueryResponse = AnalyticsQueryResponseBase<EventTaxonom
 
 export type CachedEventTaxonomyQueryResponse = CachedQueryResponse<EventTaxonomyQueryResponse>
 
-export interface ActorPropertyTaxonomyResponse {
+export interface ActorsPropertyTaxonomyResponse {
     sample_values: string[]
     sample_count: integer
 }
 
-export interface ActorPropertyTaxonomyQuery extends DataNode<ActorPropertyTaxonomyQueryResponse> {
+export interface ActorsPropertyTaxonomyQuery extends DataNode<ActorsPropertyTaxonomyQueryResponse> {
     kind: NodeKind.ActorTaxonomyQuery
     type: PropertyDefinitionType.Group | PropertyDefinitionType.Person
     property: string
     group_type_index?: integer
 }
 
-export type ActorPropertyTaxonomyQueryResponse = AnalyticsQueryResponseBase<ActorPropertyTaxonomyResponse>
+export type ActorsPropertyTaxonomyQueryResponse = AnalyticsQueryResponseBase<ActorsPropertyTaxonomyResponse>
 
-export type CachedActorPropertyTaxonomyQueryResponse = CachedQueryResponse<ActorPropertyTaxonomyQueryResponse>
+export type CachedActorsPropertyTaxonomyQueryResponse = CachedQueryResponse<ActorsPropertyTaxonomyQueryResponse>
