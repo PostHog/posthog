@@ -362,6 +362,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconHogQL,
         inMenu: false,
     },
+    [NodeKind.ActorsPropertyTaxonomyQuery]: {
+        name: 'Actor Property Taxonomy',
+        description: 'View the taxonomy of the actor’s property.',
+        icon: IconHogQL,
+        inMenu: false,
+    },
 }
 
 export const INSIGHT_TYPE_OPTIONS: LemonSelectOptions<string> = [

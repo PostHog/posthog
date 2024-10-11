@@ -110,7 +110,7 @@ export enum NodeKind {
     // AI queries
     TeamTaxonomyQuery = 'TeamTaxonomyQuery',
     EventTaxonomyQuery = 'EventTaxonomyQuery',
-    ActorTaxonomyQuery = 'ActorTaxonomyQuery',
+    ActorsPropertyTaxonomyQuery = 'ActorsPropertyTaxonomyQuery',
 }
 
 export type AnyDataNode =
@@ -2031,7 +2031,7 @@ export interface ActorsPropertyTaxonomyResponse {
 }
 
 export interface ActorsPropertyTaxonomyQuery extends DataNode<ActorsPropertyTaxonomyQueryResponse> {
-    kind: NodeKind.ActorTaxonomyQuery
+    kind: NodeKind.ActorsPropertyTaxonomyQuery
     type: PropertyDefinitionType.Group | PropertyDefinitionType.Person
     property: string
     group_type_index?: integer

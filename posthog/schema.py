@@ -870,7 +870,7 @@ class NodeKind(StrEnum):
     DATABASE_SCHEMA_QUERY = "DatabaseSchemaQuery"
     TEAM_TAXONOMY_QUERY = "TeamTaxonomyQuery"
     EVENT_TAXONOMY_QUERY = "EventTaxonomyQuery"
-    ACTOR_TAXONOMY_QUERY = "ActorTaxonomyQuery"
+    ACTORS_PROPERTY_TAXONOMY_QUERY = "ActorsPropertyTaxonomyQuery"
 
 
 class PathCleaningFilter(BaseModel):
@@ -4059,7 +4059,7 @@ class ActorsPropertyTaxonomyQuery(BaseModel):
         extra="forbid",
     )
     group_type_index: Optional[int] = None
-    kind: Literal["ActorTaxonomyQuery"] = "ActorTaxonomyQuery"
+    kind: Literal["ActorsPropertyTaxonomyQuery"] = "ActorsPropertyTaxonomyQuery"
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )

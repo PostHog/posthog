@@ -196,7 +196,7 @@
                     "type": "integer"
                 },
                 "kind": {
-                    "const": "ActorTaxonomyQuery",
+                    "const": "ActorsPropertyTaxonomyQuery",
                     "type": "string"
                 },
                 "modifiers": {
@@ -7355,7 +7355,7 @@
                 "DatabaseSchemaQuery",
                 "TeamTaxonomyQuery",
                 "EventTaxonomyQuery",
-                "ActorTaxonomyQuery"
+                "ActorsPropertyTaxonomyQuery"
             ],
             "type": "string"
         },
