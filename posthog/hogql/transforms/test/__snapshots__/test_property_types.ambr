@@ -32,7 +32,7 @@
 # name: TestPropertyTypes.test_group_property_types
   '''
   
-  SELECT accurateCastOrNull(events__group_0.properties___inty, %(hogql_val_2)s) AS inty 
+  SELECT accurateCastOrDefault(events__group_0.properties___inty, %(hogql_val_2)s) AS inty 
   FROM events LEFT JOIN (
   SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, %(hogql_val_1)s)) AS properties___inty, groups.group_type_index AS index, groups.group_key AS key 
   FROM groups 
@@ -45,7 +45,7 @@
 # name: TestPropertyTypes.test_resolve_property_types_combined
   '''
   
-  SELECT multiply(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_4)s), ''), 'null'), '^"|"$', ''), %(hogql_val_5)s), events__person.properties___tickets) 
+  SELECT multiply(accurateCastOrDefault(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_4)s), ''), 'null'), '^"|"$', ''), %(hogql_val_5)s), events__person.properties___tickets) 
   FROM events LEFT OUTER JOIN (
   SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id 
   FROM person_distinct_id_overrides 
@@ -53,7 +53,7 @@
   GROUP BY person_distinct_id_overrides.distinct_id 
   HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) 
   SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id) LEFT JOIN (
-  SELECT argMax(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), %(hogql_val_1)s), person.version) AS properties___tickets, person.id AS id 
+  SELECT argMax(accurateCastOrDefault(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), %(hogql_val_1)s), person.version) AS properties___tickets, person.id AS id 
   FROM person 
   WHERE equals(person.team_id, 420) 
   GROUP BY person.id 
@@ -66,7 +66,7 @@
 # name: TestPropertyTypes.test_resolve_property_types_event
   '''
   
-  SELECT multiply(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), %(hogql_val_1)s), accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_2)s), ''), 'null'), '^"|"$', ''), %(hogql_val_3)s)), transform(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_4)s), ''), 'null'), '^"|"$', ''), %(hogql_val_5)s, %(hogql_val_6)s, NULL) AS bool 
+  SELECT multiply(accurateCastOrDefault(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), %(hogql_val_1)s), accurateCastOrDefault(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_2)s), ''), 'null'), '^"|"$', ''), %(hogql_val_3)s)), transform(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_4)s), ''), 'null'), '^"|"$', ''), %(hogql_val_5)s, %(hogql_val_6)s, NULL) AS bool 
   FROM events 
   WHERE equals(events.team_id, 420) 
   LIMIT 50000
@@ -105,7 +105,7 @@
 # name: TestPropertyTypes.test_resolve_property_types_person
   '''
   
-  SELECT accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), %(hogql_val_1)s) AS tickets, parseDateTime64BestEffortOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_2)s), ''), 'null'), '^"|"$', ''), 6, %(hogql_val_3)s) AS provided_timestamp, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_4)s), ''), 'null'), '^"|"$', '') AS `$initial_browser` 
+  SELECT accurateCastOrDefault(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), %(hogql_val_1)s) AS tickets, parseDateTime64BestEffortOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_2)s), ''), 'null'), '^"|"$', ''), 6, %(hogql_val_3)s) AS provided_timestamp, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_4)s), ''), 'null'), '^"|"$', '') AS `$initial_browser` 
   FROM person 
   WHERE equals(person.team_id, 420) 
   LIMIT 50000
@@ -114,7 +114,7 @@
 # name: TestPropertyTypes.test_resolve_property_types_person_raw
   '''
   
-  SELECT accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), %(hogql_val_1)s) AS tickets, parseDateTime64BestEffortOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_2)s), ''), 'null'), '^"|"$', ''), 6, %(hogql_val_3)s) AS provided_timestamp, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_4)s), ''), 'null'), '^"|"$', '') AS `$initial_browser` 
+  SELECT accurateCastOrDefault(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), %(hogql_val_1)s) AS tickets, parseDateTime64BestEffortOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_2)s), ''), 'null'), '^"|"$', ''), 6, %(hogql_val_3)s) AS provided_timestamp, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_4)s), ''), 'null'), '^"|"$', '') AS `$initial_browser` 
   FROM person 
   WHERE equals(person.team_id, 420) 
   LIMIT 50000
