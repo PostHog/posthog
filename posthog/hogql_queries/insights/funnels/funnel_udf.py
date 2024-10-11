@@ -39,13 +39,15 @@ class FunnelUDF(FunnelBase):
 
     # This is used to reduce the number of events we look at in strict funnels
     # We remove a non-matching event if there was already one before it (that don't have the same timestamp)
+    # arrayRotateRight turns [1,2,3] into [3,1,2]
+    # For some reason, this uses much less memory than using indexing in clickhouse to check the previous element
     def _array_filter(self):
         if self.context.funnelsFilter.funnelOrderType == "strict":
             return f"""
                     arrayFilter(
-                        (x, i) -> not (isNotNull(events_array[i-1]) and empty(x.4) and empty(events_array[i-1].4) and x.1 > events_array[i-1].1),
+                        (x, x2) -> not (empty(x.4) and empty(x2.4) and x.1 > x2.1),
                         events_array,
-                        arrayEnumerate(events_array))
+                        arrayRotateRight(events_array, 1))
                 """
         return "events_array"
 

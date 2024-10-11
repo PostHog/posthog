@@ -16,7 +16,7 @@ export type LemonFormDialogProps = LemonDialogFormPropsType &
 
 export type LemonDialogProps = Pick<
     LemonModalProps,
-    'title' | 'description' | 'width' | 'maxWidth' | 'inline' | 'footer'
+    'title' | 'description' | 'width' | 'maxWidth' | 'inline' | 'footer' | 'zIndex'
 > & {
     primaryButton?: LemonButtonProps | null
     secondaryButton?: LemonButtonProps | null

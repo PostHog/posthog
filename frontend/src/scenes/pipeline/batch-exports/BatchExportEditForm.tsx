@@ -165,6 +165,12 @@ export function BatchExportsEditFields({
                                         { value: 'eu-north-1', label: 'Europe (Stockholm)' },
                                         { value: 'me-south-1', label: 'Middle East (Bahrain)' },
                                         { value: 'sa-east-1', label: 'South America (São Paulo)' },
+                                        { value: 'auto', label: 'Automatic (AUTO)' },
+                                        { value: 'apac', label: 'Asia Pacific (APAC)' },
+                                        { value: 'eeur', label: 'Eastern Europe (EEUR)' },
+                                        { value: 'enam', label: 'Eastern North America (ENAM)' },
+                                        { value: 'weur', label: 'Western Europe (WEUR)' },
+                                        { value: 'wnam', label: 'Western North America (WNAM)' },
                                     ]}
                                 />
                             </LemonField>
@@ -405,7 +411,6 @@ export function BatchExportsEditFields({
                                     { value: 'varchar', label: 'VARCHAR(65535)' },
                                     { value: 'super', label: 'SUPER' },
                                 ]}
-                                value="varchar"
                             />
                         </LemonField>
 
