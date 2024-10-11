@@ -36,6 +36,7 @@ export const variablesLogic = kea<variablesLogicType>([
         addVariable: (variable: HogQLVariable) => ({ variable }),
         updateVariableValue: (variableId: string, value: any) => ({ variableId, value }),
         setEditorQuery: (query: string) => ({ query }),
+        resetVariables: true,
     }),
     reducers({
         internalSelectedVariables: [
@@ -55,6 +56,7 @@ export const variablesLogic = kea<variablesLogicType>([
 
                     return variablesInState
                 },
+                resetVariables: () => [],
             },
         ],
         editorQuery: [
@@ -120,7 +122,7 @@ export const variablesLogic = kea<variablesLogicType>([
                 return
             }
 
-            const queryVarsHaveChanged = haveVariablesOrFiltersChanged(query, values.query)
+            const queryVarsHaveChanged = haveVariablesOrFiltersChanged(query.source, values.query.source)
             if (!queryVarsHaveChanged) {
                 return
             }
@@ -152,6 +154,17 @@ export const variablesLogic = kea<variablesLogicType>([
                 }
             })
         },
+        query: (query: DataVisualizationNode) => {
+            if (!values.featureFlags[FEATURE_FLAGS.INSIGHT_VARIABLES]) {
+                return
+            }
+
+            actions.resetVariables()
+
+            Object.values(query.source.variables ?? {}).forEach((variable) => {
+                actions.addVariable(variable)
+            })
+        },
     })),
     afterMount(({ actions, values }) => {
         if (!values.featureFlags[FEATURE_FLAGS.INSIGHT_VARIABLES]) {
@@ -160,8 +173,8 @@ export const variablesLogic = kea<variablesLogicType>([
 
         actions.getVariables()
 
-        Object.values(values.query.source.variables ?? {}).forEach((variable) => {
-            actions.addVariable(variable)
-        })
+        // Object.values(values.query.source.variables ?? {}).forEach((variable) => {
+        //     actions.addVariable(variable)
+        // })
     }),
 ])

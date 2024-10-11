@@ -205,15 +205,14 @@ class Insight(models.Model):
         from posthog.hogql_queries.apply_dashboard_filters import apply_dashboard_filters_to_dict
         from posthog.hogql_queries.apply_dashboard_filters import apply_dashboard_variables_to_dict
 
+        if self.query and dashboard_variables_override:
+            self.query = apply_dashboard_variables_to_dict(self.query, dashboard_variables_override or {}, self.team)
+
         if not (dashboard or dashboard_filters_override) or not self.query:
             return self.query
 
-        query_with_variable_overrides = apply_dashboard_variables_to_dict(
-            self.query, dashboard_variables_override or {}, self.team
-        )
-
         return apply_dashboard_filters_to_dict(
-            query_with_variable_overrides,
+            self.query,
             (
                 dashboard_filters_override
                 if dashboard_filters_override is not None

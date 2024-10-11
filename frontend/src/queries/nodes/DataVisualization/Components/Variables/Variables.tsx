@@ -10,6 +10,8 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { useEffect, useRef, useState } from 'react'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 
+import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+
 import { dataVisualizationLogic } from '../../dataVisualizationLogic'
 import { Variable } from '../../types'
 import { NewVariableModal } from './NewVariableModal'
@@ -28,18 +30,25 @@ export const VariablesForDashboard = (): JSX.Element => {
         <>
             <div className="flex gap-4 flex-wrap px-px">
                 {dashboardVariables.map((n) => (
-                    <VariableComponent key={n.id} variable={n} showEditingUI={false} onChange={overrideVariableValue} />
+                    <VariableComponent
+                        key={n.id}
+                        variable={n}
+                        showEditingUI={false}
+                        onChange={overrideVariableValue}
+                        variableOverridesAreSet={false}
+                    />
                 ))}
             </div>
         </>
     )
 }
 
-export const Variables = (): JSX.Element => {
+export const VariablesForInsight = (): JSX.Element => {
     const { featureFlags } = useValues(featureFlagLogic)
     const { variablesForInsight, showVariablesBar } = useValues(variablesLogic)
     const { updateVariableValue } = useActions(variablesLogic)
     const { showEditingUI } = useValues(dataVisualizationLogic)
+    const { variableOverridesAreSet } = useValues(dataNodeLogic)
 
     if (!featureFlags[FEATURE_FLAGS.INSIGHT_VARIABLES] || !variablesForInsight.length || !showVariablesBar) {
         return <></>
@@ -54,6 +63,7 @@ export const Variables = (): JSX.Element => {
                         variable={n}
                         showEditingUI={showEditingUI}
                         onChange={updateVariableValue}
+                        variableOverridesAreSet={variableOverridesAreSet}
                     />
                 ))}
             </div>
@@ -146,9 +156,15 @@ interface VariableComponentProps {
     variable: Variable
     showEditingUI: boolean
     onChange: (variableId: string, value: any) => void
+    variableOverridesAreSet: boolean
 }
 
-const VariableComponent = ({ variable, showEditingUI, onChange }: VariableComponentProps): JSX.Element => {
+const VariableComponent = ({
+    variable,
+    showEditingUI,
+    onChange,
+    variableOverridesAreSet,
+}: VariableComponentProps): JSX.Element => {
     const [isPopoverOpen, setPopoverOpen] = useState(false)
 
     return (
@@ -176,6 +192,7 @@ const VariableComponent = ({ variable, showEditingUI, onChange }: VariableCompon
                         type="secondary"
                         className="min-w-32 DataVizVariable_Button"
                         onClick={() => setPopoverOpen(!isPopoverOpen)}
+                        disabledReason={variableOverridesAreSet && 'Discard dashboard variables to change'}
                     >
                         {variable.value ?? variable.default_value}
                     </LemonButton>

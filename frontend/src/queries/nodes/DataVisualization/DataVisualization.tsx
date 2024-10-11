@@ -39,7 +39,7 @@ import { SideBar } from './Components/SideBar'
 import { Table } from './Components/Table'
 import { TableDisplay } from './Components/TableDisplay'
 import { AddVariableButton } from './Components/Variables/AddVariableButton'
-import { Variables } from './Components/Variables/Variables'
+import { VariablesForInsight } from './Components/Variables/Variables'
 import { variablesLogic } from './Components/Variables/variablesLogic'
 import { dataVisualizationLogic, DataVisualizationLogicProps } from './dataVisualizationLogic'
 import { displayLogic } from './displayLogic'
@@ -250,7 +250,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                     </>
                 )}
 
-                <Variables />
+                <VariablesForInsight />
 
                 <div className="flex flex-1 flex-row gap-4">
                     {showEditingUI && isChartSettingsPanelOpen && (
