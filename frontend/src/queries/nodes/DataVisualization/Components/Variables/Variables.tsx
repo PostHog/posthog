@@ -28,7 +28,7 @@ export const VariablesForDashboard = (): JSX.Element => {
 
     return (
         <>
-            <div className="flex gap-4 flex-wrap px-px">
+            <div className="flex gap-4 flex-wrap px-px mt-4">
                 {dashboardVariables.map((n) => (
                     <VariableComponent
                         key={n.id}
