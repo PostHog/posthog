@@ -887,6 +887,27 @@ def team_api_test_factory():
             second_get_response = self.client.get("/api/environments/@current/")
             assert second_get_response.json()["session_recording_network_payload_capture_config"] is None
 
+        def test_can_set_and_unset_survey_settings(self):
+            survey_appearance = {
+                "thankYouMessageHeader": "Thanks for your feedback!",
+                "thankYouMessageDescription": "We'll use it to make notebooks better",
+                "backgroundColor": "#ffcc99",
+            }
+
+            self._patch_config("survey_config", {"appearance": survey_appearance})
+            self._assert_surveys_config_is({"appearance": survey_appearance})
+
+            survey_appearance["zIndex"] = "100001"
+            self._patch_config("survey_config", {"appearance": survey_appearance})
+            self._assert_surveys_config_is({"appearance": survey_appearance})
+
+            survey_appearance["thankYouMessageHeader"] = "Thanks!"
+            self._patch_config("survey_config", {"appearance": survey_appearance})
+            self._assert_surveys_config_is({"appearance": survey_appearance})
+
+            self._patch_config("survey_config", None)
+            self._assert_replay_config_is(None)
+
         def test_can_set_and_unset_session_replay_config(self) -> None:
             # can set
             self._patch_session_replay_config({"record_canvas": True})
@@ -1054,22 +1075,33 @@ def team_api_test_factory():
             )
 
         def _assert_replay_config_is(self, expected: dict[str, Any] | None) -> HttpResponse:
+            return self._assert_config_is("session_replay_config", expected)
+
+        def _assert_surveys_config_is(self, expected: dict[str, Any] | None) -> HttpResponse:
+            return self._assert_config_is("survey_config", expected)
+
+        def _assert_config_is(self, config_name, expected: dict[str, Any] | None) -> HttpResponse:
             get_response = self.client.get("/api/environments/@current/")
             assert get_response.status_code == status.HTTP_200_OK, get_response.json()
-            assert get_response.json()["session_replay_config"] == expected
+            assert get_response.json()[config_name] == expected
 
             return get_response
 
-        def _patch_session_replay_config(
-            self, config: dict[str, Any] | None, expected_status: int = status.HTTP_200_OK
+        def _patch_config(
+            self, config_name, config: dict[str, Any] | None, expected_status: int = status.HTTP_200_OK
         ) -> HttpResponse:
             patch_response = self.client.patch(
                 "/api/environments/@current/",
-                {"session_replay_config": config},
+                {config_name: config},
             )
             assert patch_response.status_code == expected_status, patch_response.json()
 
             return patch_response
+
+        def _patch_session_replay_config(
+            self, config: dict[str, Any] | None, expected_status: int = status.HTTP_200_OK
+        ) -> HttpResponse:
+            return self._patch_config("session_replay_config", config, expected_status)
 
         def _assert_linked_flag_config(self, expected_config: dict | None) -> HttpResponse:
             response = self.client.get("/api/environments/@current/")

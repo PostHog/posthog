@@ -194,9 +194,13 @@ $_lifecycle_dormant: map.get($colors, 'danger');
     --z-command-palette: 1875;
     --z-force-modal-above-popovers: 1850;
     --z-tooltip: 1070;
-    --z-definition-popover: 1064;
-    --z-popover: 1063;
-    --z-graph-tooltip: 1062;
+
+    // 1066 through 1069 are reserved to be set from code
+    --z-definition-popover: 1065;
+    --z-popover: 1064;
+    --z-graph-tooltip: 1063;
+
+    // 1061 and 1062 are reserved to be set from code
     --z-modal: 1060;
     --z-hedgehog-buddy: 1059;
     --z-annotation-popover: 1049;

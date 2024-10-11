@@ -36,4 +36,9 @@ class TestTemplateWebhook(BaseHogFunctionTemplateTest):
         assert self.get_mock_fetch_calls()[0] == snapshot(
             ("https://posthog.com", {"headers": {}, "body": {"hello": "world"}, "method": "GET"})
         )
-        assert self.get_mock_print_calls() == snapshot([("Response", 200, {})])
+        assert self.get_mock_print_calls() == snapshot(
+            [
+                ("Request", "https://posthog.com", {"headers": {}, "body": {"hello": "world"}, "method": "GET"}),
+                ("Response", 200, {}),
+            ]
+        )

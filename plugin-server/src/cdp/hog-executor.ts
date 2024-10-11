@@ -18,8 +18,8 @@ import {
 } from './types'
 import { convertToHogFunctionFilterGlobal } from './utils'
 
-const MAX_ASYNC_STEPS = 2
-const MAX_HOG_LOGS = 10
+const MAX_ASYNC_STEPS = 5
+const MAX_HOG_LOGS = 25
 const MAX_LOG_LENGTH = 10000
 export const DEFAULT_TIMEOUT_MS = 100
 
@@ -291,7 +291,7 @@ export class HogExecutor {
                     functions: {
                         print: (...args) => {
                             hogLogs++
-                            if (hogLogs == MAX_HOG_LOGS) {
+                            if (hogLogs === MAX_HOG_LOGS) {
                                 result.logs.push({
                                     level: 'warn',
                                     timestamp: DateTime.now(),
