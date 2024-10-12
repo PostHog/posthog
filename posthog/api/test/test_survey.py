@@ -12,7 +12,7 @@ from rest_framework import status
 
 from posthog.api.survey import nh3_clean_with_allow_list
 from posthog.constants import AvailableFeature
-from posthog.models import Action, FeatureFlag
+from posthog.models import Action, FeatureFlag, Team
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.feedback.survey import Survey
 from posthog.test.base import (
@@ -2572,6 +2572,25 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
             HTTP_ORIGIN=origin,
             REMOTE_ADDR=ip,
         )
+
+    def test_can_get_survey_config(self):
+        survey_appearance = {
+            "thankYouMessageHeader": "Thanks for your feedback!",
+            "thankYouMessageDescription": "We'll use it to make notebooks better",
+        }
+        self.team.survey_config = {"appearance": survey_appearance}
+
+        self.team.save()
+
+        self.team = Team.objects.get(id=self.team.id)
+
+        self.client.logout()
+        response = self._get_surveys()
+        response_data = response.json()
+        assert response.status_code == status.HTTP_200_OK, response_data
+        assert response.status_code == status.HTTP_200_OK, response_data
+        assert response_data["survey_config"] is not None
+        assert response_data["survey_config"]["appearance"] == survey_appearance
 
     def test_list_surveys_with_actions(self):
         action = Action.objects.create(

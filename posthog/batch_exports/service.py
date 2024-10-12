@@ -409,6 +409,16 @@ async def cancel_running_batch_export_backfill(temporal: Client, batch_export_ba
     await batch_export_backfill.asave()
 
 
+def cancel_running_batch_export_run(temporal: Client, batch_export_run: BatchExportRun) -> None:
+    """Cancel a running BatchExportRun."""
+
+    handle = temporal.get_workflow_handle(workflow_id=batch_export_run.workflow_id)
+    async_to_sync(handle.cancel)()
+
+    batch_export_run.status = BatchExportRun.Status.CANCELLED
+    batch_export_run.save()
+
+
 @dataclass
 class BackfillBatchExportInputs:
     """Inputs for the BackfillBatchExport Workflow."""
