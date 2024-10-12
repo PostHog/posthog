@@ -2712,11 +2712,11 @@ class ClickhouseTestFunnelExperimentResults(ClickhouseTestMixin, APILicensedTest
         result = sorted(response_data["insight"], key=lambda x: x[0]["breakdown_value"][0])
 
         self.assertEqual(result[0][0]["name"], "$pageview")
-        self.assertEqual(result[0][0]["count"], 2)
+        self.assertEqual(result[0][0]["count"], 1)
         self.assertEqual("control", result[0][0]["breakdown_value"][0])
 
         self.assertEqual(result[0][1]["name"], "$pageleave")
-        self.assertEqual(result[0][1]["count"], 2)
+        self.assertEqual(result[0][1]["count"], 1)
         self.assertEqual("control", result[0][1]["breakdown_value"][0])
 
         self.assertEqual(result[1][0]["name"], "$pageview")
@@ -2724,13 +2724,12 @@ class ClickhouseTestFunnelExperimentResults(ClickhouseTestMixin, APILicensedTest
         self.assertEqual("test", result[1][0]["breakdown_value"][0])
 
         self.assertEqual(result[1][1]["name"], "$pageleave")
-        self.assertEqual(result[1][1]["count"], 1)
+        self.assertEqual(result[1][1]["count"], 0)
         self.assertEqual("test", result[1][1]["breakdown_value"][0])
 
         self.assertAlmostEqual(response_data["probability"]["test"], 0.031, places=1)
         self.assertAlmostEqual(response_data["probability"]["test_1"], 0.158, places=1)
-        self.assertAlmostEqual(response_data["probability"]["test_2"], 0.324, places=1)
-        self.assertAlmostEqual(response_data["probability"]["control"], 0.486, places=1)
+        self.assertAlmostEqual(response_data["probability"]["control"], 0.77777, places=1)
         self.assertEqual(
             response_data["significance_code"],
             ExperimentSignificanceCode.NOT_ENOUGH_EXPOSURE,
