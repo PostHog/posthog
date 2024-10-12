@@ -175,8 +175,14 @@ def relative_date_parse_with_delta_mapping(
     *,
     always_truncate: bool = False,
     now: Optional[datetime.datetime] = None,
+    increase: bool = False,
 ) -> tuple[datetime.datetime, Optional[dict[str, int]], str | None]:
-    """Returns the parsed datetime, along with the period mapping - if the input was a relative datetime string."""
+    """
+    Returns the parsed datetime, along with the period mapping - if the input was a relative datetime string.
+
+    :increase controls whether to add relative delta to the current time or subtract
+        Should later control this using +/- infront of the input regex
+    """
     try:
         try:
             # This supports a few formats, but we primarily care about:
@@ -245,9 +251,13 @@ def relative_date_parse_with_delta_mapping(
             delta_mapping["month"] = 1
             delta_mapping["day"] = 1
         elif match.group("position") == "End":
-            delta_mapping["month"] = 12
             delta_mapping["day"] = 31
-    parsed_dt -= relativedelta(**delta_mapping)  # type: ignore
+
+    if increase:
+        parsed_dt += relativedelta(**delta_mapping)  # type: ignore
+    else:
+        parsed_dt -= relativedelta(**delta_mapping)  # type: ignore
+
     if always_truncate:
         # Truncate to the start of the hour for hour-precision datetimes, to the start of the day for larger intervals
         # TODO: Remove this from this function, this should not be the responsibility of it
@@ -264,8 +274,11 @@ def relative_date_parse(
     *,
     always_truncate: bool = False,
     now: Optional[datetime.datetime] = None,
+    increase: bool = False,
 ) -> datetime.datetime:
-    return relative_date_parse_with_delta_mapping(input, timezone_info, always_truncate=always_truncate, now=now)[0]
+    return relative_date_parse_with_delta_mapping(
+        input, timezone_info, always_truncate=always_truncate, now=now, increase=increase
+    )[0]
 
 
 def get_js_url(request: HttpRequest) -> str:
