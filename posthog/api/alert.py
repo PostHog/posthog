@@ -17,6 +17,7 @@ from posthog.schema import AlertState
 from posthog.api.insight import InsightBasicSerializer
 
 from posthog.utils import relative_date_parse
+from datetime import UTC
 
 
 class ThresholdSerializer(serializers.ModelSerializer):
@@ -165,7 +166,9 @@ class AlertSerializer(serializers.ModelSerializer):
                 instance.state = AlertState.NOT_FIRING
                 instance.snoozed_until = None
             else:
-                snoozed_until = relative_date_parse(snoozed_until_param, instance.team.timezone_info)
+                # always store snoozed_until as UTC time
+                # as we look at current UTC time to check when to run alerts
+                snoozed_until = relative_date_parse(snoozed_until_param, UTC)
                 instance.state = AlertState.SNOOZED
                 instance.snoozed_until = snoozed_until
 
