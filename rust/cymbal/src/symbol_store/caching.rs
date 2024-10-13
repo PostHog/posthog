@@ -43,6 +43,41 @@ impl SymbolStore for CachingStore {
         }
         metrics::counter!(STORE_CACHE_MISSES).increment(1);
 
+        /*
+        Implementation decision re: saving of frame resolution results:
+        We don't cache failed symbol set lookups, which is a risk - for errors where we're
+        failing at a parsing step (so we do the fetch and collect the body), we'll
+        end up doing a LOT of work on every single frame emitting that setref, every
+        time we see it.
+
+        We could cache the error, with some short TTL - and that might get us 80% of
+        the benefit, but it's complicated by how we save the results of frame resolution.
+
+        We have talked about saving the entire resolved stack trace - so mapping from a
+        "raw" stack to a resolved one in totality, and that's the most straightforward
+        route, but /if/ we instead stored every, say, {team_id, setref, raw_frame, Option<resolved_frame>},
+        we get some nice benefits - we can skip the resolving step for frames we've seen before,
+        even if we're seeing them in a new stack, and if someone comes along and gives us
+        a symbol set we didn't have before, rather than invalidating every resolution
+        result that contained a frame referencing the new symbol set, we just invalidate
+        the frames specifically, and re-resolve only them (not the full stack). The downside of this
+        is, when we get a stack, rather than fetching one value from our store, we have
+        to fetch N, but this isn't the end of the world I think.
+
+        The link between save-per-stack and save-per-frame and this decision about caching failed
+        symbol set lookups is that, if we save per-frame, it becomes very easy to simply cache failed
+        lookups, with some short TTL (think seconds/minutes) - we can drop the failed symbol set
+        lookup result fairly aggressively, because we know we're permanently (barring a user giving
+        us a new symbol set) saving the failed frame resolve, and each set only contains symbols for
+        so many frames. If instead we save per-stack, for every new stack that frame shows up in,
+        we have to re-resolve it, so we'd want to be more complete in our approach to caching failed
+        symbol set lookups. Basically, the more granular saving approach lets us be more confident about
+        how often we'll be re-resolving the same frame, and that tells us how hard we need to try and
+        handle the failed symbol set lookup case "perfectly".
+
+        I'm leaning towards saving on a per-frame basis. We'd still be mapping to an error group
+        based on the total stack trace, of course.
+        */
         // We hold the cache lock across the underlying fetch, so that if two threads
         // are racing to fetch the same item, we don't end up doing the request/data transfer twice.
         let res = self.inner.fetch(team_id, r.clone()).await?;

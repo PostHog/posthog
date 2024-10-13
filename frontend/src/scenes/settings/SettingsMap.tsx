@@ -108,7 +108,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'exception-autocapture',
                 title: 'Exception autocapture',
                 component: <ExceptionAutocaptureSettings />,
-                flag: 'EXCEPTION_AUTOCAPTURE',
+                flag: 'ERROR_TRACKING',
             },
             {
                 id: 'web-vitals-autocapture',
