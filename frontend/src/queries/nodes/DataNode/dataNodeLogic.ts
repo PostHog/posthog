@@ -454,7 +454,10 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         ],
     })),
     selectors(({ cache }) => ({
-        variableOverridesAreSet: [(_, p) => [p.variablesOverride], (variablesOverride) => !!variablesOverride],
+        variableOverridesAreSet: [
+            (_, p) => [p.variablesOverride ?? (() => ({}))],
+            (variablesOverride) => !!variablesOverride,
+        ],
         isShowingCachedResults: [
             () => [(_, props) => props.cachedResults ?? null, (_, props) => props.query],
             (cachedResults: AnyResponseType | null, query: DataNode): boolean => {
