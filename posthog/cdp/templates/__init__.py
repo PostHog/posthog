@@ -24,6 +24,7 @@ from .engage.template_engage import template as engage, TemplateEngageMigrator
 from .zendesk.template_zendesk import template as zendesk
 from .knock.template_knock import template as knock
 from .activecampaign.template_activecampaign import template as activecampaign
+from .attio.template_attio import template as attio
 from .google_cloud_storage.template_google_cloud_storage import (
     template as google_cloud_storage,
     TemplateGoogleCloudStorageMigrator,
@@ -34,6 +35,7 @@ HOG_FUNCTION_TEMPLATES = [
     slack,
     webhook,
     activecampaign,
+    attio,
     avo,
     aws_kinesis,
     braze,
