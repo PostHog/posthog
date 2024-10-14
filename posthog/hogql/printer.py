@@ -1285,8 +1285,10 @@ class _Printer(Visitor):
         Find all materialized property sources for the provided field type and property name, ordered from what is
         likely to be the most efficient access path to the least efficient.
         """
-        # TODO: It likely makes sense to make this independent of whether or not property groups are used.
-        if self.context.modifiers.materializationMode == "disabled":
+        if (
+            self.context.modifiers.materializationMode == MaterializationMode.DISABLED
+            and self.context.modifiers.propertyGroupsMode == PropertyGroupsMode.DISABLED
+        ):
             return
 
         field = field_type.resolve_database_field(self.context)
@@ -1305,12 +1307,13 @@ class _Printer(Visitor):
                 raise QueryError(f"Can't resolve field {field_type.name} on table {table_name}")
             field_name = cast(Union[Literal["properties"], Literal["person_properties"]], field.name)
 
-            materialized_column = self._get_materialized_column(table_name, property_name, field_name)
-            if materialized_column:
-                yield PrintableMaterializedColumn(
-                    self.visit(field_type.table_type),
-                    self._print_identifier(materialized_column),
-                )
+            if self.context.modifiers.materializationMode != MaterializationMode.DISABLED:
+                materialized_column = self._get_materialized_column(table_name, property_name, field_name)
+                if materialized_column:
+                    yield PrintableMaterializedColumn(
+                        self.visit(field_type.table_type),
+                        self._print_identifier(materialized_column),
+                    )
 
             if self.context.modifiers.propertyGroupsMode in (
                 PropertyGroupsMode.ENABLED,
@@ -1328,7 +1331,8 @@ class _Printer(Visitor):
                         self.context.add_value(property_name),
                     )
         elif (
-            self.context.within_non_hogql_query
+            self.context.modifiers.materializationMode != MaterializationMode.DISABLED
+            and self.context.within_non_hogql_query
             and (isinstance(table, ast.SelectQueryAliasType) and table.alias == "events__pdi__person")
             or (isinstance(table, ast.VirtualTableType) and table.field == "poe")
         ):
