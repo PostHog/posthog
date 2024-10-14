@@ -53,7 +53,7 @@ const DEFAULT_ENTERED_TIMESTAMP: EnteredTimestamp = EnteredTimestamp {
 };
 
 pub fn process_line(line: &str) -> Value {
-    let args = parse_args(&line);
+    let args = parse_args(line);
     let mut aggregate_funnel_row = AggregateFunnelRow {
         results: Vec::with_capacity(args.prop_vals.len()),
         breakdown_step: Option::None,
@@ -113,7 +113,7 @@ impl AggregateFunnelRow {
                 if !self.process_event(
                     args,
                     &mut vars,
-                    &events_with_same_timestamp[0],
+                    events_with_same_timestamp[0],
                     prop_val,
                     false,
                 ) {
@@ -151,7 +151,7 @@ impl AggregateFunnelRow {
 
                 // Run exclusions, if they exist, then run matching events.
                 for event in sorted_events {
-                    if !self.process_event(args, &mut vars, &event, &prop_val, true) {
+                    if !self.process_event(args, &mut vars, &event, prop_val, true) {
                         return;
                     }
                 }

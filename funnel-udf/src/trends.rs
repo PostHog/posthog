@@ -57,7 +57,7 @@ const DEFAULT_ENTERED_TIMESTAMP: EnteredTimestamp = EnteredTimestamp {
 };
 
 pub fn process_line(line: &str) -> Value {
-    let args = parse_args(&line);
+    let args = parse_args(line);
     let mut aggregate_funnel_row = AggregateFunnelRow {
         results: HashMap::new(),
         breakdown_step: Option::None,
@@ -105,7 +105,7 @@ impl AggregateFunnelRow {
         for (_timestamp, events_with_same_timestamp) in &filtered_events {
             let events_with_same_timestamp: Vec<_> = events_with_same_timestamp.collect();
             for event in events_with_same_timestamp {
-                if !self.process_event(args, &mut vars, &event, prop_val) {
+                if !self.process_event(args, &mut vars, event, prop_val) {
                     return;
                 }
             }
