@@ -307,12 +307,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
     def test_session_recording_url_trigger_patterns(self, *args):
         self._update_team(
             {
-                "session_recording_url_trigger_config": [
-                    {
-                        "url": "/replay-examples/",
-                        "matching": "regex"
-                    }
-                ],
+                "session_recording_url_trigger_config": [{"url": "/replay-examples/", "matching": "regex"}],
             }
         )
 
@@ -325,12 +320,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             "linkedFlag": None,
             "minimumDurationMilliseconds": None,
             "networkPayloadCapture": None,
-            "urlTriggers": [
-                {
-                    "url": "/replay-examples/",
-                    "matching": "regex"
-                }
-            ]
+            "urlTriggers": [{"url": "/replay-examples/", "matching": "regex"}],
         }
 
     def test_session_recording_network_payload_capture_config(self, *args):
