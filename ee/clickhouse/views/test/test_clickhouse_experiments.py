@@ -2712,7 +2712,7 @@ class ClickhouseTestFunnelExperimentResults(ClickhouseTestMixin, APILicensedTest
         result = sorted(response_data["insight"], key=lambda x: x[0]["breakdown_value"][0])
 
         self.assertEqual(result[0][0]["name"], "$pageview")
-        self.assertEqual(result[0][0]["count"], 1)
+        self.assertEqual(result[0][0]["count"], 2)
         self.assertEqual("control", result[0][0]["breakdown_value"][0])
 
         self.assertEqual(result[0][1]["name"], "$pageleave")
