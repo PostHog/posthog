@@ -248,15 +248,35 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                         return Array.isArray(items) && items.every((item) => 'filters' in item)
                     }
 
+                    // const filterNonBehavioralCohorts = (items: CohortType[]): CohortType[] => {
+                    //     return items.filter((item: CohortType) => {
+                    //         if (item.filters?.properties?.values) {
+                    //             return !item.filters.properties.values.some((value: any) =>
+                    //                 value.values?.some((subValue: any) => subValue.type === 'behavioral')
+                    //             )
+                    //         }
+                    //         return true
+                    //     })
+                    // }
+
                     const filterNonBehavioralCohorts = (items: CohortType[]): CohortType[] => {
-                        return items.filter((item: CohortType) => {
-                            if (item.filters?.properties?.values) {
-                                return !item.filters.properties.values.some((value: any) =>
-                                    value.values?.some((subValue: any) => subValue.type === 'behavioral')
-                                )
+                        const hasBehavioralFilter = (cohort: CohortType): boolean => {
+                            if (cohort.filters?.properties?.values) {
+                                return cohort.filters.properties.values.some((value: any) => {
+                                    if (value.values?.some((subValue: any) => subValue.type === 'behavioral')) {
+                                        return true
+                                    }
+                                    if (value.values?.some((subValue: any) => subValue.type === 'cohort')) {
+                                        const nestedCohort = items.find((item) => item.id === value.value)
+                                        return nestedCohort ? hasBehavioralFilter(nestedCohort) : false
+                                    }
+                                    return false
+                                })
                             }
-                            return true
-                        })
+                            return false
+                        }
+
+                        return items.filter((item: CohortType) => !hasBehavioralFilter(item))
                     }
 
                     if (group?.logic && group?.value) {
