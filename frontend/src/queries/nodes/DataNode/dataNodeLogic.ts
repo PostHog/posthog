@@ -101,7 +101,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             ],
         ],
     })),
-    props({ query: {} } as DataNodeLogicProps),
+    props({ query: {}, variablesOverride: null } as DataNodeLogicProps),
     propsChanged(({ actions, props }, oldProps) => {
         if (!props.query) {
             return // Can't do anything without a query
