@@ -1,3 +1,4 @@
+from langchain_core.messages import BaseMessage
 from langgraph.graph.state import StateGraph
 
 from ee.hogai.trends.nodes import CreateTrendsPlanNode, CreateTrendsPlanToolsNode, GenerateTrendsNode
@@ -32,6 +33,6 @@ class AssistantGraph:
 
         return builder.compile()
 
-    def stream(self, user_input: str):
+    def stream(self, messages: list[BaseMessage]):
         assistant_graph = self._compile_graph()
-        return assistant_graph.stream({"messages": [("user", user_input)]})
+        return assistant_graph.stream({"messages": messages})

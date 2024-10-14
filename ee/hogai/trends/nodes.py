@@ -7,7 +7,7 @@ from langchain.agents.format_scratchpad import format_log_to_str
 from langchain.agents.output_parsers import ReActJsonSingleInputOutputParser
 from langchain_core.agents import AgentAction, AgentFinish
 from langchain_core.exceptions import OutputParserException
-from langchain_core.messages import AIMessage, merge_message_runs
+from langchain_core.messages import merge_message_runs
 from langchain_core.output_parsers import PydanticOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableLambda, RunnablePassthrough
@@ -22,11 +22,11 @@ from ee.hogai.trends.prompts import (
     trends_user_prompt,
 )
 from ee.hogai.trends.toolkit import (
-    GenerateTrendOutputModel,
     GenerateTrendTool,
     TrendsAgentToolkit,
     TrendsAgentToolModel,
 )
+from ee.hogai.trends.utils import GenerateTrendOutputModel, TrendsAgentMessage
 from ee.hogai.utils import (
     AssistantNode,
     AssistantNodeName,
@@ -178,7 +178,7 @@ class CreateTrendsPlanToolsNode(AssistantNode):
         action, _ = intermediate_steps[-1]
 
         try:
-            input = TrendsAgentToolModel(name=action.tool, arguments=action.tool_input).root
+            input = TrendsAgentToolModel.model_validate({"name": action.tool, "arguments": action.tool_input}).root
         except ValidationError as e:
             feedback = f"Invalid tool call. Pydantic exception: {e.errors(include_url=False)}"
             return {"intermediate_steps": [*intermediate_steps, (action, feedback)]}
@@ -227,6 +227,7 @@ class GenerateTrendsNode(AssistantNode):
 
     def run(self, state: AssistantState):
         user_message = state["messages"][-1]
+        generated_plan = state.get("plan", "")
 
         llm = llm_gpt_4o.with_structured_output(
             GenerateTrendTool().schema,
@@ -241,17 +242,18 @@ class GenerateTrendsNode(AssistantNode):
             ],
             template_format="mustache",
         ).partial(
-            plan=state.get("plan", ""),
+            plan=generated_plan,
             question=user_message.content,
         )
 
         chain = (
             trends_generation_prompt
             | llm
+            # Result from structured output is a parsed dict. Convert to a string since the output parser expects it.
             | RunnableLambda(lambda x: json.dumps(x))
+            # Validate a string input.
             | PydanticOutputParser[GenerateTrendOutputModel](pydantic_object=GenerateTrendOutputModel)
-            | RunnableLambda(lambda x: x.model_dump_json())
-        )
+        ).with_types(input_type=dict, output_type=type[GenerateTrendOutputModel])
 
         try:
             message = chain.invoke({"group_mapping": self._group_mapping_prompt})
@@ -262,7 +264,7 @@ class GenerateTrendsNode(AssistantNode):
                 observation = "Invalid or incomplete response. You must use the provided tools and output JSON to answer the user's question."
             return {"tool_argument": observation}
 
-        return {"messages": [AIMessage(content=message)]}
+        return {"messages": [TrendsAgentMessage(plan=generated_plan, content=message)]}
 
 
 class GenerateTrendsToolsNode(AssistantNode):

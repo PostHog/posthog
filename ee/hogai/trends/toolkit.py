@@ -383,11 +383,6 @@ class TrendsAgentToolkit:
         return response
 
 
-class GenerateTrendOutputModel(BaseModel):
-    reasoning_steps: Optional[list[str]]
-    answer: ExperimentalAITrendsQuery
-
-
 class GenerateTrendTool:
     def _replace_value_in_dict(self, item: Any, original_schema: Any):
         if isinstance(item, list):
