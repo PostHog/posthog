@@ -107,6 +107,7 @@ export enum NodeKind {
     DatabaseSchemaQuery = 'DatabaseSchemaQuery',
 
     // AI queries
+    SuggestedQuestionsQuery = 'SuggestedQuestionsQuery',
     TeamTaxonomyQuery = 'TeamTaxonomyQuery',
     EventTaxonomyQuery = 'EventTaxonomyQuery',
 }
@@ -168,7 +169,7 @@ export type QuerySchema =
     | SavedInsightNode
     | InsightVizNode
 
-    // New queries, not yet implemented
+    // Classic insights
     | TrendsQuery
     | FunnelsQuery
     | RetentionQuery
@@ -179,6 +180,9 @@ export type QuerySchema =
 
     // Misc
     | DatabaseSchemaQuery
+
+    // AI
+    | SuggestedQuestionsQuery
 
 // Keep this, because QuerySchema itself will be collapsed as it is used in other models
 export type QuerySchemaRoot = QuerySchema
@@ -1990,6 +1994,16 @@ export interface TrendsAlertConfig {
 export interface HogCompileResponse {
     bytecode: any[]
 }
+
+export interface SuggestedQuestionsQuery extends DataNode<SuggestedQuestionsQueryResponse> {
+    kind: NodeKind.SuggestedQuestionsQuery
+}
+
+export interface SuggestedQuestionsQueryResponse {
+    questions: string[]
+}
+
+export type CachedSuggestedQuestionsQueryResponse = CachedQueryResponse<SuggestedQuestionsQueryResponse>
 
 export interface TeamTaxonomyItem {
     event: string
