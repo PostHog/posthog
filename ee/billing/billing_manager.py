@@ -20,6 +20,7 @@ from ee.settings import BILLING_SERVICE_URL
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.models import Organization
 from posthog.models.organization import OrganizationMembership, OrganizationUsageInfo
+from posthog.models.user import User
 
 logger = structlog.get_logger(__name__)
 
@@ -28,21 +29,26 @@ class BillingAPIErrorCodes(Enum):
     OPEN_INVOICES_ERROR = "open_invoices_error"
 
 
-def build_billing_token(license: License, organization: Organization):
+def build_billing_token(license: License, organization: Organization, user: Optional[User] = None):
     if not organization or not license:
         raise NotAuthenticated()
 
     license_id = license.key.split("::")[0]
     license_secret = license.key.split("::")[1]
 
+    payload = {
+        "exp": datetime.now(tz=timezone.utc) + timedelta(minutes=15),
+        "id": license_id,
+        "organization_id": str(organization.id),
+        "organization_name": organization.name,
+        "aud": "posthog:license-key",
+    }
+
+    if user:
+        payload["distinct_id"] = str(user.distinct_id)
+
     encoded_jwt = jwt.encode(
-        {
-            "exp": datetime.now(tz=timezone.utc) + timedelta(minutes=15),
-            "id": license_id,
-            "organization_id": str(organization.id),
-            "organization_name": organization.name,
-            "aud": "posthog:license-key",
-        },
+        payload,
         license_secret,
         algorithm="HS256",
     )
@@ -62,9 +68,11 @@ def handle_billing_service_error(res: requests.Response, valid_codes=(200, 404, 
 
 class BillingManager:
     license: Optional[License]
+    user: Optional[User]
 
-    def __init__(self, license):
+    def __init__(self, license, user: Optional[User] = None):
         self.license = license or get_cached_instance_license()
+        self.user = user
 
     def get_billing(self, organization: Optional[Organization], plan_keys: Optional[str]) -> dict[str, Any]:
         if organization and self.license and self.license.is_v2_license:
@@ -331,7 +339,7 @@ class BillingManager:
     def get_auth_headers(self, organization: Organization):
         if not self.license:  # mypy
             raise Exception("No license found")
-        billing_service_token = build_billing_token(self.license, organization)
+        billing_service_token = build_billing_token(self.license, organization, self.user)
         return {"Authorization": f"Bearer {billing_service_token}"}
 
     def get_invoices(self, organization: Organization, status: Optional[str]):
@@ -361,6 +369,27 @@ class BillingManager:
     def purchase_credits(self, organization: Organization, data: dict[str, Any]):
         res = requests.post(
             f"{BILLING_SERVICE_URL}/api/credits/purchase",
+            headers=self.get_auth_headers(organization),
+            json=data,
+        )
+
+        handle_billing_service_error(res)
+
+        return res.json()
+
+    def authorize(self, organization: Organization):
+        res = requests.post(
+            f"{BILLING_SERVICE_URL}/api/activate/authorize",
+            headers=self.get_auth_headers(organization),
+        )
+
+        handle_billing_service_error(res)
+
+        return res.json()
+
+    def authorize_status(self, organization: Organization, data: dict[str, Any]):
+        res = requests.post(
+            f"{BILLING_SERVICE_URL}/api/activate/authorize/status",
             headers=self.get_auth_headers(organization),
             json=data,
         )

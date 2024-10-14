@@ -27,6 +27,7 @@
          "posthog_team"."session_recording_network_payload_capture_config",
          "posthog_team"."session_recording_url_trigger_config",
          "posthog_team"."session_replay_config",
+         "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",
@@ -92,6 +93,7 @@
          "posthog_team"."session_recording_network_payload_capture_config",
          "posthog_team"."session_recording_url_trigger_config",
          "posthog_team"."session_replay_config",
+         "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",
@@ -157,6 +159,7 @@
          "posthog_team"."session_recording_network_payload_capture_config",
          "posthog_team"."session_recording_url_trigger_config",
          "posthog_team"."session_replay_config",
+         "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",
@@ -222,6 +225,7 @@
          "posthog_team"."session_recording_network_payload_capture_config",
          "posthog_team"."session_recording_url_trigger_config",
          "posthog_team"."session_replay_config",
+         "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",
@@ -287,6 +291,7 @@
          "posthog_team"."session_recording_network_payload_capture_config",
          "posthog_team"."session_recording_url_trigger_config",
          "posthog_team"."session_replay_config",
+         "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",
@@ -411,6 +416,7 @@
          "posthog_cohort"."is_calculating",
          "posthog_cohort"."last_calculation",
          "posthog_cohort"."errors_calculating",
+         "posthog_cohort"."last_error_at",
          "posthog_cohort"."is_static",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
@@ -487,6 +493,7 @@
          "posthog_cohort"."is_calculating",
          "posthog_cohort"."last_calculation",
          "posthog_cohort"."errors_calculating",
+         "posthog_cohort"."last_error_at",
          "posthog_cohort"."is_static",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
@@ -554,6 +561,7 @@
          "posthog_cohort"."is_calculating",
          "posthog_cohort"."last_calculation",
          "posthog_cohort"."errors_calculating",
+         "posthog_cohort"."last_error_at",
          "posthog_cohort"."is_static",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
@@ -581,6 +589,7 @@
          "posthog_cohort"."is_calculating",
          "posthog_cohort"."last_calculation",
          "posthog_cohort"."errors_calculating",
+         "posthog_cohort"."last_error_at",
          "posthog_cohort"."is_static",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
@@ -608,6 +617,7 @@
          "posthog_cohort"."is_calculating",
          "posthog_cohort"."last_calculation",
          "posthog_cohort"."errors_calculating",
+         "posthog_cohort"."last_error_at",
          "posthog_cohort"."is_static",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
@@ -635,6 +645,7 @@
          "posthog_cohort"."is_calculating",
          "posthog_cohort"."last_calculation",
          "posthog_cohort"."errors_calculating",
+         "posthog_cohort"."last_error_at",
          "posthog_cohort"."is_static",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"

@@ -18,12 +18,24 @@ export const FilterGroup = (): JSX.Element => {
 
     return (
         <div className="flex flex-1 items-center justify-between space-x-2">
-            <div className="flex items-center gap-2">
-                <LemonInput type="search" placeholder="Search..." value={searchQuery} onChange={setSearchQuery} />
+            <div className="flex flex-1 items-center gap-2 mx-2">
+                <LemonInput
+                    type="search"
+                    placeholder="Search..."
+                    value={searchQuery}
+                    onChange={setSearchQuery}
+                    className="flex-grow max-w-none"
+                    size="small"
+                />
                 <UniversalFilters
                     rootKey="error-tracking"
                     group={filterGroup}
-                    taxonomicGroupTypes={[TaxonomicFilterGroupType.PersonProperties, TaxonomicFilterGroupType.Cohorts]}
+                    // TODO: Probably makes sense to create a new taxonomic group for exception-specific event property filters only, keep it clean.
+                    taxonomicGroupTypes={[
+                        TaxonomicFilterGroupType.EventProperties,
+                        TaxonomicFilterGroupType.PersonProperties,
+                        TaxonomicFilterGroupType.Cohorts,
+                    ]}
                     onChange={setFilterGroup}
                 >
                     <RecordingsUniversalFilterGroup />

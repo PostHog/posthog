@@ -175,7 +175,7 @@ const teamActionsMapping: Record<
         return { description: [<>set allowed web vitals autocapture metrics to {metricsList}</>] }
     },
     autocapture_opt_out(change: ActivityChange | undefined): ChangeMapping | null {
-        return { description: [<>{change?.after ? 'opted in to' : 'opted out of'} autocapture</>] }
+        return { description: [<>{change?.after ? 'opted out of' : 'opted in to'} autocapture</>] }
     },
     heatmaps_opt_in(change: ActivityChange | undefined): ChangeMapping | null {
         return { description: [<>{change?.after ? 'enabled' : 'disabled'} heatmaps</>] }
