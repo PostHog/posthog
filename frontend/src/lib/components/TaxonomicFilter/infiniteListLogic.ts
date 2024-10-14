@@ -14,9 +14,10 @@ import {
 } from 'lib/components/TaxonomicFilter/types'
 import { getCoreFilterDefinition } from 'lib/taxonomy'
 import { RenderedRows } from 'react-virtualized/dist/es/List'
+import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 
-import { CohortType, EventDefinition } from '~/types'
+import { AnyCohortCriteriaType, CohortCriteriaGroupFilter, CohortType, EventDefinition } from '~/types'
 
 import { teamLogic } from '../../../scenes/teamLogic'
 import { captureTimeToSeeData } from '../../internalMetrics'
@@ -244,49 +245,58 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     const taxonomicGroups = selectors.taxonomicGroups(state)
                     const group = taxonomicGroups.find((g) => g.type === props.listGroupType)
 
+                    // type guard to check if an array is a cohort array
                     const isCohortArray = (items: any): items is CohortType[] => {
                         return Array.isArray(items) && items.every((item) => 'filters' in item)
                     }
 
-                    // const filterNonBehavioralCohorts = (items: CohortType[]): CohortType[] => {
-                    //     return items.filter((item: CohortType) => {
-                    //         if (item.filters?.properties?.values) {
-                    //             return !item.filters.properties.values.some((value: any) =>
-                    //                 value.values?.some((subValue: any) => subValue.type === 'behavioral')
-                    //             )
-                    //         }
-                    //         return true
-                    //     })
-                    // }
+                    // Type guard to check if a value is a CohortCriteriaGroupFilter
+                    function isCohortCriteriaGroupFilter(
+                        value: AnyCohortCriteriaType | CohortCriteriaGroupFilter
+                    ): value is CohortCriteriaGroupFilter {
+                        return (
+                            (value as CohortCriteriaGroupFilter).type === 'AND' ||
+                            (value as CohortCriteriaGroupFilter).type === 'OR'
+                        )
+                    }
 
                     const filterNonBehavioralCohorts = (items: CohortType[]): CohortType[] => {
+                        if (!props.hideBehavioralCohorts) {
+                            return items
+                        }
+
                         const hasBehavioralFilter = (cohort: CohortType): boolean => {
-                            if (cohort.filters?.properties?.values) {
-                                return cohort.filters.properties.values.some((value: any) => {
-                                    if (value.values?.some((subValue: any) => subValue.type === 'behavioral')) {
+                            const checkCriteriaGroup = (group: CohortCriteriaGroupFilter): boolean => {
+                                return group.values.some((value) => {
+                                    if (isCohortCriteriaGroupFilter(value)) {
+                                        return checkCriteriaGroup(value)
+                                    }
+                                    if (value.type === BehavioralFilterKey.Behavioral) {
                                         return true
                                     }
-                                    if (value.values?.some((subValue: any) => subValue.type === 'cohort')) {
-                                        const nestedCohort = items.find((item) => item.id === value.value)
+                                    if (value.type === BehavioralFilterKey.Cohort) {
+                                        const nestedCohort = items.find((item) => item.id === value.value_property)
                                         return nestedCohort ? hasBehavioralFilter(nestedCohort) : false
                                     }
                                     return false
                                 })
                             }
-                            return false
+
+                            const result = cohort.filters?.properties
+                                ? checkCriteriaGroup(cohort.filters.properties)
+                                : false
+
+                            return result
                         }
 
-                        return items.filter((item: CohortType) => !hasBehavioralFilter(item))
+                        return items.filter((item) => !hasBehavioralFilter(item))
                     }
-
                     if (group?.logic && group?.value) {
                         const items = group.logic.selectors[group.value]?.(state)
                         if (isCohortArray(items)) {
                             return filterNonBehavioralCohorts(items)
-                        } else if (Array.isArray(items)) {
-                            return items as (EventDefinition | CohortType)[]
                         }
-                        return null
+                        return items
                     }
                     if (group?.options) {
                         return group.options
