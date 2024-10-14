@@ -110,6 +110,7 @@ export enum NodeKind {
     SuggestedQuestionsQuery = 'SuggestedQuestionsQuery',
     TeamTaxonomyQuery = 'TeamTaxonomyQuery',
     EventTaxonomyQuery = 'EventTaxonomyQuery',
+    ActorsPropertyTaxonomyQuery = 'ActorsPropertyTaxonomyQuery',
 }
 
 export type AnyDataNode =
@@ -2038,3 +2039,18 @@ export interface EventTaxonomyQuery extends DataNode<EventTaxonomyQueryResponse>
 export type EventTaxonomyQueryResponse = AnalyticsQueryResponseBase<EventTaxonomyResponse>
 
 export type CachedEventTaxonomyQueryResponse = CachedQueryResponse<EventTaxonomyQueryResponse>
+
+export interface ActorsPropertyTaxonomyResponse {
+    sample_values: string[]
+    sample_count: integer
+}
+
+export interface ActorsPropertyTaxonomyQuery extends DataNode<ActorsPropertyTaxonomyQueryResponse> {
+    kind: NodeKind.ActorsPropertyTaxonomyQuery
+    property: string
+    group_type_index?: integer
+}
+
+export type ActorsPropertyTaxonomyQueryResponse = AnalyticsQueryResponseBase<ActorsPropertyTaxonomyResponse>
+
+export type CachedActorsPropertyTaxonomyQueryResponse = CachedQueryResponse<ActorsPropertyTaxonomyQueryResponse>
