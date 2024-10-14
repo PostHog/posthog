@@ -244,6 +244,13 @@ export const SurveysList: StoryFn = () => {
     return <App />
 }
 
+export const SurveysGlobalSettings: StoryFn = () => {
+    useEffect(() => {
+        router.actions.push(urls.surveys('settings'))
+    }, [])
+    return <App />
+}
+
 export const NewSurvey: StoryFn = () => {
     useEffect(() => {
         router.actions.push(urls.survey('new'))

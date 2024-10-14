@@ -41,7 +41,6 @@ import { ActivityScope, ProductKey, ProgressStatus, Survey } from '~/types'
 import { defaultSurveyAppearance, SurveyQuestionLabel } from './constants'
 import { openSurveysSettingsDialog } from './SurveySettings'
 import { getSurveyStatus, surveysLogic, SurveysTabs } from './surveysLogic'
-// import {teamLogic} from "scenes/teamLogic";
 
 export const scene: SceneExport = {
     component: Surveys,
@@ -134,22 +133,24 @@ export function Surveys(): JSX.Element {
                         </LemonField.Pure>
 
                         <div className="flex-1" />
-                        <LemonButton
-                            type="primary"
-                            onClick={() => {
-                                updateCurrentTeam({
-                                    survey_config: {
-                                        ...currentTeam?.survey_config,
-                                        appearance: {
-                                            ...currentTeam?.survey_config?.appearance,
-                                            ...editableSurveyConfig,
+                        {globalSurveyAppearanceConfigAvailable && (
+                            <LemonButton
+                                type="primary"
+                                onClick={() => {
+                                    updateCurrentTeam({
+                                        survey_config: {
+                                            ...currentTeam?.survey_config,
+                                            appearance: {
+                                                ...currentTeam?.survey_config?.appearance,
+                                                ...editableSurveyConfig,
+                                            },
                                         },
-                                    },
-                                })
-                            }}
-                        >
-                            Save settings
-                        </LemonButton>
+                                    })
+                                }}
+                            >
+                                Save settings
+                            </LemonButton>
+                        )}
                     </div>
                     <div className="flex flex-col overflow-hidden flex-1">
                         <LemonDivider />
