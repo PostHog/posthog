@@ -4,6 +4,11 @@
 # .github/workflows/ci-backend-update-test-timing.yml action
 name: Backend CI
 
+permissions:
+    id-token: write
+    contents: read
+    deployments: write
+
 on:
     push:
         branches:
