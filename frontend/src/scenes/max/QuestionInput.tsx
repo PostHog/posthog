@@ -25,7 +25,7 @@ export function QuestionInput(): JSX.Element {
             className={clsx(
                 'w-full',
                 !isFloating
-                    ? 'relative'
+                    ? 'w-[min(40rem,100%)] relative'
                     : 'max-w-200 sticky z-10 self-center p-1 mx-3 mb-3 bottom-3 border border-[var(--glass-border-3000)] rounded-[0.625rem] backdrop-blur bg-[var(--glass-bg-3000)]'
             )}
         >

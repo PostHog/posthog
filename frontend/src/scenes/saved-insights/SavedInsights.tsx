@@ -352,13 +352,22 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     },
     [NodeKind.TeamTaxonomyQuery]: {
         name: 'Team Taxonomy',
-        description: 'View the event taxonomy of the team',
         icon: IconHogQL,
         inMenu: false,
     },
     [NodeKind.EventTaxonomyQuery]: {
         name: 'Event Taxonomy',
-        description: 'View the event’s taxonomy',
+        icon: IconHogQL,
+        inMenu: false,
+    },
+    [NodeKind.SuggestedQuestionsQuery]: {
+        name: 'AI Suggested Questions',
+        icon: IconHogQL,
+        inMenu: false,
+    },
+    [NodeKind.ActorsPropertyTaxonomyQuery]: {
+        name: 'Actor Property Taxonomy',
+        description: 'View the taxonomy of the actor’s property.',
         icon: IconHogQL,
         inMenu: false,
     },
