@@ -278,8 +278,8 @@ dependencies:
     specifier: ^9.3.0
     version: 9.3.0(postcss@8.4.31)
   posthog-js:
-    specifier: 1.167.0
-    version: 1.167.0
+    specifier: 1.167.1
+    version: 1.167.1
   posthog-js-lite:
     specifier: 3.0.0
     version: 3.0.0
@@ -13937,7 +13937,7 @@ packages:
       hogan.js: 3.0.2
       htm: 3.1.1
       instantsearch-ui-components: 0.3.0
-      preact: 10.24.2
+      preact: 10.24.3
       qs: 6.9.7
       search-insights: 2.13.0
     dev: false
@@ -17752,11 +17752,11 @@ packages:
     resolution: {integrity: sha512-dyajjnfzZD1tht4N7p7iwf7nBnR1MjVaVu+MKr+7gBgA39bn28wizCIJZztZPtHy4PY0YwtSGgwfBCuG/hnHgA==}
     dev: false
 
-  /posthog-js@1.167.0:
-    resolution: {integrity: sha512-/zXQ6tuJgiF1d4mgg3UsAi/uoyg7UnfFNQtikuALmaE53xFExpcAKbMfHPG/f54QgTvLxSHyGL1kFl/1uspkGg==}
+  /posthog-js@1.167.1:
+    resolution: {integrity: sha512-xt+HWcB1vi6tcHxQEf1FgctWqolQli899Yb/6j581U9uZy6ow16qXPrKJghHSuoJ18l4s0WvFB997J2EghzfbQ==}
     dependencies:
       fflate: 0.4.8
-      preact: 10.24.2
+      preact: 10.24.3
       web-vitals: 4.2.3
     dev: false
 
@@ -17764,8 +17764,8 @@ packages:
     resolution: {integrity: sha512-Q+/tYsFU9r7xoOJ+y/ZTtdVQwTWfzjbiXBDMM/JKUux3+QPP02iUuIoeBQ+Ot6oEDlC+/PGjB/5A3K7KKb7hcw==}
     dev: false
 
-  /preact@10.24.2:
-    resolution: {integrity: sha512-1cSoF0aCC8uaARATfrlz4VCBqE8LwZwRfLgkxJOQwAlQt6ayTmi0D9OF7nXid1POI5SZidFuG9CnlXbDfLqY/Q==}
+  /preact@10.24.3:
+    resolution: {integrity: sha512-Z2dPnBnMUfyQfSQ+GBdsGa16hz35YmLmtTLhM169uW944hYL6xzTYkJjC07j+Wosz733pMWx0fgON3JNw1jJQA==}
     dev: false
 
   /prelude-ls@1.2.1:
@@ -18358,7 +18358,7 @@ packages:
       react: '>=15'
     dependencies:
       react: 18.2.0
-      unlayer-types: 1.103.0
+      unlayer-types: 1.111.0
     dev: false
 
   /react-error-boundary@3.1.4(react@18.2.0):
@@ -20905,8 +20905,8 @@ packages:
     resolution: {integrity: sha512-hAZsKq7Yy11Zu1DE0OzWjw7nnLZmJZYTDZZyEFHZdUhV8FkH5MCfoU1XMaxXovpyW5nq5scPqq0ZDP9Zyl04oQ==}
     engines: {node: '>= 10.0.0'}
 
-  /unlayer-types@1.103.0:
-    resolution: {integrity: sha512-aVZS7g5F6dWEoxc0dhSDqYYncu+LIMB/SerJi6u5FKVSfTWnzA2MTpjFCbGkOOi8rUiIOabeuEOfyO/WDnarJg==}
+  /unlayer-types@1.111.0:
+    resolution: {integrity: sha512-CjdOROIUrZXrtkLUrInMvTucEWRdWWEmPleCOhwsDTwUXg9LocjzI6drgdYoia/lyyoYPfHOXYw5SxdJk7hlvw==}
     dev: false
 
   /unpipe@1.0.0:
