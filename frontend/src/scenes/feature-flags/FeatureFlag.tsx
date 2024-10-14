@@ -638,7 +638,7 @@ function UsageTab({ featureFlag }: { id: string; featureFlag: FeatureFlagType })
         ) {
             enrichUsageDashboard()
         }
-    }, [dashboard])
+    }, [dashboard, hasEnrichedAnalytics, enrichUsageDashboard])
 
     const propertyFilter: AnyPropertyFilter[] = [
         {
@@ -952,7 +952,9 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                             </div>
                             <div className="col-span-4 flex items-center gap-1">
                                 <span>Rollout</span>
-                                <LemonButton onClick={distributeVariantsEqually}>(Redistribute)</LemonButton>
+                                <LemonButton onClick={distributeVariantsEqually} size="xsmall">
+                                    (Redistribute)
+                                </LemonButton>
                             </div>
                         </div>
                         {variants.map((variant, index) => (

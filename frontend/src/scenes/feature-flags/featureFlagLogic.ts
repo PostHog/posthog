@@ -37,6 +37,7 @@ import {
     FilterType,
     InsightModel,
     InsightType,
+    JsonType,
     MultivariateFlagOptions,
     MultivariateFlagVariant,
     NewEarlyAccessFeatureType,
@@ -132,9 +133,11 @@ export const variantKeyToIndexFeatureFlagPayloads = (flag: FeatureFlagType): Fea
         return flag
     }
 
-    const newPayloads = {}
+    const newPayloads: Record<number, JsonType> = {}
     flag.filters.multivariate?.variants.forEach((variant, index) => {
-        newPayloads[index] = flag.filters.payloads?.[variant.key]
+        if (flag.filters.payloads?.[variant.key] !== undefined) {
+            newPayloads[index] = flag.filters.payloads[variant.key]
+        }
     })
     return {
         ...flag,
@@ -147,11 +150,10 @@ export const variantKeyToIndexFeatureFlagPayloads = (flag: FeatureFlagType): Fea
 
 const indexToVariantKeyFeatureFlagPayloads = (flag: Partial<FeatureFlagType>): Partial<FeatureFlagType> => {
     if (flag.filters?.multivariate) {
-        const newPayloads = {}
-        flag.filters?.multivariate?.variants.forEach(({ key }, index) => {
-            const payload = flag.filters?.payloads?.[index]
-            if (payload) {
-                newPayloads[key] = payload
+        const newPayloads: Record<string, JsonType> = {}
+        flag.filters.multivariate.variants.forEach(({ key }, index) => {
+            if (flag.filters?.payloads?.[index] !== undefined) {
+                newPayloads[key] = flag.filters.payloads[index]
             }
         })
         return {
@@ -316,6 +318,21 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     }
                     const variants = [...(state.filters.multivariate?.variants || [])]
                     variants.splice(index, 1)
+
+                    const payloads = { ...state.filters.payloads }
+                    const newPayloads: Record<number, any> = {}
+
+                    // TRICKY: We need to shift the payload indices because we're deleting an entry from the variants array
+                    // We also need to make sure that the payloads object keeps the same indices as the variants array
+                    Object.keys(payloads).forEach((key) => {
+                        const payloadIndex = parseInt(key)
+                        if (payloadIndex > index) {
+                            newPayloads[payloadIndex - 1] = payloads[payloadIndex]
+                        } else if (payloadIndex < index) {
+                            newPayloads[payloadIndex] = payloads[payloadIndex]
+                        }
+                    })
+
                     return {
                         ...state,
                         filters: {
@@ -324,6 +341,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                                 ...state.filters.multivariate,
                                 variants,
                             },
+                            payloads: newPayloads,
                         },
                     }
                 },
@@ -636,7 +654,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             createScheduledChange: async () => {
                 const { scheduledChangeOperation, scheduleDateMarker, currentTeamId, schedulePayload } = values
 
-                const fields = {
+                const fields: Record<ScheduledChangeOperationType, keyof ScheduleFlagPayload> = {
                     [ScheduledChangeOperationType.UpdateStatus]: 'active',
                     [ScheduledChangeOperationType.AddReleaseCondition]: 'filters',
                 }
