@@ -107,7 +107,11 @@ export const maxLogic = kea<maxLogicType>([
             const allSuggestionsWithoutCurrentlyVisible = values.allSuggestions.filter(
                 (suggestion) => !values.visibleSuggestions?.includes(suggestion)
             )
-            actions.setVisibleSuggestions(shuffle(allSuggestionsWithoutCurrentlyVisible).slice(0, 3))
+            if (!process.env.STORYBOOK) {
+                // Randomize order, except in Storybook where we want to keep the order consistent for snapshots
+                shuffle(allSuggestionsWithoutCurrentlyVisible)
+            }
+            actions.setVisibleSuggestions(allSuggestionsWithoutCurrentlyVisible.slice(0, 3))
         },
         askMax: async ({ prompt }) => {
             actions.addMessage({ role: 'user', content: prompt })
