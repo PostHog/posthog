@@ -1315,7 +1315,10 @@ class _Printer(Visitor):
                         self._print_identifier(materialized_column),
                     )
 
-            if self.context.modifiers.propertyGroupsMode != PropertyGroupsMode.DISABLED:
+            if self.context.modifiers.propertyGroupsMode in (
+                PropertyGroupsMode.ENABLED,
+                PropertyGroupsMode.OPTIMIZED,
+            ):
                 # For now, we're assuming that properties are in either no groups or one group, so just using the
                 # first group returned is fine. If we start putting properties in multiple groups, this should be
                 # revisited to find the optimal set (i.e. smallest set) of groups to read from.
