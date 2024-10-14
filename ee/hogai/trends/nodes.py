@@ -7,17 +7,19 @@ from langchain.agents.format_scratchpad import format_log_to_str
 from langchain.agents.output_parsers import ReActJsonSingleInputOutputParser
 from langchain_core.agents import AgentAction, AgentFinish
 from langchain_core.exceptions import OutputParserException
-from langchain_core.messages import merge_message_runs
+from langchain_core.messages import AIMessage, BaseMessage, merge_message_runs
 from langchain_core.output_parsers import PydanticOutputParser
-from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.prompts import ChatPromptTemplate, HumanMessagePromptTemplate
 from langchain_core.runnables import RunnableLambda, RunnablePassthrough
 from pydantic import ValidationError
 
 from ee.hogai.hardcoded_definitions import hardcoded_prop_defs
 from ee.hogai.trends.prompts import (
     react_definitions_prompt,
+    react_follow_up_prompt,
     react_scratchpad_prompt,
     react_system_prompt,
+    react_user_prompt,
     trends_system_prompt,
     trends_user_prompt,
 )
@@ -26,11 +28,14 @@ from ee.hogai.trends.toolkit import (
     TrendsAgentToolkit,
     TrendsAgentToolModel,
 )
-from ee.hogai.trends.utils import GenerateTrendOutputModel, TrendsAgentMessage
+from ee.hogai.trends.utils import GenerateTrendOutputModel
 from ee.hogai.utils import (
+    AssistantMessage,
+    AssistantMessageType,
     AssistantNode,
     AssistantNodeName,
     AssistantState,
+    VisualizationMessagePayload,
     llm_gpt_4o,
     remove_line_breaks,
 )
@@ -95,6 +100,29 @@ class CreateTrendsPlanNode(AssistantNode):
 
         raise ValueError("Invalid state.")
 
+    def _reconstruct_conversation(self, state: AssistantState) -> list[BaseMessage]:
+        messages = state.get("messages", [])
+        if len(messages) == 0:
+            return []
+
+        conversation = [
+            HumanMessagePromptTemplate.from_template(react_user_prompt, template_format="mustache").format(
+                question=messages[0].content
+            )
+        ]
+
+        for message in messages[1:-1]:
+            if message.type == "user":
+                conversation.append(
+                    HumanMessagePromptTemplate.from_template(react_follow_up_prompt, template_format="mustache").format(
+                        feedback=message.content
+                    )
+                )
+            elif message.type == "ai":
+                conversation.append(AIMessage(content=message.content))
+
+        return conversation
+
     def run(self, state: AssistantState):
         intermediate_steps = state.get("intermediate_steps") or []
 
@@ -106,7 +134,7 @@ class CreateTrendsPlanNode(AssistantNode):
                 ],
                 template_format="mustache",
             )
-            + state["messages"]
+            + self._reconstruct_conversation(state)
             + ChatPromptTemplate.from_messages(
                 [
                     ("user", react_scratchpad_prompt),
@@ -253,7 +281,7 @@ class GenerateTrendsNode(AssistantNode):
             | RunnableLambda(lambda x: json.dumps(x))
             # Validate a string input.
             | PydanticOutputParser[GenerateTrendOutputModel](pydantic_object=GenerateTrendOutputModel)
-        ).with_types(input_type=dict, output_type=type[GenerateTrendOutputModel])
+        )
 
         try:
             message = chain.invoke({"group_mapping": self._group_mapping_prompt})
@@ -264,7 +292,15 @@ class GenerateTrendsNode(AssistantNode):
                 observation = "Invalid or incomplete response. You must use the provided tools and output JSON to answer the user's question."
             return {"tool_argument": observation}
 
-        return {"messages": [TrendsAgentMessage(plan=generated_plan, content=message)]}
+        return {
+            "messages": [
+                AssistantMessage(
+                    type="ai",
+                    content=cast(GenerateTrendOutputModel, message).model_dump_json(),
+                    payload=VisualizationMessagePayload(type=AssistantMessageType.VISUALIZATION, plan=generated_plan),
+                )
+            ]
+        }
 
 
 class GenerateTrendsToolsNode(AssistantNode):

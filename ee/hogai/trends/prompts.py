@@ -163,6 +163,14 @@ react_scratchpad_prompt = """
 Thought: {{agent_scratchpad}}
 """
 
+react_user_prompt = """
+Question: What events, actions, properties and/or property values should I use to answer this question: "{{question}}"?
+"""
+
+react_follow_up_prompt = """
+Improve the previously generated plan based on the feedback: {{feedback}}
+"""
+
 trends_system_prompt = """
 You're a recognized head of product growth with the skills of a top-tier data engineer. Your task is to implement queries of trends insights for customers using a JSON schema. You will be given a plan describing series and breakdowns. Answer the user's questions as best you can.
 
@@ -245,4 +253,10 @@ Here is the plan:
 Here is the group mapping:
 {{group_mapping}}
 Answer to this question: {{question}}
+"""
+
+trends_follow_up_prompt = """
+Here is the new plan:
+{{new_plan}}
+Answer to this question: {{feedback}}
 """
