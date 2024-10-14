@@ -56,7 +56,7 @@ class SuggestedQuestionsQueryRunner(QueryRunner):
                     'These questions must be answerable in PostHog. Do not propose placeholders such as "event X", be specific with event names.\n'
                     'Right now we can only answer questions based on the "events" table. We can use event properties. '
                     "Note that we can chart trends and create tables. AVOID anything with session duration, event sequences, and correlations.\n"
-                    "Before writing out the question, loosely think out loud through our constraints, possibilities, and needs. "
+                    "Before writing out the question, loosely think out loud like a product manager. "
                     'Make sure we only propose questions we can answer with our data model. Ignore events prefixed with "$", except $pageview. '
                     'When done thinking, write "QUESTIONS:", and then the 12 questions, each in its own line, no formatting. '
                     "Don't number the questions. Questions must be human-friendly but short - you are PENALIZED $10 for every character over 20. "
@@ -66,7 +66,7 @@ class SuggestedQuestionsQueryRunner(QueryRunner):
         ]
 
         prompt_tokens_total, completion_tokens_total = 0, 0
-        for _ in range(3):  # Try up to 3 times in case the output is malformed
+        for _ in range(3):  # Try up to 3 times in case the output is malformed - though this is very unlikely
             content, prompt_tokens_last, completion_tokens_last = hit_openai(
                 messages, f"{get_instance_region()}/team/{team.id}"
             )
