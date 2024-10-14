@@ -2,7 +2,6 @@ import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
 
 import { AnyCohortCriteriaType, CohortCriteriaGroupFilter, CohortType } from '~/types'
 
-// Type guard to check if a value is a CohortCriteriaGroupFilter
 function isCohortCriteriaGroupFilter(
     value: AnyCohortCriteriaType | CohortCriteriaGroupFilter
 ): value is CohortCriteriaGroupFilter {
