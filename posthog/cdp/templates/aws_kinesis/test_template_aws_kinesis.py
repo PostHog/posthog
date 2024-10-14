@@ -28,9 +28,9 @@ class TestTemplateAwsKinesis(BaseHogFunctionTemplateTest):
                     "X-Amz-Target": "Kinesis_20131202.PutRecord",
                     "X-Amz-Date": "20240416T123451Z",
                     "Host": "kinesis.aws_region.amazonaws.com",
-                    "Authorization": "AWS4-HMAC-SHA256 Credential=aws_access_key_id/20240416/aws_region/kinesis/aws4_request, SignedHeaders=content-type;host;x-amz-date;x-amz-target, Signature=65b18913b42d8a7a1d33c0711da192d5a2e99eb79fb08ab3e5eefb6488b903ff",
+                    "Authorization": "AWS4-HMAC-SHA256 Credential=aws_access_key_id/20240416/aws_region/kinesis/aws4_request, SignedHeaders=content-type;host;x-amz-date;x-amz-target, Signature=add2f2cf8305a79f804072b9dac3d0d7eb6918a7e3267b2cbdad195dee5c7bc0",
                 },
-                "body": '{"StreamName": "aws_kinesis_stream_arn", "PartitionKey": "1", "Data": "eyJoZWxsbyI6ICJ3b3JsZCJ9"}',
+                "body": '{"StreamARN": "aws_kinesis_stream_arn", "PartitionKey": "1", "Data": "eyJoZWxsbyI6ICJ3b3JsZCJ9"}',
                 "method": "POST",
             },
         )
