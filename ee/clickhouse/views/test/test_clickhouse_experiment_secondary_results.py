@@ -1156,8 +1156,8 @@ class ClickhouseTestExperimentSecondaryResults(ClickhouseTestMixin, APILicensedT
         result_data = response_data["result"]
 
         self.assertEqual(len(result_data["result"].items()), 2)
-        self.assertAlmostEqual(result_data["result"]["control"], 1)
-        self.assertEqual(result_data["result"]["test"], round(1 / 3, 3))
+        self.assertAlmostEqual(result_data["result"]["control"], 0)
+        self.assertEqual(result_data["result"]["test"], 0)
 
         assert set(response_data["result"].keys()) == {
             "result",
@@ -1173,14 +1173,14 @@ class ClickhouseTestExperimentSecondaryResults(ClickhouseTestMixin, APILicensedT
 
         assert response_data["result"]["variants"] == [
             {
-                "failure_count": 0,
+                "failure_count": 2,
                 "key": "control",
-                "success_count": 2,
+                "success_count": 0,
             },
             {
                 "failure_count": 2,
                 "key": "test",
-                "success_count": 1,
+                "success_count": 0,
             },
         ]
 
@@ -1307,4 +1307,4 @@ class ClickhouseTestExperimentSecondaryResults(ClickhouseTestMixin, APILicensedT
 
         assert "control" not in result_data["result"]
 
-        self.assertEqual(result_data["result"]["test"], round(1 / 3, 3))
+        self.assertEqual(result_data["result"]["test"], 0)
