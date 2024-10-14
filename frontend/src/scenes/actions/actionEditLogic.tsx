@@ -226,11 +226,11 @@ export const actionEditLogic = kea<actionEditLogicType>([
         },
     })),
 
-    beforeUnload(({ actions, values }) => ({
-        enabled: () => values.actionChanged,
+    beforeUnload((logic) => ({
+        enabled: () => (logic.isMounted() ? logic.values.actionChanged : false),
         message: 'Leave action?\nChanges you made will be discarded.',
         onConfirm: () => {
-            actions.resetAction()
+            logic.actions.resetAction()
         },
     })),
 ])

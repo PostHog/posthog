@@ -32,7 +32,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { ActivityScope, ProductKey, ProgressStatus, PropertyFilterType, PropertyOperator, Survey } from '~/types'
+import { ActivityScope, ProductKey, ProgressStatus, Survey } from '~/types'
 
 import { SurveyQuestionLabel } from './constants'
 import { openSurveysSettingsDialog } from './SurveySettings'
@@ -127,14 +127,6 @@ export function Surveys(): JSX.Element {
                                     id: 'survey sent',
                                     type: 'events',
                                     order: 0,
-                                    properties: [
-                                        {
-                                            key: '$survey_response',
-                                            type: PropertyFilterType.Event,
-                                            value: 'is_set',
-                                            operator: PropertyOperator.IsSet,
-                                        },
-                                    ],
                                 },
                             ],
                         }}

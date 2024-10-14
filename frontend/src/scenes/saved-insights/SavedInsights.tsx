@@ -350,6 +350,27 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconFlask,
         inMenu: false,
     },
+    [NodeKind.TeamTaxonomyQuery]: {
+        name: 'Team Taxonomy',
+        icon: IconHogQL,
+        inMenu: false,
+    },
+    [NodeKind.EventTaxonomyQuery]: {
+        name: 'Event Taxonomy',
+        icon: IconHogQL,
+        inMenu: false,
+    },
+    [NodeKind.SuggestedQuestionsQuery]: {
+        name: 'AI Suggested Questions',
+        icon: IconHogQL,
+        inMenu: false,
+    },
+    [NodeKind.ActorsPropertyTaxonomyQuery]: {
+        name: 'Actor Property Taxonomy',
+        description: 'View the taxonomy of the actor’s property.',
+        icon: IconHogQL,
+        inMenu: false,
+    },
 }
 
 export const INSIGHT_TYPE_OPTIONS: LemonSelectOptions<string> = [

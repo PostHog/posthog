@@ -4,6 +4,7 @@ import { CombinedLocation } from 'kea-router/lib/utils'
 import { objectsEqual } from 'kea-test-utils'
 import { AlertType } from 'lib/components/Alerts/types'
 import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
+import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { createEmptyInsight, insightLogic } from 'scenes/insights/insightLogic'
 import { insightLogicType } from 'scenes/insights/insightLogicType'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -19,7 +20,7 @@ import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { getDefaultQuery } from '~/queries/nodes/InsightViz/utils'
 import { DashboardFilter, Node } from '~/queries/schema'
-import { ActivityScope, Breadcrumb, InsightShortId, InsightType, ItemMode } from '~/types'
+import { ActivityScope, Breadcrumb, DashboardType, InsightShortId, InsightType, ItemMode } from '~/types'
 
 import { insightDataLogic } from './insightDataLogic'
 import { insightDataLogicType } from './insightDataLogicType'
@@ -49,12 +50,16 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             insightMode: ItemMode,
             itemId: string | undefined,
             alertId: AlertType['id'] | undefined,
+            dashboardId: DashboardType['id'] | undefined,
+            dashboardName: DashboardType['name'] | undefined,
             filtersOverride: DashboardFilter | undefined
         ) => ({
             insightId,
             insightMode,
             itemId,
             alertId,
+            dashboardId,
+            dashboardName,
             filtersOverride,
         }),
         setInsightLogicRef: (logic: BuiltLogic<insightLogicType> | null, unmount: null | (() => void)) => ({
@@ -99,6 +104,18 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 setSceneState: (_, { alertId }) => (alertId !== undefined ? alertId : null),
             },
         ],
+        dashboardId: [
+            null as null | DashboardType['id'],
+            {
+                setSceneState: (_, { dashboardId }) => (dashboardId !== undefined ? dashboardId : null),
+            },
+        ],
+        dashboardName: [
+            null as null | DashboardType['name'],
+            {
+                setSceneState: (_, { dashboardName }) => (dashboardName !== undefined ? dashboardName : null),
+            },
+        ],
         filtersOverride: [
             null as null | DashboardFilter,
             {
@@ -132,17 +149,42 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             (s) => [
                 s.insightLogicRef,
                 s.insight,
+                s.dashboardId,
+                s.dashboardName,
                 groupsModel.selectors.aggregationLabel,
                 cohortsModel.selectors.cohortsById,
                 mathsLogic.selectors.mathDefinitions,
             ],
-            (insightLogicRef, insight, aggregationLabel, cohortsById, mathDefinitions): Breadcrumb[] => {
+            (
+                insightLogicRef,
+                insight,
+                dashboardId,
+                dashboardName,
+                aggregationLabel,
+                cohortsById,
+                mathDefinitions
+            ): Breadcrumb[] => {
                 return [
-                    {
-                        key: Scene.SavedInsights,
-                        name: 'Product analytics',
-                        path: urls.savedInsights(),
-                    },
+                    ...(dashboardId !== null && dashboardName
+                        ? [
+                              {
+                                  key: Scene.Dashboards,
+                                  name: 'Dashboards',
+                                  path: urls.dashboards(),
+                              },
+                              {
+                                  key: Scene.Dashboard,
+                                  name: dashboardName,
+                                  path: urls.dashboard(dashboardId),
+                              },
+                          ]
+                        : [
+                              {
+                                  key: Scene.SavedInsights,
+                                  name: 'Product analytics',
+                                  path: urls.savedInsights(),
+                              },
+                          ]),
                     {
                         key: [Scene.Insight, insight?.short_id || 'new'],
                         name:
@@ -244,14 +286,27 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 return
             }
 
+            const dashboardName = dashboardLogic.findMounted({ id: dashboard })?.values.dashboard?.name
+            const filtersOverride = dashboardLogic.findMounted({ id: dashboard })?.values.temporaryFilters
+
             if (
                 insightId !== values.insightId ||
                 insightMode !== values.insightMode ||
                 itemId !== values.itemId ||
                 alert_id !== values.alertId ||
-                !objectsEqual(searchParams['filters_override'], values.filtersOverride)
+                dashboard !== values.dashboardId ||
+                dashboardName !== values.dashboardName ||
+                !objectsEqual(filtersOverride, values.filtersOverride)
             ) {
-                actions.setSceneState(insightId, insightMode, itemId, alert_id, searchParams['filters_override'])
+                actions.setSceneState(
+                    insightId,
+                    insightMode,
+                    itemId,
+                    alert_id,
+                    dashboard,
+                    dashboardName,
+                    filtersOverride
+                )
             }
 
             let queryFromUrl: Node | null = null

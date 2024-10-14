@@ -85,6 +85,14 @@ describe('the authorized urls list logic', () => {
                 proposedUrl: 'https://not.*.valid.*',
                 validityMessage: 'Wildcards can only be used for subdomains',
             },
+            {
+                proposedUrl: 'http://localhost:*',
+                validityMessage: 'Wildcards are not allowed in the port position',
+            },
+            {
+                proposedUrl: 'http://valid.example.com:*',
+                validityMessage: 'Wildcards are not allowed in the port position',
+            },
         ]
 
         testCases.forEach((testCase) => {

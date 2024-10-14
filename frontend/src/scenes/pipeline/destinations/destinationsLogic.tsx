@@ -161,7 +161,7 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
             },
         ],
 
-        _hogFunctions: [
+        hogFunctions: [
             [] as HogFunctionType[],
             {
                 loadHogFunctions: async () => {
@@ -205,11 +205,6 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
         ],
     })),
     selectors({
-        hogFunctions: [
-            (s) => [s._hogFunctions, s.filters],
-            (hogFunctions, filters) =>
-                filters.showHidden ? hogFunctions : hogFunctions.filter((hf) => !hf.name.includes('[CDP-TEST-HIDDEN]')),
-        ],
         paidHogFunctions: [
             (s) => [s.hogFunctions],
             (hogFunctions) => {
@@ -220,7 +215,7 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
             },
         ],
         loading: [
-            (s) => [s.pluginsLoading, s.pluginConfigsLoading, s.batchExportConfigsLoading, s._hogFunctionsLoading],
+            (s) => [s.pluginsLoading, s.pluginConfigsLoading, s.batchExportConfigsLoading, s.hogFunctionsLoading],
             (pluginsLoading, pluginConfigsLoading, batchExportConfigsLoading, hogFunctionsLoading) =>
                 pluginsLoading || pluginConfigsLoading || batchExportConfigsLoading || hogFunctionsLoading,
         ],

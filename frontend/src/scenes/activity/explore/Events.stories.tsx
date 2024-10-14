@@ -5,6 +5,7 @@ import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
+import { ActivityTab } from '~/types'
 
 import eventsQuery from './__mocks__/eventsQuery.json'
 
@@ -26,7 +27,7 @@ const meta: Meta = {
 export default meta
 export const EventExplorer = (): JSX.Element => {
     useEffect(() => {
-        router.actions.push(urls.events())
+        router.actions.push(urls.activity(ActivityTab.ExploreEvents))
     }, [])
 
     return <App />

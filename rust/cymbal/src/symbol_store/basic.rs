@@ -6,7 +6,7 @@ use tracing::{info, warn};
 
 use crate::{
     config::Config,
-    error::Error,
+    error::{Error, JsResolveErr},
     metric_consts::{
         BASIC_FETCHES, SOURCEMAP_BODY_FETCHES, SOURCEMAP_BODY_REF_FOUND, SOURCEMAP_HEADER_FOUND,
         SOURCEMAP_NOT_FOUND, SOURCE_REF_BODY_FETCHES,
@@ -25,9 +25,8 @@ pub struct BasicStore {
 
 impl BasicStore {
     pub fn new(config: &Config) -> Result<Self, Error> {
-        let mut client = reqwest::Client::builder();
-
         let timeout = Duration::from_secs(config.sourcemap_timeout_seconds);
+        let mut client = reqwest::Client::builder().timeout(timeout);
 
         if !config.allow_internal_ips {
             client = client.dns_resolver(Arc::new(common_dns::PublicIPv4Resolver {}));
@@ -35,7 +34,7 @@ impl BasicStore {
             warn!("Internal IPs are allowed, this is a security risk");
         }
 
-        let client = client.timeout(timeout).build()?;
+        let client = client.build()?;
 
         Ok(Self { client })
     }
@@ -46,23 +45,18 @@ impl SymbolStore for BasicStore {
     async fn fetch(&self, _: i32, r: SymbolSetRef) -> Result<Arc<Vec<u8>>, Error> {
         metrics::counter!(BASIC_FETCHES).increment(1);
         let SymbolSetRef::Js(sref) = r; // We only support this
-        let Some(sourcemap_url) = find_sourcemap_url(&self.client, sref.clone()).await? else {
-            warn!("No sourcemap URL found for {}", sref);
-            // TODO - this might not actually count as an error, and simply means we don't /need/ a sourcemap
-            // for a give frame, but I haven't decided how to handle that yet
-            return Err(Error::InvalidSourceRef(format!(
-                "No sourcemap URL found for {}",
-                sref
-            )));
-        };
+        let sourcemap_url = find_sourcemap_url(&self.client, sref.clone()).await?;
         fetch_source_map(&self.client, sourcemap_url)
             .await
             .map(Arc::new)
     }
 }
 
-async fn find_sourcemap_url(client: &reqwest::Client, start: Url) -> Result<Option<Url>, Error> {
+async fn find_sourcemap_url(client: &reqwest::Client, start: Url) -> Result<Url, Error> {
     info!("Fetching sourcemap from {}", start);
+
+    // If this request fails, we cannot resolve the frame, and do not hand this error to the frames
+    // failure-case handling - it just didn't work. We should tell the user about it, somehow, though.
     let res = client.get(start).send().await?;
 
     // we use the final URL of the response in the relative case, to account for any redirects
@@ -77,25 +71,30 @@ async fn find_sourcemap_url(client: &reqwest::Client, start: Url) -> Result<Opti
     if let Some(header_url) = header_url {
         info!("Found sourcemap header: {:?}", header_url);
         metrics::counter!(SOURCEMAP_HEADER_FOUND).increment(1);
-        let url = header_url.to_str().map_err(|_| {
-            Error::InvalidSourceRef(format!("Failed to parse url from header of {}", res.url()))
-        })?;
+
+        // If the header was set but is unusable, that's a js-specific resolution error - one we can try to handle,
+        // or at least tell the user about.
+        let url = header_url
+            .to_str()
+            .map_err(|_| JsResolveErr::InvalidSourceMapHeader(final_url.to_string()))?;
 
         let url = if url.starts_with("http") {
             url.parse()
-                .map_err(|_| Error::InvalidSourceRef(format!("Failed to parse {} to a url", url)))?
+                .map_err(|_| JsResolveErr::InvalidSourceMapUrl(url.to_string()))?
         } else {
+            // It's wild to me that this is infallible - feels like it must be a bug, there's no way
+            // "literally any string" is a valid URL path segment, even if there are escaping rules
             final_url.set_path(url);
             final_url
         };
-        return Ok(Some(url));
+        return Ok(url);
     }
 
     // If we didn't find a header, we have to check the body
 
     // Grab the body as text, and split it into lines
     metrics::counter!(SOURCE_REF_BODY_FETCHES).increment(1);
-    let body = res.text().await?;
+    let body = res.text().await?; // Transport error, unresolvable
     let lines = body.lines().rev(); // Our needle tends to be at the bottom of the haystack
     for line in lines {
         if line.starts_with("//# sourceMappingURL=") {
@@ -103,20 +102,22 @@ async fn find_sourcemap_url(client: &reqwest::Client, start: Url) -> Result<Opti
             let found = line.trim_start_matches("//# sourceMappingURL=");
             // These URLs can be relative, so we have to check if they are, and if they are, append the base URLs domain to them
             let url = if found.starts_with("http") {
-                found.parse().map_err(|_| {
-                    Error::InvalidSourceRef(format!("Failed to parse url from found ref {}", found))
-                })?
+                found
+                    .parse()
+                    .map_err(|_| JsResolveErr::InvalidSourceMapUrl(found.to_string()))?
             } else {
                 final_url.set_path(found);
                 final_url
             };
-            return Ok(Some(url));
+            return Ok(url);
         }
     }
 
     metrics::counter!(SOURCEMAP_NOT_FOUND).increment(1);
-
-    Ok(None) // We didn't hit an error, but we failed to find a sourcemap for the provided URL
+    // We looked in the headers and the body, and couldn't find a source map. This /might/ indicate the frame
+    // is not minified, or it might just indicate someone misconfigured their sourcemaps - we'll hand this error
+    // back to the frame itself to figure out.
+    Err(JsResolveErr::NoSourcemap(final_url.to_string()).into())
 }
 
 async fn fetch_source_map(client: &reqwest::Client, url: Url) -> Result<Vec<u8>, Error> {
@@ -149,7 +150,7 @@ mod test {
         let res = find_sourcemap_url(&client, url).await.unwrap();
 
         // We're doing relative-URL resolution here, so we have to account for that
-        let expected = Some(server.url("/static/chunk-PGUQKT6S.js.map").parse().unwrap());
+        let expected = server.url("/static/chunk-PGUQKT6S.js.map").parse().unwrap();
         assert_eq!(res, expected);
         mock.assert_hits(1);
     }
