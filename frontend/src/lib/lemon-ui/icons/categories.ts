@@ -52,6 +52,7 @@ export const OBJECTS = {
         'IconGearFilled',
         'IconStack',
         'IconSparkles',
+        'IconPuzzle',
     ],
     People: ['IconPeople', 'IconPeopleFilled', 'IconPerson', 'IconProfile', 'IconUser', 'IconGroups'],
     'Business & Finance': ['IconStore', 'IconCart', 'IconReceipt', 'IconPiggyBank', 'IconHandMoney'],
@@ -72,6 +73,7 @@ export const TECHNOLOGY = {
         'IconDatabase',
         'IconHardDrive',
         'IconMouse',
+        'IconCdCase',
     ],
     Software: ['IconBrowser', 'IconCode', 'IconCodeInsert', 'IconTerminal', 'IconApp'],
     UI: [
@@ -187,6 +189,7 @@ export const TEAMS_AND_COMPANIES = {
         'IconPlay',
         'IconPlayFilled',
         'IconPlaylist',
+        'IconShuffle',
         'IconPause',
         'IconFastForward',
         'IconPauseFilled',
