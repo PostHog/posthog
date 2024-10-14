@@ -241,7 +241,10 @@ class ExperimentTrendQueryRunner(QueryRunner):
         self, count_results: list[dict[str, Any]], exposure_results: list[dict[str, Any]]
     ) -> dict[str, ExperimentVariantTrendResult]:
         variants = self.feature_flag.variants
-        processed_results = {variant["key"]: ExperimentVariantTrendResult(count=0, exposure=0) for variant in variants}
+        processed_results = {
+            variant["key"]: ExperimentVariantTrendResult(key=variant["key"], count=0, exposure=0, absolute_exposure=0)
+            for variant in variants
+        }
 
         for result in count_results:
             variant = result.get("breakdown_value")
@@ -251,7 +254,7 @@ class ExperimentTrendQueryRunner(QueryRunner):
         for result in exposure_results:
             variant = result.get("breakdown_value")
             if variant in processed_results:
-                processed_results[variant].exposure += result.get("count", 0)
+                processed_results[variant].absolute_exposure += result.get("count", 0)
 
         return processed_results
 
