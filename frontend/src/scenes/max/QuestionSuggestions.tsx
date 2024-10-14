@@ -6,14 +6,14 @@ import { useEffect } from 'react'
 import { maxLogic } from './maxLogic'
 
 export function QuestionSuggestions(): JSX.Element {
-    const { visibleSuggestions, allSuggestions, allSuggestionsLoading } = useValues(maxLogic)
+    const { visibleSuggestions, wasSuggestionLoadingInitiated, allSuggestionsLoading } = useValues(maxLogic)
     const { askMax, loadSuggestions, shuffleVisibleSuggestions } = useActions(maxLogic)
 
     useEffect(() => {
-        if (!allSuggestionsLoading && !allSuggestions) {
+        if (!wasSuggestionLoadingInitiated) {
             loadSuggestions()
         }
-    }, [allSuggestions, allSuggestionsLoading, loadSuggestions])
+    }, [wasSuggestionLoadingInitiated, loadSuggestions])
 
     return (
         <div className="flex items-center justify-center gap-2 min-w-full">

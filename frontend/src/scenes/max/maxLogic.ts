@@ -70,6 +70,12 @@ export const maxLogic = kea<maxLogicType>([
                 setThreadLoaded: (_, { testOnlyOverride }) => testOnlyOverride,
             },
         ],
+        wasSuggestionLoadingInitiated: [
+            false,
+            {
+                loadSuggestions: () => true,
+            },
+        ],
         visibleSuggestions: [
             null as string[] | null,
             {
