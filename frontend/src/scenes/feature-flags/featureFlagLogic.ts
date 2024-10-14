@@ -319,17 +319,18 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     const variants = [...(state.filters.multivariate?.variants || [])]
                     variants.splice(index, 1)
 
-                    const payloads = { ...state.filters.payloads }
+                    const currentPayloads = { ...state.filters.payloads }
                     const newPayloads: Record<number, any> = {}
 
-                    // TRICKY: We need to shift the payload indices because we're deleting an entry from the variants array
-                    // We also need to make sure that the payloads object keeps the same indices as the variants array
-                    Object.keys(payloads).forEach((key) => {
+                    // TRICKY: In addition to modifying the variant array, we also need to shift the payload indices
+                    // because the variant array is being modified and we need to make sure that the payloads object
+                    // stays in sync with the variant array.
+                    Object.keys(currentPayloads).forEach((key) => {
                         const payloadIndex = parseInt(key)
                         if (payloadIndex > index) {
-                            newPayloads[payloadIndex - 1] = payloads[payloadIndex]
+                            newPayloads[payloadIndex - 1] = currentPayloads[payloadIndex]
                         } else if (payloadIndex < index) {
-                            newPayloads[payloadIndex] = payloads[payloadIndex]
+                            newPayloads[payloadIndex] = currentPayloads[payloadIndex]
                         }
                     })
 
