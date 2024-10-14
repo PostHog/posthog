@@ -1,7 +1,6 @@
 import { IconGear } from '@posthog/icons'
 import {
     LemonButton,
-    LemonCollapse,
     LemonDialog,
     LemonDivider,
     LemonInput,
@@ -23,6 +22,7 @@ import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { More } from 'lib/lemon-ui/LemonButton/More'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
@@ -59,7 +59,7 @@ export function Surveys(): JSX.Element {
         filters,
         showSurveysDisabledBanner,
         tab,
-        surveysConfigAvailable,
+        globalSurveyAppearanceConfigAvailable,
     } = useValues(surveysLogic)
 
     const { deleteSurvey, updateSurvey, setSearchTerm, setSurveysFilters, setTab } = useActions(surveysLogic)
@@ -123,12 +123,16 @@ export function Surveys(): JSX.Element {
                     { key: SurveysTabs.Archived, label: 'Archived' },
                     showLinkedHogFunctions ? { key: SurveysTabs.Notifications, label: 'Notifications' } : null,
                     { key: SurveysTabs.History, label: 'History' },
-                    surveysConfigAvailable ? { key: SurveysTabs.Settings, label: 'Settings' } : null,
+                    globalSurveyAppearanceConfigAvailable ? { key: SurveysTabs.Settings, label: 'Settings' } : null,
                 ]}
             />
             {tab === SurveysTabs.Settings && (
                 <>
                     <div className="flex items-center mb-2 gap-2">
+                        <LemonField.Pure className="mt-2" label="Appearance">
+                            <span>These settings apply to new surveys in this organization.</span>
+                        </LemonField.Pure>
+
                         <div className="flex-1" />
                         <LemonButton
                             type="primary"
@@ -148,29 +152,20 @@ export function Surveys(): JSX.Element {
                         </LemonButton>
                     </div>
                     <div className="flex flex-col overflow-hidden flex-1">
-                        <LemonCollapse
-                            activeKey="Appearance"
-                            panels={[
-                                {
-                                    key: 'Appearance',
-                                    header: 'Appearance',
-                                    content: (
-                                        <Customization
-                                            key="survey-settings-customization"
-                                            appearance={editableSurveyConfig}
-                                            hasBranchingLogic={false}
-                                            customizeRatingButtons={true}
-                                            customizePlaceholderText={true}
-                                            onAppearanceChange={(appearance) => {
-                                                setEditableSurveyConfig({
-                                                    ...editableSurveyConfig,
-                                                    ...appearance,
-                                                })
-                                            }}
-                                        />
-                                    ),
-                                },
-                            ]}
+                        <LemonDivider />
+
+                        <Customization
+                            key="survey-settings-customization"
+                            appearance={editableSurveyConfig}
+                            hasBranchingLogic={false}
+                            customizeRatingButtons={true}
+                            customizePlaceholderText={true}
+                            onAppearanceChange={(appearance) => {
+                                setEditableSurveyConfig({
+                                    ...editableSurveyConfig,
+                                    ...appearance,
+                                })
+                            }}
                         />
                     </div>
                 </>

@@ -159,7 +159,7 @@ const teamActionsMapping: Record<
 
         if (before?.appearance?.whiteLabel !== after?.appearance?.whiteLabel) {
             descriptions.push(
-                `${preamble} Survey White labeling was ${after?.appearance?.whiteLabel ? 'enabled' : 'disabled'}`
+                `${preamble} Survey white labeling was ${after?.appearance?.whiteLabel ? 'enabled' : 'disabled'}`
             )
         }
 
