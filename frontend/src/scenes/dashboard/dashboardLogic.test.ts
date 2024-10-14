@@ -329,6 +329,7 @@ describe('dashboardLogic', () => {
                     date_to: null,
                     properties: [],
                 },
+                variables: {},
             })
         })
     })
