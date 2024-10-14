@@ -18,8 +18,14 @@ const hasBehavioralFilter = (cohort: CohortType, allCohorts: CohortType[]): bool
                 return true
             }
             if (value.type === BehavioralFilterKey.Cohort) {
-                const nestedCohort = allCohorts.find((item) => item.id === value.value_property)
-                return nestedCohort ? hasBehavioralFilter(nestedCohort, allCohorts) : false
+                // the first time we load the page we haven't transformed the cohort data,
+                // so there's no value_property, and we need to use `value.value` instead.
+                const cohortId = value.value_property || value.value
+                const nestedCohort = allCohorts.find((item) => item.id === cohortId)
+                if (nestedCohort) {
+                    return hasBehavioralFilter(nestedCohort, allCohorts)
+                }
+                return false
             }
             return false
         })
@@ -28,7 +34,7 @@ const hasBehavioralFilter = (cohort: CohortType, allCohorts: CohortType[]): bool
     return cohort.filters?.properties ? checkCriteriaGroup(cohort.filters.properties) : false
 }
 
-export const filterNonBehavioralCohorts = (items: CohortType[], hideBehavioralCohorts?: boolean): CohortType[] => {
+export const filterOutBehavioralCohorts = (items: CohortType[], hideBehavioralCohorts?: boolean): CohortType[] => {
     if (!hideBehavioralCohorts) {
         return items
     }

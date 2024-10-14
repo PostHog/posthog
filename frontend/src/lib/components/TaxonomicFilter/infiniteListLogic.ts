@@ -20,7 +20,7 @@ import { CohortType, EventDefinition } from '~/types'
 
 import { teamLogic } from '../../../scenes/teamLogic'
 import { captureTimeToSeeData } from '../../internalMetrics'
-import { filterNonBehavioralCohorts } from './cohortFilterUtils'
+import { filterOutBehavioralCohorts } from './cohortFilterUtils'
 import type { infiniteListLogicType } from './infiniteListLogicType'
 
 /*
@@ -247,8 +247,13 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
 
                     if (group?.logic && group?.value) {
                         const items = group.logic.selectors[group.value]?.(state)
+                        // TRICKY: Feature flags don't support dynamic behavioral cohorts,
+                        // so we don't want to show them as selectable options in the taxonomic filter
+                        // in the feature flag UI.
+                        // TODO: Once we support dynamic behavioral cohorts, we should show them in the taxonomic filter,
+                        // and remove this kludge.
                         if (Array.isArray(items) && items.every((item) => 'filters' in item)) {
-                            return filterNonBehavioralCohorts(items, props.hideBehavioralCohorts)
+                            return filterOutBehavioralCohorts(items, props.hideBehavioralCohorts)
                         }
                         return items
                     }
