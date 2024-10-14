@@ -45,6 +45,7 @@ from posthog.schema import (
     SamplingRate,
     SessionsTimelineQuery,
     StickinessQuery,
+    SuggestedQuestionsQuery,
     TrendsQuery,
     WebOverviewQuery,
     WebStatsTableQuery,
@@ -385,6 +386,16 @@ def get_query_runner(
             timings=timings,
             modifiers=modifiers,
             limit_context=limit_context,
+        )
+    if kind == "SuggestedQuestionsQuery":
+        from posthog.hogql_queries.ai.suggested_questions_query_runner import SuggestedQuestionsQueryRunner
+
+        return SuggestedQuestionsQueryRunner(
+            query=cast(SuggestedQuestionsQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
         )
 
     raise ValueError(f"Can't get a runner for an unknown query kind: {kind}")
