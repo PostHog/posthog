@@ -4,7 +4,7 @@
 
 services:
     proxy:
-        image: ${DOCKER_REGISTRY/library/:-}caddy
+        image: ${DOCKER_REGISTRY:-}library/caddy
         entrypoint: sh
         restart: always
         command: -c 'set -x && echo "$$CADDYFILE" > /etc/caddy/Caddyfile && exec caddy run -c /etc/caddy/Caddyfile'
@@ -43,7 +43,7 @@ services:
                 }
 
     db:
-        image: ${DOCKER_REGISTRY/library/:-}postgres:12-alpine
+        image: ${DOCKER_REGISTRY:-}library/postgres:12-alpine
         restart: on-failure
         environment:
             POSTGRES_USER: posthog
@@ -55,7 +55,7 @@ services:
             timeout: 5s
 
     redis:
-        image: ${DOCKER_REGISTRY/library/:-}redis:6.2.7-alpine
+        image: ${DOCKER_REGISTRY:-}library/redis:6.2.7-alpine
         restart: on-failure
         command: redis-server --maxmemory-policy allkeys-lru --maxmemory 200mb
         healthcheck:
@@ -65,7 +65,7 @@ services:
             retries: 10
 
     redis7:
-        image: ${DOCKER_REGISTRY/library/:-}redis:7.2-alpine
+        image: ${DOCKER_REGISTRY:-}library/redis:7.2-alpine
         restart: on-failure
         command: redis-server --maxmemory-policy allkeys-lru --maxmemory 200mb
         healthcheck:
@@ -79,11 +79,11 @@ services:
         # Note: please keep the default version in sync across
         #       `posthog` and the `charts-clickhouse` repos
         #
-        image: ${DOCKER_REGISTRY/:-}${CLICKHOUSE_SERVER_IMAGE:-clickhouse/clickhouse-server:23.12.6.19}
+        image: ${DOCKER_REGISTRY:-}${CLICKHOUSE_SERVER_IMAGE:-clickhouse/clickhouse-server:23.12.6.19}
         restart: on-failure
 
     zookeeper:
-        image: ${DOCKER_REGISTRY/library/:-}zookeeper:3.7.0
+        image: ${DOCKER_REGISTRY:-}library/zookeeper:3.7.0
         restart: on-failure
 
     kafka:
@@ -103,7 +103,7 @@ services:
             retries: 10
 
     kafka_ui:
-        image: ${DOCKER_REGISTRY/:-}provectuslabs/kafka-ui:latest
+        image: ${DOCKER_REGISTRY:-}provectuslabs/kafka-ui:latest
         restart: on-failure
         environment:
             KAFKA_CLUSTERS_0_NAME: local
@@ -111,7 +111,7 @@ services:
             DYNAMIC_CONFIG_ENABLED: 'true'
 
     objectstorage:
-        image: ${DOCKER_REGISTRY/:-}minio/minio:RELEASE.2022-06-25T15-50-16Z
+        image: ${DOCKER_REGISTRY:-}minio/minio:RELEASE.2022-06-25T15-50-16Z
         restart: on-failure
         environment:
             MINIO_ROOT_USER: object_storage_root_user
@@ -120,11 +120,11 @@ services:
         command: -c 'mkdir -p /data/posthog && minio server --address ":19000" --console-address ":19001" /data' # create the 'posthog' bucket before starting the service
 
     maildev:
-        image: ${DOCKER_REGISTRY/:-}maildev/maildev:2.0.5
+        image: ${DOCKER_REGISTRY:-}maildev/maildev:2.0.5
         restart: on-failure
 
     flower:
-        image: ${DOCKER_REGISTRY/:-}mher/flower:2.0.0
+        image: ${DOCKER_REGISTRY:-}mher/flower:2.0.0
         restart: on-failure
         environment:
             FLOWER_PORT: 5555
@@ -245,7 +245,7 @@ services:
             - discovery.type=single-node
             - ES_JAVA_OPTS=-Xms256m -Xmx256m
             - xpack.security.enabled=false
-        image: ${DOCKER_REGISTRY/library/:-}elasticsearch:7.16.2
+        image: ${DOCKER_REGISTRY:-}library/elasticsearch:7.16.2
         expose:
             - 9200
         volumes:
@@ -262,7 +262,7 @@ services:
             - ENABLE_ES=true
             - ES_SEEDS=elasticsearch
             - ES_VERSION=v7
-        image: ${DOCKER_REGISTRY/:-}temporalio/auto-setup:1.20.0
+        image: ${DOCKER_REGISTRY:-}temporalio/auto-setup:1.20.0
         ports:
             - 7233:7233
         labels:
@@ -278,14 +278,14 @@ services:
     temporal-admin-tools:
         environment:
             - TEMPORAL_CLI_ADDRESS=temporal:7233
-        image: ${DOCKER_REGISTRY/:-}temporalio/admin-tools:1.20.0
+        image: ${DOCKER_REGISTRY:-}temporalio/admin-tools:1.20.0
         stdin_open: true
         tty: true
     temporal-ui:
         environment:
             - TEMPORAL_ADDRESS=temporal:7233
             - TEMPORAL_CORS_ORIGINS=http://localhost:3000
-        image: ${DOCKER_REGISTRY/:-}temporalio/ui:2.10.3
+        image: ${DOCKER_REGISTRY:-}temporalio/ui:2.10.3
         ports:
             - 8081:8080
     temporal-django-worker:
