@@ -134,7 +134,7 @@ class TestPropertyTypes(BaseTest):
         )
         assert printed == self.snapshot
         assert (
-            "SELECT ifNull(equals(transform(events__group_0.properties___group_boolean, hogvar, hogvar, NULL), 1), 0), ifNull(equals(transform(events__group_0.properties___group_boolean, hogvar, hogvar, NULL), 0), 0), isNull(transform(events__group_0.properties___group_boolean, hogvar, hogvar, NULL))"
+            "SELECT ifNull(equals(transform(toString(events__group_0.properties___group_boolean), hogvar, hogvar, NULL), 1), 0), ifNull(equals(transform(toString(events__group_0.properties___group_boolean), hogvar, hogvar, NULL), 0), 0), isNull(transform(toString(events__group_0.properties___group_boolean), hogvar, hogvar, NULL))"
             in re.sub(r"%\(hogql_val_\d+\)s", "hogvar", printed)
         )
 
