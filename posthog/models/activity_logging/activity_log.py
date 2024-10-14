@@ -37,6 +37,7 @@ ActivityScope = Literal[
     "Replay",
     "Experiment",
     "Survey",
+    "BatchExportRun",
     "EarlyAccessFeature",
     "SessionRecordingPlaylist",
     "Comment",
