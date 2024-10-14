@@ -30,13 +30,6 @@ runs:
     using: 'composite'
     steps:
         # Pre-tests
-
-        - uses: aws-actions/configure-aws-credentials@v4
-          with:
-              aws-region: us-east-1
-              role-to-assume: arn:aws:iam::169684386827:role/github-terraform-infra-role
-              role-duration-seconds: 3600
-
         # Copies the fully versioned UDF xml file for use in CI testing
         - name: Stop/Start stack with Docker Compose
           shell: bash

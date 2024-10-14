@@ -265,6 +265,16 @@ jobs:
                   # Use PostHog Bot token when not on forks to enable proper snapshot updating
                   token: ${{ github.event.pull_request.head.repo.full_name == github.repository && secrets.POSTHOG_BOT_GITHUB_TOKEN || github.token }}
 
+            - uses: aws-actions/configure-aws-credentials@v4
+              with:
+                  aws-region: us-east-1
+                  role-to-assume: arn:aws:iam::169684386827:role/github-terraform-infra-role
+                  role-duration-seconds: 3600
+
+            - name: Login to Amazon ECR
+              id: login-ecr
+              uses: aws-actions/amazon-ecr-login@v2
+
             - uses: ./.github/actions/run-backend-tests
               if: needs.changes.outputs.backend == 'true'
               with:
