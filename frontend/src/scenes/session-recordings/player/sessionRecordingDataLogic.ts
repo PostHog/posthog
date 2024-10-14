@@ -404,7 +404,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
     key(({ sessionRecordingId }) => sessionRecordingId || 'no-session-recording-id'),
     connect({
         logic: [eventUsageLogic],
-        values: [featureFlagLogic, ['featureFlags'], teamLogic, 'currentTeam'],
+        values: [featureFlagLogic, ['featureFlags'], teamLogic, ['currentTeam']],
     }),
     defaults({
         sessionPlayerMetaData: null as SessionRecordingType | null,
