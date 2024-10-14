@@ -398,7 +398,7 @@ export function LineGraph_({
         }
 
         const annotations = (alertLines || []).reduce((acc, { value }, idx) => {
-            acc[idx.toString()] = {
+            acc[idx] = {
                 type: 'line',
                 yMin: value,
                 yMax: value,
