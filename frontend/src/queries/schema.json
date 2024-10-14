@@ -2038,6 +2038,55 @@
             ],
             "type": "object"
         },
+        "CachedSuggestedQuestionsQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "cache_key": {
+                    "type": "string"
+                },
+                "cache_target_age": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "calculation_trigger": {
+                    "description": "What triggered the calculation of the query, leave empty if user/immediate",
+                    "type": "string"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "next_allowed_client_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "questions": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "timezone": {
+                    "type": "string"
+                }
+            },
+            "required": [
+                "cache_key",
+                "is_cached",
+                "last_refresh",
+                "next_allowed_client_refresh",
+                "questions",
+                "timezone"
+            ],
+            "type": "object"
+        },
         "CachedTeamTaxonomyQueryResponse": {
             "additionalProperties": false,
             "properties": {
@@ -7216,6 +7265,7 @@
                 "ExperimentFunnelQuery",
                 "ExperimentTrendQuery",
                 "DatabaseSchemaQuery",
+                "SuggestedQuestionsQuery",
                 "TeamTaxonomyQuery",
                 "EventTaxonomyQuery"
             ],
@@ -9377,6 +9427,19 @@
                     },
                     "required": ["tables"],
                     "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "questions": {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["questions"],
+                    "type": "object"
                 }
             ]
         },
@@ -9486,6 +9549,9 @@
                 },
                 {
                     "$ref": "#/definitions/DatabaseSchemaQuery"
+                },
+                {
+                    "$ref": "#/definitions/SuggestedQuestionsQuery"
                 }
             ],
             "required": ["kind"],
@@ -10584,6 +10650,37 @@
                 }
             },
             "required": ["results"],
+            "type": "object"
+        },
+        "SuggestedQuestionsQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "kind": {
+                    "const": "SuggestedQuestionsQuery",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "response": {
+                    "$ref": "#/definitions/SuggestedQuestionsQueryResponse"
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
+        },
+        "SuggestedQuestionsQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "questions": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["questions"],
             "type": "object"
         },
         "TableSettings": {

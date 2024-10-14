@@ -857,6 +857,7 @@ class NodeKind(StrEnum):
     EXPERIMENT_FUNNEL_QUERY = "ExperimentFunnelQuery"
     EXPERIMENT_TREND_QUERY = "ExperimentTrendQuery"
     DATABASE_SCHEMA_QUERY = "DatabaseSchemaQuery"
+    SUGGESTED_QUESTIONS_QUERY = "SuggestedQuestionsQuery"
     TEAM_TAXONOMY_QUERY = "TeamTaxonomyQuery"
     EVENT_TAXONOMY_QUERY = "EventTaxonomyQuery"
 
@@ -1034,6 +1035,13 @@ class QueryResponseAlternative29(BaseModel):
     )
     insight: Literal["TRENDS"] = "TRENDS"
     results: dict[str, ExperimentVariantTrendResult]
+
+
+class QueryResponseAlternative38(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    questions: list[str]
 
 
 class QueryStatus(BaseModel):
@@ -1254,6 +1262,13 @@ class StickinessQueryResponse(BaseModel):
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
+
+
+class SuggestedQuestionsQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    questions: list[str]
 
 
 class TaxonomicFilterGroupType(StrEnum):
@@ -2111,6 +2126,25 @@ class CachedStickinessQueryResponse(BaseModel):
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
+
+
+class CachedSuggestedQuestionsQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cache_key: str
+    cache_target_age: Optional[AwareDatetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
+    is_cached: bool
+    last_refresh: AwareDatetime
+    next_allowed_client_refresh: AwareDatetime
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    questions: list[str]
+    timezone: str
 
 
 class CachedTeamTaxonomyQueryResponse(BaseModel):
@@ -3865,6 +3899,17 @@ class SessionsTimelineQueryResponse(BaseModel):
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
+
+
+class SuggestedQuestionsQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["SuggestedQuestionsQuery"] = "SuggestedQuestionsQuery"
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    response: Optional[SuggestedQuestionsQueryResponse] = None
 
 
 class TableSettings(BaseModel):
@@ -5677,6 +5722,7 @@ class QueryResponseAlternative(
             QueryResponseAlternative33,
             QueryResponseAlternative36,
             QueryResponseAlternative37,
+            QueryResponseAlternative38,
         ]
     ]
 ):
@@ -5716,6 +5762,7 @@ class QueryResponseAlternative(
         QueryResponseAlternative33,
         QueryResponseAlternative36,
         QueryResponseAlternative37,
+        QueryResponseAlternative38,
     ]
 
 
@@ -6204,6 +6251,7 @@ class QueryRequest(BaseModel):
         LifecycleQuery,
         FunnelCorrelationQuery,
         DatabaseSchemaQuery,
+        SuggestedQuestionsQuery,
     ] = Field(
         ...,
         description=(
@@ -6267,6 +6315,7 @@ class QuerySchemaRoot(
             LifecycleQuery,
             FunnelCorrelationQuery,
             DatabaseSchemaQuery,
+            SuggestedQuestionsQuery,
         ]
     ]
 ):
@@ -6305,6 +6354,7 @@ class QuerySchemaRoot(
         LifecycleQuery,
         FunnelCorrelationQuery,
         DatabaseSchemaQuery,
+        SuggestedQuestionsQuery,
     ] = Field(..., discriminator="kind")
 
 
