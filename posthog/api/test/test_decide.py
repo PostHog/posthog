@@ -564,6 +564,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             "linkedFlag": None,
             "minimumDurationMilliseconds": None,
             "networkPayloadCapture": None,
+            "urlTriggers": [],
         }
 
     @snapshot_postgres_queries
