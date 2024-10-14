@@ -522,8 +522,10 @@ class ExperimentVariantTrendResult(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    absolute_exposure: float
     count: float
     exposure: float
+    key: str
 
 
 class FilterLogicalOperator(StrEnum):
