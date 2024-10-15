@@ -48,7 +48,6 @@ class ActivityLogPagination(PageNumberPagination, CursorPagination):
         self.page_number_pagination = PageNumberPagination()
         self.cursor_pagination = CursorPagination()
         self.page_number_pagination.page_size = 20
-        self.page_number_pagination.ordering = "-created_at"
         self.cursor_pagination.page_size = 20
         self.cursor_pagination.ordering = "-created_at"
 
@@ -110,6 +109,9 @@ class ActivityLogViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, mixins
             queryset = queryset.filter(scope__in=scopes)
         if params.get("item_id"):
             queryset = queryset.filter(item_id=params.get("item_id"))
+
+        if params.get("page"):
+            queryset = queryset.order_by("-created_at")
 
         return queryset
 
