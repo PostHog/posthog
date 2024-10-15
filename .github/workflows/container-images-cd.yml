@@ -55,9 +55,9 @@ jobs:
               uses: aws-actions/amazon-ecr-login@v2
 
             - name: Login to DockerHub
-              uses: docker/login-action@v2
+              uses: docker/login-action@v3
               with:
-                  username: posthog
+                  username: ${{ secrets.DOCKERHUB_USER }}
                   password: ${{ secrets.DOCKERHUB_TOKEN }}
 
             - name: Build and push container image

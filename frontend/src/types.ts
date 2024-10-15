@@ -485,6 +485,9 @@ export interface ProjectType extends ProjectBasicType {
     created_at: string
 }
 
+export interface TeamSurveyConfigType {
+    appearance?: SurveyAppearance
+}
 export interface TeamType extends TeamBasicType {
     created_at: string
     updated_at: string
@@ -506,6 +509,7 @@ export interface TeamType extends TeamBasicType {
         | undefined
         | null
     session_replay_config: { record_canvas?: boolean; ai_config?: SessionRecordingAIConfig } | undefined | null
+    survey_config?: TeamSurveyConfigType
     autocapture_exceptions_opt_in: boolean
     autocapture_web_vitals_opt_in?: boolean
     autocapture_web_vitals_allowed_metrics?: SupportedWebVitalsMetrics[]
