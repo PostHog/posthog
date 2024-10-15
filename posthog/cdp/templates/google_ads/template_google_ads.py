@@ -29,7 +29,7 @@ let res := fetch(f'https://googleads.googleapis.com/v17/customers/{replaceAll(in
 })
 
 if (res.status >= 400) {
-    print('Error from googleads.googleapis.com api:', res.status, res.body)
+    throw Error(f'Error from googleads.googleapis.com (status {res.status}): {res.body}')
 }
 
 """.strip(),
