@@ -1,4 +1,5 @@
 import json
+from datetime import UTC, datetime
 from typing import Any, Optional
 from unittest import mock
 from unittest.mock import ANY, MagicMock, call, patch
@@ -17,6 +18,7 @@ from posthog.models.async_deletion.async_deletion import AsyncDeletion, Deletion
 from posthog.models.dashboard import Dashboard
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.product_intent import ProductIntent
 from posthog.models.team import Team
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.schedule import describe_schedule
@@ -885,6 +887,27 @@ def team_api_test_factory():
             second_get_response = self.client.get("/api/environments/@current/")
             assert second_get_response.json()["session_recording_network_payload_capture_config"] is None
 
+        def test_can_set_and_unset_survey_settings(self):
+            survey_appearance = {
+                "thankYouMessageHeader": "Thanks for your feedback!",
+                "thankYouMessageDescription": "We'll use it to make notebooks better",
+                "backgroundColor": "#ffcc99",
+            }
+
+            self._patch_config("survey_config", {"appearance": survey_appearance})
+            self._assert_surveys_config_is({"appearance": survey_appearance})
+
+            survey_appearance["zIndex"] = "100001"
+            self._patch_config("survey_config", {"appearance": survey_appearance})
+            self._assert_surveys_config_is({"appearance": survey_appearance})
+
+            survey_appearance["thankYouMessageHeader"] = "Thanks!"
+            self._patch_config("survey_config", {"appearance": survey_appearance})
+            self._assert_surveys_config_is({"appearance": survey_appearance})
+
+            self._patch_config("survey_config", None)
+            self._assert_replay_config_is(None)
+
         def test_can_set_and_unset_session_replay_config(self) -> None:
             # can set
             self._patch_session_replay_config({"record_canvas": True})
@@ -991,23 +1014,94 @@ def team_api_test_factory():
             # and the existing second level nesting is not preserved
             self._assert_replay_config_is({"ai_config": {"opt_in": None, "included_event_properties": ["and another"]}})
 
+        @patch("posthog.api.project.report_user_action")
+        @patch("posthog.api.team.report_user_action")
+        @freeze_time("2024-01-01T00:00:00Z")
+        def test_can_add_product_intent(
+            self, mock_report_user_action: MagicMock, mock_report_user_action_legacy_endpoint: MagicMock
+        ) -> None:
+            if self.client_class is EnvironmentToProjectRewriteClient:
+                mock_report_user_action = mock_report_user_action_legacy_endpoint
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/add_product_intent/",
+                {"product_type": "product_analytics", "intent_context": "onboarding product selected"},
+                headers={"Referer": "https://posthogtest.com/my-url", "X-Posthog-Session-Id": "test_session_id"},
+            )
+            assert response.status_code == status.HTTP_201_CREATED
+            product_intent = ProductIntent.objects.get(team=self.team, product_type="product_analytics")
+            assert product_intent.created_at == datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC)
+            mock_report_user_action.assert_called_once_with(
+                self.user,
+                "user showed product intent",
+                {
+                    "product_key": "product_analytics",
+                    "$current_url": "https://posthogtest.com/my-url",
+                    "$session_id": "test_session_id",
+                    "intent_context": "onboarding product selected",
+                    "$set_once": {"first_onboarding_product_selected": "product_analytics"},
+                },
+                team=self.team,
+            )
+
+        @patch("posthog.api.project.report_user_action")
+        @patch("posthog.api.team.report_user_action")
+        def test_can_complete_product_onboarding(
+            self, mock_report_user_action: MagicMock, mock_report_user_action_legacy_endpoint: MagicMock
+        ) -> None:
+            if self.client_class is EnvironmentToProjectRewriteClient:
+                mock_report_user_action = mock_report_user_action_legacy_endpoint
+            with freeze_time("2024-01-01T00:00:00Z"):
+                product_intent = ProductIntent.objects.create(team=self.team, product_type="product_analytics")
+            assert product_intent.created_at == datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC)
+            assert product_intent.onboarding_completed_at is None
+            with freeze_time("2024-01-05T00:00:00Z"):
+                response = self.client.patch(
+                    f"/api/environments/{self.team.id}/complete_product_onboarding/",
+                    {"product_type": "product_analytics"},
+                    headers={"Referer": "https://posthogtest.com/my-url", "X-Posthog-Session-Id": "test_session_id"},
+                )
+            assert response.status_code == status.HTTP_200_OK
+            product_intent = ProductIntent.objects.get(team=self.team, product_type="product_analytics")
+            assert product_intent.onboarding_completed_at == datetime(2024, 1, 5, 0, 0, 0, tzinfo=UTC)
+            mock_report_user_action.assert_called_once_with(
+                self.user,
+                "product onboarding completed",
+                {
+                    "product_key": "product_analytics",
+                    "$current_url": "https://posthogtest.com/my-url",
+                    "$session_id": "test_session_id",
+                },
+                team=self.team,
+            )
+
         def _assert_replay_config_is(self, expected: dict[str, Any] | None) -> HttpResponse:
+            return self._assert_config_is("session_replay_config", expected)
+
+        def _assert_surveys_config_is(self, expected: dict[str, Any] | None) -> HttpResponse:
+            return self._assert_config_is("survey_config", expected)
+
+        def _assert_config_is(self, config_name, expected: dict[str, Any] | None) -> HttpResponse:
             get_response = self.client.get("/api/environments/@current/")
             assert get_response.status_code == status.HTTP_200_OK, get_response.json()
-            assert get_response.json()["session_replay_config"] == expected
+            assert get_response.json()[config_name] == expected
 
             return get_response
 
-        def _patch_session_replay_config(
-            self, config: dict[str, Any] | None, expected_status: int = status.HTTP_200_OK
+        def _patch_config(
+            self, config_name, config: dict[str, Any] | None, expected_status: int = status.HTTP_200_OK
         ) -> HttpResponse:
             patch_response = self.client.patch(
                 "/api/environments/@current/",
-                {"session_replay_config": config},
+                {config_name: config},
             )
             assert patch_response.status_code == expected_status, patch_response.json()
 
             return patch_response
+
+        def _patch_session_replay_config(
+            self, config: dict[str, Any] | None, expected_status: int = status.HTTP_200_OK
+        ) -> HttpResponse:
+            return self._patch_config("session_replay_config", config, expected_status)
 
         def _assert_linked_flag_config(self, expected_config: dict | None) -> HttpResponse:
             response = self.client.get("/api/environments/@current/")

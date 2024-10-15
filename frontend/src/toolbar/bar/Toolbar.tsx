@@ -201,6 +201,7 @@ export function Toolbar(): JSX.Element | null {
                     {
                         '--toolbar-button-x': `${position.x}px`,
                         '--toolbar-button-y': `${position.y}px`,
+                        width: showExperiments ? '334px' : 'var(--toolbar-width-expanded)',
                     } as any
                 }
             >

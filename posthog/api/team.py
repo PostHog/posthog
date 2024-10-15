@@ -1,22 +1,22 @@
 import json
+from datetime import UTC, datetime, timedelta
 from functools import cached_property
 from typing import Any, Optional, cast
-from datetime import timedelta
 from uuid import UUID
 
 from django.shortcuts import get_object_or_404
 from loginas.utils import is_impersonated_session
-from posthog.jwt import PosthogJwtAudience, encode_jwt
-from rest_framework.permissions import BasePermission, IsAuthenticated
-from posthog.api.utils import action
 from rest_framework import exceptions, request, response, serializers, viewsets
+from rest_framework.permissions import BasePermission, IsAuthenticated
 
-from posthog.geoip import get_geoip_properties
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import TeamBasicSerializer
+from posthog.api.utils import action
 from posthog.constants import AvailableFeature
 from posthog.event_usage import report_user_action
-from posthog.models import Team, User
+from posthog.geoip import get_geoip_properties
+from posthog.jwt import PosthogJwtAudience, encode_jwt
+from posthog.models import ProductIntent, Team, User
 from posthog.models.activity_logging.activity_log import (
     Detail,
     dict_changes_between,
@@ -104,6 +104,7 @@ class CachingTeamSerializer(serializers.ModelSerializer):
             "session_recording_linked_flag",
             "session_recording_network_payload_capture_config",
             "session_replay_config",
+            "survey_config",
             "recording_domains",
             "inject_web_apps",
             "surveys_opt_in",
@@ -117,6 +118,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     effective_membership_level = serializers.SerializerMethodField()
     has_group_types = serializers.SerializerMethodField()
     live_events_token = serializers.SerializerMethodField()
+    product_intents = serializers.SerializerMethodField()
 
     class Meta:
         model = Team
@@ -155,6 +157,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "session_recording_linked_flag",
             "session_recording_network_payload_capture_config",
             "session_replay_config",
+            "survey_config",
             "effective_membership_level",
             "access_control",
             "week_start_day",
@@ -171,6 +174,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "surveys_opt_in",
             "heatmaps_opt_in",
             "live_events_token",
+            "product_intents",
         )
         read_only_fields = (
             "id",
@@ -200,6 +204,9 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             timedelta(days=7),
             PosthogJwtAudience.LIVESTREAM,
         )
+
+    def get_product_intents(self, obj):
+        return ProductIntent.objects.filter(team=obj).values("product_type", "created_at", "onboarding_completed_at")
 
     @staticmethod
     def validate_session_recording_linked_flag(value) -> dict | None:
@@ -322,6 +329,38 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
     def update(self, instance: Team, validated_data: dict[str, Any]) -> Team:
         before_update = instance.__dict__.copy()
+
+        if "survey_config" in validated_data:
+            if instance.survey_config is not None and validated_data.get("survey_config") is not None:
+                validated_data["survey_config"] = {
+                    **instance.survey_config,
+                    **validated_data["survey_config"],
+                }
+
+            if validated_data.get("survey_config") is None:
+                del before_update["survey_config"]
+
+            survey_config_changes_between = dict_changes_between(
+                "Survey",
+                before_update.get("survey_config", {}),
+                validated_data.get("survey_config", {}),
+                use_field_exclusions=True,
+            )
+
+            if survey_config_changes_between:
+                log_activity(
+                    organization_id=cast(UUIDT, instance.organization_id),
+                    team_id=instance.pk,
+                    user=cast(User, self.context["request"].user),
+                    was_impersonated=is_impersonated_session(request),
+                    scope="Survey",
+                    item_id="",
+                    activity="updated",
+                    detail=Detail(
+                        name="global survey appearance",
+                        changes=survey_config_changes_between,
+                    ),
+                )
 
         if (
             "session_replay_config" in validated_data
@@ -511,6 +550,84 @@ class TeamViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             page=page,
         )
         return activity_page_response(activity_page, limit, page, request)
+
+    @action(
+        methods=["PATCH"],
+        detail=True,
+    )
+    def add_product_intent(self, request: request.Request, *args, **kwargs):
+        team = self.get_object()
+        user = request.user
+        product_type = request.data.get("product_type")
+        current_url = request.headers.get("Referer")
+        session_id = request.headers.get("X-Posthog-Session-Id")
+
+        if not product_type:
+            return response.Response({"error": "product_type is required"}, status=400)
+
+        product_intent, created = ProductIntent.objects.get_or_create(team=team, product_type=product_type)
+        if not created:
+            product_intent.updated_at = datetime.now(tz=UTC)
+            product_intent.save()
+
+        if created and isinstance(user, User):
+            report_user_action(
+                user,
+                "user showed product intent",
+                {
+                    "product_key": product_type,
+                    "$set_once": {"first_onboarding_product_selected": product_type},
+                    "$current_url": current_url,
+                    "$session_id": session_id,
+                    "intent_context": request.data.get("intent_context"),
+                },
+                team=team,
+            )
+
+        return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data, status=201)
+
+    @action(methods=["PATCH"], detail=True)
+    def complete_product_onboarding(self, request: request.Request, *args, **kwargs):
+        team = self.get_object()
+        product_type = request.data.get("product_type")
+        user = request.user
+        current_url = request.headers.get("Referer")
+        session_id = request.headers.get("X-Posthog-Session-Id")
+
+        if not product_type:
+            return response.Response({"error": "product_type is required"}, status=400)
+
+        product_intent, created = ProductIntent.objects.get_or_create(team=team, product_type=product_type)
+
+        if created and isinstance(user, User):
+            report_user_action(
+                user,
+                "user showed product intent",
+                {
+                    "product_key": product_type,
+                    "$set_once": {"first_onboarding_product_selected": product_type},
+                    "$current_url": current_url,
+                    "$session_id": session_id,
+                    "intent_context": request.data.get("intent_context"),
+                },
+                team=team,
+            )
+        product_intent.onboarding_completed_at = datetime.now(tz=UTC)
+        product_intent.save()
+
+        if isinstance(user, User):  # typing
+            report_user_action(
+                user,
+                "product onboarding completed",
+                {
+                    "product_key": product_type,
+                    "$current_url": current_url,
+                    "$session_id": session_id,
+                },
+                team=team,
+            )
+
+        return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data)
 
     @cached_property
     def user_permissions(self):

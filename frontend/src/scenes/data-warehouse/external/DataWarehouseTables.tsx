@@ -131,7 +131,7 @@ export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): 
             >
                 Add join
             </LemonButton>
-            {table.type == 'view' && (
+            {(table.type == 'view' || table.type == 'materialized_view') && (
                 <LemonButton
                     onClick={() => {
                         router.actions.push(urls.dataWarehouseView(table.id))

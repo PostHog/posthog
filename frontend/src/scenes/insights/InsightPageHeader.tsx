@@ -65,7 +65,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
         insightAlertsLogic({
             insightLogicProps,
             insightId: insight.id as number,
-            insightShortId: insight.short_id as InsightShortId,
         })
     )
 

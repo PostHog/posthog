@@ -2,6 +2,7 @@ import { ChartType, defaults, LegendOptions } from 'chart.js'
 import { DeepPartial } from 'chart.js/dist/types/utils'
 import { useValues } from 'kea'
 import { Chart } from 'lib/Chart'
+import { insightAlertsLogic } from 'lib/components/Alerts/insightAlertsLogic'
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { capitalizeFirstLetter, isMultiSeriesFormula } from 'lib/utils'
@@ -20,7 +21,8 @@ export function ActionsLineGraph({
     showPersonsModal = true,
     context,
 }: ChartParams): JSX.Element | null {
-    const { insightProps } = useValues(insightLogic)
+    const { insightProps, insight } = useValues(insightLogic)
+
     const {
         indexedResults,
         labelGroupType,
@@ -40,6 +42,10 @@ export function ActionsLineGraph({
         querySource,
         yAxisScaleType,
     } = useValues(trendsDataLogic(insightProps))
+
+    const { alertThresholdLines } = useValues(
+        insightAlertsLogic({ insightId: insight.id!, insightLogicProps: insightProps })
+    )
 
     const labels =
         (indexedResults.length === 2 &&
@@ -106,6 +112,7 @@ export function ActionsLineGraph({
             isArea={display === ChartDisplayType.ActionsAreaGraph}
             incompletenessOffsetFromEnd={incompletenessOffsetFromEnd}
             legend={legend}
+            alertLines={alertThresholdLines}
             onClick={
                 !showPersonsModal || isMultiSeriesFormula(formula) || isDataWarehouseSeries
                     ? undefined

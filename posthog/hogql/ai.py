@@ -97,22 +97,12 @@ def write_sql_from_prompt(prompt: str, *, current_query: Optional[str] = None, t
 
     generated_valid_hogql = False
     attempt_count = 0
-    prompt_tokens_last, completion_tokens_last = 0, 0
     prompt_tokens_total, completion_tokens_total = 0, 0
     for _ in range(3):  # Try up to 3 times in case the generated SQL is not valid HogQL
         attempt_count += 1
-        result = openai.chat.completions.create(
-            model="gpt-3.5-turbo",
-            temperature=0.8,
-            messages=messages,
-            user=f"{instance_region}/{user.pk}",  # The user ID is for tracking within OpenAI in case of overuse/abuse
-        )
-        content: str = ""
-        if result.choices[0] and result.choices[0].message.content:
-            content = result.choices[0].message.content.removesuffix(";")
-        if result.usage:
-            prompt_tokens_total += result.usage.prompt_tokens
-            completion_tokens_total += result.usage.completion_tokens
+        content, prompt_tokens_last, completion_tokens_last = hit_openai(messages, f"{instance_region}/{user.pk}")
+        prompt_tokens_total += prompt_tokens_last
+        completion_tokens_total += completion_tokens_last
         if content.startswith(UNCLEAR_PREFIX):
             error = content.removeprefix(UNCLEAR_PREFIX).strip()
             break
@@ -152,3 +142,20 @@ def write_sql_from_prompt(prompt: str, *, current_query: Optional[str] = None, t
         return candidate_sql
     else:
         raise PromptUnclear(error)
+
+
+def hit_openai(messages, user) -> tuple[str, int, int]:
+    result = openai.chat.completions.create(
+        model="gpt-4o",
+        temperature=0.8,
+        messages=messages,
+        user=user,  # The user ID is for tracking within OpenAI in case of overuse/abuse
+    )
+
+    content: str = ""
+    if result.choices[0] and result.choices[0].message.content:
+        content = result.choices[0].message.content.removesuffix(";")
+    prompt_tokens, completion_tokens = 0, 0
+    if result.usage:
+        prompt_tokens, completion_tokens = result.usage.prompt_tokens, result.usage.completion_tokens
+    return content, prompt_tokens, completion_tokens
