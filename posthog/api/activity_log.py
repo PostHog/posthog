@@ -47,8 +47,10 @@ class ActivityLogPagination(BasePagination):
     def __init__(self):
         self.page_number_pagination = PageNumberPagination()
         self.cursor_pagination = CursorPagination()
-        self.page_number_pagination.page_size = 20
-        self.cursor_pagination.page_size = 20
+        self.page_number_pagination.page_size = 100
+        self.page_number_pagination.page_size_query_param = "page_size"
+        self.page_number_pagination.max_page_size = 1000
+        self.cursor_pagination.page_size = 100
         self.cursor_pagination.ordering = "-created_at"
 
     def paginate_queryset(self, queryset, request, view=None):

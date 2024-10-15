@@ -1063,13 +1063,14 @@ const api = {
         },
 
         listRequest(
-            filters: Partial<
-                Pick<ActivityLogItem, 'item_id'> & {
-                    scope?: ActivityScope
-                    scopes?: ActivityScope[] | string
-                    user?: UserBasicType['id']
-                }
-            >,
+            filters: Partial<{
+                scope?: ActivityScope
+                scopes?: ActivityScope[] | string
+                user?: UserBasicType['id']
+                page?: number
+                page_size?: number
+                item_id?: number | string
+            }>,
             teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()
         ): ApiRequest {
             if (Array.isArray(filters.scopes)) {
@@ -1083,6 +1084,25 @@ const api = {
             page: number = 1,
             teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()
         ): Promise<ActivityLogPaginatedResponse<ActivityLogItem>> {
+            const scopes = Array.isArray(props.scope) ? [...props.scope] : [props.scope]
+
+            // Opt into the new /activity_log API
+            if ([ActivityScope.PLUGIN, ActivityScope.HOG_FUNCTION].includes(scopes[0]) || scopes.length > 1) {
+                if (scopes.length === 1 && scopes[0] === ActivityScope.PLUGIN && !props.id) {
+                    // Add plugin configs to the plugin request
+                    // TODO: remove
+                    scopes.push(ActivityScope.PLUGIN_CONFIG)
+                }
+                return api.activity
+                    .listRequest({
+                        scopes,
+                        ...(props.id ? { item_id: props.id } : {}),
+                        page: page || 1,
+                        page_size: ACTIVITY_PAGE_SIZE,
+                    })
+                    .get()
+            }
+
             // TODO: Can we replace all these endpoint specific implementations with the generic REST endpoint above?
             const requestForScope: { [key in ActivityScope]?: () => ApiRequest | null } = {
                 [ActivityScope.FEATURE_FLAG]: () => {
@@ -1121,30 +1141,10 @@ const api = {
                 [ActivityScope.SURVEY]: () => {
                     return new ApiRequest().surveyActivity((props.id ?? null) as string, teamId)
                 },
-                [ActivityScope.PLUGIN]: () =>
-                    props.id
-                        ? api.activity.listRequest({
-                              scope: ActivityScope.PLUGIN_CONFIG,
-                              item_id: String(props.id),
-                          })
-                        : api.activity.listRequest({
-                              scopes: [ActivityScope.PLUGIN, ActivityScope.PLUGIN_CONFIG],
-                          }),
-                [ActivityScope.HOG_FUNCTION]: () => {
-                    return props.id
-                        ? api.activity.listRequest({
-                              scope: ActivityScope.HOG_FUNCTION,
-                              item_id: String(props.id),
-                          })
-                        : api.activity.listRequest({ scope: ActivityScope.HOG_FUNCTION })
-                },
             }
 
             const pagingParameters = { page: page || 1, limit: ACTIVITY_PAGE_SIZE }
-            const scopes = Array.isArray(props.scope) ? props.scope : [props.scope]
-
-            const request =
-                scopes.length > 1 && !props.id ? api.activity.listRequest({ scopes }) : requestForScope[scopes[0]]?.()
+            const request = requestForScope[scopes[0]]?.()
             return request
                 ? request.mergeQueryString(toParams(pagingParameters)).get()
                 : Promise.resolve({ results: [], count: 0 })

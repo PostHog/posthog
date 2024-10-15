@@ -739,9 +739,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                             },
                             {
                                 "type": "FeatureFlag",
-                                "action": "changed",
+                                "action": "created",
                                 "field": "filters",
-                                "before": {},
+                                "before": None,
                                 "after": {
                                     "groups": [
                                         {
@@ -843,7 +843,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                         "changes": [
                             {
                                 "type": "FeatureFlag",
-                                "action": "changed",
+                                "action": "created",
                                 "field": "filters",
                                 "before": None,
                                 "after": {"groups": [{"properties": [], "rollout_percentage": 74}]},
@@ -948,7 +948,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                         "changes": [
                             {
                                 "type": "FeatureFlag",
-                                "action": "changed",
+                                "action": "created",
                                 "field": "filters",
                                 "before": None,
                                 "after": {"groups": [{"properties": [], "rollout_percentage": 74}]},
