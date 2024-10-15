@@ -212,8 +212,8 @@ export function Billing(): JSX.Element {
                         )}
                     </div>
 
-                    {!isOnboarding && billing?.has_active_subscription && (
-                        <div className="w-fit mt-4">
+                    {!isOnboarding && billing?.customer_id && billing?.stripe_portal_url && (
+                        <div className="w-fit">
                             <LemonButton
                                 type="primary"
                                 htmlType="submit"
@@ -223,7 +223,9 @@ export function Billing(): JSX.Element {
                                 center
                                 data-attr="manage-billing"
                             >
-                                Manage card details and view past invoices
+                                {billing.subscription_level === 'paid'
+                                    ? 'Manage card details and invoices'
+                                    : 'View past invoices'}
                             </LemonButton>
                         </div>
                     )}
