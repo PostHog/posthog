@@ -393,7 +393,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
             },
         )
 
-    def get_actors_querye_orchestrator(self, events_where_clause: ast.Expr, sample_value: ast.RatioExpr):
+    def get_actors_query_orchestrator(self, events_where_clause: ast.Expr, sample_value: ast.RatioExpr):
         events_query = cast(ast.SelectQuery, self._actors_events_query(events_where_clause, sample_value))
         inner_select = cast(ast.SelectQuery, self._actors_inner_select_query())
         parent_select = cast(ast.SelectQuery, self._actors_parent_select_query())
