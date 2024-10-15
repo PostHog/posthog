@@ -127,14 +127,20 @@ async fn main() -> Result<(), Error> {
 
         let mut resolved_frames = Vec::new();
         for frame in stack_trace {
-            let resolved = match resolver.resolve(frame, 1).await {
-                Ok(r) => r,
-                Err(err) => {
-                    metrics::counter!(ERRORS, "cause" => "frame_not_parsable").increment(1);
-                    error!("Error parsing stack frame: {:?}", err);
-                    continue;
-                }
-            };
+            // Do the switch case here once we determine frame type
+            let RawFrame::JavaScript(raw) = raw;
+
+            let resolved = raw.resolve(resolver, team_id);
+
+            // let resolved = match resolver.resolve(frame, 1).await {
+            //     Ok(r) => r,
+            //     Err(err) => {
+            //         metrics::counter!(ERRORS, "cause" => "frame_not_parsable").increment(1);
+            //         error!("Error parsing stack frame: {:?}", err);
+            //         continue;
+            //     }
+            // };
+
             resolved_frames.push(resolved);
         }
 
