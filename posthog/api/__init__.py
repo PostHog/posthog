@@ -426,7 +426,7 @@ if EE_AVAILABLE:
     )
     router.register(r"person", LegacyEnterprisePersonViewSet, "persons")
 else:
-    environemnt_insights_router, legacy_project_insights_router = register_grandfathered_environment_nested_viewset(
+    environment_insights_router, legacy_project_insights_router = register_grandfathered_environment_nested_viewset(
         r"insights", InsightViewSet, "environment_insights", ["team_id"]
     )
     register_grandfathered_environment_nested_viewset(r"persons", PersonViewSet, "environment_persons", ["team_id"])
