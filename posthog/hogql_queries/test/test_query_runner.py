@@ -14,6 +14,7 @@ from posthog.schema import (
     HogQLQueryModifiers,
     MaterializationMode,
     PersonsOnEventsMode,
+    PropertyGroupsMode,
     TestBasicQueryResponse,
     TestCachedBasicQueryResponse,
 )
@@ -95,6 +96,7 @@ class TestQueryRunner(BaseTest):
                     "personsArgMaxVersion": "auto",
                     "optimizeJoinedFilters": False,
                     "personsOnEventsMode": PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
+                    "propertyGroupsMode": PropertyGroupsMode.DISABLED,
                     "bounceRatePageViewMode": "count_pageviews",
                     "sessionTableVersion": "auto",
                 },
