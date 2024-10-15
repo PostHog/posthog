@@ -8,7 +8,7 @@ from langchain_core.messages import BaseMessage
 from langchain_openai import ChatOpenAI
 from langgraph.graph import END, START
 from langgraph.graph.message import add_messages
-from pydantic import BaseModel, Field, RootModel
+from pydantic import BaseModel, Field
 
 from posthog.models.team.team import Team
 
@@ -24,12 +24,8 @@ class VisualizationMessagePayload(BaseModel):
     plan: str
 
 
-class AssistantMessagePayload(RootModel[VisualizationMessagePayload]):
-    root: VisualizationMessagePayload = Field(..., discriminator="type")
-
-
 class AssistantMessage(BaseMessage):
-    payload: Optional[AssistantMessagePayload] = Field(default=None)
+    payload: Optional[VisualizationMessagePayload] = Field(None, discriminator="type")
 
 
 class AssistantState(TypedDict):

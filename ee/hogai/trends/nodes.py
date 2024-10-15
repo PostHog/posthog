@@ -1,3 +1,4 @@
+import itertools
 import json
 import xml.etree.ElementTree as ET
 from functools import cached_property
@@ -20,8 +21,11 @@ from ee.hogai.trends.prompts import (
     react_scratchpad_prompt,
     react_system_prompt,
     react_user_prompt,
+    trends_group_mapping_prompt,
+    trends_new_plan_prompt,
+    trends_plan_prompt,
+    trends_question_prompt,
     trends_system_prompt,
-    trends_user_prompt,
 )
 from ee.hogai.trends.toolkit import (
     GenerateTrendTool,
@@ -101,6 +105,9 @@ class CreateTrendsPlanNode(AssistantNode):
         raise ValueError("Invalid state.")
 
     def _reconstruct_conversation(self, state: AssistantState) -> list[BaseMessage]:
+        """
+        Reconstruct the conversation for the agent. On this step we only care about previously asked questions and generated plans. All other messages are filtered out.
+        """
         messages = state.get("messages", [])
         if len(messages) == 0:
             return []
@@ -111,15 +118,16 @@ class CreateTrendsPlanNode(AssistantNode):
             )
         ]
 
-        for message in messages[1:-1]:
-            if message.type == "user":
+        for message in messages[1:]:
+            if message.type == "human":
                 conversation.append(
-                    HumanMessagePromptTemplate.from_template(react_follow_up_prompt, template_format="mustache").format(
-                        feedback=message.content
-                    )
+                    HumanMessagePromptTemplate.from_template(
+                        react_follow_up_prompt,
+                        template_format="mustache",
+                    ).format(feedback=message.content)
                 )
-            elif message.type == "ai":
-                conversation.append(AIMessage(content=message.content))
+            elif message.type == "ai" and isinstance(message.payload, VisualizationMessagePayload):
+                conversation.append(AIMessage(content=message.payload.plan))
 
         return conversation
 
@@ -253,8 +261,61 @@ class GenerateTrendsNode(AssistantNode):
             return AssistantNodeName.GENERATE_TRENDS_TOOLS
         return AssistantNodeName.END
 
+    def _reconstruct_conversation(self, state: AssistantState) -> list[BaseMessage]:
+        """
+        Reconstruct the conversation for the generation. Take all previously generated questions, plans, and schemas, and return the history.
+        """
+        messages: list[AssistantMessage] = merge_message_runs(state.get("messages", []))
+        generated_plan = state.get("plan", "")
+
+        if len(messages) == 0:
+            return []
+
+        conversation: list[BaseMessage] = [
+            HumanMessagePromptTemplate.from_template(trends_group_mapping_prompt, template_format="mustache").format(
+                group_mapping=self._group_mapping_prompt
+            )
+        ]
+
+        human_messages = [message for message in messages if message.type == "human"]
+        visualization_messages = [
+            message
+            for message in messages
+            if message.type == "ai" and isinstance(message.payload, VisualizationMessagePayload)
+        ]
+
+        first_ai_message = True
+
+        for human_message, ai_message in itertools.zip_longest(human_messages, visualization_messages):
+            if ai_message:
+                conversation.append(
+                    HumanMessagePromptTemplate.from_template(
+                        trends_plan_prompt if first_ai_message else trends_new_plan_prompt,
+                        template_format="mustache",
+                    ).format(plan=cast(VisualizationMessagePayload, ai_message.payload).plan)
+                )
+                first_ai_message = False
+            elif generated_plan:
+                conversation.append(
+                    HumanMessagePromptTemplate.from_template(
+                        trends_plan_prompt if first_ai_message else trends_new_plan_prompt,
+                        template_format="mustache",
+                    ).format(plan=generated_plan)
+                )
+
+            if human_message:
+                conversation.append(
+                    HumanMessagePromptTemplate.from_template(trends_question_prompt, template_format="mustache").format(
+                        question=human_message.content
+                    )
+                )
+
+            if ai_message:
+                conversation.append(AIMessage(content=ai_message.content))
+
+        return conversation
+
     def run(self, state: AssistantState):
-        user_message = state["messages"][-1]
         generated_plan = state.get("plan", "")
 
         llm = llm_gpt_4o.with_structured_output(
@@ -266,16 +327,14 @@ class GenerateTrendsNode(AssistantNode):
         trends_generation_prompt = ChatPromptTemplate.from_messages(
             [
                 ("system", trends_system_prompt),
-                ("user", trends_user_prompt),
             ],
             template_format="mustache",
-        ).partial(
-            plan=generated_plan,
-            question=user_message.content,
-        )
+        ) + self._reconstruct_conversation(state)
+        merger = merge_message_runs()
 
         chain = (
             trends_generation_prompt
+            | merger
             | llm
             # Result from structured output is a parsed dict. Convert to a string since the output parser expects it.
             | RunnableLambda(lambda x: json.dumps(x))
@@ -284,7 +343,7 @@ class GenerateTrendsNode(AssistantNode):
         )
 
         try:
-            message = chain.invoke({"group_mapping": self._group_mapping_prompt})
+            message = chain.invoke({})
         except OutputParserException as e:
             if e.send_to_llm:
                 observation = str(e.observation)

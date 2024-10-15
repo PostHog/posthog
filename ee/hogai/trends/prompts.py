@@ -246,17 +246,21 @@ The "events" table has the following columns:
 Remember, your efforts will be rewarded with a $100 tip if you manage to implement a perfect query that follows the user's instructions and return the desired result. Do not hallucinate.
 """
 
-
-trends_user_prompt = """
-Here is the plan:
-{{plan}}
+trends_group_mapping_prompt = """
 Here is the group mapping:
 {{group_mapping}}
-Answer to this question: {{question}}
 """
 
-trends_follow_up_prompt = """
+trends_plan_prompt = """
+Here is the plan:
+{{plan}}
+"""
+
+trends_new_plan_prompt = """
 Here is the new plan:
-{{new_plan}}
-Answer to this question: {{feedback}}
+{{plan}}
+"""
+
+trends_question_prompt = """
+Answer to this question: {{question}}
 """
