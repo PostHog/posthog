@@ -60,19 +60,6 @@ def select_from_persons_table(
         from posthog.hogql import ast
         from posthog.hogql.parser import parse_select
 
-        inner_select = cast(
-            ast.SelectQuery,
-            parse_select(
-                """
-               SELECT id
-               FROM raw_persons
-            """
-            ),
-        )
-        from posthog.hogql.visitor import clone_expr
-
-        inner_select.where = clone_expr(node.where, clear_types=True, clear_locations=True)
-
         select = cast(
             ast.SelectQuery,
             parse_select(
@@ -86,14 +73,28 @@ def select_from_persons_table(
             ),
         )
         select.settings = HogQLQuerySettings(optimize_aggregation_in_order=True)
-        select.where = ast.CompareOperation(
-            left=ast.Field(chain=["id"]), right=inner_select, op=ast.CompareOperationOp.In
-        )
+        if node.where:
+            inner_select = cast(
+                ast.SelectQuery,
+                parse_select(
+                    """
+                SELECT id
+                FROM raw_persons
+                """
+                ),
+            )
+
+            inner_select.where = clone_expr(node.where, clear_types=True, clear_locations=True)
+            select.where = ast.CompareOperation(
+                left=ast.Field(chain=["id"]), right=inner_select, op=ast.CompareOperationOp.In
+            )
         if filter is not None:
-            cast(ast.SelectQuery, cast(ast.CompareOperation, select.where).right).where = ast.And(
-                exprs=[select.where]
-            ).extend(filter)
-            pass
+            if select.where:
+                cast(ast.SelectQuery, cast(ast.CompareOperation, select.where).right).where = ast.And(
+                    exprs=[select.where]
+                ).extend(filter)
+            else:
+                cast(ast.SelectQuery, cast(ast.CompareOperation, select.where).right).where = filter
 
         for field_name, field_chain in join_or_table.fields_accessed.items():
             # We need to always select the 'id' field for the join constraint. The field name here is likely to
