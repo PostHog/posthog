@@ -20,6 +20,7 @@ import { CohortType, EventDefinition } from '~/types'
 
 import { teamLogic } from '../../../scenes/teamLogic'
 import { captureTimeToSeeData } from '../../internalMetrics'
+import { filterOutBehavioralCohorts } from './cohortFilterUtils'
 import type { infiniteListLogicType } from './infiniteListLogicType'
 
 /*
@@ -244,29 +245,17 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     const taxonomicGroups = selectors.taxonomicGroups(state)
                     const group = taxonomicGroups.find((g) => g.type === props.listGroupType)
 
-                    const isCohortArray = (items: any): items is CohortType[] => {
-                        return Array.isArray(items) && items.every((item) => 'filters' in item)
-                    }
-
-                    const filterNonBehavioralCohorts = (items: CohortType[]): CohortType[] => {
-                        return items.filter((item: CohortType) => {
-                            if (item.filters?.properties?.values) {
-                                return !item.filters.properties.values.some((value: any) =>
-                                    value.values?.some((subValue: any) => subValue.type === 'behavioral')
-                                )
-                            }
-                            return true
-                        })
-                    }
-
                     if (group?.logic && group?.value) {
                         const items = group.logic.selectors[group.value]?.(state)
-                        if (isCohortArray(items)) {
-                            return filterNonBehavioralCohorts(items)
-                        } else if (Array.isArray(items)) {
-                            return items as (EventDefinition | CohortType)[]
+                        // TRICKY: Feature flags don't support dynamic behavioral cohorts,
+                        // so we don't want to show them as selectable options in the taxonomic filter
+                        // in the feature flag UI.
+                        // TODO: Once we support dynamic behavioral cohorts, we should show them in the taxonomic filter,
+                        // and remove this kludge.
+                        if (Array.isArray(items) && items.every((item) => 'filters' in item)) {
+                            return filterOutBehavioralCohorts(items, props.hideBehavioralCohorts)
                         }
-                        return null
+                        return items
                     }
                     if (group?.options) {
                         return group.options

@@ -2,6 +2,7 @@ import { Meta, StoryFn } from '@storybook/react'
 import { router } from 'kea-router'
 import { useEffect } from 'react'
 import { App } from 'scenes/App'
+import { SurveysTabs } from 'scenes/surveys/surveysLogic'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
@@ -240,6 +241,13 @@ export default meta
 export const SurveysList: StoryFn = () => {
     useEffect(() => {
         router.actions.push(urls.surveys())
+    }, [])
+    return <App />
+}
+
+export const SurveysGlobalSettings: StoryFn = () => {
+    useEffect(() => {
+        router.actions.push(urls.surveys(SurveysTabs.Settings))
     }, [])
     return <App />
 }

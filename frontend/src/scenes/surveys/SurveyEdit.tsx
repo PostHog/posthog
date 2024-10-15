@@ -34,6 +34,7 @@ import {
     LinkSurveyQuestion,
     RatingSurveyQuestion,
     SurveyQuestion,
+    SurveyQuestionType,
     SurveyType,
     SurveyUrlMatchType,
 } from '~/types'
@@ -468,6 +469,16 @@ export default function SurveyEdit(): JSX.Element {
                                                                   Feedback button customization
                                                               </div>
                                                               <WidgetCustomization
+                                                                  hasBranchingLogic={hasBranchingLogic}
+                                                                  deleteBranchingLogic={deleteBranchingLogic}
+                                                                  customizeRatingButtons={
+                                                                      survey.questions[0].type ===
+                                                                      SurveyQuestionType.Rating
+                                                                  }
+                                                                  customizePlaceholderText={
+                                                                      survey.questions[0].type ===
+                                                                      SurveyQuestionType.Open
+                                                                  }
                                                                   appearance={value || defaultSurveyAppearance}
                                                                   onAppearanceChange={(appearance) => {
                                                                       onChange(appearance)
@@ -479,7 +490,14 @@ export default function SurveyEdit(): JSX.Element {
                                                       )}
                                                       <Customization
                                                           appearance={value || defaultSurveyAppearance}
-                                                          surveyQuestionItem={survey.questions[0]}
+                                                          hasBranchingLogic={hasBranchingLogic}
+                                                          deleteBranchingLogic={deleteBranchingLogic}
+                                                          customizeRatingButtons={
+                                                              survey.questions[0].type === SurveyQuestionType.Rating
+                                                          }
+                                                          customizePlaceholderText={
+                                                              survey.questions[0].type === SurveyQuestionType.Open
+                                                          }
                                                           onAppearanceChange={(appearance) => {
                                                               onChange(appearance)
                                                           }}

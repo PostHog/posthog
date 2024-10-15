@@ -149,6 +149,11 @@ class User(AbstractUser, UUIDClassicModel):
     requested_password_reset_at = models.DateTimeField(null=True, blank=True)
     has_seen_product_intro_for = models.JSONField(null=True, blank=True)
     strapi_id = models.PositiveSmallIntegerField(null=True, blank=True)
+    is_active = models.BooleanField(
+        _("active"),
+        default=True,
+        help_text=_("Unselect this to temporarily disable an account."),
+    )
 
     # Preferences / configuration options
 
