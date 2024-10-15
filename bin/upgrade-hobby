@@ -3,7 +3,7 @@
 set -e
 
 echo "Upgrading PostHog. This will cause a few minutes of downtime."
-read -r -p "Do you want to upgarde PostHog? [y/N] " response
+read -r -p "Do you want to upgrade PostHog? [y/N] " response
 if [[ "$response" =~ ^([yY][eE][sS]|[yY])+$ ]]
 then
     echo "OK!"
@@ -69,7 +69,7 @@ else
     EXISTING_KEY=$(grep "ENCRYPTION_SALT_KEYS" .env | cut -d '=' -f2)
     
     # Check if the existing key is in the correct format (32 bytes base64url)
-    if [[ ! $EXISTING_KEY =~ ^[A-Za-z0-9_-]{43}$ ]]; then
+    if [[ ! $EXISTING_KEY =~ ^[A-Za-z0-9_-]{32}$ ]]; then
         echo "ENCRYPTION_SALT_KEYS is not in the correct fernet format and will not work"
         echo "🛑 Stop this script and do not proceed"
         echo "remove ENCRYPTION_SALT_KEYS from .env and try again"

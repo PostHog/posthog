@@ -114,8 +114,8 @@ class TestExperimentTrendQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(control_result.count, 11)
         self.assertEqual(test_result.count, 15)
 
-        self.assertEqual(control_result.exposure, 7)
-        self.assertEqual(test_result.exposure, 9)
+        self.assertEqual(control_result.absolute_exposure, 7)
+        self.assertEqual(test_result.absolute_exposure, 9)
 
     @freeze_time("2020-01-01T12:00:00Z")
     def test_query_runner_with_custom_exposure(self):
@@ -216,8 +216,8 @@ class TestExperimentTrendQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(control_result.count, 3)
         self.assertEqual(test_result.count, 5)
 
-        self.assertEqual(control_result.exposure, 2)
-        self.assertEqual(test_result.exposure, 2)
+        self.assertEqual(control_result.absolute_exposure, 2)
+        self.assertEqual(test_result.absolute_exposure, 2)
 
     @freeze_time("2020-01-01T12:00:00Z")
     def test_query_runner_with_default_exposure(self):
@@ -311,8 +311,8 @@ class TestExperimentTrendQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(control_result.count, 3)
         self.assertEqual(test_result.count, 5)
 
-        self.assertEqual(control_result.exposure, 2)
-        self.assertEqual(test_result.exposure, 2)
+        self.assertEqual(control_result.absolute_exposure, 2)
+        self.assertEqual(test_result.absolute_exposure, 2)
 
     @freeze_time("2020-01-01T12:00:00Z")
     def test_query_runner_with_avg_math(self):
