@@ -2,24 +2,24 @@ from copy import deepcopy
 from typing import Optional, TypeVar, Generic, Any
 
 from posthog.hogql import ast
-from posthog.hogql.base import AST, Expr
+from posthog.hogql.base import AST
 from posthog.hogql.errors import BaseHogQLError
 
+_T = TypeVar("_T")
+_T_AST = TypeVar("_T_AST", bound=AST)
 
-def clone_expr(expr: Expr, clear_types=False, clear_locations=False) -> Expr:
+
+def clone_expr(expr: _T_AST, clear_types=False, clear_locations=False) -> _T_AST:
     """Clone an expression node."""
     return CloningVisitor(clear_types=clear_types, clear_locations=clear_locations).visit(expr)
 
 
-def clear_locations(expr: Expr) -> Expr:
+def clear_locations(expr: _T_AST) -> _T_AST:
     return CloningVisitor(clear_locations=True).visit(expr)
 
 
-T = TypeVar("T")
-
-
-class Visitor(Generic[T]):
-    def visit(self, node: AST | None) -> T:
+class Visitor(Generic[_T]):
+    def visit(self, node: AST | None) -> _T:
         if node is None:
             return node  # type: ignore
 
