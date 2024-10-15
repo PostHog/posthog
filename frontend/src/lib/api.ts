@@ -1066,12 +1066,15 @@ const api = {
             filters: Partial<
                 Pick<ActivityLogItem, 'item_id'> & {
                     scope?: ActivityScope
-                    scopes?: string
+                    scopes?: ActivityScope[] | string
                     user?: UserBasicType['id']
                 }
             >,
             teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()
         ): ApiRequest {
+            if (Array.isArray(filters.scopes)) {
+                filters.scopes = filters.scopes.join(',')
+            }
             return new ApiRequest().activity_log(teamId).withQueryString(toParams(filters))
         },
 
@@ -1125,7 +1128,7 @@ const api = {
                               item_id: String(props.id),
                           })
                         : api.activity.listRequest({
-                              scopes: [ActivityScope.PLUGIN, ActivityScope.PLUGIN_CONFIG].join(','),
+                              scopes: [ActivityScope.PLUGIN, ActivityScope.PLUGIN_CONFIG],
                           }),
                 [ActivityScope.HOG_FUNCTION]: () => {
                     return props.id
@@ -1141,10 +1144,7 @@ const api = {
             const scopes = Array.isArray(props.scope) ? props.scope : [props.scope]
 
             const request =
-                scopes.length > 1 && !props.id
-                    ? api.activity.listRequest({ scopes: scopes.join(',') })
-                    : requestForScope[scopes[0]]?.()
-
+                scopes.length > 1 && !props.id ? api.activity.listRequest({ scopes }) : requestForScope[scopes[0]]?.()
             return request
                 ? request.mergeQueryString(toParams(pagingParameters)).get()
                 : Promise.resolve({ results: [], count: 0 })
