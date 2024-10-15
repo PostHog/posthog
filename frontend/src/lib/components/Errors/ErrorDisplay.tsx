@@ -123,9 +123,6 @@ function ActiveFlags({ flags }: { flags: string[] }): JSX.Element {
 
 export function getExceptionPropertiesFrom(eventProperties: Record<string, any>): Record<string, any> {
     const {
-        $exception_type,
-        $exception_message,
-        $exception_synthetic,
         $lib,
         $lib_version,
         $browser,
@@ -138,25 +135,27 @@ export function getExceptionPropertiesFrom(eventProperties: Record<string, any>)
         $level,
     } = eventProperties
 
-    let $exception_stack_trace_raw = eventProperties.$exception_stack_trace_raw
+    let $exception_type = eventProperties.$exception_type
+    let $exception_message = eventProperties.$exception_message
+    let $exception_synthetic = eventProperties.$exception_synthetic
     let $exception_list = eventProperties.$exception_list
-    // exception autocapture sets $exception_stack_trace_raw as a string
-    // if it isn't present then this is probably a sentry exception.
-    // try and grab the frames from that
-    if (!$exception_stack_trace_raw?.length && $sentry_exception) {
-        if (Array.isArray($sentry_exception.values)) {
-            const firstException = $sentry_exception.values[0]
-            if (firstException.stacktrace) {
-                $exception_stack_trace_raw = JSON.stringify(firstException.stacktrace.frames)
-            }
-        }
-    }
-    // exception autocapture sets $exception_list for chained exceptions.
-    // If it's not present, get this list from the sentry_exception
+
+    // exception autocapture sets $exception_list for all exceptions.
+    // If it's not present, then this is probably a sentry exception. Get this list from the sentry_exception
     if (!$exception_list?.length && $sentry_exception) {
         if (Array.isArray($sentry_exception.values)) {
             $exception_list = $sentry_exception.values
         }
+    }
+
+    if (!$exception_type) {
+        $exception_type = $exception_list?.[0]?.type
+    }
+    if (!$exception_message) {
+        $exception_message = $exception_list?.[0]?.value
+    }
+    if ($exception_synthetic == undefined) {
+        $exception_synthetic = $exception_list?.[0]?.mechanism?.synthetic
     }
 
     return {
@@ -171,7 +170,6 @@ export function getExceptionPropertiesFrom(eventProperties: Record<string, any>)
         $os_version,
         $active_feature_flags,
         $sentry_url,
-        $exception_stack_trace_raw,
         $exception_list,
         $level,
     }
@@ -190,7 +188,6 @@ export function ErrorDisplay({ eventProperties }: { eventProperties: EventType['
         $os_version,
         $active_feature_flags,
         $sentry_url,
-        $exception_stack_trace_raw,
         $exception_list,
         $level,
     } = getExceptionPropertiesFrom(eventProperties)
@@ -224,17 +221,7 @@ export function ErrorDisplay({ eventProperties }: { eventProperties: EventType['
                 <TitledSnack title="browser" value={$browser ? `${$browser} ${$browser_version}` : 'unknown'} />
                 <TitledSnack title="os" value={$os ? `${$os} ${$os_version}` : 'unknown'} />
             </div>
-            {$exception_list?.length ? (
-                <ChainedStackTraces exceptionList={$exception_list} />
-            ) : $exception_stack_trace_raw?.length ? (
-                <>
-                    <LemonDivider dashed={true} />
-                    <div className="flex flex-col gap-1 mt-6">
-                        <h2 className="mb-0">Stack Trace</h2>
-                        <StackTrace rawTrace={$exception_stack_trace_raw} showAllFrames />
-                    </div>
-                </>
-            ) : null}
+            {$exception_list?.length ? <ChainedStackTraces exceptionList={$exception_list} /> : null}
             <LemonDivider dashed={true} />
             <div className="flex flex-col gap-1 mt-6">
                 <h2 className="mb-0">Active Feature Flags</h2>
