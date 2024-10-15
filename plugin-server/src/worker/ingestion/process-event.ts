@@ -155,7 +155,12 @@ export class EventsProcessor {
 
         if (this.pluginsServer.SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP === false) {
             try {
-                await this.groupAndFirstEventManager.updateGroupsAndFirstEvent(team.id, event, properties)
+                await this.groupAndFirstEventManager.updateGroupsAndFirstEvent(
+                    team.id,
+                    team.project_id,
+                    event,
+                    properties
+                )
             } catch (err) {
                 Sentry.captureException(err, { tags: { team_id: team.id } })
                 status.warn('⚠️', 'Failed to update property definitions for an event', {
@@ -168,10 +173,10 @@ export class EventsProcessor {
 
         if (processPerson) {
             // Adds group_0 etc values to properties
-            properties = await addGroupProperties(team.id, properties, this.groupTypeManager)
+            properties = await addGroupProperties(team.id, team.project_id, properties, this.groupTypeManager)
 
             if (event === '$groupidentify') {
-                await this.upsertGroup(team.id, properties, timestamp)
+                await this.upsertGroup(team.id, team.project_id, properties, timestamp)
             }
         }
 
@@ -278,13 +283,18 @@ export class EventsProcessor {
         return [rawEvent, ack]
     }
 
-    private async upsertGroup(teamId: number, properties: Properties, timestamp: DateTime): Promise<void> {
+    private async upsertGroup(
+        teamId: number,
+        projectId: number,
+        properties: Properties,
+        timestamp: DateTime
+    ): Promise<void> {
         if (!properties['$group_type'] || !properties['$group_key']) {
             return
         }
 
         const { $group_type: groupType, $group_key: groupKey, $group_set: groupPropertiesToSet } = properties
-        const groupTypeIndex = await this.groupTypeManager.fetchGroupTypeIndex(teamId, groupType)
+        const groupTypeIndex = await this.groupTypeManager.fetchGroupTypeIndex(teamId, projectId, groupType)
 
         if (groupTypeIndex !== null) {
             await upsertGroup(
