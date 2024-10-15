@@ -257,16 +257,6 @@ class ApiRequest {
         return this
     }
 
-    public mergeQueryString(queryString?: string | Record<string, any>): ApiRequest {
-        const qs = typeof queryString === 'object' ? toParams(queryString) : queryString ?? ''
-        if (this.queryString) {
-            this.queryString += '&' + (qs.startsWith('&') || qs.startsWith('?') ? qs.substring(1) : qs)
-        } else {
-            this.queryString = qs
-        }
-        return this
-    }
-
     public withAction(apiAction: string): ApiRequest {
         return this.addPathComponent(apiAction)
     }
@@ -1141,7 +1131,7 @@ const api = {
             const pagingParameters = { page: page || 1, limit: ACTIVITY_PAGE_SIZE }
             const request = requestForScope[scopes[0]]?.()
             return request
-                ? request.mergeQueryString(toParams(pagingParameters)).get()
+                ? request.withQueryString(toParams(pagingParameters)).get()
                 : Promise.resolve({ results: [], count: 0 })
         },
     },
