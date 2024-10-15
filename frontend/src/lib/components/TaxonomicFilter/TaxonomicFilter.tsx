@@ -35,6 +35,7 @@ export function TaxonomicFilter({
     popoverEnabled = true,
     selectFirstItem = true,
     propertyAllowList,
+    hideBehavioralCohorts,
 }: TaxonomicFilterProps): JSX.Element {
     // Generate a unique key for each unique TaxonomicFilter that's rendered
     const taxonomicFilterLogicKey = useMemo(
@@ -60,6 +61,7 @@ export function TaxonomicFilter({
         excludedProperties,
         metadataSource,
         propertyAllowList,
+        hideBehavioralCohorts,
     }
 
     const logic = taxonomicFilterLogic(taxonomicFilterLogicProps)
@@ -70,7 +72,7 @@ export function TaxonomicFilter({
         if (groupType !== TaxonomicFilterGroupType.HogQLExpression) {
             window.setTimeout(() => focusInput(), 1)
         }
-    }, [])
+    }, [groupType])
 
     const style = {
         ...(width ? { width } : {}),
