@@ -357,7 +357,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                     item_id="",
                     activity="updated",
                     detail=Detail(
-                        name="Team Survey Config",
+                        name="global survey appearance",
                         changes=survey_config_changes_between,
                     ),
                 )
