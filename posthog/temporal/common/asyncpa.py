@@ -12,7 +12,7 @@ class InvalidMessageFormat(Exception):
 class AsyncMessageReader:
     """Asynchronously read PyArrow messages from bytes iterator."""
 
-    def __init__(self, bytes_iter: typing.AsyncIterator[bytes]):
+    def __init__(self, bytes_iter: typing.AsyncIterator[tuple[bytes, bool]]):
         self._bytes = bytes_iter
         self._buffer = bytearray()
 
@@ -58,7 +58,8 @@ class AsyncMessageReader:
     async def read_until(self, n: int) -> None:
         """Read from self._bytes until there are at least n bytes in self._buffer."""
         while len(self._buffer) < n:
-            self._buffer.extend(await anext(self._bytes))
+            bytes, _ = await anext(self._bytes)
+            self._buffer.extend(bytes)
 
     def parse_body_size(self, metadata_flatbuffer: bytearray) -> int:
         """Parse body size from metadata flatbuffer.
@@ -98,7 +99,7 @@ class AsyncMessageReader:
 class AsyncRecordBatchReader:
     """Asynchronously read PyArrow RecordBatches from an iterator of bytes."""
 
-    def __init__(self, bytes_iter: typing.AsyncIterator[bytes]) -> None:
+    def __init__(self, bytes_iter: typing.AsyncIterator[tuple[bytes, bool]]) -> None:
         self._reader = AsyncMessageReader(bytes_iter)
         self._schema: None | pa.Schema = None
 
