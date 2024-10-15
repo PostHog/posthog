@@ -76,9 +76,12 @@ export const activityLogLogic = kea<activityLogLogicType>([
     }),
     loaders(({ values, props }) => ({
         activity: [
-            { results: [], total_count: 0 } as ActivityLogPaginatedResponse<ActivityLogItem>,
+            { results: [], count: 0 } as ActivityLogPaginatedResponse<ActivityLogItem>,
             {
-                fetchActivity: async () => await api.activity.listLegacy(props, values.page),
+                fetchActivity: async () => {
+                    const response = await api.activity.listLegacy(props, values.page)
+                    return { results: response.results, count: (response as any).total_count ?? response.count }
+                },
             },
         ],
     })),
@@ -113,7 +116,7 @@ export const activityLogLogic = kea<activityLogLogicType>([
         totalCount: [
             (s) => [s.activity],
             (activity): number | null => {
-                return activity.total_count ?? null
+                return activity.count ?? null
             },
         ],
     })),

@@ -138,7 +138,7 @@ export interface CountedPaginatedResponse<T> extends PaginatedResponse<T> {
 }
 
 export interface ActivityLogPaginatedResponse<T> extends PaginatedResponse<T> {
-    total_count: number // FIXME: This is non-standard naming, DRF uses `count` and we should use that consistently
+    count: number
 }
 
 export interface ApiMethodOptions {
