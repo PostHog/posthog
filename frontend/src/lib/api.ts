@@ -1088,11 +1088,6 @@ const api = {
 
             // Opt into the new /activity_log API
             if ([ActivityScope.PLUGIN, ActivityScope.HOG_FUNCTION].includes(scopes[0]) || scopes.length > 1) {
-                if (scopes.length === 1 && scopes[0] === ActivityScope.PLUGIN && !props.id) {
-                    // Add plugin configs to the plugin request
-                    // TODO: remove
-                    scopes.push(ActivityScope.PLUGIN_CONFIG)
-                }
                 return api.activity
                     .listRequest({
                         scopes,

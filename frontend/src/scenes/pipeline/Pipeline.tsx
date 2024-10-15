@@ -41,7 +41,9 @@ export function Pipeline(): JSX.Element {
 
     tabs.push({
         key: PipelineTab.History,
-        content: <ActivityLog scope={[ActivityScope.PLUGIN, ActivityScope.HOG_FUNCTION]} />,
+        content: (
+            <ActivityLog scope={[ActivityScope.PLUGIN, ActivityScope.PLUGIN_CONFIG, ActivityScope.HOG_FUNCTION]} />
+        ),
     })
 
     return (
