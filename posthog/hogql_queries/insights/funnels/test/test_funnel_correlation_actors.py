@@ -7,7 +7,6 @@ from freezegun import freeze_time
 
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
-from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 from posthog.models.team.team import Team
 from posthog.schema import (
@@ -577,8 +576,6 @@ class BaseTestFunnelCorrelationActors(ClickhouseTestMixin, APIBaseTest):
                 {"id": "insight analyzed", "order": 1},
             ],
         }
-        query = cast(FunnelsQuery, filter_to_query(filters))
-        results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
         results = get_actors(
             filters,
