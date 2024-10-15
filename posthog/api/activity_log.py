@@ -3,7 +3,9 @@ from typing import Any, Optional
 
 from django.db.models import Q, QuerySet
 
-from rest_framework import serializers, status, viewsets, pagination, mixins
+from rest_framework import serializers, status, viewsets, mixins
+from rest_framework.pagination import PageNumberPagination, CursorPagination
+
 from posthog.api.utils import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
@@ -41,9 +43,27 @@ class ActivityLogSerializer(serializers.ModelSerializer):
             return bookmark_date < obj.created_at.replace(microsecond=obj.created_at.microsecond // 1000 * 1000)
 
 
-class ActivityLogPagination(pagination.PageNumberPagination):
-    ordering = "-created_at"
-    page_size = 100
+class ActivityLogPagination(PageNumberPagination, CursorPagination):
+    def __init__(self):
+        self.page_number_pagination = PageNumberPagination()
+        self.cursor_pagination = CursorPagination()
+        self.page_number_pagination.page_size = 20
+        self.page_number_pagination.ordering = "-created_at"
+        self.cursor_pagination.page_size = 20
+        self.cursor_pagination.ordering = "-created_at"
+
+    def paginate_queryset(self, queryset, request, view=None):
+        self.request = request
+        if request.query_params.get("page"):
+            return self.page_number_pagination.paginate_queryset(queryset, request, view)
+        else:
+            return self.cursor_pagination.paginate_queryset(queryset, request, view)
+
+    def get_paginated_response(self, data):
+        if self.request.query_params.get("page"):
+            return self.page_number_pagination.get_paginated_response(data)
+        else:
+            return self.cursor_pagination.get_paginated_response(data)
 
 
 # context manager for gathering a sequence of server timings
