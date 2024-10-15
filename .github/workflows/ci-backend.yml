@@ -275,8 +275,11 @@ jobs:
               id: login-ecr
               uses: aws-actions/amazon-ecr-login@v2
 
-            #unset the aws credentials
-            - run: unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN
+            - name: Unset AWS credentials
+              run: |
+                  unset AWS_ACCESS_KEY_ID
+                  unset AWS_SECRET_ACCESS_KEY
+                  unset AWS_SESSION_TOKEN
 
             - uses: ./.github/actions/run-backend-tests
               if: needs.changes.outputs.backend == 'true'
