@@ -1,6 +1,5 @@
 from typing import Any, cast
 import unittest
-from unittest import skip
 
 from freezegun import freeze_time
 from rest_framework.exceptions import ValidationError
@@ -1208,7 +1207,7 @@ class BaseTestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
     @also_test_with_materialized_columns(
         event_properties=[], person_properties=["$browser"], verify_no_jsonextract=False
     )
-    @skip("Works locally and works after you tmate onto github actions and run it, but fails in CI")
+    # @skip("Works locally and works after you tmate onto github actions and run it, but fails in CI")
     def test_correlation_with_multiple_properties(self):
         filters = {
             "events": [
@@ -1306,11 +1305,6 @@ class BaseTestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             timestamp="2020-01-04T14:00:00Z",
         )
 
-        result, _ = self._get_events_for_filters(
-            filters,
-            funnelCorrelationType=FunnelCorrelationResultsType.PROPERTIES,
-            funnelCorrelationNames=["$browser", "$nice"],
-        )
         result, _ = self._get_events_for_filters(
             filters,
             funnelCorrelationType=FunnelCorrelationResultsType.PROPERTIES,

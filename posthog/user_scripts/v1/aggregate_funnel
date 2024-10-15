@@ -1,0 +1,9 @@
+#!/bin/sh
+
+DIR_NAME=$(dirname "$0")
+
+case $( uname -m ) in
+aarch64) $DIR_NAME/aggregate_funnel_aarch64 "$@";;
+*) $DIR_NAME/aggregate_funnel_x86_64 "$@";;
+esac
+
