@@ -26,6 +26,7 @@ from .knock.template_knock import template as knock
 from .meta_ads.template_meta_ads import template as meta_ads
 from .activecampaign.template_activecampaign import template as activecampaign
 from .google_ads.template_google_ads import template as google_ads
+from .attio.template_attio import template as attio
 from .google_cloud_storage.template_google_cloud_storage import (
     template as google_cloud_storage,
     TemplateGoogleCloudStorageMigrator,
@@ -36,6 +37,7 @@ HOG_FUNCTION_TEMPLATES = [
     slack,
     webhook,
     activecampaign,
+    attio,
     avo,
     aws_kinesis,
     braze,
