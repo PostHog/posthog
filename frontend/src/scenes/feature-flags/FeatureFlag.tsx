@@ -952,9 +952,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                             </div>
                             <div className="col-span-4 flex items-center gap-1">
                                 <span>Rollout</span>
-                                <LemonButton onClick={distributeVariantsEqually} size="xsmall">
-                                    (Redistribute)
-                                </LemonButton>
+                                <LemonButton onClick={distributeVariantsEqually}>(Redistribute)</LemonButton>
                             </div>
                         </div>
                         {variants.map((variant, index) => (
