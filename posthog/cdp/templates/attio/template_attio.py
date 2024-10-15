@@ -35,7 +35,7 @@ let res := fetch(f'https://api.attio.com/v2/objects/people/records?matching_attr
     'body': body
 })
 if (res.status >= 400) {
-    print('Error from api.attio.com api:', res.status, res.body)
+    throw Error(f'Error from api.attio.com (status {res.status}): {res.body}')
 }
 """.strip(),
     inputs_schema=[
