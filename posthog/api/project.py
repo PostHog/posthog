@@ -297,7 +297,7 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
                     item_id="#",
                     activity="updated",
                     detail=Detail(
-                        name="Survey Config",
+                        name="global survey appearance",
                         changes=survey_config_changes_between,
                     ),
                 )
