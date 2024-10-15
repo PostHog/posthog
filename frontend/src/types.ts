@@ -3658,7 +3658,13 @@ export enum EventDefinitionType {
     EventPostHog = 'event_posthog',
 }
 
-export type IntegrationKind = 'slack' | 'salesforce' | 'hubspot' | 'google-pubsub' | 'google-cloud-storage'
+export type IntegrationKind =
+    | 'slack'
+    | 'salesforce'
+    | 'hubspot'
+    | 'google-pubsub'
+    | 'google-cloud-storage'
+    | 'google-ads'
 
 export interface IntegrationType {
     id: number
