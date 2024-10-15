@@ -1,7 +1,7 @@
 use anyhow::Error;
 use axum::async_trait;
 use serde_json::{json, Value};
-use sqlx::{pool::PoolConnection, postgres::PgRow, Error as SqlxError, PgPool, Postgres};
+use sqlx::{pool::PoolConnection, postgres::PgRow, Error as SqlxError, Postgres};
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -23,7 +23,9 @@ pub fn random_string(prefix: &str, length: usize) -> String {
     format!("{}{}", prefix, suffix)
 }
 
-pub async fn insert_new_team_in_redis(client: Arc<RedisClient>) -> Result<Team, Error> {
+pub async fn insert_new_team_in_redis(
+    client: Arc<dyn RedisClientTrait + Send + Sync>,
+) -> Result<Team, Error> {
     let id = rand::thread_rng().gen_range(0..10_000_000);
     let token = random_string("phc_", 12);
     let team = Team {
@@ -48,7 +50,7 @@ pub async fn insert_new_team_in_redis(client: Arc<RedisClient>) -> Result<Team, 
 }
 
 pub async fn insert_flags_for_team_in_redis(
-    client: Arc<RedisClient>,
+    client: Arc<dyn RedisClientTrait + Send + Sync>,
     team_id: i32,
     json_value: Option<String>,
 ) -> Result<(), Error> {
@@ -88,7 +90,9 @@ pub async fn insert_flags_for_team_in_redis(
     Ok(())
 }
 
-pub fn setup_redis_client(url: Option<String>) -> Arc<RedisClient> {
+// type RedisClientTrait = dyn RedisClient + Send + Sync;
+
+pub fn setup_redis_client(url: Option<String>) -> Arc<dyn RedisClientTrait + Send + Sync> {
     let redis_url = match url {
         Some(value) => value,
         None => "redis://localhost:6379/".to_string(),
@@ -130,7 +134,7 @@ pub fn create_flag_from_json(json_value: Option<String>) -> Vec<FeatureFlag> {
     flags
 }
 
-pub async fn setup_pg_reader_client(config: Option<&Config>) -> Arc<PgPool> {
+pub async fn setup_pg_reader_client(config: Option<&Config>) -> Arc<dyn Client + Send + Sync> {
     let config = config.unwrap_or(&DEFAULT_TEST_CONFIG);
     Arc::new(
         get_pool(&config.read_database_url, config.max_pg_connections)
@@ -139,7 +143,7 @@ pub async fn setup_pg_reader_client(config: Option<&Config>) -> Arc<PgPool> {
     )
 }
 
-pub async fn setup_pg_writer_client(config: Option<&Config>) -> Arc<PgPool> {
+pub async fn setup_pg_writer_client(config: Option<&Config>) -> Arc<dyn Client + Send + Sync> {
     let config = config.unwrap_or(&DEFAULT_TEST_CONFIG);
     Arc::new(
         get_pool(&config.write_database_url, config.max_pg_connections)
@@ -250,7 +254,7 @@ pub async fn insert_new_team_in_pg(
 }
 
 pub async fn insert_flag_for_team_in_pg(
-    client: Arc<PgPool>,
+    client: Arc<dyn Client + Send + Sync>,
     team_id: i32,
     flag: Option<FeatureFlagRow>,
 ) -> Result<FeatureFlagRow, Error> {
@@ -299,7 +303,7 @@ pub async fn insert_flag_for_team_in_pg(
 }
 
 pub async fn insert_person_for_team_in_pg(
-    client: Arc<PgPool>,
+    client: Arc<dyn Client + Send + Sync>,
     team_id: i32,
     distinct_id: String,
     properties: Option<Value>,

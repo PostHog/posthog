@@ -158,8 +158,8 @@ impl FlagRequest {
     pub async fn get_flags_from_cache_or_pg(
         &self,
         team_id: i32,
-        redis_client: Arc<dyn RedisClient + Send + Sync>,
-        pg_client: Arc<dyn DatabaseClient + Send + Sync>,
+        redis_client: &Arc<dyn RedisClient + Send + Sync>,
+        pg_client: &Arc<dyn DatabaseClient + Send + Sync>,
     ) -> Result<FeatureFlagList, FlagError> {
         let mut cache_hit = false;
         let flags = match FeatureFlagList::from_redis(redis_client.clone(), team_id).await {
@@ -167,10 +167,14 @@ impl FlagRequest {
                 cache_hit = true;
                 Ok(flags)
             }
-            Err(_) => match FeatureFlagList::from_pg(pg_client, team_id).await {
+            Err(_) => match FeatureFlagList::from_pg(pg_client.clone(), team_id).await {
                 Ok(flags) => {
-                    if let Err(e) =
-                        FeatureFlagList::update_flags_in_redis(redis_client, team_id, &flags).await
+                    if let Err(e) = FeatureFlagList::update_flags_in_redis(
+                        redis_client.clone(),
+                        team_id,
+                        &flags,
+                    )
+                    .await
                     {
                         tracing::warn!("Failed to update Redis cache: {}", e);
                         // TODO add new metric category for this
@@ -206,7 +210,6 @@ mod tests {
         TEAM_FLAGS_CACHE_PREFIX,
     };
     use crate::flag_request::FlagRequest;
-    use crate::redis::Client as RedisClient;
     use crate::team::Team;
     use crate::test_utils::{insert_new_team_in_redis, setup_pg_reader_client, setup_redis_client};
     use bytes::Bytes;
@@ -426,7 +429,7 @@ mod tests {
 
         // Test fetching from Redis
         let result = flag_request
-            .get_flags_from_cache_or_pg(team.id, redis_client.clone(), pg_client.clone())
+            .get_flags_from_cache_or_pg(team.id, &redis_client, &pg_client)
             .await;
         assert!(result.is_ok());
         let fetched_flags = result.unwrap();
@@ -483,7 +486,7 @@ mod tests {
             .expect("Failed to remove flags from Redis");
 
         let result = flag_request
-            .get_flags_from_cache_or_pg(team.id, redis_client.clone(), pg_client.clone())
+            .get_flags_from_cache_or_pg(team.id, &redis_client, &pg_client)
             .await;
         assert!(result.is_ok());
         // Verify that the flags were re-added to Redis

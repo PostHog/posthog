@@ -108,18 +108,15 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
     let hash_key_override = request.anon_distinct_id.clone();
 
     let feature_flags_from_cache_or_pg = request
-        .get_flags_from_cache_or_pg(team_id, state.redis.clone(), state.postgres_reader.clone())
+        .get_flags_from_cache_or_pg(team_id, &state.redis, &state.postgres_reader)
         .await?;
-
-    let postgres_reader_dyn: Arc<dyn Client + Send + Sync> = state.postgres_reader.clone();
-    let postgres_writer_dyn: Arc<dyn Client + Send + Sync> = state.postgres_writer.clone();
 
     let evaluation_context = FeatureFlagEvaluationContextBuilder::default()
         .team_id(team_id)
         .distinct_id(distinct_id)
         .feature_flags(feature_flags_from_cache_or_pg)
-        .postgres_reader(postgres_reader_dyn)
-        .postgres_writer(postgres_writer_dyn)
+        .postgres_reader(state.postgres_reader.clone())
+        .postgres_writer(state.postgres_writer.clone())
         .person_property_overrides(person_property_overrides)
         .group_property_overrides(group_property_overrides)
         .groups(groups)
