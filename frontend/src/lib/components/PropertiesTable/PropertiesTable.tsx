@@ -8,10 +8,11 @@ import { combineUrl } from 'kea-router'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTable, LemonTableColumns, LemonTableProps } from 'lib/lemon-ui/LemonTable'
 import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
-import { CORE_FILTER_DEFINITIONS_BY_GROUP, PROPERTY_KEYS } from 'lib/taxonomy'
+import { CORE_FILTER_DEFINITIONS_BY_GROUP, NON_DOLLAR_POSTHOG_PROPERTY_KEYS, PROPERTY_KEYS } from 'lib/taxonomy'
 import { isURL } from 'lib/utils'
 import { useMemo, useState } from 'react'
 import { NewProperty } from 'scenes/persons/NewProperty'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
@@ -209,6 +210,7 @@ export function PropertiesTable({
     const [searchTerm, setSearchTerm] = useState('')
     const { hidePostHogPropertiesInTable } = useValues(userPreferencesLogic)
     const { setHidePostHogPropertiesInTable } = useActions(userPreferencesLogic)
+    const { isCloudOrDev } = useValues(preflightLogic)
 
     const objectProperties = useMemo(() => {
         if (!properties || Array.isArray(properties)) {
@@ -228,7 +230,11 @@ export function PropertiesTable({
         }
 
         if (filterable && hidePostHogPropertiesInTable) {
-            entries = entries.filter(([key]) => !key.startsWith('$') && !PROPERTY_KEYS.includes(key))
+            entries = entries.filter(([key]) => {
+                const isPostHogProperty = key.startsWith('$') && PROPERTY_KEYS.includes(key)
+                const isNonDollarPostHogProperty = isCloudOrDev && NON_DOLLAR_POSTHOG_PROPERTY_KEYS.includes(key)
+                return !isPostHogProperty && !isNonDollarPostHogProperty
+            })
         }
 
         if (sortProperties) {
