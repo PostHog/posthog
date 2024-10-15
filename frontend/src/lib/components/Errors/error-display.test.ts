@@ -1,7 +1,7 @@
 import { getExceptionPropertiesFrom } from 'lib/components/Errors/ErrorDisplay'
 
 describe('Error Display', () => {
-    it('can read sentry stack trace when $exception_stack_trace_raw is not present', () => {
+    it('can read sentry stack trace when $exception_list is not present', () => {
         const eventProperties = {
             'should not be in the': 'result',
             $browser: 'Chrome',
@@ -53,8 +53,6 @@ describe('Error Display', () => {
             $browser: 'Chrome',
             $browser_version: '92.0.4515',
             $exception_message: 'There was an error creating the support ticket with zendesk.',
-            $exception_stack_trace_raw:
-                '[{"colno":220,"filename":"https://app-static-prod.posthog.com/static/chunk-UFQKIDIH.js","function":"submitZendeskTicket","in_app":true,"lineno":25}]',
             $exception_list: [
                 {
                     mechanism: {
@@ -118,7 +116,6 @@ describe('Error Display', () => {
             $browser: 'Chrome',
             $browser_version: '92.0.4515',
             $exception_message: 'the message sent into sentry captureMessage',
-            $exception_stack_trace_raw: undefined,
             $exception_synthetic: undefined,
             $exception_type: undefined,
             $lib: 'posthog-js',
@@ -179,7 +176,6 @@ describe('Error Display', () => {
             $os: 'Windows',
             $os_version: '10',
             $sentry_url: undefined,
-            $exception_stack_trace_raw: undefined,
             $exception_list: [
                 {
                     mechanism: {
