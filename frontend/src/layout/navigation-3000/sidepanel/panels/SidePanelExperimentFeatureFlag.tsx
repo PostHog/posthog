@@ -1,4 +1,4 @@
-import { IconPercentage } from '@posthog/icons'
+import { IconBalance } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDivider, LemonInput, LemonTable, Link, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
@@ -102,9 +102,9 @@ export const SidePanelExperimentFeatureFlag = (): JSX.Element => {
                                     <span>Rollout Percentage</span>
                                     <LemonButton
                                         onClick={distributeVariantsEqually}
-                                        tooltip="Redistribute variants equally"
+                                        tooltip="Redistribute variant rollout percentages equally"
                                     >
-                                        <IconPercentage />
+                                        <IconBalance />
                                     </LemonButton>
                                 </div>
                             ),

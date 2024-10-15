@@ -1,6 +1,6 @@
 import './FeatureFlag.scss'
 
-import { IconCollapse, IconExpand, IconPercentage, IconPlus, IconTrash } from '@posthog/icons'
+import { IconBalance, IconCollapse, IconExpand, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonDialog, LemonSegmentedButton, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form, Group } from 'kea-forms'
@@ -954,9 +954,9 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                 <span>Rollout</span>
                                 <LemonButton
                                     onClick={distributeVariantsEqually}
-                                    tooltip="Redistribute variants equally"
+                                    tooltip="Redistribute variant rollout percentages equally"
                                 >
-                                    <IconPercentage />
+                                    <IconBalance />
                                 </LemonButton>
                             </div>
                         </div>
