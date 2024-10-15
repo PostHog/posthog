@@ -1,6 +1,6 @@
 import './Variables.scss'
 
-import { IconCopy, IconGear } from '@posthog/icons'
+import { IconCopy, IconGear, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonInput, Popover } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -46,7 +46,7 @@ export const VariablesForDashboard = (): JSX.Element => {
 export const VariablesForInsight = (): JSX.Element => {
     const { featureFlags } = useValues(featureFlagLogic)
     const { variablesForInsight, showVariablesBar } = useValues(variablesLogic)
-    const { updateVariableValue } = useActions(variablesLogic)
+    const { updateVariableValue, removeVariable } = useActions(variablesLogic)
     const { showEditingUI } = useValues(dataVisualizationLogic)
     const { variableOverridesAreSet } = useValues(dataNodeLogic)
 
@@ -63,6 +63,7 @@ export const VariablesForInsight = (): JSX.Element => {
                         variable={n}
                         showEditingUI={showEditingUI}
                         onChange={updateVariableValue}
+                        onRemove={removeVariable}
                         variableOverridesAreSet={variableOverridesAreSet}
                     />
                 ))}
@@ -77,9 +78,16 @@ interface VariableInputProps {
     showEditingUI: boolean
     closePopover: () => void
     onChange: (variableId: string, value: any) => void
+    onRemove?: (variableId: string) => void
 }
 
-const VariableInput = ({ variable, showEditingUI, closePopover, onChange }: VariableInputProps): JSX.Element => {
+const VariableInput = ({
+    variable,
+    showEditingUI,
+    closePopover,
+    onChange,
+    onRemove,
+}: VariableInputProps): JSX.Element => {
     const [localInputValue, setLocalInputValue] = useState(variable.value ?? variable.default_value ?? '')
 
     const inputRef = useRef<HTMLInputElement>(null)
@@ -144,6 +152,14 @@ const VariableInput = ({ variable, showEditingUI, closePopover, onChange }: Vari
                             onClick={() => void copyToClipboard(variableAsHogQL, 'variable HogQL')}
                             tooltip="Copy HogQL"
                         />
+                        {onRemove && (
+                            <LemonButton
+                                onClick={() => onRemove(variable.id)}
+                                icon={<IconTrash />}
+                                size="xsmall"
+                                tooltip="Remove variable from insight"
+                            />
+                        )}
                         <LemonButton icon={<IconGear />} size="xsmall" tooltip="Open variable settings" />
                     </div>
                 </>
@@ -157,6 +173,7 @@ interface VariableComponentProps {
     showEditingUI: boolean
     onChange: (variableId: string, value: any) => void
     variableOverridesAreSet: boolean
+    onRemove?: (variableId: string) => void
 }
 
 const VariableComponent = ({
@@ -164,6 +181,7 @@ const VariableComponent = ({
     showEditingUI,
     onChange,
     variableOverridesAreSet,
+    onRemove,
 }: VariableComponentProps): JSX.Element => {
     const [isPopoverOpen, setPopoverOpen] = useState(false)
 
@@ -176,6 +194,7 @@ const VariableComponent = ({
                     showEditingUI={showEditingUI}
                     onChange={onChange}
                     closePopover={() => setPopoverOpen(false)}
+                    onRemove={onRemove}
                 />
             }
             visible={isPopoverOpen}

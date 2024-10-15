@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, key, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -34,16 +34,26 @@ export const variablesLogic = kea<variablesLogicType>([
     }),
     actions({
         addVariable: (variable: HogQLVariable) => ({ variable }),
+        addVariables: (variables: HogQLVariable[]) => ({ variables }),
+        removeVariable: (variableId: string) => ({ variableId }),
         updateVariableValue: (variableId: string, value: any) => ({ variableId, value }),
         setEditorQuery: (query: string) => ({ query }),
         resetVariables: true,
+        updateSourceQuery: true,
     }),
     reducers({
         internalSelectedVariables: [
             [] as HogQLVariable[],
             {
                 addVariable: (state, { variable }) => {
+                    if (state.find((n) => variable.variableId === n.variableId)) {
+                        return state
+                    }
+
                     return [...state, { ...variable }]
+                },
+                addVariables: (state, { variables }) => {
+                    return [...state, ...variables.map((n) => ({ ...n }))]
                 },
                 updateVariableValue: (state, { variableId, value }) => {
                     const variableIndex = state.findIndex((n) => n.variableId === variableId)
@@ -55,6 +65,15 @@ export const variablesLogic = kea<variablesLogicType>([
                     variablesInState[variableIndex] = { ...variablesInState[variableIndex], value }
 
                     return variablesInState
+                },
+                removeVariable: (state, { variableId }) => {
+                    const stateCopy = [...state]
+                    const index = stateCopy.findIndex((n) => n.variableId === variableId)
+                    if (index >= 0) {
+                        stateCopy.splice(index)
+                    }
+
+                    return stateCopy
                 },
                 resetVariables: () => [],
             },
@@ -94,11 +113,22 @@ export const variablesLogic = kea<variablesLogicType>([
             },
         ],
     }),
-    subscriptions(({ props, actions, values }) => ({
-        variablesForInsight: (variables: Variable[]) => {
-            if (values.variablesLoading || variables.length < Object.keys(values.query.source.variables ?? {}).length) {
+    listeners(({ props, values, actions }) => ({
+        addVariable: () => {
+            actions.updateSourceQuery()
+        },
+        removeVariable: () => {
+            actions.updateSourceQuery()
+        },
+        updateVariableValue: () => {
+            actions.updateSourceQuery()
+        },
+        updateSourceQuery: () => {
+            if (!values.featureFlags[FEATURE_FLAGS.INSIGHT_VARIABLES]) {
                 return
             }
+
+            const variables = values.variablesForInsight
 
             const query: DataVisualizationNode = {
                 ...values.query,
@@ -118,10 +148,6 @@ export const variablesLogic = kea<variablesLogicType>([
                 },
             }
 
-            if (!values.featureFlags[FEATURE_FLAGS.INSIGHT_VARIABLES]) {
-                return
-            }
-
             const queryVarsHaveChanged = haveVariablesOrFiltersChanged(query.source, values.query.source)
             if (!queryVarsHaveChanged) {
                 return
@@ -135,6 +161,8 @@ export const variablesLogic = kea<variablesLogicType>([
                 actions.setQuery(query)
             }
         },
+    })),
+    subscriptions(({ actions, values }) => ({
         editorQuery: (query: string) => {
             const queryVariableMatches = getVariablesFromQuery(query)
 
@@ -161,9 +189,11 @@ export const variablesLogic = kea<variablesLogicType>([
 
             actions.resetVariables()
 
-            Object.values(query.source.variables ?? {}).forEach((variable) => {
-                actions.addVariable(variable)
-            })
+            const variables = Object.values(query.source.variables ?? {})
+
+            if (variables.length) {
+                actions.addVariables(variables)
+            }
         },
     })),
     afterMount(({ actions, values }) => {
@@ -172,9 +202,5 @@ export const variablesLogic = kea<variablesLogicType>([
         }
 
         actions.getVariables()
-
-        // Object.values(values.query.source.variables ?? {}).forEach((variable) => {
-        //     actions.addVariable(variable)
-        // })
     }),
 ])

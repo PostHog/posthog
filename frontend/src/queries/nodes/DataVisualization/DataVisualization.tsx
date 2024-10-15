@@ -39,6 +39,7 @@ import { SideBar } from './Components/SideBar'
 import { Table } from './Components/Table'
 import { TableDisplay } from './Components/TableDisplay'
 import { AddVariableButton } from './Components/Variables/AddVariableButton'
+import { addVariableLogic } from './Components/Variables/addVariableLogic'
 import { VariablesForInsight } from './Components/Variables/Variables'
 import { variablesLogic } from './Components/Variables/variablesLogic'
 import { dataVisualizationLogic, DataVisualizationLogicProps } from './dataVisualizationLogic'
@@ -103,14 +104,16 @@ export function DataTableVisualization({
                         logic={variablesLogic}
                         props={{ key: dataVisualizationLogicProps.key, readOnly: readOnly ?? false }}
                     >
-                        <InternalDataTableVisualization
-                            uniqueKey={key}
-                            query={query}
-                            setQuery={setQuery}
-                            context={context}
-                            cachedResults={cachedResults}
-                            readOnly={readOnly}
-                        />
+                        <BindLogic logic={addVariableLogic} props={{ key: dataVisualizationLogicProps.key }}>
+                            <InternalDataTableVisualization
+                                uniqueKey={key}
+                                query={query}
+                                setQuery={setQuery}
+                                context={context}
+                                cachedResults={cachedResults}
+                                readOnly={readOnly}
+                            />
+                        </BindLogic>
                     </BindLogic>
                 </BindLogic>
             </BindLogic>

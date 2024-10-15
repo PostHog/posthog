@@ -243,7 +243,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             ['loadData'],
         ],
     })),
-    props({ query: {} } as DataVisualizationLogicProps),
+    props({ query: { source: {} } } as DataVisualizationLogicProps),
     actions(({ values }) => ({
         setVisualizationType: (visualizationType: ChartDisplayType) => ({ visualizationType }),
         updateXSeries: (columnName: string) => ({
