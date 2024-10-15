@@ -1,6 +1,6 @@
 import './FeatureFlag.scss'
 
-import { IconCollapse, IconExpand, IconPlus, IconTrash } from '@posthog/icons'
+import { IconCollapse, IconExpand, IconPercentage, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonDialog, LemonSegmentedButton, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form, Group } from 'kea-forms'
@@ -952,7 +952,12 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                             </div>
                             <div className="col-span-4 flex items-center gap-1">
                                 <span>Rollout</span>
-                                <LemonButton onClick={distributeVariantsEqually}>(Redistribute)</LemonButton>
+                                <LemonButton
+                                    onClick={distributeVariantsEqually}
+                                    tooltip="Redistribute variants equally"
+                                >
+                                    <IconPercentage />
+                                </LemonButton>
                             </div>
                         </div>
                         {variants.map((variant, index) => (
@@ -1023,6 +1028,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                                                 }
                                                             }
                                                         }}
+                                                        suffix={<span>%</span>}
                                                     />
                                                     {filterGroups.filter((group) => group.variant === variant.key)
                                                         .length > 0 && (
