@@ -222,7 +222,7 @@ class PropertySwapper(CloningVisitor):
             return ast.Call(
                 name="transform",
                 args=[
-                    node,
+                    ast.Call(name="toString", args=[node]),
                     ast.Constant(value=["true", "false"]),
                     ast.Constant(value=[True, False]),
                     ast.Constant(value=None),

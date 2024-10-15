@@ -3,6 +3,8 @@ import { PersonsJoinMode } from 'scenes/settings/environment/PersonsJoinMode'
 import { PersonsOnEvents } from 'scenes/settings/environment/PersonsOnEvents'
 import { SessionsTableVersion } from 'scenes/settings/environment/SessionsTableVersion'
 
+import { Realm } from '~/types'
+
 import {
     AutocaptureSettings,
     ExceptionAutocaptureSettings,
@@ -108,7 +110,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'exception-autocapture',
                 title: 'Exception autocapture',
                 component: <ExceptionAutocaptureSettings />,
-                flag: 'EXCEPTION_AUTOCAPTURE',
+                flag: 'ERROR_TRACKING',
             },
             {
                 id: 'web-vitals-autocapture',
@@ -469,6 +471,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'optout',
                 title: 'Anonymize data collection',
                 component: <OptOutCapture />,
+                hideOn: [Realm.Cloud],
             },
             {
                 id: 'hedgehog-mode',
