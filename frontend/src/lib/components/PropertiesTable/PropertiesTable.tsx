@@ -8,7 +8,12 @@ import { combineUrl } from 'kea-router'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTable, LemonTableColumns, LemonTableProps } from 'lib/lemon-ui/LemonTable'
 import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
-import { CORE_FILTER_DEFINITIONS_BY_GROUP, NON_DOLLAR_POSTHOG_PROPERTY_KEYS, PROPERTY_KEYS } from 'lib/taxonomy'
+import {
+    CORE_FILTER_DEFINITIONS_BY_GROUP,
+    getCoreFilterDefinition,
+    NON_DOLLAR_POSTHOG_PROPERTY_KEYS,
+    PROPERTY_KEYS,
+} from 'lib/taxonomy'
 import { isURL } from 'lib/utils'
 import { useMemo, useState } from 'react'
 import { NewProperty } from 'scenes/persons/NewProperty'
@@ -216,7 +221,20 @@ export function PropertiesTable({
         if (!properties || Array.isArray(properties)) {
             return []
         }
-        let entries = Object.entries(properties)
+        let entries = Object.entries(properties).sort((a, b) => {
+            // if this is a posthog property we want to sort by its label
+            const left = getCoreFilterDefinition(a[0], TaxonomicFilterGroupType.EventProperties)?.label || a[0]
+            const right = getCoreFilterDefinition(b[0], TaxonomicFilterGroupType.EventProperties)?.label || b[0]
+
+            if (left < right) {
+                return -1
+            }
+            if (left > right) {
+                return 1
+            }
+            return 0
+        })
+
         if (searchTerm) {
             const normalizedSearchTerm = searchTerm.toLowerCase()
             entries = entries.filter(([key, value]) => {
