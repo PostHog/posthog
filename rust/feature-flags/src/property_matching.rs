@@ -260,6 +260,7 @@ mod test_match_properties {
             operator: None,
             prop_type: "person".to_string(),
             group_type_index: None,
+            negation: None,
         };
 
         assert!(match_property(
@@ -313,6 +314,7 @@ mod test_match_properties {
             operator: Some(OperatorType::Exact),
             prop_type: "person".to_string(),
             group_type_index: None,
+            negation: None,
         };
 
         assert!(match_property(
@@ -335,6 +337,7 @@ mod test_match_properties {
             operator: Some(OperatorType::Exact),
             prop_type: "person".to_string(),
             group_type_index: None,
+            negation: None,
         };
 
         assert!(match_property(
@@ -379,6 +382,7 @@ mod test_match_properties {
             operator: Some(OperatorType::IsNot),
             prop_type: "person".to_string(),
             group_type_index: None,
+            negation: None,
         };
 
         assert!(match_property(
@@ -416,6 +420,7 @@ mod test_match_properties {
             operator: Some(OperatorType::IsNot),
             prop_type: "person".to_string(),
             group_type_index: None,
+            negation: None,
         };
 
         assert!(match_property(
@@ -490,6 +495,7 @@ mod test_match_properties {
             operator: Some(OperatorType::IsSet),
             prop_type: "person".to_string(),
             group_type_index: None,
+            negation: None,
         };
 
         assert!(match_property(
@@ -538,6 +544,7 @@ mod test_match_properties {
             operator: Some(OperatorType::Icontains),
             prop_type: "person".to_string(),
             group_type_index: None,
+            negation: None,
         };
 
         assert!(match_property(
@@ -595,6 +602,7 @@ mod test_match_properties {
             operator: Some(OperatorType::Icontains),
             prop_type: "person".to_string(),
             group_type_index: None,
+            negation: None,
         };
 
         assert!(match_property(
@@ -634,6 +642,7 @@ mod test_match_properties {
             operator: Some(OperatorType::Regex),
             prop_type: "person".to_string(),
             group_type_index: None,
+            negation: None,
         };
 
         assert!(match_property(
@@ -674,6 +683,7 @@ mod test_match_properties {
             operator: Some(OperatorType::Regex),
             prop_type: "person".to_string(),
             group_type_index: None,
+            negation: None,
         };
         assert!(match_property(
             &property_b,
@@ -708,6 +718,7 @@ mod test_match_properties {
             operator: Some(OperatorType::Regex),
             prop_type: "person".to_string(),
             group_type_index: None,
+            negation: None,
         };
 
         assert!(!match_property(
@@ -730,6 +741,7 @@ mod test_match_properties {
             operator: Some(OperatorType::Regex),
             prop_type: "person".to_string(),
             group_type_index: None,
+            negation: None,
         };
         assert!(match_property(
             &property_d,
@@ -760,6 +772,7 @@ mod test_match_properties {
             operator: Some(OperatorType::Gt),
             prop_type: "person".to_string(),
             group_type_index: None,
+            negation: None,
         };
 
         assert!(match_property(
@@ -802,6 +815,7 @@ mod test_match_properties {
             operator: Some(OperatorType::Lt),
             prop_type: "person".to_string(),
             group_type_index: None,
+            negation: None,
         };
 
         assert!(match_property(
@@ -848,6 +862,7 @@ mod test_match_properties {
             operator: Some(OperatorType::Gte),
             prop_type: "person".to_string(),
             group_type_index: None,
+            negation: None,
         };
 
         assert!(match_property(
@@ -889,6 +904,7 @@ mod test_match_properties {
             operator: Some(OperatorType::Lt),
             prop_type: "person".to_string(),
             group_type_index: None,
+            negation: None,
         };
 
         assert!(match_property(
@@ -935,6 +951,7 @@ mod test_match_properties {
             operator: Some(OperatorType::Lt),
             prop_type: "person".to_string(),
             group_type_index: None,
+            negation: None,
         };
 
         assert!(match_property(
@@ -1013,6 +1030,7 @@ mod test_match_properties {
             operator: Some(OperatorType::IsNot),
             prop_type: "person".to_string(),
             group_type_index: None,
+            negation: None,
         };
 
         assert!(!match_property(
@@ -1034,6 +1052,7 @@ mod test_match_properties {
             operator: Some(OperatorType::IsSet),
             prop_type: "person".to_string(),
             group_type_index: None,
+            negation: None,
         };
 
         assert!(match_property(
@@ -1049,6 +1068,7 @@ mod test_match_properties {
             operator: Some(OperatorType::Icontains),
             prop_type: "person".to_string(),
             group_type_index: None,
+            negation: None,
         };
 
         assert!(match_property(
@@ -1070,6 +1090,7 @@ mod test_match_properties {
             operator: Some(OperatorType::Regex),
             prop_type: "person".to_string(),
             group_type_index: None,
+            negation: None,
         };
 
         assert!(!match_property(
@@ -1085,6 +1106,7 @@ mod test_match_properties {
             operator: Some(OperatorType::Regex),
             prop_type: "person".to_string(),
             group_type_index: None,
+            negation: None,
         };
 
         assert!(!match_property(
@@ -1118,6 +1140,7 @@ mod test_match_properties {
             operator: None,
             prop_type: "person".to_string(),
             group_type_index: None,
+            negation: None,
         };
 
         assert!(!match_property(
@@ -1137,6 +1160,7 @@ mod test_match_properties {
             operator: Some(OperatorType::Exact),
             prop_type: "person".to_string(),
             group_type_index: None,
+            negation: None,
         };
 
         assert!(!match_property(
@@ -1152,6 +1176,7 @@ mod test_match_properties {
             operator: Some(OperatorType::IsSet),
             prop_type: "person".to_string(),
             group_type_index: None,
+            negation: None,
         };
 
         assert!(!match_property(
@@ -1167,6 +1192,7 @@ mod test_match_properties {
             operator: Some(OperatorType::IsNotSet),
             prop_type: "person".to_string(),
             group_type_index: None,
+            negation: None,
         };
 
         assert!(match_property(
@@ -1203,6 +1229,7 @@ mod test_match_properties {
             operator: Some(OperatorType::Icontains),
             prop_type: "person".to_string(),
             group_type_index: None,
+            negation: None,
         };
 
         assert!(!match_property(
@@ -1218,6 +1245,7 @@ mod test_match_properties {
             operator: Some(OperatorType::NotIcontains),
             prop_type: "person".to_string(),
             group_type_index: None,
+            negation: None,
         };
 
         assert!(!match_property(
@@ -1233,6 +1261,7 @@ mod test_match_properties {
             operator: Some(OperatorType::Regex),
             prop_type: "person".to_string(),
             group_type_index: None,
+            negation: None,
         };
 
         assert!(!match_property(
@@ -1248,6 +1277,7 @@ mod test_match_properties {
             operator: Some(OperatorType::NotRegex),
             prop_type: "person".to_string(),
             group_type_index: None,
+            negation: None,
         };
 
         assert!(!match_property(
@@ -1263,6 +1293,7 @@ mod test_match_properties {
             operator: Some(OperatorType::Gt),
             prop_type: "person".to_string(),
             group_type_index: None,
+            negation: None,
         };
 
         assert!(!match_property(
@@ -1278,6 +1309,7 @@ mod test_match_properties {
             operator: Some(OperatorType::Gte),
             prop_type: "person".to_string(),
             group_type_index: None,
+            negation: None,
         };
 
         assert!(!match_property(
@@ -1293,6 +1325,7 @@ mod test_match_properties {
             operator: Some(OperatorType::Lt),
             prop_type: "person".to_string(),
             group_type_index: None,
+            negation: None,
         };
 
         assert!(!match_property(
@@ -1308,6 +1341,7 @@ mod test_match_properties {
             operator: Some(OperatorType::Lte),
             prop_type: "person".to_string(),
             group_type_index: None,
+            negation: None,
         };
 
         assert!(!match_property(
@@ -1324,6 +1358,7 @@ mod test_match_properties {
             operator: Some(OperatorType::IsDateBefore),
             prop_type: "person".to_string(),
             group_type_index: None,
+            negation: None,
         };
 
         assert!(!match_property(

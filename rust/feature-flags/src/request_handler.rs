@@ -371,6 +371,7 @@ mod tests {
                         operator: Some(OperatorType::Exact),
                         prop_type: "person".to_string(),
                         group_type_index: None,
+                        negation: None,
                     }]),
                     rollout_percentage: Some(100.0), // Set to 100% to ensure it's always on
                     variant: None,
@@ -624,6 +625,7 @@ mod tests {
                         operator: Some(OperatorType::Exact),
                         prop_type: "group".to_string(),
                         group_type_index: Some(0),
+                        negation: None,
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
