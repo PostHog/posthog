@@ -123,9 +123,6 @@ function ActiveFlags({ flags }: { flags: string[] }): JSX.Element {
 
 export function getExceptionPropertiesFrom(eventProperties: Record<string, any>): Record<string, any> {
     const {
-        $exception_type,
-        $exception_message,
-        $exception_synthetic,
         $lib,
         $lib_version,
         $browser,
@@ -138,8 +135,15 @@ export function getExceptionPropertiesFrom(eventProperties: Record<string, any>)
         $level,
     } = eventProperties
 
+    let $exception_type = eventProperties.$exception_type
+    let $exception_message = eventProperties.$exception_message
+    let $exception_synthetic = eventProperties.$exception_synthetic
     let $exception_stack_trace_raw = eventProperties.$exception_stack_trace_raw
     let $exception_list = eventProperties.$exception_list
+
+    // TODO: I want to remove stack_trace_raw completely - this will break old existing js events, but the same
+    // will happen again anyway when the rust pipeline is ready. Since no users are using this(right?)- seems alright to go for it.
+
     // exception autocapture sets $exception_stack_trace_raw as a string
     // if it isn't present then this is probably a sentry exception.
     // try and grab the frames from that
@@ -151,12 +155,22 @@ export function getExceptionPropertiesFrom(eventProperties: Record<string, any>)
             }
         }
     }
-    // exception autocapture sets $exception_list for chained exceptions.
-    // If it's not present, get this list from the sentry_exception
+    // exception autocapture sets $exception_list for all exceptions.
+    // If it's not present, then this is probably a sentry exception. Get this list from the sentry_exception
     if (!$exception_list?.length && $sentry_exception) {
         if (Array.isArray($sentry_exception.values)) {
             $exception_list = $sentry_exception.values
         }
+    }
+
+    if (!$exception_type) {
+        $exception_type = $exception_list?.[0]?.type
+    }
+    if (!$exception_message) {
+        $exception_message = $exception_list?.[0]?.value
+    }
+    if ($exception_synthetic == undefined) {
+        $exception_synthetic = $exception_list?.[0]?.mechanism?.synthetic
     }
 
     return {

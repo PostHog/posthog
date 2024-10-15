@@ -105,4 +105,73 @@ describe('enrichExceptionEvent()', () => {
 
         expect(response.properties['$exception_fingerprint']).toBeUndefined()
     })
+
+    it('uses exception_list to generate message, type, and fingerprint when not present', async () => {
+        event.event = '$exception'
+        event.properties['$exception_list'] = [
+            {
+                mechanism: {
+                    handled: true,
+                    type: 'generic',
+                    synthetic: false,
+                },
+                stacktrace: {
+                    frames: [
+                        {
+                            colno: 220,
+                            filename: 'https://app-static-prod.posthog.com/static/chunk-UFQKIDIH.js',
+                            function: 'submitZendeskTicket',
+                            in_app: true,
+                            lineno: 25,
+                        },
+                    ],
+                },
+                type: 'Error',
+                value: 'There was an error creating the support ticket with zendesk.',
+            },
+        ]
+
+        const response = await enrichExceptionEventStep(runner, event)
+
+        expect(response.properties['$exception_fingerprint']).toStrictEqual([
+            'Error',
+            'There was an error creating the support ticket with zendesk.',
+            'submitZendeskTicket',
+        ])
+    })
+
+    it('exception_type overrides exception_list to generate fingerprint when present', async () => {
+        event.event = '$exception'
+        event.properties['$exception_list'] = [
+            {
+                mechanism: {
+                    handled: true,
+                    type: 'generic',
+                    synthetic: false,
+                },
+                stacktrace: {
+                    frames: [
+                        {
+                            colno: 220,
+                            filename: 'https://app-static-prod.posthog.com/static/chunk-UFQKIDIH.js',
+                            function: 'submitZendeskTicket',
+                            in_app: true,
+                            lineno: 25,
+                        },
+                    ],
+                },
+                type: 'Error',
+                value: 'There was an error creating the support ticket with zendesk.',
+            },
+        ]
+        event.properties['$exception_type'] = 'UnhandledRejection'
+
+        const response = await enrichExceptionEventStep(runner, event)
+
+        expect(response.properties['$exception_fingerprint']).toStrictEqual([
+            'UnhandledRejection',
+            'There was an error creating the support ticket with zendesk.',
+            'submitZendeskTicket',
+        ])
+    })
 })

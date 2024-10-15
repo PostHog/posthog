@@ -45,6 +45,13 @@ export function enrichExceptionEventStep(
         type = event.properties['$exception_type']
         message = event.properties['$exception_message']
 
+        if (!type && exceptionList && exceptionList.length > 0) {
+            type = exceptionList[0].type
+        }
+        if (!message && exceptionList && exceptionList.length > 0) {
+            message = exceptionList[0].value
+        }
+
         if (fingerPrint) {
             EXTERNAL_FINGERPRINT_COUNTER.inc()
             return Promise.resolve(event)
