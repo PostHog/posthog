@@ -46,12 +46,14 @@ export const eventPropertyFilteringLogic = kea<eventPropertyFilteringLogicType>(
                         return props
                     }
 
-                    return Object.entries(props).filter(([key]) => {
-                        const isPostHogProperty = key.startsWith('$') && PROPERTY_KEYS.includes(key)
-                        const isNonDollarPostHogProperty =
-                            isCloudOrDev && NON_DOLLAR_POSTHOG_PROPERTY_KEYS.includes(key)
-                        return !isPostHogProperty && !isNonDollarPostHogProperty
-                    })
+                    return Object.fromEntries(
+                        Object.entries(props).filter(([key]) => {
+                            const isPostHogProperty = key.startsWith('$') && PROPERTY_KEYS.includes(key)
+                            const isNonDollarPostHogProperty =
+                                isCloudOrDev && NON_DOLLAR_POSTHOG_PROPERTY_KEYS.includes(key)
+                            return !isPostHogProperty && !isNonDollarPostHogProperty
+                        })
+                    )
                 }
             },
         ],
