@@ -280,6 +280,12 @@ jobs:
                   unset AWS_ACCESS_KEY_ID
                   unset AWS_SECRET_ACCESS_KEY
                   unset AWS_SESSION_TOKEN
+                  unset AWS_DEFAULT_REGION
+                  unset AWS_REGION
+                  unset AWS_ROLE_ARN
+                  unset AWS_ROLE_SESSION_NAME
+                  unset AWS_CREDENTIAL_EXPIRATION
+                  unset AWS_PROFILE
 
             - uses: ./.github/actions/run-backend-tests
               if: needs.changes.outputs.backend == 'true'
