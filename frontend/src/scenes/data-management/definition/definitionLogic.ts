@@ -113,7 +113,7 @@ export const definitionLogic = kea<definitionLogicType>([
                 return [
                     {
                         key: Scene.DataManagement,
-                        name: `Data Management`,
+                        name: `Data management`,
                         path: isEvent ? urls.eventDefinitions() : urls.propertyDefinitions(),
                     },
                     {

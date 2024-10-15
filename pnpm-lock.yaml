@@ -53,8 +53,8 @@ dependencies:
     specifier: ^1.0.54
     version: 1.0.54(luxon@3.5.0)
   '@posthog/icons':
-    specifier: 0.8.1
-    version: 0.8.1(react-dom@18.2.0)(react@18.2.0)
+    specifier: 0.8.4
+    version: 0.8.4(react-dom@18.2.0)(react@18.2.0)
   '@posthog/plugin-scaffold':
     specifier: ^1.4.4
     version: 1.4.4
@@ -67,6 +67,12 @@ dependencies:
   '@sentry/react':
     specifier: 7.112.1
     version: 7.112.1(react@18.2.0)
+  '@stripe/react-stripe-js':
+    specifier: ^2.8.0
+    version: 2.8.0(@stripe/stripe-js@4.5.0)(react-dom@18.2.0)(react@18.2.0)
+  '@stripe/stripe-js':
+    specifier: ^4.5.0
+    version: 4.5.0
   '@tailwindcss/container-queries':
     specifier: ^0.1.1
     version: 0.1.1(tailwindcss@3.4.0)
@@ -272,8 +278,8 @@ dependencies:
     specifier: ^9.3.0
     version: 9.3.0(postcss@8.4.31)
   posthog-js:
-    specifier: 1.166.0
-    version: 1.166.0
+    specifier: 1.168.0
+    version: 1.168.0
   posthog-js-lite:
     specifier: 3.0.0
     version: 3.0.0
@@ -5408,8 +5414,8 @@ packages:
       luxon: 3.5.0
     dev: false
 
-  /@posthog/icons@0.8.1(react-dom@18.2.0)(react@18.2.0):
-    resolution: {integrity: sha512-/ryXgFnWGzHmwijHE/0gQcEyAD/WkKuwf3NCMG4ibmGMpEqm/d12/+Ccuf3Zj2VZuc+0atGCHkHOiSNJ8dw97A==}
+  /@posthog/icons@0.8.4(react-dom@18.2.0)(react@18.2.0):
+    resolution: {integrity: sha512-AMCLQ0SOcLytsjavs8FlLc52oeUdkyeoatPSPONZ9QK//Xqx967Xf3ZvFxHbOxYiKFCShd996AGqBn+5nrhxOw==}
     peerDependencies:
       react: '>=16.14.0'
       react-dom: '>=16.14.0'
@@ -7379,6 +7385,24 @@ packages:
       '@types/express': 4.17.21
       file-system-cache: 2.3.0
     dev: true
+
+  /@stripe/react-stripe-js@2.8.0(@stripe/stripe-js@4.5.0)(react-dom@18.2.0)(react@18.2.0):
+    resolution: {integrity: sha512-Vf1gNEuBxA9EtxiLghm2ZWmgbADNMJw4HW6eolUu0DON/6mZvWZgk0KHolN0sozNJwYp0i/8hBsDBcBUWcvnbw==}
+    peerDependencies:
+      '@stripe/stripe-js': ^1.44.1 || ^2.0.0 || ^3.0.0 || ^4.0.0
+      react: ^16.8.0 || ^17.0.0 || ^18.0.0
+      react-dom: ^16.8.0 || ^17.0.0 || ^18.0.0
+    dependencies:
+      '@stripe/stripe-js': 4.5.0
+      prop-types: 15.8.1
+      react: 18.2.0
+      react-dom: 18.2.0(react@18.2.0)
+    dev: false
+
+  /@stripe/stripe-js@4.5.0:
+    resolution: {integrity: sha512-dMOzc58AOlsF20nYM/avzV8RFhO/vgYTY7ajLMH6mjlnZysnOHZxsECQvjEmL8Q/ukPwHkOnxSPW/QGCCnp7XA==}
+    engines: {node: '>=12.16'}
+    dev: false
 
   /@sucrase/jest-plugin@3.0.0(jest@29.7.0)(sucrase@3.29.0):
     resolution: {integrity: sha512-VRY6YKYImVWiRg1H3Yu24hwB1UPJDSDR62R/n+lOHR3+yDrfHEIAoddJivblMYN6U3vD+ndfTSrecZ9Jl+iGNw==}
@@ -13913,7 +13937,7 @@ packages:
       hogan.js: 3.0.2
       htm: 3.1.1
       instantsearch-ui-components: 0.3.0
-      preact: 10.24.1
+      preact: 10.24.3
       qs: 6.9.7
       search-insights: 2.13.0
     dev: false
@@ -17728,11 +17752,11 @@ packages:
     resolution: {integrity: sha512-dyajjnfzZD1tht4N7p7iwf7nBnR1MjVaVu+MKr+7gBgA39bn28wizCIJZztZPtHy4PY0YwtSGgwfBCuG/hnHgA==}
     dev: false
 
-  /posthog-js@1.166.0:
-    resolution: {integrity: sha512-om7rhbgP3OzJDJ3wdrp6cuKVWC+7iiFeVv+g8uaZPLI6zvzuaNdq4a3s0ltnfBpROlZrWw4oJknoVwj7I3hVTQ==}
+  /posthog-js@1.168.0:
+    resolution: {integrity: sha512-FxYxdXe407QsK8bqWnTVLcjhJnvOY3X3++4Lc1qOHPChln/e8w04uoLqLUIEfpFmVJBLM6XrsdvTWYETukOcPg==}
     dependencies:
       fflate: 0.4.8
-      preact: 10.24.1
+      preact: 10.24.3
       web-vitals: 4.2.3
     dev: false
 
@@ -17740,8 +17764,8 @@ packages:
     resolution: {integrity: sha512-Q+/tYsFU9r7xoOJ+y/ZTtdVQwTWfzjbiXBDMM/JKUux3+QPP02iUuIoeBQ+Ot6oEDlC+/PGjB/5A3K7KKb7hcw==}
     dev: false
 
-  /preact@10.24.1:
-    resolution: {integrity: sha512-PnBAwFI3Yjxxcxw75n6VId/5TFxNW/81zexzWD9jn1+eSrOP84NdsS38H5IkF/UH3frqRPT+MvuCoVHjTDTnDw==}
+  /preact@10.24.3:
+    resolution: {integrity: sha512-Z2dPnBnMUfyQfSQ+GBdsGa16hz35YmLmtTLhM169uW944hYL6xzTYkJjC07j+Wosz733pMWx0fgON3JNw1jJQA==}
     dev: false
 
   /prelude-ls@1.2.1:

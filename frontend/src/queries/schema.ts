@@ -17,6 +17,7 @@ import {
     FeaturePropertyFilter,
     FilterLogicalOperator,
     FilterType,
+    FunnelMathType,
     FunnelsFilterType,
     GroupMathType,
     GroupPropertyFilter,
@@ -106,8 +107,10 @@ export enum NodeKind {
     DatabaseSchemaQuery = 'DatabaseSchemaQuery',
 
     // AI queries
+    SuggestedQuestionsQuery = 'SuggestedQuestionsQuery',
     TeamTaxonomyQuery = 'TeamTaxonomyQuery',
     EventTaxonomyQuery = 'EventTaxonomyQuery',
+    ActorsPropertyTaxonomyQuery = 'ActorsPropertyTaxonomyQuery',
 }
 
 export type AnyDataNode =
@@ -167,7 +170,7 @@ export type QuerySchema =
     | SavedInsightNode
     | InsightVizNode
 
-    // New queries, not yet implemented
+    // Classic insights
     | TrendsQuery
     | FunnelsQuery
     | RetentionQuery
@@ -178,6 +181,9 @@ export type QuerySchema =
 
     // Misc
     | DatabaseSchemaQuery
+
+    // AI
+    | SuggestedQuestionsQuery
 
 // Keep this, because QuerySchema itself will be collapsed as it is used in other models
 export type QuerySchemaRoot = QuerySchema
@@ -460,7 +466,13 @@ export interface HogQLAutocomplete extends DataNode<HogQLAutocompleteResponse> {
     endPosition: integer
 }
 
-export type MathType = BaseMathType | PropertyMathType | CountPerActorMathType | GroupMathType | HogQLMathType
+export type MathType =
+    | BaseMathType
+    | FunnelMathType
+    | PropertyMathType
+    | CountPerActorMathType
+    | GroupMathType
+    | HogQLMathType
 
 export interface EntityNode extends Node {
     name?: string
@@ -1584,8 +1596,10 @@ export type InsightQueryNode =
     | LifecycleQuery
 
 export interface ExperimentVariantTrendResult {
+    key: string
     count: number
     exposure: number
+    absolute_exposure: number
 }
 
 export interface ExperimentVariantFunnelResult {
@@ -1984,6 +1998,16 @@ export interface HogCompileResponse {
     bytecode: any[]
 }
 
+export interface SuggestedQuestionsQuery extends DataNode<SuggestedQuestionsQueryResponse> {
+    kind: NodeKind.SuggestedQuestionsQuery
+}
+
+export interface SuggestedQuestionsQueryResponse {
+    questions: string[]
+}
+
+export type CachedSuggestedQuestionsQueryResponse = CachedQueryResponse<SuggestedQuestionsQueryResponse>
+
 export interface TeamTaxonomyItem {
     event: string
     count: integer
@@ -2015,3 +2039,18 @@ export interface EventTaxonomyQuery extends DataNode<EventTaxonomyQueryResponse>
 export type EventTaxonomyQueryResponse = AnalyticsQueryResponseBase<EventTaxonomyResponse>
 
 export type CachedEventTaxonomyQueryResponse = CachedQueryResponse<EventTaxonomyQueryResponse>
+
+export interface ActorsPropertyTaxonomyResponse {
+    sample_values: string[]
+    sample_count: integer
+}
+
+export interface ActorsPropertyTaxonomyQuery extends DataNode<ActorsPropertyTaxonomyQueryResponse> {
+    kind: NodeKind.ActorsPropertyTaxonomyQuery
+    property: string
+    group_type_index?: integer
+}
+
+export type ActorsPropertyTaxonomyQueryResponse = AnalyticsQueryResponseBase<ActorsPropertyTaxonomyResponse>
+
+export type CachedActorsPropertyTaxonomyQueryResponse = CachedQueryResponse<ActorsPropertyTaxonomyQueryResponse>

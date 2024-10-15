@@ -2,6 +2,7 @@ import './UnsubscribeSurveyModal.scss'
 
 import { LemonBanner, LemonButton, LemonCheckbox, LemonLabel, LemonModal, LemonTextArea, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { supportLogic } from 'lib/components/Support/supportLogic'
 
 import { BillingProductV2AddonType, BillingProductV2Type } from '~/types'
 
@@ -32,6 +33,7 @@ export const UnsubscribeSurveyModal = ({
     const { deactivateProduct, resetUnsubscribeError } = useActions(billingLogic)
     const { unsubscribeError, billingLoading, billing } = useValues(billingLogic)
     const { unsubscribeDisabledReason, itemsToDisable } = useValues(exportsUnsubscribeTableLogic)
+    const { openSupportForm } = useActions(supportLogic)
 
     const textAreaNotEmpty = surveyResponse['$survey_response']?.length > 0
     const includesPipelinesAddon =
@@ -150,10 +152,11 @@ export const UnsubscribeSurveyModal = ({
                         </Link>
                         {`${product.type !== 'session_replay' ? ' or ' : ', '}`}
                         <Link
-                            to="mailto:sales@posthog.com?subject=Help%20reducing%20PostHog%20bill"
+                            to=""
                             target="_blank"
                             onClick={() => {
                                 reportSurveyDismissed(surveyID)
+                                openSupportForm({ target_area: 'billing', isEmailFormOpen: true })
                             }}
                         >
                             chat with support
