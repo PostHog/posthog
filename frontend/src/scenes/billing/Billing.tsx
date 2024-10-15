@@ -223,7 +223,7 @@ export function Billing(): JSX.Element {
                                 center
                                 data-attr="manage-billing"
                             >
-                                {billing.subscription_level === 'paid'
+                                {billing.has_active_subscription
                                     ? 'Manage card details and invoices'
                                     : 'View past invoices'}
                             </LemonButton>
