@@ -154,6 +154,7 @@ export async function fetchTeam(client: PostgresRouter, teamId: Team['id']): Pro
         `
             SELECT
                 id,
+                project_id,
                 uuid,
                 organization_id,
                 name,
@@ -181,6 +182,7 @@ export async function fetchTeamByToken(client: PostgresRouter, token: string): P
         `
             SELECT
                 id,
+                project_id,
                 uuid,
                 organization_id,
                 name,

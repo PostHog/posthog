@@ -315,8 +315,8 @@ export const createGroupType = async (teamId: number, index: number, groupType: 
     await postgres.query(
         PostgresUse.COMMON_WRITE,
         `
-        INSERT INTO posthog_grouptypemapping (team_id, group_type, group_type_index)
-        VALUES ($1, $2, $3)
+        INSERT INTO posthog_grouptypemapping (team_id, project_id, group_type, group_type_index)
+        VALUES ($1, $1, $2, $3)
         `,
         [teamId, groupType, index],
         'insertGroupType'
@@ -455,7 +455,7 @@ export const createOrganizationRaw = async (organizationProperties = {}) => {
 
     await postgres.query(
         PostgresUse.COMMON_WRITE,
-        `INSERT into posthog_organization 
+        `INSERT into posthog_organization
         (${keys})
         VALUES (${values})
         `,
