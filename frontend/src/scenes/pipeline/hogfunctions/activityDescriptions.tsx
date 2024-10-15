@@ -85,11 +85,13 @@ export function hogFunctionActivityDescriber(logItem: ActivityLogItem, asNotific
         return { description: null }
     }
 
+    const objectNoun = logItem?.detail.type ?? 'hog function'
+
     if (logItem.activity == 'created') {
         return {
             description: (
                 <>
-                    <strong>{userNameForLogItem(logItem)}</strong> created the hog function:{' '}
+                    <strong>{userNameForLogItem(logItem)}</strong> created the {objectNoun}:{' '}
                     {nameOrLinkToHogFunction(logItem?.item_id, logItem?.detail.name)}
                 </>
             ),
@@ -100,7 +102,7 @@ export function hogFunctionActivityDescriber(logItem: ActivityLogItem, asNotific
         return {
             description: (
                 <>
-                    <strong>{userNameForLogItem(logItem)}</strong> deleted the hog function: {logItem.detail.name}
+                    <strong>{userNameForLogItem(logItem)}</strong> deleted the {objectNoun}: {logItem.detail.name}
                 </>
             ),
         }
@@ -184,17 +186,17 @@ export function hogFunctionActivityDescriber(logItem: ActivityLogItem, asNotific
                 }
                 case 'deleted': {
                     if (change.after) {
-                        changes.push({ inline: 'deleted', inlist: 'deleted the hog function' })
+                        changes.push({ inline: 'deleted', inlist: `deleted the ${objectNoun}` })
                     } else {
-                        changes.push({ inline: 'undeleted', inlist: 'undeleted the hog function' })
+                        changes.push({ inline: 'undeleted', inlist: `undeleted the ${objectNoun}` })
                     }
                     break
                 }
                 case 'enabled': {
                     if (change.after) {
-                        changes.push({ inline: 'enabled', inlist: 'enabled the hog function' })
+                        changes.push({ inline: 'enabled', inlist: `enabled the ${objectNoun}` })
                     } else {
-                        changes.push({ inline: 'disabled', inlist: 'disabled the hog function' })
+                        changes.push({ inline: 'disabled', inlist: `disabled the ${objectNoun}` })
                     }
                     break
                 }
@@ -212,11 +214,11 @@ export function hogFunctionActivityDescriber(logItem: ActivityLogItem, asNotific
             description:
                 changes.length == 1 ? (
                     <>
-                        <strong>{name}</strong> {changes[0].inline} the hog function: {functionName}
+                        <strong>{name}</strong> {changes[0].inline} the {objectNoun}: {functionName}
                     </>
                 ) : (
                     <div>
-                        <strong>{name}</strong> updated the hog function: {functionName}
+                        <strong>{name}</strong> updated the {objectNoun}: {functionName}
                         <ul className="list-disc ml-5">
                             {changes.map((c, i) => (
                                 <li key={i}>{c.inlist}</li>

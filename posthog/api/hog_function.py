@@ -319,7 +319,7 @@ class HogFunctionViewSet(
             item_id=serializer.instance.id,
             scope="HogFunction",
             activity="created",
-            detail=Detail(name=serializer.instance.name),
+            detail=Detail(name=serializer.instance.name, type=serializer.instance.type),
         )
 
     def perform_update(self, serializer):
@@ -342,5 +342,5 @@ class HogFunctionViewSet(
             item_id=instance_id,
             scope="HogFunction",
             activity="updated",
-            detail=Detail(changes=changes, name=serializer.instance.name),
+            detail=Detail(changes=changes, name=serializer.instance.name, type=serializer.instance.type),
         )
