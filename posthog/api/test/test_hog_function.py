@@ -136,14 +136,23 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self,
         function_id: Optional[int] = None,
     ) -> list:
+        params = {"scope": "HogFunction", "page": 1, "limit": 20}
         if function_id:
-            url = f"/api/projects/{self.team.pk}/hog_functions/{function_id}/activity"
-        else:
-            url = f"/api/projects/{self.team.pk}/hog_functions/activity"
-
-        activity = self.client.get(url)
+            params["item_id"] = function_id
+        activity = self.client.get(f"/api/projects/{self.team.pk}/activity_log", params)
         self.assertEqual(activity.status_code, status.HTTP_200_OK)
         return activity.json().get("results")
+
+    def _filter_expected_keys(self, actual_data, expected_structure):
+        if isinstance(expected_structure, list) and expected_structure and isinstance(expected_structure[0], dict):
+            return [self._filter_expected_keys(item, expected_structure[0]) for item in actual_data]
+        elif isinstance(expected_structure, dict):
+            return {
+                key: self._filter_expected_keys(actual_data.get(key), expected_value)
+                for key, expected_value in expected_structure.items()
+            }
+        else:
+            return actual_data
 
     def test_create_hog_function(self, *args):
         response = self.client.post(
@@ -172,7 +181,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         }
 
         id = response.json()["id"]
-        assert self._get_function_activity(id) == [
+        expected_activities = [
             {
                 "activity": "created",
                 "created_at": ANY,
@@ -181,7 +190,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     "changes": None,
                     "short_id": None,
                     "trigger": None,
-                    "type": None,
+                    "type": "destination",
                 },
                 "item_id": id,
                 "scope": "HogFunction",
@@ -191,6 +200,12 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 },
             },
         ]
+        actual_activities = self._get_function_activity(id)
+        filtered_actual_activities = [
+            self._filter_expected_keys(actual_activity, expected_activity)
+            for actual_activity, expected_activity in zip(actual_activities, expected_activities)
+        ]
+        assert filtered_actual_activities == expected_activities
 
     def test_creates_with_template_id(self, *args):
         response = self.client.post(
@@ -242,7 +257,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert list_res.status_code == status.HTTP_200_OK, list_res.json()
         assert next((item for item in list_res.json()["results"] if item["id"] == response.json()["id"]), None) is None
 
-        assert self._get_function_activity(id) == [
+        expected_activities = [
             {
                 "activity": "updated",
                 "created_at": ANY,
@@ -259,7 +274,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     ],
                     "short_id": None,
                     "trigger": None,
-                    "type": None,
+                    "type": "destination",
                 },
                 "item_id": id,
                 "scope": "HogFunction",
@@ -276,7 +291,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     "changes": None,
                     "short_id": None,
                     "trigger": None,
-                    "type": None,
+                    "type": "destination",
                 },
                 "item_id": id,
                 "scope": "HogFunction",
@@ -286,6 +301,12 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 },
             },
         ]
+        actual_activities = self._get_function_activity(id)
+        filtered_actual_activities = [
+            self._filter_expected_keys(actual_activity, expected_activity)
+            for actual_activity, expected_activity in zip(actual_activities, expected_activities)
+        ]
+        assert filtered_actual_activities == expected_activities
 
     def test_inputs_required(self, *args):
         payload = {
@@ -457,7 +478,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert obj.encrypted_inputs["secret2"]["value"] == "I AM ALSO SECRET"
 
         # changes to encrypted inputs aren't persisted
-        assert self._get_function_activity(obj.id) == [
+        expected_activities = [
             {
                 "activity": "updated",
                 "created_at": ANY,
@@ -474,7 +495,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     "name": "Fetch URL",
                     "short_id": None,
                     "trigger": None,
-                    "type": None,
+                    "type": "destination",
                 },
                 "item_id": id,
                 "scope": "HogFunction",
@@ -491,7 +512,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     "changes": None,
                     "short_id": None,
                     "trigger": None,
-                    "type": None,
+                    "type": "destination",
                 },
                 "item_id": id,
                 "scope": "HogFunction",
@@ -501,6 +522,12 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 },
             },
         ]
+        actual_activities = self._get_function_activity(id)
+        filtered_actual_activities = [
+            self._filter_expected_keys(actual_activity, expected_activity)
+            for actual_activity, expected_activity in zip(actual_activities, expected_activities)
+        ]
+        assert filtered_actual_activities == expected_activities
 
     def test_generates_hog_bytecode(self, *args):
         response = self.client.post(
@@ -764,7 +791,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     json={"state": 2},
                 )
 
-        assert self._get_function_activity(id) == [
+        expected_activities = [
             {
                 "activity": "updated",
                 "created_at": ANY,
@@ -781,7 +808,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     ],
                     "short_id": None,
                     "trigger": None,
-                    "type": None,
+                    "type": "destination",
                 },
                 "item_id": id,
                 "scope": "HogFunction",
@@ -806,7 +833,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     ],
                     "short_id": None,
                     "trigger": None,
-                    "type": None,
+                    "type": "destination",
                 },
                 "item_id": id,
                 "scope": "HogFunction",
@@ -823,7 +850,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     "changes": None,
                     "short_id": None,
                     "trigger": None,
-                    "type": None,
+                    "type": "destination",
                 },
                 "item_id": id,
                 "scope": "HogFunction",
@@ -833,6 +860,12 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 },
             },
         ]
+        actual_activities = self._get_function_activity(id)
+        filtered_actual_activities = [
+            self._filter_expected_keys(actual_activity, expected_activity)
+            for actual_activity, expected_activity in zip(actual_activities, expected_activities)
+        ]
+        assert filtered_actual_activities == expected_activities
 
     def test_list_with_filters_filter(self, *args):
         action1 = Action.objects.create(

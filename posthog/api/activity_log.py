@@ -4,7 +4,7 @@ from typing import Any, Optional
 from django.db.models import Q, QuerySet
 
 from rest_framework import serializers, status, viewsets, mixins
-from rest_framework.pagination import PageNumberPagination, CursorPagination
+from rest_framework.pagination import PageNumberPagination, CursorPagination, BasePagination
 
 from posthog.api.utils import action
 from rest_framework.exceptions import ValidationError
@@ -43,7 +43,7 @@ class ActivityLogSerializer(serializers.ModelSerializer):
             return bookmark_date < obj.created_at.replace(microsecond=obj.created_at.microsecond // 1000 * 1000)
 
 
-class ActivityLogPagination(PageNumberPagination, CursorPagination):
+class ActivityLogPagination(BasePagination):
     def __init__(self):
         self.page_number_pagination = PageNumberPagination()
         self.cursor_pagination = CursorPagination()
@@ -59,7 +59,7 @@ class ActivityLogPagination(PageNumberPagination, CursorPagination):
             return self.cursor_pagination.paginate_queryset(queryset, request, view)
 
     def get_paginated_response(self, data):
-        if self.request.query_params.get("page"):
+        if self.request and self.request.query_params.get("page"):
             return self.page_number_pagination.get_paginated_response(data)
         else:
             return self.cursor_pagination.get_paginated_response(data)
