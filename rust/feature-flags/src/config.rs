@@ -1,10 +1,72 @@
 use envconfig::Envconfig;
 use once_cell::sync::Lazy;
 use std::net::SocketAddr;
+use std::num::ParseIntError;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
-// TODO rewrite this to follow the AppConfig pattern in other files
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TeamIdsToTrack {
+    All,
+    TeamIds(Vec<i32>),
+}
+
+#[derive(Debug)]
+pub enum ParseTeamIdsError {
+    InvalidRange(String),
+    InvalidNumber(ParseIntError),
+}
+
+impl std::fmt::Display for ParseTeamIdsError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ParseTeamIdsError::InvalidRange(r) => write!(f, "Invalid range: {}", r),
+            ParseTeamIdsError::InvalidNumber(e) => write!(f, "Invalid number: {}", e),
+        }
+    }
+}
+
+impl std::error::Error for ParseTeamIdsError {}
+
+impl FromStr for TeamIdsToTrack {
+    type Err = ParseTeamIdsError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let s = s.trim();
+        if s.eq_ignore_ascii_case("all") {
+            Ok(TeamIdsToTrack::All)
+        } else {
+            let mut team_ids = Vec::new();
+            for part in s.split(',').map(|p| p.trim()) {
+                if part.contains(':') {
+                    let bounds: Vec<&str> = part.split(':').collect();
+                    if bounds.len() != 2 {
+                        return Err(ParseTeamIdsError::InvalidRange(part.to_string()));
+                    }
+                    let start = bounds[0]
+                        .parse::<i32>()
+                        .map_err(ParseTeamIdsError::InvalidNumber)?;
+                    let end = bounds[1]
+                        .parse::<i32>()
+                        .map_err(ParseTeamIdsError::InvalidNumber)?;
+                    if end < start {
+                        return Err(ParseTeamIdsError::InvalidRange(part.to_string()));
+                    }
+                    for id in start..=end {
+                        team_ids.push(id);
+                    }
+                } else {
+                    let id = part
+                        .parse::<i32>()
+                        .map_err(ParseTeamIdsError::InvalidNumber)?;
+                    team_ids.push(id);
+                }
+            }
+            Ok(TeamIdsToTrack::TeamIds(team_ids))
+        }
+    }
+}
+
 #[derive(Envconfig, Clone, Debug)]
 pub struct Config {
     #[envconfig(default = "127.0.0.1:3001")]
@@ -33,6 +95,9 @@ pub struct Config {
 
     #[envconfig(default = "false")]
     pub enable_metrics: bool,
+
+    #[envconfig(from = "TEAM_IDS_TO_TRACK", default = "all")]
+    pub team_ids_to_track: TeamIdsToTrack,
 }
 
 impl Config {
@@ -48,6 +113,7 @@ impl Config {
             acquire_timeout_secs: 1,
             maxmind_db_path: "".to_string(),
             enable_metrics: false,
+            team_ids_to_track: TeamIdsToTrack::All,
         }
     }
 
@@ -90,6 +156,7 @@ mod tests {
         assert_eq!(config.max_concurrency, 1000);
         assert_eq!(config.max_pg_connections, 10);
         assert_eq!(config.redis_url, "redis://localhost:6379/");
+        assert_eq!(config.team_ids_to_track, TeamIdsToTrack::All);
     }
 
     #[test]
@@ -107,6 +174,7 @@ mod tests {
         assert_eq!(config.max_concurrency, 1000);
         assert_eq!(config.max_pg_connections, 10);
         assert_eq!(config.redis_url, "redis://localhost:6379/");
+        assert_eq!(config.team_ids_to_track, TeamIdsToTrack::All);
     }
 
     #[test]
@@ -124,5 +192,42 @@ mod tests {
         assert_eq!(config.max_concurrency, 1000);
         assert_eq!(config.max_pg_connections, 10);
         assert_eq!(config.redis_url, "redis://localhost:6379/");
+        assert_eq!(config.team_ids_to_track, TeamIdsToTrack::All);
+    }
+
+    #[test]
+    fn test_team_ids_to_track_all() {
+        let team_ids: TeamIdsToTrack = "all".parse().unwrap();
+        assert_eq!(team_ids, TeamIdsToTrack::All);
+    }
+
+    #[test]
+    fn test_team_ids_to_track_single_ids() {
+        let team_ids: TeamIdsToTrack = "1,5,7,13".parse().unwrap();
+        assert_eq!(team_ids, TeamIdsToTrack::TeamIds(vec![1, 5, 7, 13]));
+    }
+
+    #[test]
+    fn test_team_ids_to_track_ranges() {
+        let team_ids: TeamIdsToTrack = "1:3".parse().unwrap();
+        assert_eq!(team_ids, TeamIdsToTrack::TeamIds(vec![1, 2, 3]));
+    }
+
+    #[test]
+    fn test_team_ids_to_track_mixed() {
+        let team_ids: TeamIdsToTrack = "1:3,5,7:9".parse().unwrap();
+        assert_eq!(team_ids, TeamIdsToTrack::TeamIds(vec![1, 2, 3, 5, 7, 8, 9]));
+    }
+
+    #[test]
+    fn test_invalid_range() {
+        let result: Result<TeamIdsToTrack, _> = "5:3".parse();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_invalid_number() {
+        let result: Result<TeamIdsToTrack, _> = "abc".parse();
+        assert!(result.is_err());
     }
 }

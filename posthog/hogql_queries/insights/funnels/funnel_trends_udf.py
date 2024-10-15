@@ -4,6 +4,7 @@ from posthog.hogql import ast
 from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.parser import parse_select
 from posthog.hogql_queries.insights.funnels import FunnelTrends
+from posthog.hogql_queries.insights.funnels.funnel_udf import udf_event_array_filter
 from posthog.hogql_queries.insights.utils.utils import get_start_of_interval_hogql_str
 from posthog.schema import BreakdownType, BreakdownAttributionType
 from posthog.utils import DATERANGE_MAP
@@ -78,6 +79,7 @@ class FunnelTrendsUDF(FunnelTrends):
             parse_select(
                 f"""
             SELECT
+                arraySort(t -> t.1, groupArray(tuple(toFloat(timestamp), _toUInt64(toDateTime({get_start_of_interval_hogql_str(self.context.interval.value, team=self.context.team, source='timestamp')})), {prop_selector}, arrayFilter((x) -> x != 0, [{steps}{exclusions}])))) as events_array,
                 arrayJoin({fn}(
                     {from_step},
                     {max_steps},
@@ -85,9 +87,9 @@ class FunnelTrendsUDF(FunnelTrends):
                     '{breakdown_attribution_string}',
                     '{self.context.funnelsFilter.funnelOrderType}',
                     {prop_vals},
-                    arraySort(t -> t.1, groupArray(tuple(toFloat(timestamp), {get_start_of_interval_hogql_str(self.context.interval.value, team=self.context.team, source='timestamp')}, {prop_selector}, arrayFilter((x) -> x != 0, [{steps}{exclusions}]))))
+                    {udf_event_array_filter(self.context.funnelsFilter.funnelOrderType)}
                 )) as af_tuple,
-                toTimeZone(af_tuple.1, '{self.context.team.timezone}') as entrance_period_start,
+                toTimeZone(toDateTime(_toUInt64(af_tuple.1)), '{self.context.team.timezone}') as entrance_period_start,
                 af_tuple.2 as success_bool,
                 af_tuple.3 as breakdown
             FROM {{inner_event_query}}

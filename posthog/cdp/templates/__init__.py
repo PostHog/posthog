@@ -23,6 +23,7 @@ from .google_pubsub.template_google_pubsub import template as google_pubsub, Tem
 from .engage.template_engage import template as engage, TemplateEngageMigrator
 from .zendesk.template_zendesk import template as zendesk
 from .knock.template_knock import template as knock
+from .meta_ads.template_meta_ads import template as meta_ads
 from .activecampaign.template_activecampaign import template as activecampaign
 from .google_cloud_storage.template_google_cloud_storage import (
     template as google_cloud_storage,
@@ -50,6 +51,7 @@ HOG_FUNCTION_TEMPLATES = [
     mailgun,
     mailjet_create_contact,
     mailjet_update_contact_list,
+    meta_ads,
     posthog,
     rudderstack,
     salesforce_create,

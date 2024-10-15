@@ -350,7 +350,9 @@ def recalculate_cohortpeople(
             "new_version": pending_version,
         },
         settings={
-            "max_execution_time": 240,
+            "max_execution_time": 600,
+            "send_timeout": 600,
+            "receive_timeout": 600,
             "optimize_on_insert": 0,
         },
         workload=Workload.OFFLINE,
