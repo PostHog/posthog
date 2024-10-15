@@ -1143,6 +1143,89 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             ),
             examples: ['2.2'],
         },
+        $session_recording_start_reason: {
+            label: 'Session recording start reason',
+            description: (
+                <span>
+                    Reason for starting the session recording. Useful for e.g. if you have sampling enabled and want to
+                    see on batch exported events which sessions have recordings available.
+                </span>
+            ),
+            examples: ['sampling_override', 'recording_initialized', 'linked_flag_match'],
+        },
+        $replay_minimum_duration: {
+            label: 'Replay config - minimum duration',
+            description: <span>Config for minimum duration before emitting a session recording.</span>,
+            examples: ['1000'],
+        },
+        $replay_sample_rate: {
+            label: 'Replay config - sample rate',
+            description: <span>Config for sampling rate of session recordings.</span>,
+            examples: ['0.1'],
+        },
+        $exception_capture_endpoint: {
+            label: 'Exception capture endpoint',
+            description: <span>Endpoint used by posthog-js exception autocapture.</span>,
+            examples: ['/e/'],
+        },
+        $exception_capture_endpoint_suffix: {
+            label: 'Exception capture endpoint',
+            description: <span>Endpoint used by posthog-js exception autocapture.</span>,
+            examples: ['/e/'],
+        },
+        $exception_capture_enabled_server_side: {
+            label: 'Exception capture enabled server side',
+            description: <span>Whether exception autocapture was enabled in remote config.</span>,
+        },
+        $lib_rate_limit_remaining_tokens: {
+            label: 'Clientside rate limit remaining tokens',
+            description: (
+                <span>
+                    Remaining rate limit tokens for the posthog-js library client-side rate limiting implementation.
+                </span>
+            ),
+            examples: ['100'],
+        },
+        $session_recording_canvas_recording: {
+            label: 'Session recording canvas recording',
+            description: <span>Session recording canvas capture config.</span>,
+            examples: ['{"enabled": false}'],
+        },
+        $session_recording_network_payload_capture: {
+            label: 'Session recording network payload capture',
+            description: <span>Session recording network payload capture config.</span>,
+            examples: ['{"recordHeaders": false}'],
+        },
+        token: {
+            label: 'Token',
+            description: <span>Token used for authentication.</span>,
+            examples: ['ph_abcdefg'],
+        },
+        $web_vitals_allowed_metrics: {
+            label: 'Web vitals allowed metrics',
+            description: <span>Allowed web vitals metrics config.</span>,
+            examples: ['["LCP", "CLS"]'],
+        },
+        $geoip_city_confidence: {
+            label: 'GeoIP detection city confidence',
+            description: "Confidence level of the city matched to this event's IP address.",
+            examples: ['0.5'],
+        },
+        $geoip_country_confidence: {
+            label: 'GeoIP detection country confidence',
+            description: "Confidence level of the country matched to this event's IP address.",
+            examples: ['0.5'],
+        },
+        $geoip_accuracy_radius: {
+            label: 'GeoIP detection accuracy radius',
+            description: "Accuracy radius of the location matched to this event's IP address.",
+            examples: ['50'],
+        },
+        $geoip_subdivision_1_confidence: {
+            label: 'GeoIP detection subdivision 1 confidence',
+            description: "Confidence level of the first subdivision matched to this event's IP address.",
+            examples: ['0.5'],
+        },
     },
     groups: {
         $group_key: {
