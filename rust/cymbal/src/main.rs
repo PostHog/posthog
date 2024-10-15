@@ -9,6 +9,8 @@ use cymbal::{
     config::Config,
     error::Error,
     metric_consts::{ERRORS, EVENT_RECEIVED, STACK_PROCESSED},
+    resolver::{Resolver, ResolverImpl},
+    symbol_store::basic::BasicStore,
     types::{frames::RawFrame, ErrProps},
 };
 use envconfig::Envconfig;
@@ -104,7 +106,7 @@ async fn main() -> Result<(), Error> {
             continue;
         };
 
-        let _stack_trace: Vec<RawFrame> = match serde_json::from_str(trace) {
+        let stack_trace: Vec<RawFrame> = match serde_json::from_str(trace) {
             Ok(r) => r,
             Err(err) => {
                 metrics::counter!(ERRORS, "cause" => "invalid_stack_trace").increment(1);
@@ -112,6 +114,29 @@ async fn main() -> Result<(), Error> {
                 continue;
             }
         };
+
+        let store = match BasicStore::new(&config) {
+            Ok(r) => r,
+            Err(_err) => {
+                metrics::counter!(ERRORS, "cause" => "invalid_store").increment(1);
+                continue;
+            }
+        };
+
+        let resolver = ResolverImpl::new(Box::new(store));
+
+        let mut resolved_frames = Vec::new();
+        for frame in stack_trace {
+            let resolved = match resolver.resolve(frame, 1).await {
+                Ok(r) => r,
+                Err(err) => {
+                    metrics::counter!(ERRORS, "cause" => "frame_not_parsable").increment(1);
+                    error!("Error parsing stack frame: {:?}", err);
+                    continue;
+                }
+            };
+            resolved_frames.push(resolved);
+        }
 
         metrics::counter!(STACK_PROCESSED).increment(1);
     }
