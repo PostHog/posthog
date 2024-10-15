@@ -136,10 +136,10 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self,
         function_id: Optional[int] = None,
     ) -> list:
-        params = {"scope": "HogFunction", "page": 1, "limit": 20}
+        params: dict = {"scope": "HogFunction", "page": 1, "limit": 20}
         if function_id:
             params["item_id"] = function_id
-        activity = self.client.get(f"/api/projects/{self.team.pk}/activity_log", params)
+        activity = self.client.get(f"/api/projects/{self.team.pk}/activity_log", data=params)
         self.assertEqual(activity.status_code, status.HTTP_200_OK)
         return activity.json().get("results")
 
