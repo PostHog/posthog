@@ -595,7 +595,7 @@ class TestResolver(BaseTest):
         """)
         node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
 
-        assert isinstance(node.where.type, ast.CallType)
+        assert node.where is not None and isinstance(node.where.type, ast.CallType)
         for arg_type in node.where.type.arg_types:
             assert arg_type == ast.BooleanType(nullable=False)
 
