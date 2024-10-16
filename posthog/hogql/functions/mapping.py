@@ -890,7 +890,14 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "coalesce": HogQLFunctionMeta("coalesce", 1, None, case_sensitive=False),
     "ifnull": HogQLFunctionMeta("ifNull", 2, 2, case_sensitive=False),
     "nullif": HogQLFunctionMeta("nullIf", 2, 2, case_sensitive=False),
-    "assumeNotNull": HogQLFunctionMeta("assumeNotNull", 1, 1),
+    "assumeNotNull": HogQLFunctionMeta(
+        "assumeNotNull",
+        1,
+        1,
+        signatures=[
+            ((DateTimeType(),), DateTimeType(nullable=False)),
+        ],
+    ),
     "toNullable": HogQLFunctionMeta("toNullable", 1, 1),
     # tuples
     "tuple": HogQLFunctionMeta("tuple", 0, None),
