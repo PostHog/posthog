@@ -275,14 +275,6 @@ jobs:
               id: login-ecr
               uses: aws-actions/amazon-ecr-login@v2
 
-            - name: Clear AWS environment variables
-              run: |
-                  echo "AWS_DEFAULT_REGION=''" >> $GITHUB_ENV
-                  echo "AWS_REGION=''" >> $GITHUB_ENV
-                  echo "AWS_ACCESS_KEY_ID=''" >> $GITHUB_ENV
-                  echo "AWS_SECRET_ACCESS_KEY=''" >> $GITHUB_ENV
-                  echo "AWS_SESSION_TOKEN=''" >> $GITHUB_ENV
-
             - uses: ./.github/actions/run-backend-tests
               if: needs.changes.outputs.backend == 'true'
               with:
