@@ -21,7 +21,7 @@ from posthog.schema import (
     InsightDateRange,
     BreakdownFilter,
 )
-from typing import Optional
+from typing import Optional, Any, cast
 from zoneinfo import ZoneInfo
 from rest_framework.exceptions import ValidationError
 
@@ -107,14 +107,15 @@ class ExperimentFunnelQueryRunner(QueryRunner):
         test_variants = []
 
         for result in funnel_results.results:
-            first_step = result[0]
-            last_step = result[-1]
+            result_dict = cast(list[dict[str, Any]], result)
+            first_step = result_dict[0]
+            last_step = result_dict[-1]
 
             total = first_step.get("count", 0)
-            success = last_step.get("count", 0) if len(result) > 1 else 0
+            success = last_step.get("count", 0) if len(result_dict) > 1 else 0
             failure = total - success
 
-            breakdown_value = first_step["breakdown_value"][0]
+            breakdown_value = cast(list[str], first_step["breakdown_value"])[0]
 
             if breakdown_value == CONTROL_VARIANT_KEY:
                 control_variant = ExperimentVariantFunnelBaseStats(
@@ -142,7 +143,7 @@ class ExperimentFunnelQueryRunner(QueryRunner):
             ExperimentNoResultsErrorKeys.NO_TEST_VARIANT: True,
         }
 
-        if not funnel_results.results or not funnel_results.results[0]:
+        if not funnel_results.results or not funnel_results.results:
             raise ValidationError(code="no-results", detail=json.dumps(errors))
 
         errors[ExperimentNoResultsErrorKeys.NO_EVENTS] = False
