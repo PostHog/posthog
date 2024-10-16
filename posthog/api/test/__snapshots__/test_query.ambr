@@ -450,7 +450,7 @@
                                                 WHERE and(equals(person.team_id, 2), notIn(person.id,
                                                                                              (SELECT person.id AS id
                                                                                               FROM person
-                                                                                              WHERE and(equals(person.team_id, 2), equals(person.is_deleted, 1)))), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', ''), 'tom@posthog.com'), 0)))))
+                                                                                              WHERE and(equals(person.team_id, 2), equals(person.is_deleted, 1)))), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', ''), 'tom@posthog.com'), 0)))), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', ''), 'tom@posthog.com'), 0))
      GROUP BY person.id
      HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
   WHERE and(equals(events.team_id, 2), ifNull(equals(events__person.properties___email, 'tom@posthog.com'), 0), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-09 12:14:00.000000', 6, 'UTC')))
@@ -491,7 +491,7 @@
                                                 WHERE and(equals(person.team_id, 2), notIn(person.id,
                                                                                              (SELECT person.id AS id
                                                                                               FROM person
-                                                                                              WHERE and(equals(person.team_id, 2), equals(person.is_deleted, 1)))), ifNull(equals(nullIf(nullIf(person.pmat_email, ''), 'null'), 'tom@posthog.com'), 0)))))
+                                                                                              WHERE and(equals(person.team_id, 2), equals(person.is_deleted, 1)))), ifNull(equals(nullIf(nullIf(person.pmat_email, ''), 'null'), 'tom@posthog.com'), 0)))), ifNull(equals(nullIf(nullIf(person.pmat_email, ''), 'null'), 'tom@posthog.com'), 0))
      GROUP BY person.id
      HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
   WHERE and(equals(events.team_id, 2), ifNull(equals(events__person.properties___email, 'tom@posthog.com'), 0), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-09 12:14:00.000000', 6, 'UTC')))
