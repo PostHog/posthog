@@ -78,6 +78,8 @@ def sql_source_for_type(
         credentials = ConnectionStringCredentials(
             f"mysql+pymysql://{user}:{password}@{host}:{port}/{database}?ssl_ca={ssl_ca}&ssl_verify_cert=false"
         )
+
+        # PlanetScale needs this to be set
         if host.endswith("psdb.cloud"):
             connect_args = ["SET workload = 'OLAP';"]
     elif source_type == ExternalDataSource.Type.MSSQL:
