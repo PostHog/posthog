@@ -92,8 +92,6 @@ class TestQueryRunner(BaseTest):
                 "hogql_modifiers": {
                     "inCohortVia": "auto",
                     "materializationMode": "legacy_null_as_null",
-                    "personsArgMaxVersion": "auto",
-                    "optimizeJoinedFilters": False,
                     "personsOnEventsMode": PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
                     "bounceRatePageViewMode": "count_pageviews",
                     "sessionTableVersion": "auto",

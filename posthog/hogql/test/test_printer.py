@@ -20,7 +20,6 @@ from posthog.models.team.team import WeekStartDay
 from posthog.schema import (
     HogQLQueryModifiers,
     MaterializationMode,
-    PersonsArgMaxVersion,
     PersonsOnEventsMode,
     PropertyGroupsMode,
 )
@@ -1102,7 +1101,6 @@ class TestPrinter(BaseTest):
             context = HogQLContext(
                 team_id=self.team.pk,
                 enable_select_queries=True,
-                modifiers=HogQLQueryModifiers(personsArgMaxVersion=PersonsArgMaxVersion.V2),
             )
             query = self._select(
                 "SELECT events.event FROM events SAMPLE 2/78 OFFSET 999 JOIN persons ON persons.id=events.person_id",
@@ -1129,7 +1127,6 @@ class TestPrinter(BaseTest):
             context = HogQLContext(
                 team_id=self.team.pk,
                 enable_select_queries=True,
-                modifiers=HogQLQueryModifiers(personsArgMaxVersion=PersonsArgMaxVersion.V2),
             )
             self.assertEqual(
                 self._select(
@@ -1156,7 +1153,6 @@ class TestPrinter(BaseTest):
             context = HogQLContext(
                 team_id=self.team.pk,
                 enable_select_queries=True,
-                modifiers=HogQLQueryModifiers(personsArgMaxVersion=PersonsArgMaxVersion.V2),
             )
             expected = self._select(
                 "SELECT events.event FROM events SAMPLE 2/78 OFFSET 999 JOIN persons ON persons.id=events.person_id",
@@ -1175,7 +1171,6 @@ class TestPrinter(BaseTest):
             context = HogQLContext(
                 team_id=self.team.pk,
                 enable_select_queries=True,
-                modifiers=HogQLQueryModifiers(personsArgMaxVersion=PersonsArgMaxVersion.V2),
             )
             expected = self._select(
                 "SELECT events.event FROM events SAMPLE 2/78 OFFSET 999 JOIN persons SAMPLE 0.1 ON persons.id=events.person_id",

@@ -7,7 +7,7 @@ from posthog.hogql.parser import parse_select, parse_expr
 from posthog.hogql.printer import prepare_ast_for_printing, print_ast
 from posthog.hogql.visitor import clone_expr, CloningVisitor
 from posthog.models import PropertyDefinition
-from posthog.schema import PersonsOnEventsMode, PersonsArgMaxVersion
+from posthog.schema import PersonsOnEventsMode
 from posthog.test.base import ClickhouseTestMixin, APIBaseTest
 
 
@@ -40,9 +40,7 @@ class TestPersonWhereClauseExtractor(ClickhouseTestMixin, APIBaseTest):
     def prep_context(self):
         team = self.team
         modifiers = create_default_modifiers_for_team(team)
-        modifiers.optimizeJoinedFilters = True
         modifiers.personsOnEventsMode = PersonsOnEventsMode.DISABLED
-        modifiers.personsArgMaxVersion = PersonsArgMaxVersion.V1
         return HogQLContext(
             team_id=team.pk,
             team=team,

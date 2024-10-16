@@ -114,6 +114,10 @@ class WhereClauseExtractor(CloningVisitor):
         if len(self.tracked_tables) > 0:
             left = self.visit(node.left)
             right = self.visit(node.right)
+
+            # Too complicated
+            if isinstance(node.right, ast.SelectQuery):
+                return ast.Constant(value=True)
             if has_tombstone(left, self.tombstone_string) or has_tombstone(right, self.tombstone_string):
                 return ast.Constant(value=self.tombstone_string)
             return ast.CompareOperation(op=node.op, left=left, right=right)
@@ -176,8 +180,9 @@ class WhereClauseExtractor(CloningVisitor):
                 ast.CompareOperation(op=CompareOperationOp.NotILike, left=node.args[0], right=node.args[1])
             )
         elif node.name == "in":
-            # This didn't handle in(id, _subquery) correctly. Would be nice if it did.
-            return ast.Constant(value=1)
+            return self.visit_compare_operation(
+                ast.CompareOperation(op=CompareOperationOp.NotILike, left=node.args[0], right=node.args[1])
+            )
 
         args = [self.visit(arg) for arg in node.args]
 
