@@ -50,6 +50,7 @@ class TestPersonOptimization(ClickhouseTestMixin, APIBaseTest):
             team_id=self.team.pk,
             properties={"$some_prop": "ifwematcholdversionsthiswillmatch", "$another_prop": "something2"},
             distinct_ids=["deleted"],
+            created_at=datetime(2024, 1, 1, 13),
             version=1,
         )
         create_person(team_id=self.team.pk, uuid=str(self.deleted_person.uuid), version=2, is_deleted=True)
