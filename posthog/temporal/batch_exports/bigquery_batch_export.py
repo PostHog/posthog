@@ -386,10 +386,10 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
                 extra_query_parameters = None
                 fields = None
         else:
-            schema = model = inputs.batch_export_schema
+            model = inputs.batch_export_schema
             model_name = "custom"
-            extra_query_parameters = schema["values"] if schema is not None else {}
-            fields = schema["fields"] if schema is not None else None
+            extra_query_parameters = model["values"] if model is not None else {}
+            fields = model["fields"] if model is not None else None
 
         queue, done_event, produce_task = start_produce_batch_export_record_batches(
             client=client,
@@ -512,7 +512,7 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
                     flush_start_event = asyncio.Event()
                     task = asyncio.create_task(
                         consume_batch_export_record_batches(
-                            queue, done_event, flush_start_event, flush_to_bigquery, json_columns, logger
+                            queue, done_event, flush_start_event, flush_to_bigquery, json_columns
                         )
                     )
 
@@ -543,7 +543,11 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
 
 
 async def consume_batch_export_record_batches(
-    queue, done_event, flush_start_event, flush_to_bigquery, json_columns, logger
+    queue: asyncio.Queue,
+    done_event: asyncio.Event,
+    flush_start_event: asyncio.Event,
+    flush_to_bigquery: FlushCallable,
+    json_columns: list[str],
 ):
     writer = JSONLBatchExportWriter(
         max_bytes=settings.BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES,

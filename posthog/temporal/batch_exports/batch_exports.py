@@ -1,4 +1,5 @@
 import asyncio
+import collections
 import collections.abc
 import dataclasses
 import datetime as dt
@@ -258,6 +259,8 @@ class RecordBatchQueue(asyncio.Queue):
         self._bytes_size = 0
         self._schema_set = asyncio.Event()
         self.record_batch_schema = None
+        # This is set by `asyncio.Queue.__init__` calling `_init`
+        self._queue: collections.deque
 
     def _get(self) -> pa.RecordBatch:
         item = self._queue.popleft()
