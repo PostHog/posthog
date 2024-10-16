@@ -7,6 +7,8 @@ from posthog.test.base import (
     _create_event,
     snapshot_clickhouse_queries,
 )
+from posthog.models.person.util import create_person
+from datetime import datetime
 
 
 class TestPersonOptimization(ClickhouseTestMixin, APIBaseTest):
@@ -16,26 +18,46 @@ class TestPersonOptimization(ClickhouseTestMixin, APIBaseTest):
 
     def setUp(self):
         super().setUp()
-        _create_person(
+        self.first_person = _create_person(
             team_id=self.team.pk,
             distinct_ids=["1"],
             properties={"$some_prop": "something", "$another_prop": "something1"},
+            created_at=datetime(2024, 1, 1, 12),
         )
-        _create_person(
+        self.second_person = _create_person(
             team_id=self.team.pk,
+            properties={"$some_prop": "ifwematcholdversionsthiswillmatch", "$another_prop": "something2"},
             distinct_ids=["2"],
-            properties={"$some_prop": "something", "$another_prop": "something2"},
+            version=1,
+            created_at=datetime(2024, 1, 1, 13),
         )
-        _create_person(
+        # update second_person with the correct prop
+        create_person(
+            team_id=self.team.pk,
+            uuid=str(self.second_person.uuid),
+            properties={"$some_prop": "something", "$another_prop": "something2"},
+            created_at=datetime(2024, 1, 1, 13),
+            version=2,
+        )
+        self.third_person = _create_person(
             team_id=self.team.pk,
             distinct_ids=["3"],
             properties={"$some_prop": "not something", "$another_prop": "something3"},
+            created_at=datetime(2024, 1, 1, 14),
         )
+        # deleted
+        self.deleted_person = _create_person(
+            team_id=self.team.pk,
+            properties={"$some_prop": "ifwematcholdversionsthiswillmatch", "$another_prop": "something2"},
+            distinct_ids=["deleted"],
+            version=1,
+        )
+        create_person(team_id=self.team.pk, uuid=str(self.deleted_person.uuid), version=2, is_deleted=True)
 
     @snapshot_clickhouse_queries
     def test_simple_filter(self):
         response = execute_hogql_query(
-            parse_select("select id, properties.email from persons where properties.$some_prop = 'something'"),
+            parse_select("select id, properties.$some_prop from persons where properties.$some_prop = 'something'"),
             self.team,
         )
         assert len(response.results) == 2
@@ -80,3 +102,32 @@ class TestPersonOptimization(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
         assert len(response.results) == 1
+
+    @snapshot_clickhouse_queries
+    def test_versions_handled_correctly(self):
+        # Tests whether we correctly grab $some_prop from the person with the highest version
+        response = execute_hogql_query(
+            parse_select("select id, properties.$some_prop from persons ORDER BY created_at limit 100"),
+            self.team,
+        )
+        assert len(response.results) == 3
+
+    @snapshot_clickhouse_queries
+    def test_limit_and_order_by(self):
+        response = execute_hogql_query(
+            parse_select("select id, properties.$some_prop from persons ORDER BY created_at limit 3"),
+            self.team,
+        )
+        assert len(response.results) == 3
+        assert [x[0] for x in response.results] == [
+            self.first_person.uuid,
+            self.second_person.uuid,
+            self.third_person.uuid,
+        ]
+
+        response = execute_hogql_query(
+            parse_select("select id, properties.$some_prop from persons ORDER BY created_at limit 2, 1"),
+            self.team,
+        )
+        assert len(response.results) == 2
+        assert [x[0] for x in response.results] == [self.second_person.uuid, self.third_person.uuid]

@@ -73,6 +73,9 @@ def select_from_persons_table(
             ),
         )
         select.settings = HogQLQuerySettings(optimize_aggregation_in_order=True)
+
+        # This bit optimizes the query by first selecting all IDs for all persons (regardless of whether it's the latest version), and only then aggregating the results
+        # We only do this if there are where clauses, _and_ WhereClauseExtractor can extract them
         if node.where:
             inner_select = cast(
                 ast.SelectQuery,
@@ -80,6 +83,10 @@ def select_from_persons_table(
                     """
                 SELECT id
                 FROM raw_persons
+                WHERE
+                    -- Much faster to pre-select out any deleted persons than doing it in aggregation
+                    -- This is correct because there are no instances where we'd un-delete a person (ie there are no cases where one version has is_deleted=1 and a later version has is_deleted = 0)
+                    id NOT IN (select id from raw_persons where is_deleted = 1)
                 """
                 ),
             )
@@ -88,7 +95,7 @@ def select_from_persons_table(
             where = extractor.get_inner_where(node)
 
             if where:
-                inner_select.where = where
+                inner_select.where = ast.And(exprs=[inner_select.where, where])
                 select.where = ast.CompareOperation(
                     left=ast.Field(chain=["id"]), right=inner_select, op=ast.CompareOperationOp.In
                 )
@@ -107,12 +114,7 @@ def select_from_persons_table(
                 select.select.append(
                     ast.Alias(
                         alias=field_name,
-                        expr=ast.Field(chain=field_chain),
-                    )
-                )
-                select.group_by.append(
-                    ast.Field(
-                        chain=[field_name],
+                        expr=ast.Call(name="argMax", args=[ast.Field(chain=field_chain), ast.Field(chain=["version"])]),
                     )
                 )
     else:
