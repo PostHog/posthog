@@ -175,7 +175,7 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
             exclude_kwargs = {"pk": cast(FeatureFlag, self.instance).pk}
 
         if (
-            FeatureFlag.objects.filter(key=value, team_id=self.context["team_id"], deleted=False)
+            FeatureFlag.objects.filter(key=value, team__project_id=self.context["project_id"], deleted=False)
             .exclude(**exclude_kwargs)
             .exists()
         ):

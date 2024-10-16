@@ -137,7 +137,7 @@ export async function getInsightId(shortId: InsightShortId): Promise<number | un
 
     return insightId
         ? insightId
-        : (await api.get(`api/projects/${getCurrentTeamId()}/insights/?short_id=${encodeURIComponent(shortId)}`))
+        : (await api.get(`api/environments/${getCurrentTeamId()}/insights/?short_id=${encodeURIComponent(shortId)}`))
               .results[0]?.id
 }
 
