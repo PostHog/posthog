@@ -82,6 +82,15 @@ export function PipelineNode(params: { stage?: string; id?: string } = {}): JSX.
         tabToContent[PipelineNodeTab.History] = <ActivityLog id={id} scope={ActivityScope.PLUGIN} />
     }
 
+    if (node.backend === PipelineBackend.HogFunction) {
+        tabToContent[PipelineNodeTab.History] = (
+            <ActivityLog
+                id={String(id).startsWith('hog-') ? String(id).substring(4) : id}
+                scope={ActivityScope.HOG_FUNCTION}
+            />
+        )
+    }
+
     return (
         <>
             <PageHeader />

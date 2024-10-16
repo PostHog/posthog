@@ -81,7 +81,7 @@ let res := fetch(f'https://kinesis.{inputs.aws_region}.amazonaws.com', getPayloa
 if (res.status >= 200 and res.status < 300) {
   print('Event sent successfully!')
 } else {
-  print('Error sending event:', res.status, res.body)
+  throw Error(f'Error from {inputs.aws_region}.amazonaws.com (status {res.status}): {res.body}')
 }
 """.strip(),
     inputs_schema=[
