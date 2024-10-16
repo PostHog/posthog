@@ -83,16 +83,20 @@ def select_from_persons_table(
                 """
                 ),
             )
+            extractor = WhereClauseExtractor(context)
+            extractor.add_local_tables(join_or_table)
+            where = extractor.get_inner_where(node)
 
-            inner_select.where = clone_expr(node.where, clear_types=True, clear_locations=True)
-            select.where = ast.CompareOperation(
-                left=ast.Field(chain=["id"]), right=inner_select, op=ast.CompareOperationOp.In
-            )
+            if where:
+                inner_select.where = where
+                select.where = ast.CompareOperation(
+                    left=ast.Field(chain=["id"]), right=inner_select, op=ast.CompareOperationOp.In
+                )
         if filter is not None:
             if select.where:
                 cast(ast.SelectQuery, cast(ast.CompareOperation, select.where).right).where = ast.And(
-                    exprs=[select.where]
-                ).extend(filter)
+                    exprs=[select.where, filter]
+                )
             else:
                 cast(ast.SelectQuery, cast(ast.CompareOperation, select.where).right).where = filter
 

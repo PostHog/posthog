@@ -1,90 +1,82 @@
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
-from posthog.models import Person
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
+    _create_person,
+    _create_event,
+    snapshot_clickhouse_queries,
 )
 
 
-class TestCohortPeopleTable(ClickhouseTestMixin, APIBaseTest):
-    def test_optimize_query(self):
-        Person.objects.create(
+class TestPersonOptimization(ClickhouseTestMixin, APIBaseTest):
+    """
+    Mostly tests for the optimization of pre-filtering before aggregating. See https://github.com/PostHog/posthog/pull/25604
+    """
+
+    def setUp(self):
+        super().setUp()
+        _create_person(
             team_id=self.team.pk,
             distinct_ids=["1"],
             properties={"$some_prop": "something", "$another_prop": "something1"},
         )
-        Person.objects.create(
+        _create_person(
             team_id=self.team.pk,
             distinct_ids=["2"],
             properties={"$some_prop": "something", "$another_prop": "something2"},
         )
-        Person.objects.create(
+        _create_person(
             team_id=self.team.pk,
             distinct_ids=["3"],
             properties={"$some_prop": "not something", "$another_prop": "something3"},
         )
 
+    @snapshot_clickhouse_queries
+    def test_simple_filter(self):
         response = execute_hogql_query(
-            parse_select("select id from persons where properties.$some_prop = 'something'"),
+            parse_select("select id, properties.email from persons where properties.$some_prop = 'something'"),
             self.team,
-        )
-        assert (
-            response.clickhouse
-            == """SELECT
-    persons.id AS id
-FROM
-    (SELECT
-        person.id AS id,
-        replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS `properties___$some_prop`
-    FROM
-        person
-    WHERE
-        and(equals(person.team_id, {team_id}), in(person.id, (SELECT
-                    person.id AS id
-                FROM
-                    person
-                WHERE
-                    and(equals(person.team_id, {team_id}), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_1)s), ''), 'null'), '^"|"$', ''), %(hogql_val_2)s), 0)))))
-    GROUP BY
-        person.id,
-        `properties___$some_prop`
-    HAVING
-        and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, %(hogql_val_3)s), person.version), plus(now64(6, %(hogql_val_4)s), toIntervalDay(1))), 0))
-    SETTINGS optimize_aggregation_in_order=1) AS persons
-WHERE
-    ifNull(equals(persons.`properties___$some_prop`, %(hogql_val_5)s), 0)
-LIMIT 100 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0""".format(
-                team_id=self.team.pk
-            )
         )
         assert len(response.results) == 2
 
+    @snapshot_clickhouse_queries
+    def test_alias(self):
+        # This isn't supported by the WhereClauseExtractor yet
         response = execute_hogql_query(
-            parse_select("select id, properties.email from persons"),
+            parse_select(
+                "select id, an_alias.properties.email from persons as an_alias where an_alias.properties.$some_prop = 'something'"
+            ),
             self.team,
         )
+        assert len(response.results) == 2
 
-        assert (
-            response.clickhouse
-            == """SELECT
-    persons.id AS id,
-    persons.properties___email AS email
-FROM
-    (SELECT
-        person.id AS id,
-        replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS properties___email
-    FROM
-        person
-    WHERE
-        equals(person.team_id, {team_id})
-    GROUP BY
-        person.id,
-        properties___email
-    HAVING
-        and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, %(hogql_val_1)s), person.version), plus(now64(6, %(hogql_val_2)s), toIntervalDay(1))), 0))
-    SETTINGS optimize_aggregation_in_order=1) AS persons
-LIMIT 100 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0""".format(
-                team_id=self.team.pk
-            )
+    @snapshot_clickhouse_queries
+    def test_join(self):
+        response = execute_hogql_query(
+            parse_select(
+                "select id, properties.email from persons where properties.$some_prop = 'something' and pdi.distinct_id = '1'"
+            ),
+            self.team,
         )
+        assert len(response.results) == 1
+
+        # more complex query
+        response = execute_hogql_query(
+            parse_select("""
+            select id, properties.email from persons where
+                (properties.$some_prop = 'something' and pdi.distinct_id = '1') OR
+                (properties.$some_prop = 'whatevs')
+            """),
+            self.team,
+        )
+        assert len(response.results) == 1
+
+    @snapshot_clickhouse_queries
+    def test_events_filter(self):
+        _create_event(event="$pageview", distinct_id="1", team=self.team)
+        response = execute_hogql_query(
+            parse_select("select properties.email from events where person.properties.$some_prop = 'something'"),
+            self.team,
+        )
+        assert len(response.results) == 1
