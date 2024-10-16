@@ -1,3 +1,4 @@
+import asyncio
 import collections.abc
 import dataclasses
 import datetime as dt
@@ -249,6 +250,106 @@ async def iter_records_from_model_view(
         query_parameters=parameters,
     ):
         yield record_batch
+
+
+class RecordBatchQueue(asyncio.Queue):
+    def __init__(self, max_size_bytes=0):
+        super().__init__(maxsize=max_size_bytes)
+        self._bytes_size = 0
+        self._schema_set = asyncio.Event()
+        self.record_batch_schema = None
+
+    def _get(self) -> pa.RecordBatch:
+        item = self._queue.popleft()
+        self._bytes_size -= item.get_total_buffer_size()
+        return item
+
+    def _put(self, item: pa.RecordBatch):
+        self._bytes_size += item.get_total_buffer_size()
+
+        if not self._schema_set.is_set():
+            self.set_schema(item)
+
+        self._queue.append(item)
+
+    def set_schema(self, record_batch: pa.RecordBatch):
+        self.record_batch_schema = record_batch.schema
+        self._schema_set.set()
+
+    def qsize(self):
+        """Size in bytes of record batches in the queue."""
+        return self._bytes_size
+
+    async def get_schema(self) -> pa.Schema:
+        await self._schema_set.wait()
+        return self.record_batch_schema
+
+
+def start_produce_batch_export_record_batches(
+    client: ClickHouseClient,
+    model_name: str,
+    is_backfill: bool,
+    team_id: int,
+    interval_start: str,
+    interval_end: str,
+    fields: list[BatchExportField] | None = None,
+    destination_default_fields: list[BatchExportField] | None = None,
+    **parameters,
+):
+    if fields is None:
+        if destination_default_fields is None:
+            fields = default_fields()
+        else:
+            fields = destination_default_fields
+
+    if model_name == "persons":
+        view = SELECT_FROM_PERSONS_VIEW
+
+    else:
+        if parameters["exclude_events"]:
+            parameters["exclude_events"] = list(parameters["exclude_events"])
+        else:
+            parameters["exclude_events"] = []
+
+        if parameters["include_events"]:
+            parameters["include_events"] = list(parameters["include_events"])
+        else:
+            parameters["include_events"] = []
+
+        if str(team_id) in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS:
+            query_template = SELECT_FROM_EVENTS_VIEW_UNBOUNDED
+        elif is_backfill:
+            query_template = SELECT_FROM_EVENTS_VIEW_BACKFILL
+        else:
+            query_template = SELECT_FROM_EVENTS_VIEW
+            lookback_days = settings.OVERRIDE_TIMESTAMP_TEAM_IDS.get(team_id, settings.DEFAULT_TIMESTAMP_LOOKBACK_DAYS)
+            parameters["lookback_days"] = lookback_days
+
+        if "_inserted_at" not in [field["alias"] for field in fields]:
+            control_fields = [BatchExportField(expression="_inserted_at", alias="_inserted_at")]
+        else:
+            control_fields = []
+
+        query_fields = ",".join(f"{field['expression']} AS {field['alias']}" for field in fields + control_fields)
+
+        view = query_template.substitute(fields=query_fields)
+
+    parameters["team_id"] = team_id
+    parameters["interval_start"] = dt.datetime.fromisoformat(interval_start).strftime("%Y-%m-%d %H:%M:%S")
+    parameters["interval_end"] = dt.datetime.fromisoformat(interval_end).strftime("%Y-%m-%d %H:%M:%S")
+    extra_query_parameters = parameters.pop("extra_query_parameters") or {}
+    parameters = {**parameters, **extra_query_parameters}
+
+    queue = RecordBatchQueue()
+    query_id = uuid.uuid4()
+    done_event = asyncio.Event()
+    produce_task = asyncio.create_task(
+        client.aproduce_query_as_arrow_record_batches(
+            view, queue=queue, done_event=done_event, query_parameters=parameters, query_id=str(query_id)
+        )
+    )
+
+    return queue, done_event, produce_task
 
 
 def iter_records(
