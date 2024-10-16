@@ -113,6 +113,29 @@ class TestPersonOptimization(ClickhouseTestMixin, APIBaseTest):
         assert len(response.results) == 3
 
     @snapshot_clickhouse_queries
+    def test_left_join_with_negation(self):
+        _create_event(event="$pageview", distinct_id="1", team=self.team)
+        _create_event(event="$pageview", distinct_id="2", team=self.team)
+        _create_event(event="$pageview", distinct_id="3", team=self.team)
+        response = execute_hogql_query(
+            parse_select(
+                "select id, persons.properties.$some_prop from events left join persons ON (events.person_id=persons.id) where notEquals(persons.properties.$some_prop, 'something')"
+            ),
+            self.team,
+        )
+        assert len(response.results) == 1
+        assert [x[0] for x in response.results] == [
+            self.third_person.uuid,
+        ]
+        response = execute_hogql_query(
+            parse_select(
+                "select id, persons.properties.$some_prop from events left join persons ON (events.person_id=persons.id) where persons.properties.$some_prop != 'something'"
+            ),
+            self.team,
+        )
+        assert len(response.results) == 1
+
+    @snapshot_clickhouse_queries
     def test_limit_and_order_by(self):
         response = execute_hogql_query(
             parse_select("select id, properties.$some_prop from persons ORDER BY created_at limit 3"),

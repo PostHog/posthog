@@ -44,6 +44,7 @@ def select_from_persons_table(
     node: SelectQuery,
     *,
     filter: Optional[Expr] = None,
+    is_join: Optional[bool] = None,
 ):
     from posthog.hogql import ast
     from posthog.hogql.parser import parse_select
@@ -78,14 +79,19 @@ def select_from_persons_table(
             """
             ),
         )
-        extractor = WhereClauseExtractor(context)
+        extractor = WhereClauseExtractor(context, is_join=is_join)
         extractor.add_local_tables(join_or_table)
         where = extractor.get_inner_where(node)
 
         if where and inner_select.where:
             inner_select.where = ast.And(exprs=[inner_select.where, where])
-            select.where = ast.CompareOperation(
-                left=ast.Field(chain=["id"]), right=inner_select, op=ast.CompareOperationOp.In
+            select.where = ast.And(
+                exprs=[
+                    ast.CompareOperation(
+                        left=ast.Field(chain=["id"]), right=inner_select, op=ast.CompareOperationOp.In
+                    ),
+                    where,  # Technically, adding the where clause here is duplicative, because the outer node filters this out _again_. However, if you're trying to debug the results stay consistent throughout the query (otherwise old versions might pop up again in this subquery)
+                ]
             )
     if filter is not None:
         if select.where:
@@ -118,7 +124,7 @@ def join_with_persons_table(
 
     if not join_to_add.fields_accessed:
         raise ResolutionError("No fields requested from persons table")
-    join_expr = ast.JoinExpr(table=select_from_persons_table(join_to_add, context, node))
+    join_expr = ast.JoinExpr(table=select_from_persons_table(join_to_add, context, node, is_join=True))
 
     organization: Organization = context.team.organization if context.team else None
     # TODO: @raquelmsmith: Remove flag check and use left join for all once deletes are caught up
@@ -217,9 +223,13 @@ class PersonsTable(LazyTable):
         return self
 
     def lazy_select(self, table_to_add: LazyTableToAdd, context, node):
+        # assume that if the select_from is not persons table we're doing a join
+        is_join = not isinstance(node.select_from.table, PersonsTable)
         if self.filter is not None:
-            return select_from_persons_table(table_to_add, context, node, filter=clone_expr(self.filter, True))
-        return select_from_persons_table(table_to_add, context, node)
+            return select_from_persons_table(
+                table_to_add, context, node, filter=clone_expr(self.filter, True), is_join=is_join
+            )
+        return select_from_persons_table(table_to_add, context, node, is_join=is_join)
 
     def to_printed_clickhouse(self, context):
         return "person"
