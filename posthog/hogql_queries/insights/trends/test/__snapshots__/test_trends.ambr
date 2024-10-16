@@ -1668,7 +1668,7 @@
                                                                       WHERE equals(person.team_id, 2)
                                                                       GROUP BY person.id
                                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
-                 WHERE and(equals(e.team_id, 2), and(equals(e.event, 'sign up'), ifNull(equals(e__person.properties___filter_prop, 'filter_val'), 0)), ifNull(greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), toIntervalDay(30))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0))
+                 WHERE and(equals(e.team_id, 2), and(equals(e.event, 'sign up'), ifNull(equals(e__person.properties___filter_prop, 'filter_val'), 0)), greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), toIntervalDay(30))), lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))))
                  GROUP BY timestamp, actor_id,
                                      breakdown_value) AS e
               WHERE and(ifNull(lessOrEquals(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(29))), 0))
@@ -1742,7 +1742,7 @@
                                                                       WHERE equals(person.team_id, 2)
                                                                       GROUP BY person.id
                                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
-                 WHERE and(equals(e.team_id, 2), and(equals(e.event, 'sign up'), ifNull(equals(e__person.properties___filter_prop, 'filter_val'), 0)), ifNull(greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), toIntervalDay(30))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0))
+                 WHERE and(equals(e.team_id, 2), and(equals(e.event, 'sign up'), ifNull(equals(e__person.properties___filter_prop, 'filter_val'), 0)), greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), toIntervalDay(30))), lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))))
                  GROUP BY timestamp, actor_id,
                                      breakdown_value_1) AS e
               WHERE and(ifNull(lessOrEquals(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(29))), 0))
@@ -1805,7 +1805,7 @@
                     WHERE equals(person_distinct_id_overrides.team_id, 2)
                     GROUP BY person_distinct_id_overrides.distinct_id
                     HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-                 WHERE and(equals(e.team_id, 2), and(equals(e.event, 'sign up'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.person_properties, 'filter_prop'), ''), 'null'), '^"|"$', ''), 'filter_val'), 0)), ifNull(greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), toIntervalDay(30))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0))
+                 WHERE and(equals(e.team_id, 2), and(equals(e.event, 'sign up'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.person_properties, 'filter_prop'), ''), 'null'), '^"|"$', ''), 'filter_val'), 0)), greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), toIntervalDay(30))), lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))))
                  GROUP BY timestamp, actor_id,
                                      breakdown_value) AS e
               WHERE and(ifNull(lessOrEquals(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(29))), 0))
@@ -1868,7 +1868,7 @@
                     WHERE equals(person_distinct_id_overrides.team_id, 2)
                     GROUP BY person_distinct_id_overrides.distinct_id
                     HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-                 WHERE and(equals(e.team_id, 2), and(equals(e.event, 'sign up'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.person_properties, 'filter_prop'), ''), 'null'), '^"|"$', ''), 'filter_val'), 0)), ifNull(greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), toIntervalDay(30))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0))
+                 WHERE and(equals(e.team_id, 2), and(equals(e.event, 'sign up'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.person_properties, 'filter_prop'), ''), 'null'), '^"|"$', ''), 'filter_val'), 0)), greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), toIntervalDay(30))), lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))))
                  GROUP BY timestamp, actor_id,
                                      breakdown_value_1) AS e
               WHERE and(ifNull(lessOrEquals(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(29))), 0))
@@ -2588,7 +2588,7 @@
                  WHERE equals(person_distinct_id_overrides.team_id, 2)
                  GROUP BY person_distinct_id_overrides.distinct_id
                  HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-              WHERE and(equals(e.team_id, 2), equals(e.event, 'sign up'), ifNull(greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 00:00:00', 6, 'UTC')), toIntervalDay(7))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'UTC'))), 0))
+              WHERE and(equals(e.team_id, 2), equals(e.event, 'sign up'), greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 00:00:00', 6, 'UTC')), toIntervalDay(7))), lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'UTC'))))
               GROUP BY timestamp, actor_id) AS e
            WHERE and(ifNull(lessOrEquals(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(6))), 0))
            GROUP BY d.timestamp
@@ -2766,7 +2766,7 @@
                  WHERE equals(person_distinct_id_overrides.team_id, 2)
                  GROUP BY person_distinct_id_overrides.distinct_id
                  HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-              WHERE and(equals(e.team_id, 2), equals(e.event, 'sign up'), ifNull(greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 00:00:00', 6, 'America/Phoenix')), toIntervalDay(7))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'America/Phoenix'))), 0))
+              WHERE and(equals(e.team_id, 2), equals(e.event, 'sign up'), greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 00:00:00', 6, 'America/Phoenix')), toIntervalDay(7))), lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'America/Phoenix'))))
               GROUP BY timestamp, actor_id) AS e
            WHERE and(ifNull(lessOrEquals(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(6))), 0))
            GROUP BY d.timestamp
@@ -2944,7 +2944,7 @@
                  WHERE equals(person_distinct_id_overrides.team_id, 2)
                  GROUP BY person_distinct_id_overrides.distinct_id
                  HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-              WHERE and(equals(e.team_id, 2), equals(e.event, 'sign up'), ifNull(greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 00:00:00', 6, 'Asia/Tokyo')), toIntervalDay(7))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'Asia/Tokyo'))), 0))
+              WHERE and(equals(e.team_id, 2), equals(e.event, 'sign up'), greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 00:00:00', 6, 'Asia/Tokyo')), toIntervalDay(7))), lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'Asia/Tokyo'))))
               GROUP BY timestamp, actor_id) AS e
            WHERE and(ifNull(lessOrEquals(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(6))), 0))
            GROUP BY d.timestamp
@@ -3690,7 +3690,7 @@
              (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
                      e.distinct_id AS actor_id
               FROM events AS e SAMPLE 1
-              WHERE and(equals(e.team_id, 2), equals(e.event, 'sign up'), ifNull(greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-24 00:00:00', 6, 'UTC')), toIntervalDay(30))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-31 23:59:59', 6, 'UTC'))), 0))
+              WHERE and(equals(e.team_id, 2), equals(e.event, 'sign up'), greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-24 00:00:00', 6, 'UTC')), toIntervalDay(30))), lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-31 23:59:59', 6, 'UTC'))))
               GROUP BY timestamp, actor_id) AS e
            WHERE and(ifNull(lessOrEquals(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(29))), 0))
            GROUP BY d.timestamp
@@ -3729,7 +3729,7 @@
              (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
                      e.distinct_id AS actor_id
               FROM events AS e SAMPLE 1
-              WHERE and(equals(e.team_id, 2), equals(e.event, 'sign up'), ifNull(greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-24 00:00:00', 6, 'UTC')), toIntervalDay(7))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-31 23:59:59', 6, 'UTC'))), 0))
+              WHERE and(equals(e.team_id, 2), equals(e.event, 'sign up'), greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-24 00:00:00', 6, 'UTC')), toIntervalDay(7))), lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-31 23:59:59', 6, 'UTC'))))
               GROUP BY timestamp, actor_id) AS e
            WHERE and(ifNull(lessOrEquals(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(6))), 0))
            GROUP BY d.timestamp
@@ -5163,7 +5163,7 @@
            WHERE equals(person_distinct_id_overrides.team_id, 2)
            GROUP BY person_distinct_id_overrides.distinct_id
            HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-        WHERE and(equals(e.team_id, 2), equals(e.event, '$pageview'), ifNull(greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC')), toIntervalDay(7))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))), 0))
+        WHERE and(equals(e.team_id, 2), equals(e.event, '$pageview'), greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC')), toIntervalDay(7))), lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))))
         GROUP BY timestamp, actor_id) AS e
      WHERE and(ifNull(lessOrEquals(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(6))), 0))
      GROUP BY d.timestamp,
@@ -5199,7 +5199,7 @@
            WHERE equals(person_distinct_id_overrides.team_id, 2)
            GROUP BY person_distinct_id_overrides.distinct_id
            HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-        WHERE and(equals(e.team_id, 2), equals(e.event, '$pageview'), ifNull(greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-18 23:59:59', 6, 'UTC')), toIntervalDay(7))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-18 23:59:59', 6, 'UTC'))), 0))
+        WHERE and(equals(e.team_id, 2), equals(e.event, '$pageview'), greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-18 23:59:59', 6, 'UTC')), toIntervalDay(7))), lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-18 23:59:59', 6, 'UTC'))))
         GROUP BY timestamp, actor_id) AS e
      WHERE and(ifNull(lessOrEquals(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(6))), 0))
      GROUP BY d.timestamp,
@@ -5235,7 +5235,7 @@
            WHERE equals(person_distinct_id_overrides.team_id, 2)
            GROUP BY person_distinct_id_overrides.distinct_id
            HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-        WHERE and(equals(e.team_id, 2), equals(e.event, '$pageview'), ifNull(greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-18 23:59:59', 6, 'UTC')), toIntervalDay(7))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-18 23:59:59', 6, 'UTC'))), 0))
+        WHERE and(equals(e.team_id, 2), equals(e.event, '$pageview'), greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-18 23:59:59', 6, 'UTC')), toIntervalDay(7))), lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-18 23:59:59', 6, 'UTC'))))
         GROUP BY timestamp, actor_id) AS e
      WHERE and(ifNull(lessOrEquals(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(6))), 0))
      GROUP BY d.timestamp,
@@ -5279,7 +5279,7 @@
                  WHERE equals(person_distinct_id_overrides.team_id, 2)
                  GROUP BY person_distinct_id_overrides.distinct_id
                  HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-              WHERE and(equals(e.team_id, 2), equals(e.event, '$pageview'), ifNull(greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-08 00:00:00', 6, 'UTC')), toIntervalDay(7))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-19 23:59:59', 6, 'UTC'))), 0))
+              WHERE and(equals(e.team_id, 2), equals(e.event, '$pageview'), greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-08 00:00:00', 6, 'UTC')), toIntervalDay(7))), lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-19 23:59:59', 6, 'UTC'))))
               GROUP BY timestamp, actor_id) AS e
            WHERE and(ifNull(lessOrEquals(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(6))), 0))
            GROUP BY d.timestamp
@@ -5325,7 +5325,7 @@
                  WHERE equals(person_distinct_id_overrides.team_id, 2)
                  GROUP BY person_distinct_id_overrides.distinct_id
                  HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-              WHERE and(equals(e.team_id, 2), equals(e.event, '$pageview'), ifNull(greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-08 00:00:00', 6, 'America/Phoenix')), toIntervalDay(7))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-19 23:59:59', 6, 'America/Phoenix'))), 0))
+              WHERE and(equals(e.team_id, 2), equals(e.event, '$pageview'), greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-08 00:00:00', 6, 'America/Phoenix')), toIntervalDay(7))), lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-19 23:59:59', 6, 'America/Phoenix'))))
               GROUP BY timestamp, actor_id) AS e
            WHERE and(ifNull(lessOrEquals(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(6))), 0))
            GROUP BY d.timestamp
@@ -5371,7 +5371,7 @@
                  WHERE equals(person_distinct_id_overrides.team_id, 2)
                  GROUP BY person_distinct_id_overrides.distinct_id
                  HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-              WHERE and(equals(e.team_id, 2), equals(e.event, '$pageview'), ifNull(greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-08 00:00:00', 6, 'Asia/Tokyo')), toIntervalDay(7))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-19 23:59:59', 6, 'Asia/Tokyo'))), 0))
+              WHERE and(equals(e.team_id, 2), equals(e.event, '$pageview'), greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-08 00:00:00', 6, 'Asia/Tokyo')), toIntervalDay(7))), lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-19 23:59:59', 6, 'Asia/Tokyo'))))
               GROUP BY timestamp, actor_id) AS e
            WHERE and(ifNull(lessOrEquals(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(6))), 0))
            GROUP BY d.timestamp
@@ -5427,7 +5427,7 @@
                                                                    WHERE equals(person.team_id, 2)
                                                                    GROUP BY person.id
                                                                    HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
-              WHERE and(equals(e.team_id, 2), and(equals(e.event, '$pageview'), or(ifNull(equals(e__person.properties___name, 'person-1'), 0), ifNull(equals(e__person.properties___name, 'person-2'), 0))), ifNull(greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')), toIntervalDay(7))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))), 0))
+              WHERE and(equals(e.team_id, 2), and(equals(e.event, '$pageview'), or(ifNull(equals(e__person.properties___name, 'person-1'), 0), ifNull(equals(e__person.properties___name, 'person-2'), 0))), greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')), toIntervalDay(7))), lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))))
               GROUP BY timestamp, actor_id) AS e
            WHERE and(ifNull(lessOrEquals(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(6))), 0))
            GROUP BY d.timestamp
@@ -5483,7 +5483,7 @@
                                                                    WHERE equals(person.team_id, 2)
                                                                    GROUP BY person.id
                                                                    HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
-              WHERE and(equals(e.team_id, 2), and(equals(e.event, '$pageview'), or(ifNull(equals(e__person.properties___name, 'person-1'), 0), ifNull(equals(e__person.properties___name, 'person-2'), 0))), ifNull(greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')), toIntervalDay(7))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))), 0))
+              WHERE and(equals(e.team_id, 2), and(equals(e.event, '$pageview'), or(ifNull(equals(e__person.properties___name, 'person-1'), 0), ifNull(equals(e__person.properties___name, 'person-2'), 0))), greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')), toIntervalDay(7))), lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))))
               GROUP BY timestamp, actor_id) AS e
            WHERE and(ifNull(lessOrEquals(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(6))), 0))
            GROUP BY d.timestamp
@@ -5529,7 +5529,7 @@
                  WHERE equals(person_distinct_id_overrides.team_id, 2)
                  GROUP BY person_distinct_id_overrides.distinct_id
                  HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-              WHERE and(equals(e.team_id, 2), equals(e.event, '$pageview'), ifNull(greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-09 06:00:00', 6, 'UTC')), toIntervalDay(7))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-09 17:00:00', 6, 'UTC'))), 0))
+              WHERE and(equals(e.team_id, 2), equals(e.event, '$pageview'), greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-09 06:00:00', 6, 'UTC')), toIntervalDay(7))), lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-09 17:00:00', 6, 'UTC'))))
               GROUP BY timestamp, actor_id) AS e
            WHERE and(ifNull(lessOrEquals(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(6))), 0))
            GROUP BY d.timestamp
@@ -5575,7 +5575,7 @@
                  WHERE equals(person_distinct_id_overrides.team_id, 2)
                  GROUP BY person_distinct_id_overrides.distinct_id
                  HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-              WHERE and(equals(e.team_id, 2), equals(e.event, '$pageview'), ifNull(greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 00:00:00', 6, 'UTC')), toIntervalDay(7))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-18 23:59:59', 6, 'UTC'))), 0))
+              WHERE and(equals(e.team_id, 2), equals(e.event, '$pageview'), greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 00:00:00', 6, 'UTC')), toIntervalDay(7))), lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-18 23:59:59', 6, 'UTC'))))
               GROUP BY timestamp, actor_id) AS e
            WHERE and(ifNull(lessOrEquals(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(6))), 0))
            GROUP BY d.timestamp
@@ -5621,7 +5621,7 @@
                  WHERE equals(person_distinct_id_overrides.team_id, 2)
                  GROUP BY person_distinct_id_overrides.distinct_id
                  HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-              WHERE and(equals(e.team_id, 2), equals(e.event, '$pageview'), ifNull(greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 00:00:00', 6, 'America/Phoenix')), toIntervalDay(7))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-18 23:59:59', 6, 'America/Phoenix'))), 0))
+              WHERE and(equals(e.team_id, 2), equals(e.event, '$pageview'), greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 00:00:00', 6, 'America/Phoenix')), toIntervalDay(7))), lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-18 23:59:59', 6, 'America/Phoenix'))))
               GROUP BY timestamp, actor_id) AS e
            WHERE and(ifNull(lessOrEquals(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(6))), 0))
            GROUP BY d.timestamp
@@ -5667,7 +5667,7 @@
                  WHERE equals(person_distinct_id_overrides.team_id, 2)
                  GROUP BY person_distinct_id_overrides.distinct_id
                  HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-              WHERE and(equals(e.team_id, 2), equals(e.event, '$pageview'), ifNull(greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 00:00:00', 6, 'Asia/Tokyo')), toIntervalDay(7))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-18 23:59:59', 6, 'Asia/Tokyo'))), 0))
+              WHERE and(equals(e.team_id, 2), equals(e.event, '$pageview'), greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 00:00:00', 6, 'Asia/Tokyo')), toIntervalDay(7))), lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-18 23:59:59', 6, 'Asia/Tokyo'))))
               GROUP BY timestamp, actor_id) AS e
            WHERE and(ifNull(lessOrEquals(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(6))), 0))
            GROUP BY d.timestamp
