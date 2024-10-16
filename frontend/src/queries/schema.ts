@@ -1602,7 +1602,7 @@ export interface ExperimentVariantTrendBaseStats {
     absolute_exposure: number
 }
 
-export interface ExperimentVariantFunnelResult {
+export interface ExperimentVariantFunnelBaseStats {
     key: string
     success_count: number
     failure_count: number
@@ -1629,8 +1629,13 @@ export interface ExperimentTrendQueryResponse {
 export type CachedExperimentTrendQueryResponse = CachedQueryResponse<ExperimentTrendQueryResponse>
 
 export interface ExperimentFunnelQueryResponse {
-    insight: InsightType.FUNNELS
-    results: Record<string, ExperimentVariantFunnelResult>
+    insight: FunnelsQueryResponse
+    variants: ExperimentVariantFunnelBaseStats[]
+    probability: Record<string, number>
+    significant: boolean
+    significance_code: ExperimentSignificanceCode
+    expected_loss: number
+    credible_intervals: Record<string, [number, number]>
 }
 
 export type CachedExperimentFunnelQueryResponse = CachedQueryResponse<ExperimentFunnelQueryResponse>

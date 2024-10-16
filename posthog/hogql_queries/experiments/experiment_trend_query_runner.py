@@ -249,9 +249,7 @@ class ExperimentTrendQueryRunner(QueryRunner):
         self._validate_event_variants(count_result)
 
         # Statistical analysis
-        control_variant, test_variants = self._get_variants_with_base_stats(
-            count_result.results, exposure_result.results
-        )
+        control_variant, test_variants = self._get_variants_with_base_stats(count_result, exposure_result)
         probabilities = calculate_probabilities(control_variant, test_variants)
         significance_code, p_value = are_results_significant(control_variant, test_variants, probabilities)
         credible_intervals = calculate_credible_intervals([control_variant, *test_variants])
@@ -270,14 +268,14 @@ class ExperimentTrendQueryRunner(QueryRunner):
         )
 
     def _get_variants_with_base_stats(
-        self, count_results: list[dict[str, Any]], exposure_results: list[dict[str, Any]]
+        self, count_results: TrendsQueryResponse, exposure_results: TrendsQueryResponse
     ) -> tuple[ExperimentVariantTrendBaseStats, list[ExperimentVariantTrendBaseStats]]:
         control_variant: Optional[ExperimentVariantTrendBaseStats] = None
         test_variants = []
         exposure_counts = {}
         exposure_ratios = {}
 
-        for result in exposure_results:
+        for result in exposure_results.results:
             count = result.get("count", 0)
             breakdown_value = result.get("breakdown_value")
             exposure_counts[breakdown_value] = count
@@ -288,7 +286,7 @@ class ExperimentTrendQueryRunner(QueryRunner):
             for key, count in exposure_counts.items():
                 exposure_ratios[key] = count / control_exposure
 
-        for result in count_results:
+        for result in count_results.results:
             count = result.get("count", 0)
             breakdown_value = result.get("breakdown_value")
             if breakdown_value == CONTROL_VARIANT_KEY:

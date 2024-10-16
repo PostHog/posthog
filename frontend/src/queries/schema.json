@@ -1254,9 +1254,22 @@
                     "description": "What triggered the calculation of the query, leave empty if user/immediate",
                     "type": "string"
                 },
+                "credible_intervals": {
+                    "additionalProperties": {
+                        "items": {
+                            "type": "number"
+                        },
+                        "maxItems": 2,
+                        "minItems": 2,
+                        "type": "array"
+                    },
+                    "type": "object"
+                },
+                "expected_loss": {
+                    "type": "number"
+                },
                 "insight": {
-                    "const": "FUNNELS",
-                    "type": "string"
+                    "$ref": "#/definitions/FunnelsQueryResponse"
                 },
                 "is_cached": {
                     "type": "boolean"
@@ -1269,28 +1282,45 @@
                     "format": "date-time",
                     "type": "string"
                 },
+                "probability": {
+                    "additionalProperties": {
+                        "type": "number"
+                    },
+                    "type": "object"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
-                "results": {
-                    "additionalProperties": {
-                        "$ref": "#/definitions/ExperimentVariantFunnelResult"
-                    },
-                    "type": "object"
+                "significance_code": {
+                    "$ref": "#/definitions/ExperimentSignificanceCode"
+                },
+                "significant": {
+                    "type": "boolean"
                 },
                 "timezone": {
                     "type": "string"
+                },
+                "variants": {
+                    "items": {
+                        "$ref": "#/definitions/ExperimentVariantFunnelBaseStats"
+                    },
+                    "type": "array"
                 }
             },
             "required": [
                 "cache_key",
+                "credible_intervals",
+                "expected_loss",
                 "insight",
                 "is_cached",
                 "last_refresh",
                 "next_allowed_client_refresh",
-                "results",
-                "timezone"
+                "probability",
+                "significance_code",
+                "significant",
+                "timezone",
+                "variants"
             ],
             "type": "object"
         },
@@ -3641,18 +3671,51 @@
                         {
                             "additionalProperties": false,
                             "properties": {
-                                "insight": {
-                                    "const": "FUNNELS",
-                                    "type": "string"
-                                },
-                                "results": {
+                                "credible_intervals": {
                                     "additionalProperties": {
-                                        "$ref": "#/definitions/ExperimentVariantFunnelResult"
+                                        "items": {
+                                            "type": "number"
+                                        },
+                                        "maxItems": 2,
+                                        "minItems": 2,
+                                        "type": "array"
                                     },
                                     "type": "object"
+                                },
+                                "expected_loss": {
+                                    "type": "number"
+                                },
+                                "insight": {
+                                    "$ref": "#/definitions/FunnelsQueryResponse"
+                                },
+                                "probability": {
+                                    "additionalProperties": {
+                                        "type": "number"
+                                    },
+                                    "type": "object"
+                                },
+                                "significance_code": {
+                                    "$ref": "#/definitions/ExperimentSignificanceCode"
+                                },
+                                "significant": {
+                                    "type": "boolean"
+                                },
+                                "variants": {
+                                    "items": {
+                                        "$ref": "#/definitions/ExperimentVariantFunnelBaseStats"
+                                    },
+                                    "type": "array"
                                 }
                             },
-                            "required": ["insight", "results"],
+                            "required": [
+                                "credible_intervals",
+                                "expected_loss",
+                                "insight",
+                                "probability",
+                                "significance_code",
+                                "significant",
+                                "variants"
+                            ],
                             "type": "object"
                         },
                         {
@@ -5082,18 +5145,51 @@
         "ExperimentFunnelQueryResponse": {
             "additionalProperties": false,
             "properties": {
-                "insight": {
-                    "const": "FUNNELS",
-                    "type": "string"
-                },
-                "results": {
+                "credible_intervals": {
                     "additionalProperties": {
-                        "$ref": "#/definitions/ExperimentVariantFunnelResult"
+                        "items": {
+                            "type": "number"
+                        },
+                        "maxItems": 2,
+                        "minItems": 2,
+                        "type": "array"
                     },
                     "type": "object"
+                },
+                "expected_loss": {
+                    "type": "number"
+                },
+                "insight": {
+                    "$ref": "#/definitions/FunnelsQueryResponse"
+                },
+                "probability": {
+                    "additionalProperties": {
+                        "type": "number"
+                    },
+                    "type": "object"
+                },
+                "significance_code": {
+                    "$ref": "#/definitions/ExperimentSignificanceCode"
+                },
+                "significant": {
+                    "type": "boolean"
+                },
+                "variants": {
+                    "items": {
+                        "$ref": "#/definitions/ExperimentVariantFunnelBaseStats"
+                    },
+                    "type": "array"
                 }
             },
-            "required": ["insight", "results"],
+            "required": [
+                "insight",
+                "variants",
+                "probability",
+                "significant",
+                "significance_code",
+                "expected_loss",
+                "credible_intervals"
+            ],
             "type": "object"
         },
         "ExperimentSignificanceCode": {
@@ -5177,7 +5273,7 @@
             ],
             "type": "object"
         },
-        "ExperimentVariantFunnelResult": {
+        "ExperimentVariantFunnelBaseStats": {
             "additionalProperties": false,
             "properties": {
                 "failure_count": {
@@ -8762,18 +8858,51 @@
                 {
                     "additionalProperties": false,
                     "properties": {
-                        "insight": {
-                            "const": "FUNNELS",
-                            "type": "string"
-                        },
-                        "results": {
+                        "credible_intervals": {
                             "additionalProperties": {
-                                "$ref": "#/definitions/ExperimentVariantFunnelResult"
+                                "items": {
+                                    "type": "number"
+                                },
+                                "maxItems": 2,
+                                "minItems": 2,
+                                "type": "array"
                             },
                             "type": "object"
+                        },
+                        "expected_loss": {
+                            "type": "number"
+                        },
+                        "insight": {
+                            "$ref": "#/definitions/FunnelsQueryResponse"
+                        },
+                        "probability": {
+                            "additionalProperties": {
+                                "type": "number"
+                            },
+                            "type": "object"
+                        },
+                        "significance_code": {
+                            "$ref": "#/definitions/ExperimentSignificanceCode"
+                        },
+                        "significant": {
+                            "type": "boolean"
+                        },
+                        "variants": {
+                            "items": {
+                                "$ref": "#/definitions/ExperimentVariantFunnelBaseStats"
+                            },
+                            "type": "array"
                         }
                     },
-                    "required": ["insight", "results"],
+                    "required": [
+                        "insight",
+                        "variants",
+                        "probability",
+                        "significant",
+                        "significance_code",
+                        "expected_loss",
+                        "credible_intervals"
+                    ],
                     "type": "object"
                 },
                 {
@@ -9374,18 +9503,51 @@
                 {
                     "additionalProperties": false,
                     "properties": {
-                        "insight": {
-                            "const": "FUNNELS",
-                            "type": "string"
-                        },
-                        "results": {
+                        "credible_intervals": {
                             "additionalProperties": {
-                                "$ref": "#/definitions/ExperimentVariantFunnelResult"
+                                "items": {
+                                    "type": "number"
+                                },
+                                "maxItems": 2,
+                                "minItems": 2,
+                                "type": "array"
                             },
                             "type": "object"
+                        },
+                        "expected_loss": {
+                            "type": "number"
+                        },
+                        "insight": {
+                            "$ref": "#/definitions/FunnelsQueryResponse"
+                        },
+                        "probability": {
+                            "additionalProperties": {
+                                "type": "number"
+                            },
+                            "type": "object"
+                        },
+                        "significance_code": {
+                            "$ref": "#/definitions/ExperimentSignificanceCode"
+                        },
+                        "significant": {
+                            "type": "boolean"
+                        },
+                        "variants": {
+                            "items": {
+                                "$ref": "#/definitions/ExperimentVariantFunnelBaseStats"
+                            },
+                            "type": "array"
                         }
                     },
-                    "required": ["insight", "results"],
+                    "required": [
+                        "credible_intervals",
+                        "expected_loss",
+                        "insight",
+                        "probability",
+                        "significance_code",
+                        "significant",
+                        "variants"
+                    ],
                     "type": "object"
                 },
                 {
