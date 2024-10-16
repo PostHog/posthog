@@ -65,7 +65,7 @@ useStorybookMocks({
         '/api/status_shorthand': () => [500, { error: 'Error text' }]
 
         // complicated param handling
-        '/api/projects/:team/insights': (req, _, ctx) => {
+        '/api/environments/:team_id/insights': (req, _, ctx) => {
             const team = req.params['team']
             const shortId = req.url.searchParams.get('short_id')
             if (shortId === 'my_insight') {

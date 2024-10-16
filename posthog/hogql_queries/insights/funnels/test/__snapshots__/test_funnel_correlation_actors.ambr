@@ -642,6 +642,7 @@
                      max_bytes_before_external_group_by=0
   '''
 # ---
+<<<<<<< HEAD
 # name: TestFunnelCorrelationActors.test_strict_funnel_correlation_with_recordings
   '''
   SELECT persons.id,
@@ -1024,3 +1025,5 @@
                      max_bytes_before_external_group_by=0
   '''
 # ---
+=======
+>>>>>>> origin/master
