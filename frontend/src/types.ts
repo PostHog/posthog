@@ -3950,6 +3950,7 @@ export const externalDataSources = [
     'Hubspot',
     'Postgres',
     'MySQL',
+    'PlanetScale',
     'MSSQL',
     'Zendesk',
     'Snowflake',

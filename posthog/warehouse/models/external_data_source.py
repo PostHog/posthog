@@ -22,6 +22,7 @@ class ExternalDataSource(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
         SNOWFLAKE = "Snowflake", "Snowflake"
         SALESFORCE = "Salesforce", "Salesforce"
         MYSQL = "MySQL", "MySQL"
+        PLANETSCALE = "PlanetScale", "PlanetScale"
         MSSQL = "MSSQL", "MSSQL"
         VITALLY = "Vitally", "Vitally"
         BIGQUERY = "BigQuery", "BigQuery"

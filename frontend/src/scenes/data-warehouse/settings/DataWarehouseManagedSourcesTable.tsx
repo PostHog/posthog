@@ -10,6 +10,7 @@ import IconCloudflare from 'public/services/cloudflare.png'
 import IconGoogleCloudStorage from 'public/services/google-cloud-storage.png'
 import IconHubspot from 'public/services/hubspot.png'
 import IconMySQL from 'public/services/mysql.png'
+import IconPlanetScale from 'public/services/planetscale.png'
 import IconPostgres from 'public/services/postgres.png'
 import IconSalesforce from 'public/services/salesforce.png'
 import IconSnowflake from 'public/services/snowflake.png'
@@ -193,6 +194,7 @@ export function RenderDataWarehouseSourceIcon({
         MSSQL: IconMSSQL,
         Vitally: IconVitally,
         BigQuery: IconBigQuery,
+        PlanetScale: IconPlanetScale,
     }[type]
 
     return (

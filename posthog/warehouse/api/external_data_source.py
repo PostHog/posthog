@@ -844,6 +844,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             ExternalDataSource.Type.POSTGRES,
             ExternalDataSource.Type.MYSQL,
             ExternalDataSource.Type.MSSQL,
+            ExternalDataSource.Type.PLANETSCALE,
         ]:
             # Importing pymssql requires mssql drivers to be installed locally - see posthog/warehouse/README.md
             from pymssql import OperationalError as MSSQLOperationalError
@@ -969,7 +970,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 filtered_results = [
                     (table_name, filter_postgres_incremental_fields(columns)) for table_name, columns in result.items()
                 ]
-            elif source_type == ExternalDataSource.Type.MYSQL:
+            elif source_type == ExternalDataSource.Type.MYSQL or source_type == ExternalDataSource.Type.PLANETSCALE:
                 filtered_results = [
                     (table_name, filter_mysql_incremental_fields(columns)) for table_name, columns in result.items()
                 ]

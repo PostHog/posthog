@@ -14,7 +14,7 @@ from dlt.common.configuration.specs import BaseConfiguration, configspec
 from dlt.common.typing import TDataItem
 from .settings import DEFAULT_CHUNK_SIZE
 
-from sqlalchemy import Table, create_engine, Column
+from sqlalchemy import Table, create_engine, Column, event
 from sqlalchemy.engine import Engine
 from sqlalchemy.sql import Select
 
@@ -26,11 +26,21 @@ class TableLoader:
         table: Table,
         chunk_size: int = 1000,
         incremental: Optional[dlt.sources.incremental[Any]] = None,
+        connect_args: Optional[list[str]] = None,
     ) -> None:
         self.engine = engine
         self.table = table
         self.chunk_size = chunk_size
         self.incremental = incremental
+        self.connect_args = connect_args
+
+        @event.listens_for(engine, "connect")
+        def connect(dbapi_connection, connection_record):
+            cursor = dbapi_connection.cursor()
+            if connect_args:
+                for stmt in connect_args:
+                    cursor.execute(stmt)
+
         if incremental:
             try:
                 self.cursor_column: Optional[Column[Any]] = table.c[incremental.cursor_path]
@@ -84,6 +94,7 @@ def table_rows(
     table: Table,
     chunk_size: int = DEFAULT_CHUNK_SIZE,
     incremental: Optional[dlt.sources.incremental[Any]] = None,
+    connect_args: Optional[list[str]] = None,
 ) -> Iterator[TDataItem]:
     """
     A DLT source which loads data from an SQL database using SQLAlchemy.
@@ -100,7 +111,7 @@ def table_rows(
     """
     yield dlt.mark.materialize_table_schema()  # type: ignore
 
-    loader = TableLoader(engine, table, incremental=incremental, chunk_size=chunk_size)
+    loader = TableLoader(engine, table, incremental=incremental, chunk_size=chunk_size, connect_args=connect_args)
     yield from loader.load_rows()
 
     engine.dispose()
