@@ -4,14 +4,13 @@ from math import exp, lgamma, log, ceil
 
 from flaky import flaky
 
-from posthog.constants import ExperimentSignificanceCode
 from posthog.hogql_queries.experiments.funnel_statistics import (
     are_results_significant,
     calculate_expected_loss,
     calculate_probabilities,
     calculate_credible_intervals as calculate_funnel_credible_intervals,
 )
-from posthog.schema import ExperimentVariantFunnelResult
+from posthog.schema import ExperimentSignificanceCode, ExperimentVariantFunnelResult
 
 Probability = float
 
