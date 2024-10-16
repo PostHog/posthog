@@ -1,13 +1,15 @@
 from typing import cast, Optional
 
+from rest_framework.exceptions import ValidationError
+
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLQuerySettings
-from posthog.hogql.parser import parse_select
+from posthog.hogql.parser import parse_select, parse_expr
 from posthog.hogql_queries.insights.funnels import FunnelTrends
 from posthog.hogql_queries.insights.funnels.funnel_udf import udf_event_array_filter
 from posthog.hogql_queries.insights.utils.utils import get_start_of_interval_hogql_str
 from posthog.schema import BreakdownType, BreakdownAttributionType
-from posthog.utils import DATERANGE_MAP
+from posthog.utils import DATERANGE_MAP, relative_date_parse
 
 TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
 HUMAN_READABLE_TIMESTAMP_FORMAT = "%-d-%b-%Y"
@@ -93,7 +95,8 @@ class FunnelTrendsUDF(FunnelTrends):
                 )) as af_tuple,
                 toTimeZone(toDateTime(_toUInt64(af_tuple.1)), '{self.context.team.timezone}') as entrance_period_start,
                 af_tuple.2 as success_bool,
-                af_tuple.3 as breakdown
+                af_tuple.3 as breakdown,
+                aggregation_target as aggregation_target
             FROM {{inner_event_query}}
             GROUP BY aggregation_target{breakdown_prop}
         """,
@@ -174,14 +177,44 @@ class FunnelTrendsUDF(FunnelTrends):
         self,
         extra_fields: Optional[list[str]] = None,
     ) -> ast.SelectQuery:
+        team, actorsQuery = self.context.team, self.context.actorsQuery
+
+        if actorsQuery is None:
+            raise ValidationError("No actors query present.")
+
+        # At this time, we do not support self.dropOff (we don't use it anywhere in the frontend)
+        if actorsQuery.funnelTrendsDropOff is None:
+            raise ValidationError(f"Actors parameter `funnelTrendsDropOff` must be provided for funnel trends persons!")
+
+        if actorsQuery.funnelTrendsEntrancePeriodStart is None:
+            raise ValidationError(
+                f"Actors parameter `funnelTrendsEntrancePeriodStart` must be provided funnel trends persons!"
+            )
+
+        entrancePeriodStart = relative_date_parse(actorsQuery.funnelTrendsEntrancePeriodStart, team.timezone_info)
+        if entrancePeriodStart is None:
+            raise ValidationError(
+                f"Actors parameter `funnelTrendsEntrancePeriodStart` must be a valid relative date string!"
+            )
+
         select: list[ast.Expr] = [
             ast.Alias(alias="actor_id", expr=ast.Field(chain=["aggregation_target"])),
-            *self._get_funnel_person_step_events(),
-            *self._get_timestamp_outer_select(),
             *([ast.Field(chain=[field]) for field in extra_fields or []]),
         ]
         select_from = ast.JoinExpr(table=self._inner_aggregation_query())
-        where = self._get_funnel_person_step_condition()
+
+        where = ast.And(
+            exprs=[
+                parse_expr("success_bool = 1"),
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=parse_expr("entrance_period_start"),
+                    right=ast.Constant(value=entrancePeriodStart),
+                )
+                if entrancePeriodStart
+                else None,
+            ]
+        )
         order_by = [ast.OrderExpr(expr=ast.Field(chain=["aggregation_target"]))]
 
         return ast.SelectQuery(
