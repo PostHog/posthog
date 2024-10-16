@@ -581,7 +581,10 @@ class TestResolver(BaseTest):
         node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
         self._assert_first_columm_is_type(node, ast.IntegerType(nullable=False))
 
-    def test_interval_type_arithmetic_and_comparison(self):
+    def test_interval_type_arithmetic_and_datetime_comparison(self):
+        # Ensure that common timestamp filtering expressions are not resolved as nullable types, as these types being
+        # nullable would cause them to be wrapped in `ifNull` calls during printing, preventing ClickHouse from doing
+        # effective partition and index optimizations, causing us to read more data than is necessary.
         node = self._select("""
             SELECT count()
             FROM events
