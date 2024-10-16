@@ -181,7 +181,7 @@ function useInsightMocks(interval: string = 'day', timezone: string = 'UTC'): vo
     }
     useMocks({
         get: {
-            '/api/projects/:team_id/insights/': () => {
+            '/api/environments/:team_id/insights/': () => {
                 return [
                     200,
                     {
@@ -189,7 +189,7 @@ function useInsightMocks(interval: string = 'day', timezone: string = 'UTC'): vo
                     },
                 ]
             },
-            [`/api/projects/:team_id/insights/${MOCK_INSIGHT_NUMERIC_ID}`]: () => {
+            [`/api/environments/:team_id/insights/${MOCK_INSIGHT_NUMERIC_ID}`]: () => {
                 return [200, insight]
             },
             '/api/users/@me/': [200, {}],

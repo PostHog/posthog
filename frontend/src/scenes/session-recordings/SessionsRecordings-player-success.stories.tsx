@@ -23,7 +23,7 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:team_id/session_recordings': (req) => {
+                '/api/environments/:team_id/session_recordings': (req) => {
                     const version = req.url.searchParams.get('version')
                     return [
                         200,
@@ -88,7 +88,7 @@ const meta: Meta = {
                     const response = playlistId === '1234567' ? recordings : []
                     return [200, { has_next: false, results: response, version: 1 }]
                 },
-                '/api/projects/:team/session_recordings/:id/snapshots': (req, res, ctx) => {
+                '/api/environments/:team_id/session_recordings/:id/snapshots': (req, res, ctx) => {
                     // with no sources, returns sources...
                     if (req.url.searchParams.get('source') === 'blob') {
                         return res(ctx.text(snapshotsAsJSONLines()))
@@ -108,7 +108,7 @@ const meta: Meta = {
                         },
                     ]
                 },
-                '/api/projects/:team/session_recordings/:id': recordingMetaJson,
+                '/api/environments/:team_id/session_recordings/:id': recordingMetaJson,
                 'api/projects/:team/notebooks': {
                     count: 0,
                     next: null,
@@ -117,7 +117,7 @@ const meta: Meta = {
                 },
             },
             post: {
-                '/api/projects/:team/query': (req, res, ctx) => {
+                '/api/environments/:team_id/query': (req, res, ctx) => {
                     const body = req.body as Record<string, any>
 
                     if (

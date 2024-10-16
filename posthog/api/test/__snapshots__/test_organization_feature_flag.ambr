@@ -1914,9 +1914,10 @@
   '''
   SELECT 1 AS "a"
   FROM "posthog_featureflag"
+  INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
   WHERE (NOT "posthog_featureflag"."deleted"
          AND "posthog_featureflag"."key" = 'copied-flag-key'
-         AND "posthog_featureflag"."team_id" = 2)
+         AND "posthog_team"."project_id" = 2)
   LIMIT 1
   '''
 # ---

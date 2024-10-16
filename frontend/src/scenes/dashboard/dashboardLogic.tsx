@@ -141,7 +141,7 @@ async function getSingleInsight(
     methodOptions?: ApiMethodOptions,
     filtersOverride?: DashboardFilter
 ): Promise<QueryBasedInsightModel | null> {
-    const apiUrl = `api/projects/${currentTeamId}/insights/${insight.id}/?${toParams({
+    const apiUrl = `api/environments/${currentTeamId}/insights/${insight.id}/?${toParams({
         refresh,
         from_dashboard: dashboardId, // needed to load insight in correct context
         client_query_id: queryId,
@@ -294,7 +294,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         breakpoint()
 
                         const dashboard: DashboardType<InsightModel> = await api.update(
-                            `api/projects/${values.currentTeamId}/dashboards/${props.id}`,
+                            `api/environments/${values.currentTeamId}/dashboards/${props.id}`,
                             {
                                 filters: values.filters,
                                 tiles: layoutsToUpdate,
@@ -307,7 +307,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     }
                 },
                 updateTileColor: async ({ tileId, color }) => {
-                    await api.update(`api/projects/${values.currentTeamId}/dashboards/${props.id}`, {
+                    await api.update(`api/environments/${values.currentTeamId}/dashboards/${props.id}`, {
                         tiles: [{ id: tileId, color }],
                     })
                     const matchingTile = values.tiles.find((tile) => tile.id === tileId)
@@ -318,7 +318,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 },
                 removeTile: async ({ tile }) => {
                     try {
-                        await api.update(`api/projects/${values.currentTeamId}/dashboards/${props.id}`, {
+                        await api.update(`api/environments/${values.currentTeamId}/dashboards/${props.id}`, {
                             tiles: [{ id: tile.id, deleted: true }],
                         })
                         dashboardsModel.actions.tileRemovedFromDashboard({
@@ -361,7 +361,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         }
 
                         const dashboard: DashboardType<InsightModel> = await api.update(
-                            `api/projects/${values.currentTeamId}/dashboards/${props.id}`,
+                            `api/environments/${values.currentTeamId}/dashboards/${props.id}`,
                             {
                                 tiles: [newTile],
                             }
@@ -381,7 +381,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         return values.dashboard
                     }
                     const dashboard: DashboardType<InsightModel> = await api.update(
-                        `api/projects/${teamLogic.values.currentTeamId}/dashboards/${props.id}/move_tile`,
+                        `api/environments/${teamLogic.values.currentTeamId}/dashboards/${props.id}/move_tile`,
                         {
                             tile,
                             toDashboard,
@@ -732,7 +732,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             () => [(_, props) => props.id],
             (id) => {
                 return (refresh?: RefreshType, filtersOverride?: DashboardFilter) =>
-                    `api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}/?${toParams({
+                    `api/environments/${teamLogic.values.currentTeamId}/dashboards/${id}/?${toParams({
                         refresh,
                         filters_override: filtersOverride,
                     })}`
@@ -1282,7 +1282,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         abortQuery: async ({ dashboardQueryId, queryId, queryStartTime }) => {
             const { currentTeamId } = values
 
-            await api.create(`api/projects/${currentTeamId}/insights/cancel`, { client_query_id: dashboardQueryId })
+            await api.create(`api/environments/${currentTeamId}/insights/cancel`, { client_query_id: dashboardQueryId })
 
             // TRICKY: we cancel just once using the dashboard query id.
             // we can record the queryId that happened to capture the AbortError exception
