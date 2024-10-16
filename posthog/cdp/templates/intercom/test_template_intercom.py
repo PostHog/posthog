@@ -59,7 +59,7 @@ class TestTemplateIntercom(BaseHogFunctionTemplateTest):
         self.mock_fetch_response = lambda *args: {"status": 404, "body": {"status": "missing"}}  # type: ignore
         with pytest.raises(Exception) as e:
             self.run_function(inputs=self._inputs())
-        assert e.value.message == "No existing contact found for email"
+        assert e.value.message == "No existing contact found for email"  # type: ignore[attr-defined]
 
     def test_logs_other_errors(self):
         self.mock_fetch_response = lambda *args: {  # type: ignore
@@ -73,7 +73,7 @@ class TestTemplateIntercom(BaseHogFunctionTemplateTest):
         with pytest.raises(Exception) as e:
             self.run_function(inputs=self._inputs())
         assert (
-            e.value.message
+            e.value.message  # type: ignore[attr-defined]
             == "Error from intercom api (status 400): {'type': 'error.list', 'request_id': '001dh0h1qb205el244gg', 'errors': [{'code': 'error', 'message': 'Other error'}]}"
         )
 
