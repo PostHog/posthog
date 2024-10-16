@@ -11,6 +11,7 @@ from posthog.hogql.ast import (
     DateTimeType,
     DateType,
     FloatType,
+    IntervalType,
     StringType,
     TupleType,
     IntegerType,
@@ -564,14 +565,70 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     ),
     "toModifiedJulianDay": HogQLFunctionMeta("toModifiedJulianDayOrNull", 1, 1),
     "fromModifiedJulianDay": HogQLFunctionMeta("fromModifiedJulianDayOrNull", 1, 1),
-    "toIntervalSecond": HogQLFunctionMeta("toIntervalSecond", 1, 1),
-    "toIntervalMinute": HogQLFunctionMeta("toIntervalMinute", 1, 1),
-    "toIntervalHour": HogQLFunctionMeta("toIntervalHour", 1, 1),
-    "toIntervalDay": HogQLFunctionMeta("toIntervalDay", 1, 1),
-    "toIntervalWeek": HogQLFunctionMeta("toIntervalWeek", 1, 1),
-    "toIntervalMonth": HogQLFunctionMeta("toIntervalMonth", 1, 1),
-    "toIntervalQuarter": HogQLFunctionMeta("toIntervalQuarter", 1, 1),
-    "toIntervalYear": HogQLFunctionMeta("toIntervalYear", 1, 1),
+    "toIntervalSecond": HogQLFunctionMeta(
+        "toIntervalSecond",
+        1,
+        1,
+        signatures=[
+            ((IntegerType(nullable=False),), IntervalType(nullable=False)),
+        ],
+    ),
+    "toIntervalMinute": HogQLFunctionMeta(
+        "toIntervalMinute",
+        1,
+        1,
+        signatures=[
+            ((IntegerType(nullable=False),), IntervalType(nullable=False)),
+        ],
+    ),
+    "toIntervalHour": HogQLFunctionMeta(
+        "toIntervalHour",
+        1,
+        1,
+        signatures=[
+            ((IntegerType(nullable=False),), IntervalType(nullable=False)),
+        ],
+    ),
+    "toIntervalDay": HogQLFunctionMeta(
+        "toIntervalDay",
+        1,
+        1,
+        signatures=[
+            ((IntegerType(nullable=False),), IntervalType(nullable=False)),
+        ],
+    ),
+    "toIntervalWeek": HogQLFunctionMeta(
+        "toIntervalWeek",
+        1,
+        1,
+        signatures=[
+            ((IntegerType(nullable=False),), IntervalType(nullable=False)),
+        ],
+    ),
+    "toIntervalMonth": HogQLFunctionMeta(
+        "toIntervalMonth",
+        1,
+        1,
+        signatures=[
+            ((IntegerType(nullable=False),), IntervalType(nullable=False)),
+        ],
+    ),
+    "toIntervalQuarter": HogQLFunctionMeta(
+        "toIntervalQuarter",
+        1,
+        1,
+        signatures=[
+            ((IntegerType(nullable=False),), IntervalType(nullable=False)),
+        ],
+    ),
+    "toIntervalYear": HogQLFunctionMeta(
+        "toIntervalYear",
+        1,
+        1,
+        signatures=[
+            ((IntegerType(nullable=False),), IntervalType(nullable=False)),
+        ],
+    ),
     # strings
     "left": HogQLFunctionMeta("left", 2, 2),
     "right": HogQLFunctionMeta("right", 2, 2),
