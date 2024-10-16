@@ -58,6 +58,7 @@ AnyConstantType = (
     | UnknownType
     | IntegerType
     | FloatType
+    | IntervalType
 )
 
 
