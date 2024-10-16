@@ -414,13 +414,13 @@ class HogQLParserVisitor(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
 
-    # Visit a parse tree produced by HogQLParser#ColumnExprPrecedence3.
-    def visitColumnExprPrecedence3(self, ctx:HogQLParser.ColumnExprPrecedence3Context):
+    # Visit a parse tree produced by HogQLParser#ColumnExprStringOr.
+    def visitColumnExprStringOr(self, ctx:HogQLParser.ColumnExprStringOrContext):
         return self.visitChildren(ctx)
 
 
-    # Visit a parse tree produced by HogQLParser#ColumnExprStringOr.
-    def visitColumnExprStringOr(self, ctx:HogQLParser.ColumnExprStringOrContext):
+    # Visit a parse tree produced by HogQLParser#ColumnExprPrecedence3.
+    def visitColumnExprPrecedence3(self, ctx:HogQLParser.ColumnExprPrecedence3Context):
         return self.visitChildren(ctx)
 
 
