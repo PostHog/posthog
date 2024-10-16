@@ -1,3 +1,4 @@
+import pytest
 from inline_snapshot import snapshot
 from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
 from posthog.cdp.templates.intercom.template_intercom import template as template_intercom, TemplateIntercomMigrator
@@ -56,8 +57,9 @@ class TestTemplateIntercom(BaseHogFunctionTemplateTest):
 
     def test_logs_missing_error(self):
         self.mock_fetch_response = lambda *args: {"status": 404, "body": {"status": "missing"}}  # type: ignore
-        self.run_function(inputs=self._inputs())
-        assert self.get_mock_print_calls() == [("No existing contact found for email",)]
+        with pytest.raises(Exception) as e:
+            self.run_function(inputs=self._inputs())
+        assert e.value.message == "No existing contact found for email"  # type: ignore[attr-defined]
 
     def test_logs_other_errors(self):
         self.mock_fetch_response = lambda *args: {  # type: ignore
@@ -68,18 +70,12 @@ class TestTemplateIntercom(BaseHogFunctionTemplateTest):
                 "errors": [{"code": "error", "message": "Other error"}],
             },
         }
-        self.run_function(inputs=self._inputs())
-        assert self.get_mock_print_calls() == [
-            (
-                "Error sending event:",
-                400,
-                {
-                    "type": "error.list",
-                    "request_id": "001dh0h1qb205el244gg",
-                    "errors": [{"code": "error", "message": "Other error"}],
-                },
-            )
-        ]
+        with pytest.raises(Exception) as e:
+            self.run_function(inputs=self._inputs())
+        assert (
+            e.value.message  # type: ignore[attr-defined]
+            == "Error from intercom api (status 400): {'type': 'error.list', 'request_id': '001dh0h1qb205el244gg', 'errors': [{'code': 'error', 'message': 'Other error'}]}"
+        )
 
 
 class TestTemplateMigration(BaseTest):

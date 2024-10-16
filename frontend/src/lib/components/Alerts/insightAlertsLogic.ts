@@ -1,17 +1,17 @@
-import { actions, afterMount, connect, kea, key, listeners, path, props, reducers } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
+import { GoalLine } from '~/queries/schema'
 import { getBreakdown, isInsightVizNode, isTrendsQuery } from '~/queries/utils'
-import { InsightLogicProps, InsightShortId } from '~/types'
+import { InsightLogicProps } from '~/types'
 
 import type { insightAlertsLogicType } from './insightAlertsLogicType'
 import { AlertType } from './types'
 
 export interface InsightAlertsLogicProps {
     insightId: number
-    insightShortId: InsightShortId
     insightLogicProps: InsightLogicProps
 }
 
@@ -57,6 +57,34 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
             {
                 setShouldShowAlertDeletionWarning: (_, { show }) => show,
             },
+        ],
+    }),
+
+    selectors({
+        alertThresholdLines: [
+            (s) => [s.alerts],
+            (alerts: AlertType[]): GoalLine[] =>
+                alerts.flatMap((alert) => {
+                    const thresholds = []
+
+                    const absoluteThreshold = alert.threshold.configuration.absoluteThreshold
+
+                    if (absoluteThreshold?.upper !== undefined) {
+                        thresholds.push({
+                            label: `${alert.name} Upper Threshold`,
+                            value: absoluteThreshold?.upper,
+                        })
+                    }
+
+                    if (absoluteThreshold?.lower !== undefined) {
+                        thresholds.push({
+                            label: `${alert.name} Lower Threshold`,
+                            value: absoluteThreshold?.lower,
+                        })
+                    }
+
+                    return thresholds
+                }),
         ],
     }),
 

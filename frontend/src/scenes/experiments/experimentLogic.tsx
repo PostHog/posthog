@@ -126,6 +126,9 @@ export const experimentLogic = kea<experimentLogicType>([
                 'reportExperimentReset',
                 'reportExperimentExposureCohortCreated',
                 'reportExperimentVariantShipped',
+                'reportExperimentVariantScreenshotUploaded',
+                'reportExperimentResultsLoadingTimeout',
+                'reportExperimentReleaseConditionsViewed',
             ],
             insightDataLogic({ dashboardItemId: EXPERIMENT_INSIGHT_ID }),
             ['setQuery'],
@@ -169,6 +172,7 @@ export const experimentLogic = kea<experimentLogicType>([
         closeShipVariantModal: true,
         setCurrentFormStep: (stepIndex: number) => ({ stepIndex }),
         moveToNextFormStep: true,
+        updateExperimentVariantImages: (variantPreviewMediaIds: Record<string, string>) => ({ variantPreviewMediaIds }),
     }),
     reducers({
         experiment: [
@@ -587,15 +591,12 @@ export const experimentLogic = kea<experimentLogicType>([
         },
         updateExperimentSuccess: async ({ experiment }) => {
             actions.updateExperiments(experiment)
-
             if (values.changingGoalMetric) {
                 actions.loadExperimentResults()
             }
-
             if (values.changingSecondaryMetrics) {
                 actions.loadSecondaryMetricResults()
             }
-
             if (values.experiment?.start_date) {
                 actions.loadExperimentResults()
             }
@@ -717,6 +718,22 @@ export const experimentLogic = kea<experimentLogicType>([
             lemonToast.error(error)
             actions.closeShipVariantModal()
         },
+        updateExperimentVariantImages: async ({ variantPreviewMediaIds }) => {
+            try {
+                const updatedParameters = {
+                    ...values.experiment.parameters,
+                    variant_screenshot_media_ids: variantPreviewMediaIds,
+                }
+                await api.update(`api/projects/${values.currentTeamId}/experiments/${values.experimentId}`, {
+                    parameters: updatedParameters,
+                })
+                actions.setExperiment({
+                    parameters: updatedParameters,
+                })
+            } catch (error) {
+                lemonToast.error('Failed to update experiment variant images')
+            }
+        },
     })),
     loaders(({ actions, props, values }) => ({
         experiment: {
@@ -761,6 +778,9 @@ export const experimentLogic = kea<experimentLogicType>([
                         }
                     } catch (error: any) {
                         actions.setExperimentResultCalculationError({ detail: error.detail, statusCode: error.status })
+                        if (error.status === 504) {
+                            actions.reportExperimentResultsLoadingTimeout(values.experimentId)
+                        }
                         return null
                     }
                 },

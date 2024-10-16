@@ -130,15 +130,17 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # matching team
         query_ast = EventsQueryRunner(query=query, team=self.team).to_query()
         where_expr = cast(ast.CompareOperation, cast(ast.And, query_ast.where).exprs[0])
-        right_expr = cast(ast.Constant, where_expr.right)
-        self.assertEqual(right_expr.value, ["id1", "id2"])
+        right_expr = cast(ast.Tuple, where_expr.right)
+        self.assertEqual(
+            [cast(ast.Constant, cast(ast.Call, x).args[0]).value for x in right_expr.exprs], ["id1", "id2"]
+        )
 
         # another team
         another_team = Team.objects.create(organization=Organization.objects.create())
         query_ast = EventsQueryRunner(query=query, team=another_team).to_query()
         where_expr = cast(ast.CompareOperation, cast(ast.And, query_ast.where).exprs[0])
-        right_expr = cast(ast.Constant, where_expr.right)
-        self.assertEqual(right_expr.value, [])
+        right_expr = cast(ast.Tuple, where_expr.right)
+        self.assertEqual(right_expr.exprs, [])
 
     def test_test_account_filters(self):
         self.team.test_account_filters = [
@@ -184,3 +186,58 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             response = runner.run()
             assert isinstance(response, CachedEventsQueryResponse)
             assert response.results[0][0]["properties"]["bigInt"] == float(BIG_INT)
+
+    def test_escaped_single_quotes_in_where_clause(self):
+        SINGLE_QUOTE = "I'm a string with a ' in it"
+        DOUBLE_QUOTE = 'I"m a string with a " in it'
+        self._create_events(
+            data=[
+                (
+                    "p_null",
+                    "2020-01-11T12:00:04Z",
+                    {"boolean_field": None, "arr_field": [SINGLE_QUOTE]},
+                ),
+                (
+                    "p_one",
+                    "2020-01-11T12:00:14Z",
+                    {"boolean_field": None, "arr_field": [DOUBLE_QUOTE]},
+                ),
+            ]
+        )
+
+        flush_persons_and_events()
+
+        with freeze_time("2020-01-11T12:01:00"):
+            query = EventsQuery(
+                after="-24h",
+                event="$pageview",
+                kind="EventsQuery",
+                where=[
+                    "has(JSONExtract(ifNull(properties.arr_field,'[]'),'Array(String)'), 'I\\'m a string with a \\' in it')"
+                ],
+                orderBy=["timestamp ASC"],
+                select=["*"],
+            )
+
+            runner = EventsQueryRunner(query=query, team=self.team)
+            response = runner.run()
+            assert isinstance(response, CachedEventsQueryResponse)
+            assert len(response.results) == 1
+            assert response.results[0][0]["properties"]["arr_field"] == [SINGLE_QUOTE]
+
+            query = EventsQuery(
+                after="-24h",
+                event="$pageview",
+                kind="EventsQuery",
+                where=[
+                    "has(JSONExtract(ifNull(properties.arr_field,'[]'),'Array(String)'), 'I\"m a string with a \" in it')"
+                ],
+                orderBy=["timestamp ASC"],
+                select=["*"],
+            )
+
+            runner = EventsQueryRunner(query=query, team=self.team)
+            response = runner.run()
+            assert isinstance(response, CachedEventsQueryResponse)
+            assert len(response.results) == 1
+            assert response.results[0][0]["properties"]["arr_field"] == [DOUBLE_QUOTE]

@@ -1,5 +1,5 @@
+import asyncio
 import signal
-import sys
 from datetime import timedelta
 
 from temporalio.runtime import PrometheusConfig, Runtime, TelemetryConfig
@@ -43,10 +43,10 @@ async def start_worker(
 
     # catch the TERM signal, and stop the worker gracefully
     # https://github.com/temporalio/sdk-python#worker-shutdown
-    async def signal_handler(sig, frame):
+    async def shutdown_worker():
         await worker.shutdown()
-        sys.exit(0)
 
-    signal.signal(signal.SIGTERM, signal_handler)
+    loop = asyncio.get_event_loop()
+    loop.add_signal_handler(signal.SIGTERM, lambda: asyncio.create_task(shutdown_worker()))
 
     await worker.run()

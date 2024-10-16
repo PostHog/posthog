@@ -27,6 +27,8 @@ import { chainToElements } from 'lib/utils/elements-chain'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import posthog from 'posthog-js'
 import { compressedEventWithTime } from 'posthog-js/lib/src/extensions/replay/sessionrecording'
+import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { HogQLQuery, NodeKind } from '~/queries/schema'
 import { hogql } from '~/queries/utils'
@@ -402,7 +404,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
     key(({ sessionRecordingId }) => sessionRecordingId || 'no-session-recording-id'),
     connect({
         logic: [eventUsageLogic],
-        values: [featureFlagLogic, ['featureFlags']],
+        values: [featureFlagLogic, ['featureFlags'], teamLogic, ['currentTeam']],
     }),
     defaults({
         sessionPlayerMetaData: null as SessionRecordingType | null,
@@ -410,6 +412,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
     actions({
         setFilters: (filters: Partial<RecordingEventsFilters>) => ({ filters }),
         loadRecordingMeta: true,
+        loadRecordingComments: true,
         maybeLoadRecordingMeta: true,
         loadSnapshots: true,
         loadSnapshotSources: true,
@@ -475,6 +478,19 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         ],
     })),
     loaders(({ values, props, cache }) => ({
+        sessionComments: {
+            loadRecordingComments: async (_, breakpoint) => {
+                const empty: RecordingComment[] = []
+                if (!props.sessionRecordingId) {
+                    return empty
+                }
+
+                const response = await api.notebooks.recordingComments(props.sessionRecordingId)
+                breakpoint()
+
+                return response.results || empty
+            },
+        },
         sessionPlayerMetaData: {
             loadRecordingMeta: async (_, breakpoint) => {
                 if (!props.sessionRecordingId) {
@@ -717,6 +733,9 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             if (!values.sessionPlayerMetaDataLoading) {
                 actions.loadRecordingMeta()
             }
+            if (!values.sessionCommentsLoading) {
+                actions.loadRecordingComments()
+            }
         },
         loadSnapshotSources: () => {
             // We only load events once we actually start loading the recording
@@ -864,6 +883,16 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             (s) => [s.sessionEventsData],
             (sessionEventsData): RecordingEventType[] =>
                 (sessionEventsData || []).filter((e) => e.event === '$web_vitals'),
+        ],
+
+        windowIdForTimestamp: [
+            (s) => [s.segments],
+            (segments) =>
+                (timestamp: number): string | undefined => {
+                    return segments.find(
+                        (segment) => segment.startTimestamp <= timestamp && segment.endTimestamp >= timestamp
+                    )?.windowId
+                },
         ],
 
         sessionPlayerData: [
@@ -1031,8 +1060,8 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         ],
 
         snapshotsInvalid: [
-            (s, p) => [s.snapshotsByWindowId, s.fullyLoaded, s.start, p.sessionRecordingId],
-            (snapshotsByWindowId, fullyLoaded, start, sessionRecordingId): boolean => {
+            (s, p) => [s.snapshotsByWindowId, s.fullyLoaded, s.start, p.sessionRecordingId, s.currentTeam],
+            (snapshotsByWindowId, fullyLoaded, start, sessionRecordingId, currentTeam): boolean => {
                 if (!fullyLoaded || !start) {
                     return false
                 }
@@ -1053,10 +1082,14 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     // video is definitely unplayable
                     posthog.capture('recording_has_no_full_snapshot', {
                         sessionId: sessionRecordingId,
+                        teamId: currentTeam?.id,
+                        teamName: currentTeam?.name,
                     })
                 } else if (anyWindowMissingFullSnapshot) {
                     posthog.capture('recording_window_missing_full_snapshot', {
                         sessionId: sessionRecordingId,
+                        teamID: currentTeam?.id,
+                        teamName: currentTeam?.name,
                     })
                 }
 

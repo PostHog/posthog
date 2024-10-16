@@ -12,14 +12,17 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { NEW_EARLY_ACCESS_FEATURE } from 'scenes/early-access-features/earlyAccessFeatureLogic'
+import { experimentLogic } from 'scenes/experiments/experimentLogic'
 import { featureFlagsLogic, FeatureFlagsTab } from 'scenes/feature-flags/featureFlagsLogic'
 import { filterTrendsClientSideParams } from 'scenes/insights/sharedUtils'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
+import { projectLogic } from 'scenes/projectLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { NEW_SURVEY, NewSurvey } from 'scenes/surveys/constants'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import {
@@ -184,6 +187,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         values: [
             teamLogic,
             ['currentTeamId'],
+            projectLogic,
+            ['currentProjectId'],
             groupsModel,
             ['aggregationLabel'],
             userLogic,
@@ -200,6 +205,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             ['submitNewDashboardSuccessWithResult'],
             featureFlagsLogic,
             ['updateFlag', 'deleteFlag'],
+            sidePanelStateLogic,
+            ['closeSidePanel'],
         ],
     })),
     actions({
@@ -468,6 +475,36 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 try {
                     let savedFlag: FeatureFlagType
                     if (!updatedFlag.id) {
+                        savedFlag = await api.create(
+                            `api/projects/${values.currentProjectId}/feature_flags`,
+                            preparedFlag
+                        )
+                        if (values.roleBasedAccessEnabled && savedFlag.id) {
+                            featureFlagPermissionsLogic({ flagId: null })?.actions.addAssociatedRoles(savedFlag.id)
+                        }
+                    } else {
+                        savedFlag = await api.update(
+                            `api/projects/${values.currentProjectId}/feature_flags/${updatedFlag.id}`,
+                            preparedFlag
+                        )
+                    }
+
+                    return variantKeyToIndexFeatureFlagPayloads(savedFlag)
+                } catch (error: any) {
+                    if (error.code === 'behavioral_cohort_found' || error.code === 'cohort_does_not_exist') {
+                        eventUsageLogic.actions.reportFailedToCreateFeatureFlagWithCohort(error.code, error.detail)
+                    }
+                    throw error
+                }
+            },
+            saveSidebarExperimentFeatureFlag: async (updatedFlag: Partial<FeatureFlagType>) => {
+                const { created_at, id, ...flag } = updatedFlag
+
+                const preparedFlag = indexToVariantKeyFeatureFlagPayloads(flag)
+
+                try {
+                    let savedFlag: FeatureFlagType
+                    if (!updatedFlag.id) {
                         savedFlag = await api.create(`api/projects/${values.currentTeamId}/feature_flags`, preparedFlag)
                         if (values.roleBasedAccessEnabled && savedFlag.id) {
                             featureFlagPermissionsLogic({ flagId: null })?.actions.addAssociatedRoles(savedFlag.id)
@@ -494,7 +531,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 loadRelatedInsights: async () => {
                     if (props.id && props.id !== 'new' && values.featureFlag.key) {
                         const response = await api.get<PaginatedResponse<InsightModel>>(
-                            `api/projects/${values.currentTeamId}/insights/?feature_flag=${values.featureFlag.key}&order=-created_at`
+                            `api/environments/${values.currentProjectId}/insights/?feature_flag=${values.featureFlag.key}&order=-created_at`
                         )
                         return response.results.map((legacyInsight) => getQueryBasedInsightModel(legacyInsight))
                     }
@@ -634,13 +671,13 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
     })),
     listeners(({ actions, values, props }) => ({
         submitNewDashboardSuccessWithResult: async ({ result }) => {
-            await api.update(`api/projects/${values.currentTeamId}/feature_flags/${values.featureFlag.id}`, {
+            await api.update(`api/projects/${values.currentProjectId}/feature_flags/${values.featureFlag.id}`, {
                 analytics_dashboards: [result.id],
             })
         },
         generateUsageDashboard: async () => {
             if (props.id) {
-                await api.create(`api/projects/${values.currentTeamId}/feature_flags/${props.id}/dashboard`)
+                await api.create(`api/projects/${values.currentProjectId}/feature_flags/${props.id}/dashboard`)
                 actions.loadFeatureFlag()
             }
         },
@@ -648,7 +685,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             if (props.id) {
                 await breakpoint(1000) // in ms
                 await api.create(
-                    `api/projects/${values.currentTeamId}/feature_flags/${props.id}/enrich_usage_dashboard`
+                    `api/projects/${values.currentProjectId}/feature_flags/${props.id}/enrich_usage_dashboard`
                 )
             }
         },
@@ -665,9 +702,23 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             featureFlag.id && router.actions.replace(urls.featureFlag(featureFlag.id))
             actions.editFeatureFlag(false)
         },
+        saveSidebarExperimentFeatureFlagSuccess: ({ featureFlag }) => {
+            lemonToast.success('Release conditions updated')
+            actions.updateFlag(featureFlag)
+            actions.editFeatureFlag(false)
+            actions.closeSidePanel()
+
+            const currentPath = router.values.currentLocation.pathname
+            const experimentId = currentPath.split('/').pop()
+
+            if (experimentId) {
+                eventUsageLogic.actions.reportExperimentReleaseConditionsUpdated(parseInt(experimentId))
+                experimentLogic({ experimentId: parseInt(experimentId) }).actions.loadExperiment()
+            }
+        },
         deleteFeatureFlag: async ({ featureFlag }) => {
             await deleteWithUndo({
-                endpoint: `projects/${values.currentTeamId}/feature_flags`,
+                endpoint: `projects/${values.currentProjectId}/feature_flags`,
                 object: { name: featureFlag.key, id: featureFlag.id },
                 callback: () => {
                     featureFlag.id && actions.deleteFlag(featureFlag.id)
@@ -689,7 +740,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         loadInsightAtIndex: async ({ index, filters }) => {
             if (filters) {
                 const response = await api.get(
-                    `api/projects/${values.currentTeamId}/insights/trend/?${toParams(
+                    `api/environments/${values.currentProjectId}/insights/trend/?${toParams(
                         filterTrendsClientSideParams(filters)
                     )}`
                 )

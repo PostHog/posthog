@@ -1,6 +1,8 @@
 from typing import cast
 from unittest.mock import patch, Mock
 
+from freezegun import freeze_time
+
 from posthog.constants import FunnelOrderType, INSIGHT_FUNNELS
 from posthog.hogql_queries.insights.funnels import Funnel
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
@@ -98,6 +100,43 @@ class TestFOSSFunnelUDF(funnel_test_factory(Funnel, _create_event, _create_perso
         results = cast(FunnelsQueryResponse, FunnelsQueryRunner(query=query, team=self.team).calculate())
 
         self.assertFalse(results.isUdf)
+
+    # Old style funnels fails on this (not sure why)
+    def test_events_same_timestamp_no_exclusions(self):
+        _create_person(distinct_ids=["test"], team_id=self.team.pk)
+        with freeze_time("2024-01-10T12:01:00"):
+            _create_event(team=self.team, event="step one, ten", distinct_id="test")
+            _create_event(team=self.team, event="step two, three, seven", distinct_id="test")
+            _create_event(team=self.team, event="step two, three, seven", distinct_id="test")
+            _create_event(team=self.team, event="step four, five, eight", distinct_id="test")
+            _create_event(team=self.team, event="step four, five, eight", distinct_id="test")
+            _create_event(team=self.team, event="step six, nine", distinct_id="test")
+            _create_event(team=self.team, event="step two, three, seven", distinct_id="test")
+            _create_event(team=self.team, event="step four, five, eight", distinct_id="test")
+            _create_event(team=self.team, event="step six, nine", distinct_id="test")
+            _create_event(team=self.team, event="step one, ten", distinct_id="test")
+        filters = {
+            "insight": INSIGHT_FUNNELS,
+            "funnel_viz_type": "steps",
+            "date_from": "2024-01-10 00:00:00",
+            "date_to": "2024-01-12 00:00:00",
+            "events": [
+                {"id": "step one, ten", "order": 0},
+                {"id": "step two, three, seven", "order": 1},
+                {"id": "step two, three, seven", "order": 2},
+                {"id": "step four, five, eight", "order": 3},
+                {"id": "step four, five, eight", "order": 4},
+                {"id": "step six, nine", "order": 5},
+                {"id": "step two, three, seven", "order": 6},
+                {"id": "step four, five, eight", "order": 7},
+                {"id": "step six, nine", "order": 8},
+                {"id": "step one, ten", "order": 9},
+            ],
+        }
+
+        query = cast(FunnelsQuery, filter_to_query(filters))
+        results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+        self.assertEqual(1, results[-1]["count"])
 
     maxDiff = None
 

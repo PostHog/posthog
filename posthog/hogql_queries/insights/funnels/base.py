@@ -25,7 +25,6 @@ from posthog.queries.breakdown_props import ALL_USERS_COHORT_ID, get_breakdown_c
 from posthog.queries.util import correct_result_for_sampling
 from posthog.schema import (
     ActionsNode,
-    BaseMathType,
     BreakdownAttributionType,
     BreakdownType,
     DataWarehouseNode,
@@ -34,6 +33,7 @@ from posthog.schema import (
     FunnelTimeToConvertResults,
     FunnelVizType,
     FunnelExclusionEventsNode,
+    FunnelMathType,
 )
 from posthog.types import EntityNode, ExclusionEntityNode
 
@@ -304,7 +304,8 @@ class FunnelBase(ABC):
                 "Data warehouse tables are not supported in funnels just yet. For now, please try this funnel without the data warehouse-based step."
             )
         else:
-            action = Action.objects.get(pk=step.id)
+            assert self.context.team.project_id is not None
+            action = Action.objects.get(pk=step.id, team__project_id=self.context.team.project_id)
             name = action.name
             action_id = step.id
             type = "actions"
@@ -676,7 +677,8 @@ class FunnelBase(ABC):
 
         if isinstance(entity, ActionsNode) or isinstance(entity, FunnelExclusionActionsNode):
             # action
-            action = Action.objects.get(pk=int(entity.id), team=self.context.team)
+            assert self.context.team.project_id is not None
+            action = Action.objects.get(pk=int(entity.id), team__project_id=self.context.team.project_id)
             event_expr = action_to_expr(action)
         elif isinstance(entity, DataWarehouseNode):
             raise ValidationError(
@@ -697,8 +699,12 @@ class FunnelBase(ABC):
             filter_expr = property_to_expr(entity.properties, self.context.team)
             filters.append(filter_expr)
 
-        if entity.math == BaseMathType.FIRST_TIME_FOR_USER:
+        if entity.math == FunnelMathType.FIRST_TIME_FOR_USER:
             subquery = FirstTimeForUserAggregationQuery(self.context, filter_expr, event_expr).to_query()
+            first_time_filter = parse_expr("e.uuid IN {subquery}", placeholders={"subquery": subquery})
+            return ast.And(exprs=[*filters, first_time_filter])
+        elif entity.math == FunnelMathType.FIRST_TIME_FOR_USER_WITH_FILTERS:
+            subquery = FirstTimeForUserAggregationQuery(self.context, ast.Constant(value=1), filter_expr).to_query()
             first_time_filter = parse_expr("e.uuid IN {subquery}", placeholders={"subquery": subquery})
             return ast.And(exprs=[*filters, first_time_filter])
         elif len(filters) > 1:

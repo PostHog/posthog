@@ -6,6 +6,7 @@ import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { objectClean, toParams } from 'lib/utils'
 import posthog from 'posthog-js'
 import { stringifiedFingerprint } from 'scenes/error-tracking/utils'
+import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
 
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
@@ -82,6 +83,7 @@ import {
     PluginConfigTypeNew,
     PluginConfigWithPluginInfoNew,
     PluginLogEntry,
+    ProjectType,
     PropertyDefinition,
     PropertyDefinitionType,
     QueryBasedInsightModel,
@@ -137,7 +139,7 @@ export interface CountedPaginatedResponse<T> extends PaginatedResponse<T> {
 }
 
 export interface ActivityLogPaginatedResponse<T> extends PaginatedResponse<T> {
-    total_count: number // FIXME: This is non-standard naming, DRF uses `count` and we should use that consistently
+    count: number
 }
 
 export interface ApiMethodOptions {
@@ -194,6 +196,7 @@ export async function getJSONOrNull(response: Response): Promise<any> {
 
 export class ApiConfig {
     private static _currentOrganizationId: OrganizationType['id'] | null = null
+    private static _currentProjectId: ProjectType['id'] | null = null
     private static _currentTeamId: TeamType['id'] | null = null
 
     static getCurrentOrganizationId(): OrganizationType['id'] {
@@ -216,6 +219,17 @@ export class ApiConfig {
 
     static setCurrentTeamId(id: TeamType['id']): void {
         this._currentTeamId = id
+    }
+
+    static getCurrentProjectId(): ProjectType['id'] {
+        if (!this._currentProjectId) {
+            throw new Error('Project ID is not known.')
+        }
+        return this._currentProjectId
+    }
+
+    static setCurrentProjectId(id: ProjectType['id']): void {
+        this._currentProjectId = id
     }
 }
 
@@ -303,13 +317,22 @@ class ApiRequest {
         return this.addPathComponent('projects')
     }
 
-    public projectsDetail(id: TeamType['id'] = ApiConfig.getCurrentTeamId()): ApiRequest {
+    public projectsDetail(id: ProjectType['id'] = ApiConfig.getCurrentProjectId()): ApiRequest {
         return this.projects().addPathComponent(id)
+    }
+
+    // # Projects
+    public environments(): ApiRequest {
+        return this.addPathComponent('environments')
+    }
+
+    public environmentsDetail(id: TeamType['id'] = ApiConfig.getCurrentTeamId()): ApiRequest {
+        return this.environments().addPathComponent(id)
     }
 
     // # Insights
     public insights(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('insights')
+        return this.environmentsDetail(teamId).addPathComponent('insights')
     }
 
     public insight(id: QueryBasedInsightModel['id'], teamId?: TeamType['id']): ApiRequest {
@@ -334,7 +357,7 @@ class ApiRequest {
     }
 
     public pluginConfigs(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('plugin_configs')
+        return this.environmentsDetail(teamId).addPathComponent('plugin_configs')
     }
 
     public pluginConfig(id: number, teamId?: TeamType['id']): ApiRequest {
@@ -380,7 +403,7 @@ class ApiRequest {
 
     // # Exports
     public exports(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('exports')
+        return this.environmentsDetail(teamId).addPathComponent('exports')
     }
 
     public export(id: number, teamId?: TeamType['id']): ApiRequest {
@@ -389,7 +412,7 @@ class ApiRequest {
 
     // # Events
     public events(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('events')
+        return this.environmentsDetail(teamId).addPathComponent('events')
     }
 
     public event(id: EventType['id'], teamId?: TeamType['id']): ApiRequest {
@@ -401,16 +424,16 @@ class ApiRequest {
     }
 
     // # Data management
-    public eventDefinitions(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('event_definitions')
+    public eventDefinitions(projectId?: ProjectType['id']): ApiRequest {
+        return this.projectsDetail(projectId).addPathComponent('event_definitions')
     }
 
-    public eventDefinitionDetail(eventDefinitionId: EventDefinition['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('event_definitions').addPathComponent(eventDefinitionId)
+    public eventDefinitionDetail(eventDefinitionId: EventDefinition['id'], projectId?: ProjectType['id']): ApiRequest {
+        return this.projectsDetail(projectId).addPathComponent('event_definitions').addPathComponent(eventDefinitionId)
     }
 
-    public propertyDefinitions(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('property_definitions')
+    public propertyDefinitions(projectId?: ProjectType['id']): ApiRequest {
+        return this.projectsDetail(projectId).addPathComponent('property_definitions')
     }
 
     public propertyDefinitionDetail(
@@ -457,13 +480,15 @@ class ApiRequest {
 
     // Recordings
     public recording(recordingId: SessionRecordingType['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('session_recordings').addPathComponent(recordingId)
+        return this.environmentsDetail(teamId).addPathComponent('session_recordings').addPathComponent(recordingId)
     }
     public recordings(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('session_recordings')
+        return this.environmentsDetail(teamId).addPathComponent('session_recordings')
     }
     public recordingMatchingEvents(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('session_recordings').addPathComponent('matching_events')
+        return this.environmentsDetail(teamId)
+            .addPathComponent('session_recordings')
+            .addPathComponent('matching_events')
     }
     public recordingPlaylists(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('session_recording_playlists')
@@ -483,7 +508,7 @@ class ApiRequest {
 
     // # Dashboards
     public dashboards(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('dashboards')
+        return this.environmentsDetail(teamId).addPathComponent('dashboards')
     }
 
     public dashboardsDetail(dashboardId: DashboardType['id'], teamId?: TeamType['id']): ApiRequest {
@@ -563,7 +588,7 @@ class ApiRequest {
 
     // # Persons
     public persons(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('persons')
+        return this.environmentsDetail(teamId).addPathComponent('persons')
     }
 
     public person(id: string | number, teamId?: TeamType['id']): ApiRequest {
@@ -579,7 +604,7 @@ class ApiRequest {
 
     // # Groups
     public groups(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('groups')
+        return this.environmentsDetail(teamId).addPathComponent('groups')
     }
 
     // # Search
@@ -718,11 +743,11 @@ class ApiRequest {
 
     // # Subscriptions
     public subscriptions(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('subscriptions')
+        return this.environmentsDetail(teamId).addPathComponent('subscriptions')
     }
 
     public subscription(id: SubscriptionType['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.subscriptions(teamId).addPathComponent(id)
+        return this.environmentsDetail(teamId).addPathComponent(id)
     }
 
     // # Integrations
@@ -745,12 +770,15 @@ class ApiRequest {
     // # Alerts
     public alerts(alertId?: AlertType['id'], insightId?: InsightModel['id'], teamId?: TeamType['id']): ApiRequest {
         if (alertId) {
-            return this.projectsDetail(teamId).addPathComponent('alerts').addPathComponent(alertId).withQueryString({
-                insight_id: insightId,
-            })
+            return this.environmentsDetail(teamId)
+                .addPathComponent('alerts')
+                .addPathComponent(alertId)
+                .withQueryString({
+                    insight_id: insightId,
+                })
         }
 
-        return this.projectsDetail(teamId).addPathComponent('alerts').withQueryString({
+        return this.environmentsDetail(teamId).addPathComponent('alerts').withQueryString({
             insight_id: insightId,
         })
     }
@@ -774,7 +802,7 @@ class ApiRequest {
 
     // # Queries
     public query(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('query')
+        return this.environmentsDetail(teamId).addPathComponent('query')
     }
 
     public queryStatus(queryId: string, showProgress: boolean, teamId?: TeamType['id']): ApiRequest {
@@ -787,7 +815,7 @@ class ApiRequest {
 
     // Chat
     public chat(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('query').addPathComponent('chat')
+        return this.environmentsDetail(teamId).addPathComponent('query').addPathComponent('chat')
     }
 
     // Notebooks
@@ -801,7 +829,7 @@ class ApiRequest {
 
     // Batch Exports
     public batchExports(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('batch_exports')
+        return this.environmentsDetail(teamId).addPathComponent('batch_exports')
     }
 
     public batchExport(id: BatchExportConfiguration['id'], teamId?: TeamType['id']): ApiRequest {
@@ -906,14 +934,14 @@ const prepareUrl = (url: string): string => {
     return output
 }
 
-const PROJECT_ID_REGEX = /\/api\/projects\/(\w+)(?:$|[/?#])/
+const PROJECT_ID_REGEX = /\/api\/(project|environment)s\/(\w+)(?:$|[/?#])/
 
 const ensureProjectIdNotInvalid = (url: string): void => {
     const projectIdMatch = PROJECT_ID_REGEX.exec(url)
     if (projectIdMatch) {
-        const projectId = projectIdMatch[1].trim()
+        const projectId = projectIdMatch[2].trim()
         if (projectId === 'null' || projectId === 'undefined') {
-            throw { status: 0, detail: 'Cannot make request - project ID is unknown.' }
+            throw { status: 0, detail: `Cannot make request - ${projectIdMatch[1]} ID is unknown.` }
         }
     }
 }
@@ -1048,33 +1076,59 @@ const api = {
             filters: Partial<Pick<ActivityLogItem, 'item_id' | 'scope'> & { user?: UserBasicType['id'] }>,
             teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()
         ): Promise<PaginatedResponse<ActivityLogItem>> {
-            return new ApiRequest().activity_log(teamId).withQueryString(toParams(filters)).get()
+            return api.activity.listRequest(filters, teamId).get()
+        },
+
+        listRequest(
+            filters: Partial<{
+                scope?: ActivityScope
+                scopes?: ActivityScope[] | string
+                user?: UserBasicType['id']
+                page?: number
+                page_size?: number
+                item_id?: number | string
+            }>,
+            teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()
+        ): ApiRequest {
+            if (Array.isArray(filters.scopes)) {
+                filters.scopes = filters.scopes.join(',')
+            }
+            return new ApiRequest().activity_log(teamId).withQueryString(toParams(filters))
         },
 
         listLegacy(
-            activityLogProps: ActivityLogProps,
+            props: ActivityLogProps,
             page: number = 1,
             teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()
         ): Promise<ActivityLogPaginatedResponse<ActivityLogItem>> {
+            const scopes = Array.isArray(props.scope) ? [...props.scope] : [props.scope]
+
+            // Opt into the new /activity_log API
+            if ([ActivityScope.PLUGIN, ActivityScope.HOG_FUNCTION].includes(scopes[0]) || scopes.length > 1) {
+                return api.activity
+                    .listRequest({
+                        scopes,
+                        ...(props.id ? { item_id: props.id } : {}),
+                        page: page || 1,
+                        page_size: ACTIVITY_PAGE_SIZE,
+                    })
+                    .get()
+            }
+
             // TODO: Can we replace all these endpoint specific implementations with the generic REST endpoint above?
-            const requestForScope: { [key in ActivityScope]?: (props: ActivityLogProps) => ApiRequest | null } = {
-                [ActivityScope.FEATURE_FLAG]: (props) => {
+            const requestForScope: { [key in ActivityScope]?: () => ApiRequest | null } = {
+                [ActivityScope.FEATURE_FLAG]: () => {
                     return new ApiRequest().featureFlagsActivity((props.id ?? null) as number | null, teamId)
                 },
-                [ActivityScope.PERSON]: (props) => {
+                [ActivityScope.PERSON]: () => {
                     return new ApiRequest().personActivity(props.id)
                 },
                 [ActivityScope.INSIGHT]: () => {
                     return new ApiRequest().insightsActivity(teamId)
                 },
-                [ActivityScope.PLUGIN]: () => {
-                    return activityLogProps.id
-                        ? new ApiRequest().pluginConfig(activityLogProps.id as number, teamId).withAction('activity')
-                        : new ApiRequest().plugins().withAction('activity')
-                },
                 [ActivityScope.PLUGIN_CONFIG]: () => {
-                    return activityLogProps.id
-                        ? new ApiRequest().pluginConfig(activityLogProps.id as number, teamId).withAction('activity')
+                    return props.id
+                        ? new ApiRequest().pluginConfig(props.id as number, teamId).withAction('activity')
                         : new ApiRequest().plugins().withAction('activity')
                 },
                 [ActivityScope.DATA_MANAGEMENT]: () => {
@@ -1089,21 +1143,21 @@ const api = {
                     return new ApiRequest().dataManagementActivity()
                 },
                 [ActivityScope.NOTEBOOK]: () => {
-                    return activityLogProps.id
-                        ? new ApiRequest().notebook(`${activityLogProps.id}`).withAction('activity')
+                    return props.id
+                        ? new ApiRequest().notebook(`${props.id}`).withAction('activity')
                         : new ApiRequest().notebooks().withAction('activity')
                 },
                 [ActivityScope.TEAM]: () => {
                     return new ApiRequest().projectsDetail().withAction('activity')
                 },
-                [ActivityScope.SURVEY]: (props) => {
+                [ActivityScope.SURVEY]: () => {
                     return new ApiRequest().surveyActivity((props.id ?? null) as string, teamId)
                 },
             }
 
             const pagingParameters = { page: page || 1, limit: ACTIVITY_PAGE_SIZE }
-            const request = requestForScope[activityLogProps.scope]?.(activityLogProps)
-            return request && request !== null
+            const request = requestForScope[scopes[0]]?.()
+            return request
                 ? request.withQueryString(toParams(pagingParameters)).get()
                 : Promise.resolve({ results: [], count: 0 })
         },
@@ -1222,7 +1276,7 @@ const api = {
         },
         async list({
             limit = EVENT_DEFINITIONS_PER_PAGE,
-            teamId = ApiConfig.getCurrentTeamId(),
+            teamId,
             ...params
         }: {
             limit?: number
@@ -1238,7 +1292,7 @@ const api = {
         },
         determineListEndpoint({
             limit = EVENT_DEFINITIONS_PER_PAGE,
-            teamId = ApiConfig.getCurrentTeamId(),
+            teamId,
             ...params
         }: {
             limit?: number
@@ -1287,7 +1341,7 @@ const api = {
         },
         async list({
             limit = EVENT_PROPERTY_DEFINITIONS_PER_PAGE,
-            teamId = ApiConfig.getCurrentTeamId(),
+            teamId,
             ...params
         }: {
             event_names?: string[]
@@ -1313,7 +1367,7 @@ const api = {
         },
         determineListEndpoint({
             limit = EVENT_PROPERTY_DEFINITIONS_PER_PAGE,
-            teamId = ApiConfig.getCurrentTeamId(),
+            teamId,
             ...params
         }: {
             event_names?: string[]
@@ -1341,7 +1395,7 @@ const api = {
 
     sessions: {
         async propertyDefinitions({
-            teamId = ApiConfig.getCurrentTeamId(),
+            teamId,
             search,
             properties,
         }: {
@@ -1963,6 +2017,13 @@ const api = {
             }
 
             return await apiRequest.withQueryString(queryParams).get()
+        },
+        async recordingComments(recordingId: string): Promise<{ results: RecordingComment[] }> {
+            return await new ApiRequest()
+                .notebooks()
+                .withAction('recording_comments')
+                .withQueryString({ recording_id: recordingId })
+                .get()
         },
         async create(data?: Pick<NotebookType, 'content' | 'text_content' | 'title'>): Promise<NotebookType> {
             return await new ApiRequest().notebooks().create({ data })

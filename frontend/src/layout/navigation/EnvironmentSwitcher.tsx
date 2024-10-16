@@ -1,14 +1,9 @@
 import { IconGear, IconPlus } from '@posthog/icons'
-import { LemonTag, Spinner } from '@posthog/lemon-ui'
+import { LemonInput, LemonTag, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
-import {
-    LemonMenuItemLeafCallback,
-    LemonMenuItemLeafLink,
-    LemonMenuOverlay,
-    LemonMenuSection,
-} from 'lib/lemon-ui/LemonMenu/LemonMenu'
+import { LemonMenuItem, LemonMenuOverlay, LemonMenuSection } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo'
 import { removeFlagIdIfPresent, removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { useMemo } from 'react'
@@ -19,17 +14,18 @@ import { urls } from 'scenes/urls'
 import { AvailableFeature } from '~/types'
 
 import { globalModalsLogic } from '../GlobalModals'
+import { environmentSwitcherLogic } from './environmentsSwitcherLogic'
 
-type MenuItemWithEnvName =
-    | (LemonMenuItemLeafLink & {
-          /** Extra menu item metadata, just for sorting the environments before we display them. */
-          envName: string
-      })
-    | (LemonMenuItemLeafCallback & {
-          envName?: never
-      })
+/**
+ * Regex matching a possible emoji (any emoji) at the beginning of the string.
+ * Examples: In "👋 Hello", match group 1 is "👋". In "Hello" or "Hello 👋", there are no matches.
+ * From https://stackoverflow.com/a/67705964/351526
+ */
+const EMOJI_INITIAL_REGEX =
+    /^(\u00a9|\u00ae|[\u25a0-\u27bf]|\ud83c[\ud000-\udfff]|\ud83d[\ud000-\udfff]|\ud83e[\ud000-\udfff]) /
 
 export function EnvironmentSwitcherOverlay({ onClickInside }: { onClickInside?: () => void }): JSX.Element {
+    const { sortedProjectsMap } = useValues(environmentSwitcherLogic)
     const { currentOrganization, projectCreationForbiddenReason } = useValues(organizationLogic)
     const { currentTeam } = useValues(teamLogic)
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
@@ -40,77 +36,91 @@ export function EnvironmentSwitcherOverlay({ onClickInside }: { onClickInside?: 
         if (!currentOrganization) {
             return null
         }
-        const projectMapping = currentOrganization.projects.reduce<Record<number, [string, MenuItemWithEnvName[]]>>(
-            (acc, project) => {
-                acc[project.id] = [project.name, []]
-                return acc
-            },
-            {}
-        )
 
-        for (const team of currentOrganization.teams) {
-            const [projectName, envItems] = projectMapping[team.project_id]
-            envItems.push({
-                label: (
-                    <>
-                        {team.name}
-                        {team.is_demo && (
-                            <LemonTag className="ml-1.5" type="highlight">
-                                DEMO
-                            </LemonTag>
-                        )}
-                    </>
-                ),
-                envName: team.name,
-                active: currentTeam?.id === team.id,
-                to: determineProjectSwitchUrl(location.pathname, team.id),
-                tooltip:
-                    currentTeam?.id === team.id
-                        ? 'Currently active environment'
-                        : `Switch to the ${team.name} environment of ${projectName}`,
-                onClick: onClickInside,
-                sideAction: {
-                    icon: <IconGear />,
-                    tooltip: `Go to ${team.name} settings`,
-                    tooltipPlacement: 'right',
-                    onClick: onClickInside,
-                    to: urls.project(team.id, urls.settings()),
-                },
-                icon: <div className="size-6" />, // Icon-sized filler
-            })
-        }
-        const sortedProjects = Object.entries(projectMapping).sort(
-            // The project with the active environment always comes first - otherwise sorted alphabetically by name
-            ([, [aProjectName, aEnvItems]], [, [bProjectName]]) =>
-                aEnvItems.find((item) => item.active) ? -Infinity : aProjectName.localeCompare(bProjectName)
-        )
-        const projectSectionsResult = []
-        for (const [projectId, [projectName, envItems]] of sortedProjects) {
-            // The environment that's active always comes first - otherwise sorted alphabetically by name
-            envItems.sort((a, b) => (b.active ? Infinity : a.envName!.localeCompare(b.envName!)))
-            envItems.unshift({
-                label: projectName,
-                icon: <UploadedLogo name={projectName} entityId={projectId} outlinedLettermark />,
-                disabledReason: 'Select an environment of this project',
-                onClick: () => {},
-                sideAction: {
-                    icon: <IconPlus />,
-                    tooltip: `New environment within ${projectName}`,
-                    tooltipPlacement: 'right',
-                    disabledReason: projectCreationForbiddenReason?.replace('project', 'environment'),
-                    onClick: () => {
-                        onClickInside?.()
-                        guardAvailableFeature(AvailableFeature.ORGANIZATIONS_PROJECTS, showCreateEnvironmentModal, {
-                            currentUsage: currentOrganization?.teams?.length,
-                        })
+        const projectSectionsResult: LemonMenuSection[] = []
+        for (const [projectId, [projectName, projectTeams]] of sortedProjectsMap.entries()) {
+            const projectNameWithoutEmoji = projectName.replace(EMOJI_INITIAL_REGEX, '').trim()
+            const projectNameEmojiMatch = projectName.match(EMOJI_INITIAL_REGEX)?.[1]
+            const projectItems: LemonMenuItem[] = [
+                {
+                    label: <span className="opacity-[var(--opacity-disabled)]">{projectNameWithoutEmoji}</span>,
+                    icon: projectNameEmojiMatch ? (
+                        <div className="size-6 text-xl leading-6 text-center">{projectNameEmojiMatch}</div>
+                    ) : (
+                        <UploadedLogo name={projectName} entityId={projectId} outlinedLettermark />
+                    ),
+                    disabledReason: 'Select an environment of this project below',
+                    onClick: () => {},
+                    sideAction: {
+                        icon: <IconPlus />,
+                        tooltip: `New environment within ${projectName}`,
+                        tooltipPlacement: 'right',
+                        disabledReason: projectCreationForbiddenReason?.replace('project', 'environment'),
+                        onClick: () => {
+                            onClickInside?.()
+                            guardAvailableFeature(AvailableFeature.ORGANIZATIONS_PROJECTS, showCreateEnvironmentModal, {
+                                currentUsage: currentOrganization?.teams?.length,
+                            })
+                        },
+                        'data-attr': 'new-environment-button',
                     },
-                    'data-attr': 'new-environment-button',
+                    className: 'opacity-100',
                 },
-            })
-            projectSectionsResult.push({ items: envItems })
+            ]
+            for (const team of projectTeams) {
+                projectItems.push({
+                    label: (
+                        <>
+                            {team.name}
+                            {team.is_demo && (
+                                <LemonTag className="ml-1.5" type="highlight">
+                                    DEMO
+                                </LemonTag>
+                            )}
+                        </>
+                    ),
+                    key: team.id,
+                    active: currentTeam?.id === team.id,
+                    to: determineProjectSwitchUrl(location.pathname, team.id),
+                    tooltip:
+                        currentTeam?.id === team.id ? (
+                            'Currently active environment'
+                        ) : (
+                            <>
+                                Switch to environment <strong>{team.name}</strong>
+                                {currentTeam?.project_id !== team.project_id && (
+                                    <>
+                                        {' '}
+                                        of project <strong>{projectName}</strong>
+                                    </>
+                                )}
+                            </>
+                        ),
+                    onClick: onClickInside,
+                    sideAction: {
+                        icon: <IconGear />,
+                        tooltip: "Go to this environment's settings",
+                        tooltipPlacement: 'right',
+                        onClick: onClickInside,
+                        to: urls.project(team.id, urls.settings()),
+                    },
+                    icon: <div className="size-6" />, // Icon-sized filler
+                })
+            }
+            projectSectionsResult.push({ key: projectId, items: projectItems })
         }
         return projectSectionsResult
-    }, [currentTeam, currentOrganization, location])
+    }, [
+        currentOrganization,
+        sortedProjectsMap,
+        projectCreationForbiddenReason,
+        onClickInside,
+        guardAvailableFeature,
+        showCreateEnvironmentModal,
+        currentTeam?.id,
+        currentTeam?.project_id,
+        location.pathname,
+    ])
 
     if (!projectSections) {
         return <Spinner />
@@ -119,7 +129,9 @@ export function EnvironmentSwitcherOverlay({ onClickInside }: { onClickInside?: 
     return (
         <LemonMenuOverlay
             items={[
-                { title: 'Projects', items: [] },
+                {
+                    items: [{ label: EnvironmentSwitcherSearch }],
+                },
                 ...projectSections,
                 {
                     icon: <IconPlus />,
@@ -127,7 +139,6 @@ export function EnvironmentSwitcherOverlay({ onClickInside }: { onClickInside?: 
                     disabledReason: projectCreationForbiddenReason,
                     onClick: () => {
                         onClickInside?.()
-                        // TODO: Use showCreateEnvironmentModal
                         guardAvailableFeature(AvailableFeature.ORGANIZATIONS_PROJECTS, showCreateProjectModal, {
                             currentUsage: currentOrganization?.teams?.length,
                         })
@@ -147,4 +158,24 @@ function determineProjectSwitchUrl(pathname: string, newTeamId: number): string 
     let route = removeProjectIdIfPresent(pathname)
     route = removeFlagIdIfPresent(route)
     return urls.project(newTeamId, route)
+}
+
+function EnvironmentSwitcherSearch(): JSX.Element {
+    const { environmentSwitcherSearch } = useValues(environmentSwitcherLogic)
+    const { setEnvironmentSwitcherSearch } = useActions(environmentSwitcherLogic)
+
+    return (
+        <LemonInput
+            value={environmentSwitcherSearch}
+            onChange={setEnvironmentSwitcherSearch}
+            type="search"
+            fullWidth
+            autoFocus
+            placeholder="Search projects & environments"
+            className="min-w-64"
+            onClick={(e) => {
+                e.stopPropagation() // Prevent dropdown from closing
+            }}
+        />
+    )
 }

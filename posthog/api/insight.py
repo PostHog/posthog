@@ -645,9 +645,10 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
 
                 return calculate_for_query_based_insight(
                     insight,
+                    team=self.context["get_team"](),
                     dashboard=dashboard,
                     execution_mode=execution_mode,
-                    user=self.context["request"].user,
+                    user=None if self.context["request"].user.is_anonymous else self.context["request"].user,
                     filters_override=filters_override,
                 )
             except ExposedHogQLError as e:
@@ -726,7 +727,12 @@ class InsightViewSet(
         context["is_shared"] = isinstance(self.request.successful_authenticator, SharingAccessTokenAuthentication)
         return context
 
-    def safely_get_queryset(self, queryset) -> QuerySet:
+    def dangerously_get_queryset(self):
+        # Insights are retrieved under /environments/ because they include team-specific query results,
+        # but they are in fact project-level, rather than environment-level
+        assert self.team.project_id is not None
+        queryset = self.queryset.filter(team__project_id=self.team.project_id)
+
         include_deleted = False
 
         if isinstance(self.request.successful_authenticator, SharingAccessTokenAuthentication):

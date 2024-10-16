@@ -132,6 +132,7 @@ export const Settings = ({
             modifiedQuery.showResultsTable = false
 
             modifiedQuery.showReload = true
+            modifiedQuery.showExport = true
             modifiedQuery.showElapsedTime = false
             modifiedQuery.showTimings = false
 

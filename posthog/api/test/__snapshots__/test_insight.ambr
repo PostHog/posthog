@@ -646,7 +646,6 @@
          "posthog_user"."first_name",
          "posthog_user"."last_name",
          "posthog_user"."is_staff",
-         "posthog_user"."is_active",
          "posthog_user"."date_joined",
          "posthog_user"."uuid",
          "posthog_user"."current_organization_id",
@@ -658,6 +657,7 @@
          "posthog_user"."is_email_verified",
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
+         "posthog_user"."is_active",
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
@@ -697,6 +697,7 @@
          "posthog_team"."session_recording_linked_flag",
          "posthog_team"."session_recording_network_payload_capture_config",
          "posthog_team"."session_replay_config",
+         "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",
@@ -754,6 +755,7 @@
          "posthog_team"."session_recording_linked_flag",
          "posthog_team"."session_recording_network_payload_capture_config",
          "posthog_team"."session_replay_config",
+         "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",
@@ -887,6 +889,7 @@
          "posthog_team"."session_recording_linked_flag",
          "posthog_team"."session_recording_network_payload_capture_config",
          "posthog_team"."session_replay_config",
+         "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",
@@ -1080,7 +1083,6 @@
          "posthog_user"."first_name",
          "posthog_user"."last_name",
          "posthog_user"."is_staff",
-         "posthog_user"."is_active",
          "posthog_user"."date_joined",
          "posthog_user"."uuid",
          "posthog_user"."current_organization_id",
@@ -1092,6 +1094,7 @@
          "posthog_user"."is_email_verified",
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
+         "posthog_user"."is_active",
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
@@ -1131,6 +1134,7 @@
          "posthog_team"."session_recording_linked_flag",
          "posthog_team"."session_recording_network_payload_capture_config",
          "posthog_team"."session_replay_config",
+         "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",
@@ -1224,8 +1228,8 @@
   SELECT COUNT(*) AS "__count"
   FROM "posthog_dashboarditem"
   INNER JOIN "posthog_team" ON ("posthog_dashboarditem"."team_id" = "posthog_team"."id")
-  WHERE (NOT ("posthog_dashboarditem"."deleted")
-         AND "posthog_team"."project_id" = 2)
+  WHERE ("posthog_team"."project_id" = 2
+         AND NOT ("posthog_dashboarditem"."deleted"))
   '''
 # ---
 # name: TestInsight.test_listing_insights_does_not_nplus1.26
@@ -1283,6 +1287,7 @@
          "posthog_team"."session_recording_linked_flag",
          "posthog_team"."session_recording_network_payload_capture_config",
          "posthog_team"."session_replay_config",
+         "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",
@@ -1321,7 +1326,6 @@
          "posthog_user"."first_name",
          "posthog_user"."last_name",
          "posthog_user"."is_staff",
-         "posthog_user"."is_active",
          "posthog_user"."date_joined",
          "posthog_user"."uuid",
          "posthog_user"."current_organization_id",
@@ -1334,6 +1338,7 @@
          "posthog_user"."requested_password_reset_at",
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
+         "posthog_user"."is_active",
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
@@ -1347,7 +1352,6 @@
          T5."first_name",
          T5."last_name",
          T5."is_staff",
-         T5."is_active",
          T5."date_joined",
          T5."uuid",
          T5."current_organization_id",
@@ -1360,6 +1364,7 @@
          T5."requested_password_reset_at",
          T5."has_seen_product_intro_for",
          T5."strapi_id",
+         T5."is_active",
          T5."theme_mode",
          T5."partial_notification_settings",
          T5."anonymize_data",
@@ -1371,8 +1376,8 @@
   INNER JOIN "posthog_team" ON ("posthog_dashboarditem"."team_id" = "posthog_team"."id")
   LEFT OUTER JOIN "posthog_user" ON ("posthog_dashboarditem"."created_by_id" = "posthog_user"."id")
   LEFT OUTER JOIN "posthog_user" T5 ON ("posthog_dashboarditem"."last_modified_by_id" = T5."id")
-  WHERE (NOT ("posthog_dashboarditem"."deleted")
-         AND "posthog_team"."project_id" = 2)
+  WHERE ("posthog_team"."project_id" = 2
+         AND NOT ("posthog_dashboarditem"."deleted"))
   ORDER BY "posthog_dashboarditem"."order" ASC
   LIMIT 100
   '''
@@ -1421,6 +1426,7 @@
          "posthog_team"."session_recording_linked_flag",
          "posthog_team"."session_recording_network_payload_capture_config",
          "posthog_team"."session_replay_config",
+         "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",
@@ -1538,6 +1544,7 @@
          "posthog_team"."session_recording_linked_flag",
          "posthog_team"."session_recording_network_payload_capture_config",
          "posthog_team"."session_replay_config",
+         "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",
@@ -1690,6 +1697,7 @@
          "posthog_team"."session_recording_linked_flag",
          "posthog_team"."session_recording_network_payload_capture_config",
          "posthog_team"."session_replay_config",
+         "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",
@@ -1782,6 +1790,7 @@
          "posthog_team"."session_recording_linked_flag",
          "posthog_team"."session_recording_network_payload_capture_config",
          "posthog_team"."session_replay_config",
+         "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",
@@ -1873,6 +1882,7 @@
          "posthog_team"."session_recording_linked_flag",
          "posthog_team"."session_recording_network_payload_capture_config",
          "posthog_team"."session_replay_config",
+         "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",
@@ -1937,6 +1947,7 @@
          "posthog_team"."session_recording_linked_flag",
          "posthog_team"."session_recording_network_payload_capture_config",
          "posthog_team"."session_replay_config",
+         "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",

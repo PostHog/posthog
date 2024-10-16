@@ -409,7 +409,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                               identifier: Scene.Activity,
                               label: 'Activity',
                               icon: <IconLive />,
-                              to: featureFlags[FEATURE_FLAGS.LIVE_EVENTS] ? urls.activity() : urls.events(),
+                              to: urls.activity(),
                           },
                       ]
                     : [
