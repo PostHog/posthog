@@ -218,8 +218,13 @@ pub async fn insert_new_team_in_pg(
     let res = sqlx::query(
         r#"INSERT INTO posthog_project
         (id, organization_id, name, created_at) VALUES
-        ($1, $2::uuid, $3, '2024-06-17 14:40:51.332036+00:00')"#
-    ).bind(team.id).bind(ORG_ID).bind(&team.name).execute(&mut *conn).await?;
+        ($1, $2::uuid, $3, '2024-06-17 14:40:51.332036+00:00')"#,
+    )
+    .bind(team.id)
+    .bind(ORG_ID)
+    .bind(&team.name)
+    .execute(&mut *conn)
+    .await?;
     assert_eq!(res.rows_affected(), 1);
 
     let res = sqlx::query(
