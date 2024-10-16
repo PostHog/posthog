@@ -125,6 +125,8 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
             ),
             ((DateTimeType(), IntegerType()), DateTimeType()),
             ((IntegerType(), DateTimeType()), DateTimeType()),
+            ((DateTimeType(), IntervalType()), DateTimeType()),
+            ((IntervalType(), DateTimeType()), DateTimeType()),
         ],
     ),
     "minus": HogQLFunctionMeta(
@@ -144,6 +146,8 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
             ),
             ((DateTimeType(), IntegerType()), DateTimeType()),
             ((IntegerType(), DateTimeType()), DateTimeType()),
+            ((DateTimeType(), IntervalType()), DateTimeType()),
+            ((IntervalType(), DateTimeType()), DateTimeType()),
         ],
     ),
     "multiply": HogQLFunctionMeta(
