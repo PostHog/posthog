@@ -79,6 +79,8 @@ def sql_source_for_type(
             f"mysql+pymysql://{user}:{password}@{host}:{port}/{database}?ssl_ca={ssl_ca}&ssl_verify_cert=false"
         )
     elif source_type == ExternalDataSource.Type.PLANETSCALE:
+        is_debug = get_from_env("DEBUG", False, type_cast=str_to_bool)
+        ssl_ca = "/etc/ssl/cert.pem" if is_debug else "/etc/ssl/certs/ca-certificates.crt"
         credentials = ConnectionStringCredentials(
             f"mysql+pymysql://{user}:{password}@{host}:{port}/{database}?ssl_ca={ssl_ca}&ssl_verify_cert=false"
         )
@@ -240,11 +242,8 @@ def sql_database(
                 spec=SqlDatabaseTableConfiguration,
                 table_format="delta",
                 columns=get_column_hints(engine, schema or "", table.name),
-                connect_args=connect_args,
             ).add_map(remove_columns(binary_columns_to_drop, team_id))(
-                engine=engine,
-                table=table,
-                incremental=incremental,
+                engine=engine, table=table, incremental=incremental, connect_args=connect_args
             )
         )
 

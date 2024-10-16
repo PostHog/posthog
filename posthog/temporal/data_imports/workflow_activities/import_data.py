@@ -107,6 +107,7 @@ async def import_data_activity(inputs: ImportDataActivityInputs):
             ExternalDataSource.Type.POSTGRES,
             ExternalDataSource.Type.MYSQL,
             ExternalDataSource.Type.MSSQL,
+            ExternalDataSource.Type.PLANETSCALE,
         ]:
             from posthog.temporal.data_imports.pipelines.sql_database import sql_source_for_type
 

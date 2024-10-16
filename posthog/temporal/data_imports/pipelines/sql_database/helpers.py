@@ -14,7 +14,7 @@ from dlt.common.configuration.specs import BaseConfiguration, configspec
 from dlt.common.typing import TDataItem
 from .settings import DEFAULT_CHUNK_SIZE
 
-from sqlalchemy import Table, create_engine, Column, event
+from sqlalchemy import Table, create_engine, Column, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.sql import Select
 
@@ -33,13 +33,6 @@ class TableLoader:
         self.chunk_size = chunk_size
         self.incremental = incremental
         self.connect_args = connect_args
-
-        @event.listens_for(engine, "connect")
-        def connect(dbapi_connection, connection_record):
-            cursor = dbapi_connection.cursor()
-            if connect_args:
-                for stmt in connect_args:
-                    cursor.execute(stmt)
 
         if incremental:
             try:
@@ -84,6 +77,9 @@ class TableLoader:
     def load_rows(self) -> Iterator[list[TDataItem]]:
         query = self.make_query()
         with self.engine.connect() as conn:
+            if self.connect_args:
+                for stmt in self.connect_args:
+                    conn.execute(text(stmt))
             result = conn.execution_options(yield_per=self.chunk_size).execute(query)
             for partition in result.partitions(size=self.chunk_size):
                 yield [dict(row._mapping) for row in partition]

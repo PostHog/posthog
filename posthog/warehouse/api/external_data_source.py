@@ -293,6 +293,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             ExternalDataSource.Type.POSTGRES,
             ExternalDataSource.Type.MYSQL,
             ExternalDataSource.Type.MSSQL,
+            ExternalDataSource.Type.PLANETSCALE,
         ]:
             try:
                 new_source_model, sql_schemas = self._handle_sql_source(request, *args, **kwargs)
@@ -315,6 +316,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             ExternalDataSource.Type.POSTGRES,
             ExternalDataSource.Type.MYSQL,
             ExternalDataSource.Type.MSSQL,
+            ExternalDataSource.Type.PLANETSCALE,
         ]:
             default_schemas = sql_schemas
         elif source_type == ExternalDataSource.Type.SNOWFLAKE:

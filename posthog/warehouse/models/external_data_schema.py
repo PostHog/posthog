@@ -411,7 +411,7 @@ def get_sql_schemas_for_source_type(
 ) -> dict[str, list[tuple[str, str]]]:
     if source_type == ExternalDataSource.Type.POSTGRES:
         schemas = get_postgres_schemas(host, port, database, user, password, schema, ssh_tunnel)
-    elif source_type == ExternalDataSource.Type.MYSQL:
+    elif source_type == ExternalDataSource.Type.MYSQL or source_type == ExternalDataSource.Type.PLANETSCALE:
         schemas = get_mysql_schemas(host, port, database, user, password, schema, ssh_tunnel)
     elif source_type == ExternalDataSource.Type.MSSQL:
         schemas = get_mssql_schemas(host, port, database, user, password, schema, ssh_tunnel)
