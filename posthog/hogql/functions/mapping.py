@@ -570,7 +570,7 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
         1,
         1,
         signatures=[
-            ((IntegerType(nullable=False),), IntervalType(nullable=False)),
+            ((IntegerType(),), IntervalType()),
         ],
     ),
     "toIntervalMinute": HogQLFunctionMeta(
@@ -578,7 +578,7 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
         1,
         1,
         signatures=[
-            ((IntegerType(nullable=False),), IntervalType(nullable=False)),
+            ((IntegerType(),), IntervalType()),
         ],
     ),
     "toIntervalHour": HogQLFunctionMeta(
@@ -586,7 +586,7 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
         1,
         1,
         signatures=[
-            ((IntegerType(nullable=False),), IntervalType(nullable=False)),
+            ((IntegerType(),), IntervalType()),
         ],
     ),
     "toIntervalDay": HogQLFunctionMeta(
@@ -594,7 +594,7 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
         1,
         1,
         signatures=[
-            ((IntegerType(nullable=False),), IntervalType(nullable=False)),
+            ((IntegerType(),), IntervalType()),
         ],
     ),
     "toIntervalWeek": HogQLFunctionMeta(
@@ -602,7 +602,7 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
         1,
         1,
         signatures=[
-            ((IntegerType(nullable=False),), IntervalType(nullable=False)),
+            ((IntegerType(),), IntervalType()),
         ],
     ),
     "toIntervalMonth": HogQLFunctionMeta(
@@ -610,7 +610,7 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
         1,
         1,
         signatures=[
-            ((IntegerType(nullable=False),), IntervalType(nullable=False)),
+            ((IntegerType(),), IntervalType()),
         ],
     ),
     "toIntervalQuarter": HogQLFunctionMeta(
@@ -618,7 +618,7 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
         1,
         1,
         signatures=[
-            ((IntegerType(nullable=False),), IntervalType(nullable=False)),
+            ((IntegerType(),), IntervalType()),
         ],
     ),
     "toIntervalYear": HogQLFunctionMeta(
@@ -626,7 +626,7 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
         1,
         1,
         signatures=[
-            ((IntegerType(nullable=False),), IntervalType(nullable=False)),
+            ((IntegerType(),), IntervalType()),
         ],
     ),
     # strings
