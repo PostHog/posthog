@@ -907,7 +907,7 @@ def list_recordings(
     if (all_session_ids and filter.session_ids) or not all_session_ids:
         with timer("load_recordings_from_hogql"):
             (ch_session_recordings, more_recordings_available, hogql_timings) = SessionRecordingListFromFilters(
-                filter=filter, team=team
+                filter=filter, team=team, hogql_query_modifiers=None
             ).run()
 
         with timer("build_recordings"):

@@ -51,7 +51,7 @@ class WhereClauseExtractor(CloningVisitor):
         super().__init__()
         self.context = context
         self.tracked_tables = []
-        self.is_join = is_join
+        self.is_join = is_join or False
         # A constant with this string will be used to escape early if we can't handle the query
         self.tombstone_string = (
             "__TOMBSTONE__" + ("".join(random.choices(string.ascii_uppercase + string.digits, k=10))) + "__"

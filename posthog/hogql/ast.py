@@ -631,7 +631,7 @@ class CompareOperationOp(StrEnum):
     NotIRegex = "!~*"
 
 
-NEGATED_COMPARE_OPS: tuple[CompareOperationOp] = (
+NEGATED_COMPARE_OPS: list[CompareOperationOp] = [
     CompareOperationOp.NotEq,
     CompareOperationOp.NotLike,
     CompareOperationOp.NotILike,
@@ -640,7 +640,7 @@ NEGATED_COMPARE_OPS: tuple[CompareOperationOp] = (
     CompareOperationOp.NotInCohort,
     CompareOperationOp.NotRegex,
     CompareOperationOp.NotIRegex,
-)
+]
 
 
 @dataclass(kw_only=True)
