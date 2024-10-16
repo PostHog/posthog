@@ -1,4 +1,4 @@
-from typing import cast
+from typing import cast, Optional
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLQuerySettings
@@ -30,7 +30,9 @@ class FunnelTrendsUDF(FunnelTrends):
             self.context.funnelWindowInterval * DATERANGE_MAP[self.context.funnelWindowIntervalUnit].total_seconds()
         )
 
-    def get_query(self) -> ast.SelectQuery:
+    # This is the function that calls the UDF
+    # This is used by both the query itself and the actors query
+    def _inner_aggregation_query(self):
         # If they're asking for a "to_step" just truncate the funnel
         funnelsFilter = self.context.funnelsFilter
         max_steps = self.context.max_steps if funnelsFilter.funnelToStep is None else funnelsFilter.funnelToStep + 1
@@ -100,6 +102,10 @@ class FunnelTrendsUDF(FunnelTrends):
         )
         # This is necessary so clickhouse doesn't truncate timezone information when passing datetimes to and from python
         inner_select.settings = HogQLQuerySettings(date_time_output_format="iso", date_time_input_format="best_effort")
+        return inner_select
+
+    def get_query(self) -> ast.SelectQuery:
+        inner_select = self._inner_aggregation_query()
 
         conversion_rate_expr = (
             "if(reached_from_step_count > 0, round(reached_to_step_count / reached_from_step_count * 100, 2), 0)"
@@ -163,3 +169,24 @@ class FunnelTrendsUDF(FunnelTrends):
                 {"fill_query": fill_query, "inner_select": inner_select},
             )
         return cast(ast.SelectQuery, s)
+
+    def actor_query(
+        self,
+        extra_fields: Optional[list[str]] = None,
+    ) -> ast.SelectQuery:
+        select: list[ast.Expr] = [
+            ast.Alias(alias="actor_id", expr=ast.Field(chain=["aggregation_target"])),
+            *self._get_funnel_person_step_events(),
+            *self._get_timestamp_outer_select(),
+            *([ast.Field(chain=[field]) for field in extra_fields or []]),
+        ]
+        select_from = ast.JoinExpr(table=self._inner_aggregation_query())
+        where = self._get_funnel_person_step_condition()
+        order_by = [ast.OrderExpr(expr=ast.Field(chain=["aggregation_target"]))]
+
+        return ast.SelectQuery(
+            select=select,
+            select_from=select_from,
+            order_by=order_by,
+            where=where,
+        )
