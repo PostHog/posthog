@@ -275,7 +275,7 @@ jobs:
               id: login-ecr
               uses: aws-actions/amazon-ecr-login@v2
 
-            - name: Unset AWS credentials
+            - name: Clear AWS environment variables
               run: |
                   unset AWS_ACCESS_KEY_ID
                   unset AWS_SECRET_ACCESS_KEY
@@ -286,6 +286,16 @@ jobs:
                   unset AWS_ROLE_SESSION_NAME
                   unset AWS_CREDENTIAL_EXPIRATION
                   unset AWS_PROFILE
+              env:
+                  AWS_ACCESS_KEY_ID: ''
+                  AWS_SECRET_ACCESS_KEY: ''
+                  AWS_SESSION_TOKEN: ''
+                  AWS_DEFAULT_REGION: ''
+                  AWS_REGION: ''
+                  AWS_ROLE_ARN: ''
+                  AWS_ROLE_SESSION_NAME: ''
+                  AWS_CREDENTIAL_EXPIRATION: ''
+                  AWS_PROFILE: ''
 
             - uses: ./.github/actions/run-backend-tests
               if: needs.changes.outputs.backend == 'true'
