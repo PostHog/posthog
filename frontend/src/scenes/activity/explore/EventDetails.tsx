@@ -36,7 +36,7 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
             }
         }
         if (!CORE_FILTER_DEFINITIONS_BY_GROUP.events[key] || !CORE_FILTER_DEFINITIONS_BY_GROUP.events[key].system) {
-            if (key.startsWith('$feature')) {
+            if (key.startsWith('$feature') or key === '$active_feature_flags') {
                 featureFlagProperties[key] = event.properties[key]
             } else {
                 displayedEventProperties[key] = event.properties[key]
