@@ -370,7 +370,7 @@ def start_produce_batch_export_record_batches(
     extra_query_parameters = parameters.pop("extra_query_parameters") or {}
     parameters = {**parameters, **extra_query_parameters}
 
-    queue = RecordBatchQueue()
+    queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_BUFFER_QUEUE_MAX_SIZE_BYTES)
     query_id = uuid.uuid4()
     done_event = asyncio.Event()
     produce_task = asyncio.create_task(
