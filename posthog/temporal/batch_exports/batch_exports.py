@@ -254,6 +254,8 @@ async def iter_records_from_model_view(
 
 
 class RecordBatchQueue(asyncio.Queue):
+    """A queue of pyarrow RecordBatch instances limited by bytes."""
+
     def __init__(self, max_size_bytes=0):
         super().__init__(maxsize=max_size_bytes)
         self._bytes_size = 0
@@ -263,11 +265,13 @@ class RecordBatchQueue(asyncio.Queue):
         self._queue: collections.deque
 
     def _get(self) -> pa.RecordBatch:
+        """Override parent `_get` to keep track of bytes."""
         item = self._queue.popleft()
         self._bytes_size -= item.get_total_buffer_size()
         return item
 
-    def _put(self, item: pa.RecordBatch):
+    def _put(self, item: pa.RecordBatch) -> None:
+        """Override parent `_put` to keep track of bytes."""
         self._bytes_size += item.get_total_buffer_size()
 
         if not self._schema_set.is_set():
@@ -275,17 +279,28 @@ class RecordBatchQueue(asyncio.Queue):
 
         self._queue.append(item)
 
-    def set_schema(self, record_batch: pa.RecordBatch):
+    def set_schema(self, record_batch: pa.RecordBatch) -> None:
+        """Used to keep track of schema of events in queue."""
         self.record_batch_schema = record_batch.schema
         self._schema_set.set()
 
-    def qsize(self):
-        """Size in bytes of record batches in the queue."""
-        return self._bytes_size
-
     async def get_schema(self) -> pa.Schema:
+        """Return the schema of events in queue.
+
+        Currently, this is not enforced. It's purely for reporting to users of
+        the queue what do the record batches look like. It's up to the producer
+        to ensure all record batches have the same schema.
+        """
         await self._schema_set.wait()
         return self.record_batch_schema
+
+    def qsize(self) -> int:
+        """Size in bytes of record batches in the queue.
+
+        This is used to determine when the queue is full, so it returns the
+        number of bytes.
+        """
+        return self._bytes_size
 
 
 def start_produce_batch_export_record_batches(
@@ -299,6 +314,18 @@ def start_produce_batch_export_record_batches(
     destination_default_fields: list[BatchExportField] | None = None,
     **parameters,
 ):
+    """Start producing batch export record batches from a model query.
+
+    Depending on the model, we issue a query to ClickHouse and initialize a
+    producer to stream record batches to a queue. Callers can then consume from
+    this queue as the record batches arrive. The producer runs asynchronously as
+    a background task, which is returned.
+
+    Returns:
+        A tuple containing the record batch queue, an event used by the producer
+        to indicate there is nothing more to produce, and a reference to the
+        producer task
+    """
     if fields is None:
         if destination_default_fields is None:
             fields = default_fields()

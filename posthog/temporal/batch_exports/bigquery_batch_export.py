@@ -512,7 +512,12 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
                     flush_start_event = asyncio.Event()
                     task = asyncio.create_task(
                         consume_batch_export_record_batches(
-                            queue, done_event, flush_start_event, flush_to_bigquery, json_columns
+                            queue,
+                            done_event,
+                            flush_start_event,
+                            flush_to_bigquery,
+                            json_columns,
+                            settings.BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES,
                         )
                     )
 
@@ -548,9 +553,36 @@ async def consume_batch_export_record_batches(
     flush_start_event: asyncio.Event,
     flush_to_bigquery: FlushCallable,
     json_columns: list[str],
+    max_bytes: int,
 ):
+    """Consume batch export record batches from queue into a writing loop.
+
+    Each record will be written to a temporary file, and flushed after
+    configured `max_bytes`. Flush is done on context manager exit by
+    `JSONLBatchExportWriter`.
+
+    This coroutine reports when flushing will start by setting the
+    `flush_start_event`. This is used by the main thread to start a new writer
+    task as flushing is about to begin, since that can be too slow to do
+    sequentially.
+
+    If there are not enough events to fill up `max_bytes`, the writing
+    loop will detect that there are no more events produced and shut itself off
+    by using the `done_event`, which should be set by the queue producer.
+
+    Arguments:
+        queue: The queue we will be listening on for record batches.
+        done_event: Event set by producer when done.
+        flush_to_start_event: Event set by us when flushing is to about to
+            start.
+        json_columns: Used to cast columns of the record batch to JSON.
+        max_bytes: Max bytes to write before flushing.
+
+    Returns:
+        Number of total records written and flushed in this task.
+    """
     writer = JSONLBatchExportWriter(
-        max_bytes=settings.BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES,
+        max_bytes=max_bytes,
         flush_callable=flush_to_bigquery,
     )
 
