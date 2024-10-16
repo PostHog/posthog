@@ -125,7 +125,7 @@ export function ImportingModule(): JSX.Element {
             eventProperties={errorProperties({
                 $exception_type: 'UnhandledRejection',
                 $exception_message: "Importing module '/static/chunk-PIJHGO7Q.js' is not found.",
-                $exception_stack_trace_raw: '[]',
+                $exception_list: [],
                 $exception_handled: false,
             })}
         />
@@ -136,10 +136,23 @@ export function AnonymousErrorWithStackTrace(): JSX.Element {
     return (
         <ErrorDisplay
             eventProperties={errorProperties({
-                $exception_type: 'Error',
-                $exception_message: 'wat',
-                $exception_stack_trace_raw:
-                    '[{"filename":"<anonymous>","function":"?","in_app":true,"lineno":1,"colno":26}]',
+                $exception_list: [
+                    {
+                        type: 'Error',
+                        value: 'wat123',
+                        stacktrace: {
+                            frames: [
+                                {
+                                    filename: '<anonymous>',
+                                    function: '?',
+                                    in_app: true,
+                                    lineno: 1,
+                                    colno: 26,
+                                },
+                            ],
+                        },
+                    },
+                ],
             })}
         />
     )

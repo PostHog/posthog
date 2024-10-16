@@ -39,7 +39,7 @@ describe('dashboardsLogic', () => {
     beforeEach(async () => {
         useMocks({
             get: {
-                '/api/projects/:team/dashboards/': {
+                '/api/environments/:team_id/dashboards/': {
                     count: 6,
                     next: null,
                     previous: null,

@@ -34,6 +34,7 @@ from posthog.models import (
 )
 from posthog.models.insight_caching_state import InsightCachingState
 from posthog.models.insight_variable import InsightVariable
+from posthog.models.project import Project
 from posthog.schema import (
     DataTableNode,
     DataVisualizationNode,
@@ -91,6 +92,43 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         response = self.client.get(f"/api/projects/{self.team.id}/insights/", data={"user": "true"}).json()
 
         self.assertEqual(len(response["results"]), 1)
+
+    def test_get_insight_items_all_environments_included(self) -> None:
+        filter_dict = {
+            "events": [{"id": "$pageview"}],
+            "properties": [{"key": "$browser", "value": "Mac OS X"}],
+        }
+
+        other_team_in_project = Team.objects.create(organization=self.organization, project=self.project)
+        _, team_in_other_project = Project.objects.create_with_team(
+            organization=self.organization, initiating_user=self.user
+        )
+
+        insight_a = Insight.objects.create(
+            filters=Filter(data=filter_dict).to_dict(),
+            team=self.team,
+            created_by=self.user,
+        )
+        insight_b = Insight.objects.create(
+            filters=Filter(data=filter_dict).to_dict(),
+            team=other_team_in_project,
+            created_by=self.user,
+        )
+        Insight.objects.create(
+            filters=Filter(data=filter_dict).to_dict(),
+            team=team_in_other_project,
+            created_by=self.user,
+        )
+
+        # All of these three ways should return the same set of insights,
+        # i.e. all insights in the test project regardless of environment
+        response_project = self.client.get(f"/api/projects/{self.project.id}/insights/").json()
+        response_env_current = self.client.get(f"/api/environments/{self.team.id}/insights/").json()
+        response_env_other = self.client.get(f"/api/environments/{other_team_in_project.id}/insights/").json()
+
+        self.assertEqual({insight["id"] for insight in response_project["results"]}, {insight_a.id, insight_b.id})
+        self.assertEqual({insight["id"] for insight in response_env_current["results"]}, {insight_a.id, insight_b.id})
+        self.assertEqual({insight["id"] for insight in response_env_other["results"]}, {insight_a.id, insight_b.id})
 
     @patch("posthoganalytics.capture")
     def test_created_updated_and_last_modified(self, mock_capture: mock.Mock) -> None:
@@ -340,6 +378,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 mock.ANY,
                 dashboard=mock.ANY,
                 execution_mode=ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE,
+                team=self.team,
                 user=mock.ANY,
                 filters_override=None,
                 variables_override=None,
@@ -353,6 +392,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 mock.ANY,
                 dashboard=mock.ANY,
                 execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+                team=self.team,
                 user=mock.ANY,
                 filters_override=None,
                 variables_override=None,

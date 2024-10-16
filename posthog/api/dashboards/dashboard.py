@@ -2,7 +2,7 @@ import json
 from typing import Any, Optional, cast
 
 import structlog
-from django.db.models import Prefetch, QuerySet
+from django.db.models import Prefetch
 from django.shortcuts import get_object_or_404
 from django.utils.timezone import now
 from rest_framework import exceptions, serializers, viewsets
@@ -461,7 +461,12 @@ class DashboardsViewSet(
     def get_serializer_class(self) -> type[BaseSerializer]:
         return DashboardBasicSerializer if self.action == "list" else DashboardSerializer
 
-    def safely_get_queryset(self, queryset) -> QuerySet:
+    def dangerously_get_queryset(self):
+        # Dashboards are retrieved under /environments/ because they include team-specific query results,
+        # but they are in fact project-level, rather than environment-level
+        assert self.team.project_id is not None
+        queryset = self.queryset.filter(team__project_id=self.team.project_id)
+
         include_deleted = (
             self.action == "partial_update"
             and "deleted" in self.request.data
@@ -512,7 +517,7 @@ class DashboardsViewSet(
         dashboard = get_object_or_404(queryset, pk=pk)
         dashboard.last_accessed_at = now()
         dashboard.save(update_fields=["last_accessed_at"])
-        serializer = DashboardSerializer(dashboard, context={"view": self, "request": request})
+        serializer = DashboardSerializer(dashboard, context=self.get_serializer_context())
         return Response(serializer.data)
 
     @action(methods=["PATCH"], detail=True)
@@ -528,7 +533,7 @@ class DashboardsViewSet(
 
         serializer = DashboardSerializer(
             Dashboard.objects.get(id=from_dashboard),
-            context={"view": self, "request": request},
+            context=self.get_serializer_context(),
         )
         return Response(serializer.data)
 
@@ -568,7 +573,7 @@ class DashboardsViewSet(
             dashboard.delete()
             raise
 
-        return Response(DashboardSerializer(dashboard, context={"view": self, "request": request}).data)
+        return Response(DashboardSerializer(dashboard, context=self.get_serializer_context()).data)
 
 
 class LegacyDashboardsViewSet(DashboardsViewSet):

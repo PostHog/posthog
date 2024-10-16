@@ -7,23 +7,31 @@ from posthog.warehouse.util import database_sync_to_async
 
 @database_sync_to_async
 def database_operations(team_id: int, table_prefix: str) -> None:
-    customer_join_exists = DataWarehouseJoin.objects.filter(
-        team_id=team_id,
-        source_table_name="persons",
-        source_table_key="properties.email",
-        joining_table_name=f"{table_prefix}stripe_customer",
-        joining_table_key="email",
-        field_name=f"{table_prefix}stripe_customer",
-    ).exists()
+    customer_join_exists = (
+        DataWarehouseJoin.objects.filter(
+            team_id=team_id,
+            source_table_name="persons",
+            source_table_key="properties.email",
+            joining_table_name=f"{table_prefix}stripe_customer",
+            joining_table_key="email",
+            field_name=f"{table_prefix}stripe_customer",
+        )
+        .exclude(deleted=True)
+        .exists()
+    )
 
-    invoice_join_exists = DataWarehouseJoin.objects.filter(
-        team_id=team_id,
-        source_table_name="persons",
-        source_table_key="properties.email",
-        joining_table_name=f"{table_prefix}stripe_invoice",
-        joining_table_key="customer_email",
-        field_name=f"{table_prefix}stripe_invoice",
-    ).exists()
+    invoice_join_exists = (
+        DataWarehouseJoin.objects.filter(
+            team_id=team_id,
+            source_table_name="persons",
+            source_table_key="properties.email",
+            joining_table_name=f"{table_prefix}stripe_invoice",
+            joining_table_key="customer_email",
+            field_name=f"{table_prefix}stripe_invoice",
+        )
+        .exclude(deleted=True)
+        .exists()
+    )
 
     if not customer_join_exists:
         DataWarehouseJoin.objects.create(

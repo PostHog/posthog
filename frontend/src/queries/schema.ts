@@ -1596,7 +1596,7 @@ export type InsightQueryNode =
     | StickinessQuery
     | LifecycleQuery
 
-export interface ExperimentVariantTrendResult {
+export interface ExperimentVariantTrendBaseStats {
     key: string
     count: number
     exposure: number
@@ -1609,9 +1609,22 @@ export interface ExperimentVariantFunnelResult {
     failure_count: number
 }
 
+export enum ExperimentSignificanceCode {
+    Significant = 'significant',
+    NotEnoughExposure = 'not_enough_exposure',
+    LowWinProbability = 'low_win_probability',
+    HighLoss = 'high_loss',
+    HighPValue = 'high_p_value',
+}
+
 export interface ExperimentTrendQueryResponse {
-    insight: InsightType.TRENDS
-    results: Record<string, ExperimentVariantTrendResult>
+    insight: TrendsQueryResponse
+    variants: ExperimentVariantTrendBaseStats[]
+    probability: Record<string, number>
+    significant: boolean
+    significance_code: ExperimentSignificanceCode
+    p_value: number
+    credible_intervals: Record<string, [number, number]>
 }
 
 export type CachedExperimentTrendQueryResponse = CachedQueryResponse<ExperimentTrendQueryResponse>
