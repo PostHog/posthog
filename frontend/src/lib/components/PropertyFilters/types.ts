@@ -51,4 +51,5 @@ export interface PropertyFilterInternalProps {
     propertyAllowList?: { [key in TaxonomicFilterGroupType]?: string[] }
     allowRelativeDateOptions?: boolean
     exactMatchFeatureFlagCohortOperators?: boolean
+    hideBehavioralCohorts?: boolean
 }

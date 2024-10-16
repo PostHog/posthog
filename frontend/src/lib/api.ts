@@ -138,7 +138,7 @@ export interface CountedPaginatedResponse<T> extends PaginatedResponse<T> {
 }
 
 export interface ActivityLogPaginatedResponse<T> extends PaginatedResponse<T> {
-    total_count: number // FIXME: This is non-standard naming, DRF uses `count` and we should use that consistently
+    count: number
 }
 
 export interface ApiMethodOptions {
@@ -1049,33 +1049,59 @@ const api = {
             filters: Partial<Pick<ActivityLogItem, 'item_id' | 'scope'> & { user?: UserBasicType['id'] }>,
             teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()
         ): Promise<PaginatedResponse<ActivityLogItem>> {
-            return new ApiRequest().activity_log(teamId).withQueryString(toParams(filters)).get()
+            return api.activity.listRequest(filters, teamId).get()
+        },
+
+        listRequest(
+            filters: Partial<{
+                scope?: ActivityScope
+                scopes?: ActivityScope[] | string
+                user?: UserBasicType['id']
+                page?: number
+                page_size?: number
+                item_id?: number | string
+            }>,
+            teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()
+        ): ApiRequest {
+            if (Array.isArray(filters.scopes)) {
+                filters.scopes = filters.scopes.join(',')
+            }
+            return new ApiRequest().activity_log(teamId).withQueryString(toParams(filters))
         },
 
         listLegacy(
-            activityLogProps: ActivityLogProps,
+            props: ActivityLogProps,
             page: number = 1,
             teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()
         ): Promise<ActivityLogPaginatedResponse<ActivityLogItem>> {
+            const scopes = Array.isArray(props.scope) ? [...props.scope] : [props.scope]
+
+            // Opt into the new /activity_log API
+            if ([ActivityScope.PLUGIN, ActivityScope.HOG_FUNCTION].includes(scopes[0]) || scopes.length > 1) {
+                return api.activity
+                    .listRequest({
+                        scopes,
+                        ...(props.id ? { item_id: props.id } : {}),
+                        page: page || 1,
+                        page_size: ACTIVITY_PAGE_SIZE,
+                    })
+                    .get()
+            }
+
             // TODO: Can we replace all these endpoint specific implementations with the generic REST endpoint above?
-            const requestForScope: { [key in ActivityScope]?: (props: ActivityLogProps) => ApiRequest | null } = {
-                [ActivityScope.FEATURE_FLAG]: (props) => {
+            const requestForScope: { [key in ActivityScope]?: () => ApiRequest | null } = {
+                [ActivityScope.FEATURE_FLAG]: () => {
                     return new ApiRequest().featureFlagsActivity((props.id ?? null) as number | null, teamId)
                 },
-                [ActivityScope.PERSON]: (props) => {
+                [ActivityScope.PERSON]: () => {
                     return new ApiRequest().personActivity(props.id)
                 },
                 [ActivityScope.INSIGHT]: () => {
                     return new ApiRequest().insightsActivity(teamId)
                 },
-                [ActivityScope.PLUGIN]: () => {
-                    return activityLogProps.id
-                        ? new ApiRequest().pluginConfig(activityLogProps.id as number, teamId).withAction('activity')
-                        : new ApiRequest().plugins().withAction('activity')
-                },
                 [ActivityScope.PLUGIN_CONFIG]: () => {
-                    return activityLogProps.id
-                        ? new ApiRequest().pluginConfig(activityLogProps.id as number, teamId).withAction('activity')
+                    return props.id
+                        ? new ApiRequest().pluginConfig(props.id as number, teamId).withAction('activity')
                         : new ApiRequest().plugins().withAction('activity')
                 },
                 [ActivityScope.DATA_MANAGEMENT]: () => {
@@ -1090,21 +1116,21 @@ const api = {
                     return new ApiRequest().dataManagementActivity()
                 },
                 [ActivityScope.NOTEBOOK]: () => {
-                    return activityLogProps.id
-                        ? new ApiRequest().notebook(`${activityLogProps.id}`).withAction('activity')
+                    return props.id
+                        ? new ApiRequest().notebook(`${props.id}`).withAction('activity')
                         : new ApiRequest().notebooks().withAction('activity')
                 },
                 [ActivityScope.TEAM]: () => {
                     return new ApiRequest().projectsDetail().withAction('activity')
                 },
-                [ActivityScope.SURVEY]: (props) => {
+                [ActivityScope.SURVEY]: () => {
                     return new ApiRequest().surveyActivity((props.id ?? null) as string, teamId)
                 },
             }
 
             const pagingParameters = { page: page || 1, limit: ACTIVITY_PAGE_SIZE }
-            const request = requestForScope[activityLogProps.scope]?.(activityLogProps)
-            return request && request !== null
+            const request = requestForScope[scopes[0]]?.()
+            return request
                 ? request.withQueryString(toParams(pagingParameters)).get()
                 : Promise.resolve({ results: [], count: 0 })
         },
