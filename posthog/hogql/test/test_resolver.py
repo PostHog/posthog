@@ -581,6 +581,21 @@ class TestResolver(BaseTest):
         node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
         self._assert_first_columm_is_type(node, ast.IntegerType(nullable=False))
 
+    def test_interval_type_arithmetic_and_comparison(self):
+        node = self._select("""
+            SELECT count()
+            FROM events
+            WHERE and(
+                greaterOrEquals(timestamp, minus(assumeNotNull(toDateTime('2024-09-16 00:00:00')), toIntervalDay(30))),
+                lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-10-16 23:59:59')))
+            )
+        """)
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+
+        assert isinstance(node.where.type, ast.CallType)
+        for arg_type in node.where.type.arg_types:
+            assert arg_type == ast.BooleanType(nullable=False)
+
     def test_recording_button_tag(self):
         node: ast.SelectQuery = self._select("select <RecordingButton sessionId={'12345'} />")
         node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
