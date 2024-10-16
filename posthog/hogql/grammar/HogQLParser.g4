@@ -193,6 +193,7 @@ columnExpr
                  ) right=columnExpr                                                       # ColumnExprPrecedence3
     | columnExpr IS NOT? NULL_SQL                                                         # ColumnExprIsNull
     | columnExpr NULLISH columnExpr                                                       # ColumnExprNullish
+    | columnExpr (STRING_OR columnExpr)+                                                  # ColumnExprStringOr
     | NOT columnExpr                                                                      # ColumnExprNot
     | columnExpr AND columnExpr                                                           # ColumnExprAnd
     | columnExpr OR columnExpr                                                            # ColumnExprOr

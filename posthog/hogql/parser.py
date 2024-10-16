@@ -796,6 +796,9 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
 
         return ast.Call(name=name, args=[self.visit(ctx.columnExpr())])
 
+    def visitColumnExprStringOr(self, ctx: HogQLParser.ColumnExprStringOrContext):
+        return ast.Call(name="stringOr", args=[self.visit(expr) for expr in ctx.columnExpr()])
+
     def visitColumnExprIsNull(self, ctx: HogQLParser.ColumnExprIsNullContext):
         return ast.CompareOperation(
             left=self.visit(ctx.columnExpr()),
