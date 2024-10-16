@@ -5,6 +5,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { IconUnverifiedEvent } from 'lib/lemon-ui/icons'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { IconWindow } from 'scenes/session-recordings/player/icons'
 
@@ -18,6 +19,81 @@ import {
 } from '../sessionRecordingPlayerLogic'
 import { InspectorSearchInfo } from './components/InspectorSearchInfo'
 import { playerInspectorLogic } from './playerInspectorLogic'
+
+function HideProperties(): JSX.Element | null {
+    const { logicProps } = useValues(sessionRecordingPlayerLogic)
+    const inspectorLogic = playerInspectorLogic(logicProps)
+    const { tab } = useValues(inspectorLogic)
+    const { hidePostHogPropertiesInTable } = useValues(userPreferencesLogic)
+    const { setHidePostHogPropertiesInTable } = useActions(userPreferencesLogic)
+
+    return tab === SessionRecordingPlayerTab.EVENTS ? (
+        <LemonCheckbox
+            checked={hidePostHogPropertiesInTable}
+            label="Hide PostHog properties"
+            bordered
+            onChange={setHidePostHogPropertiesInTable}
+            size="small"
+        />
+    ) : null
+}
+
+function MiniFilters(): JSX.Element {
+    const { miniFilters } = useValues(playerSettingsLogic)
+    const { setMiniFilter } = useActions(playerSettingsLogic)
+
+    return (
+        <div className="flex items-center gap-1 flex-wrap font-medium text-primary-alt" data-attr="mini-filters">
+            {miniFilters.map((filter) => (
+                <LemonButton
+                    key={filter.key}
+                    size="small"
+                    noPadding
+                    active={filter.enabled}
+                    onClick={() => {
+                        // "alone" should always be a select-to-true action
+                        setMiniFilter(filter.key, filter.alone || !filter.enabled)
+                    }}
+                    tooltip={filter.tooltip}
+                >
+                    <span className="p-1 text-xs">{filter.name}</span>
+                </LemonButton>
+            ))}
+        </div>
+    )
+}
+
+function WindowSelector(): JSX.Element {
+    const { logicProps } = useValues(sessionRecordingPlayerLogic)
+    const inspectorLogic = playerInspectorLogic(logicProps)
+    const { windowIdFilter, windowIds } = useValues(inspectorLogic)
+    const { setWindowIdFilter } = useActions(inspectorLogic)
+
+    return windowIds.length > 1 ? (
+        <LemonSelect
+            size="xsmall"
+            data-attr="player-window-select"
+            value={windowIdFilter}
+            onChange={(val) => setWindowIdFilter(val || null)}
+            options={[
+                {
+                    value: null,
+                    label: 'All windows',
+                    icon: <IconWindow size="small" value="A" className="text-muted" />,
+                },
+                ...windowIds.map((windowId, index) => ({
+                    value: windowId,
+                    label: `Window ${index + 1}`,
+                    icon: <IconWindow size="small" value={index + 1} className="text-muted" />,
+                })),
+            ]}
+            tooltip="Each recording window translates to a distinct browser tab or window."
+        />
+    ) : (
+        // returns an empty div to keep spacing/positioning consistent
+        <div> </div>
+    )
+}
 
 export const TabToIcon = {
     [SessionRecordingPlayerTab.ALL]: undefined,
@@ -68,10 +144,10 @@ function TabButtons({
 export function PlayerInspectorControls(): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
     const inspectorLogic = playerInspectorLogic(logicProps)
-    const { tab, windowIdFilter, windowIds, showMatchingEventsFilter } = useValues(inspectorLogic)
-    const { setWindowIdFilter, setTab } = useActions(inspectorLogic)
-    const { showOnlyMatching, miniFilters, searchQuery } = useValues(playerSettingsLogic)
-    const { setShowOnlyMatching, setMiniFilter, setSearchQuery } = useActions(playerSettingsLogic)
+    const { tab, showMatchingEventsFilter } = useValues(inspectorLogic)
+    const { setTab } = useActions(inspectorLogic)
+    const { showOnlyMatching, searchQuery } = useValues(playerSettingsLogic)
+    const { setShowOnlyMatching, setSearchQuery } = useActions(playerSettingsLogic)
 
     const mode = logicProps.mode ?? SessionRecordingPlayerMode.Standard
 
@@ -108,67 +184,27 @@ export function PlayerInspectorControls(): JSX.Element {
             </div>
 
             <div className="flex px-2 gap-x-3 flex-wrap gap-y-1">
-                <div className="flex flex-1 items-center">
-                    <LemonInput
-                        size="xsmall"
-                        onChange={(e) => setSearchQuery(e)}
-                        placeholder="Search..."
-                        type="search"
-                        value={searchQuery}
-                        fullWidth
-                        className="min-w-60"
-                        suffix={
-                            <Tooltip title={<InspectorSearchInfo />}>
-                                <IconInfo />
-                            </Tooltip>
-                        }
-                    />
-                </div>
+                <LemonInput
+                    size="xsmall"
+                    onChange={(e) => setSearchQuery(e)}
+                    placeholder="Search..."
+                    type="search"
+                    value={searchQuery}
+                    fullWidth
+                    className="min-w-60"
+                    suffix={
+                        <Tooltip title={<InspectorSearchInfo />}>
+                            <IconInfo />
+                        </Tooltip>
+                    }
+                />
 
-                <div
-                    className="flex items-center gap-1 flex-wrap font-medium text-primary-alt"
-                    data-attr="mini-filters"
-                >
-                    {miniFilters.map((filter) => (
-                        <LemonButton
-                            key={filter.key}
-                            size="small"
-                            noPadding
-                            active={filter.enabled}
-                            onClick={() => {
-                                // "alone" should always be a select-to-true action
-                                setMiniFilter(filter.key, filter.alone || !filter.enabled)
-                            }}
-                            tooltip={filter.tooltip}
-                        >
-                            <span className="p-1 text-xs">{filter.name}</span>
-                        </LemonButton>
-                    ))}
-                </div>
+                <MiniFilters />
 
-                {windowIds.length > 1 ? (
-                    <div className="flex items-center gap-2">
-                        <LemonSelect
-                            size="xsmall"
-                            data-attr="player-window-select"
-                            value={windowIdFilter}
-                            onChange={(val) => setWindowIdFilter(val || null)}
-                            options={[
-                                {
-                                    value: null,
-                                    label: 'All windows',
-                                    icon: <IconWindow size="small" value="A" className="text-muted" />,
-                                },
-                                ...windowIds.map((windowId, index) => ({
-                                    value: windowId,
-                                    label: `Window ${index + 1}`,
-                                    icon: <IconWindow size="small" value={index + 1} className="text-muted" />,
-                                })),
-                            ]}
-                            tooltip="Each recording window translates to a distinct browser tab or window."
-                        />
-                    </div>
-                ) : null}
+                <div className="flex flex-row justify-between w-full">
+                    <WindowSelector />
+                    <HideProperties />
+                </div>
 
                 {showMatchingEventsFilter ? (
                     <div className="flex items-center gap-1">

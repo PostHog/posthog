@@ -13,6 +13,7 @@ import { VariantScreenshot } from './VariantScreenshot'
 
 export function DistributionTable(): JSX.Element {
     const { experimentId, experiment, experimentResults } = useValues(experimentLogic)
+    const { reportExperimentReleaseConditionsViewed } = useActions(experimentLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
 
     const columns: LemonTableColumns<MultivariateFlagVariant> = [
@@ -60,7 +61,10 @@ export function DistributionTable(): JSX.Element {
                     <div className="ml-auto mb-2">
                         <LemonButton
                             icon={<IconFlag />}
-                            onClick={() => openSidePanel(SidePanelTab.ExperimentFeatureFlag)}
+                            onClick={() => {
+                                openSidePanel(SidePanelTab.ExperimentFeatureFlag)
+                                reportExperimentReleaseConditionsViewed(experiment.id)
+                            }}
                             type="secondary"
                             size="xsmall"
                             className="font-semibold"

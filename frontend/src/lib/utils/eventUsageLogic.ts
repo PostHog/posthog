@@ -480,6 +480,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         }),
         reportExperimentInsightLoadFailed: true,
         reportExperimentVariantShipped: (experiment: Experiment) => ({ experiment }),
+        reportExperimentVariantScreenshotUploaded: (experimentId: number | 'new') => ({ experimentId }),
+        reportExperimentResultsLoadingTimeout: (experimentId: number | 'new') => ({ experimentId }),
+        reportExperimentReleaseConditionsViewed: (experimentId: number | 'new') => ({ experimentId }),
+        reportExperimentReleaseConditionsUpdated: (experimentId: number | 'new') => ({ experimentId }),
+
         // Definition Popover
         reportDataManagementDefinitionHovered: (type: TaxonomicFilterGroupType) => ({ type }),
         reportDataManagementDefinitionClickView: (type: TaxonomicFilterGroupType) => ({ type }),
@@ -1049,6 +1054,26 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 filters: sanitizeFilterParams(experiment.filters),
                 parameters: experiment.parameters,
                 secondary_metrics_count: experiment.secondary_metrics.length,
+            })
+        },
+        reportExperimentVariantScreenshotUploaded: ({ experimentId }) => {
+            posthog.capture('experiment variant screenshot uploaded', {
+                experiment_id: experimentId,
+            })
+        },
+        reportExperimentResultsLoadingTimeout: ({ experimentId }) => {
+            posthog.capture('experiment results loading timeout', {
+                experiment_id: experimentId,
+            })
+        },
+        reportExperimentReleaseConditionsViewed: ({ experimentId }) => {
+            posthog.capture('experiment release conditions viewed', {
+                experiment_id: experimentId,
+            })
+        },
+        reportExperimentReleaseConditionsUpdated: ({ experimentId }) => {
+            posthog.capture('experiment release conditions updated', {
+                experiment_id: experimentId,
             })
         },
         reportPropertyGroupFilterAdded: () => {

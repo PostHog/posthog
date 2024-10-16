@@ -83,6 +83,8 @@ class DashboardAPI:
         team_id: Optional[int] = None,
         expected_status: int = status.HTTP_200_OK,
         query_params: Optional[dict] = None,
+        *,
+        parent: Literal["project", "environment"] = "project",
     ) -> dict:
         if team_id is None:
             team_id = self.team.id
@@ -90,7 +92,7 @@ class DashboardAPI:
         if query_params is None:
             query_params = {}
 
-        response = self.client.get(f"/api/projects/{team_id}/dashboards/", query_params)
+        response = self.client.get(f"/api/{parent}s/{team_id}/dashboards/", query_params)
         self.assertEqual(response.status_code, expected_status)
 
         response_json = response.json()

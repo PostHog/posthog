@@ -2,13 +2,12 @@ from rest_framework.exceptions import ValidationError
 from numpy.random import default_rng
 from sentry_sdk import capture_exception
 import scipy.stats as stats
-from posthog.constants import ExperimentSignificanceCode
 from posthog.hogql_queries.experiments import (
     EXPECTED_LOSS_SIGNIFICANCE_LEVEL,
     FF_DISTRIBUTION_THRESHOLD,
     MIN_PROBABILITY_FOR_SIGNIFICANCE,
 )
-from posthog.schema import ExperimentVariantFunnelResult
+from posthog.schema import ExperimentSignificanceCode, ExperimentVariantFunnelResult
 
 Probability = float
 
