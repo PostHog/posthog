@@ -706,6 +706,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             const experimentId = currentPath.split('/').pop()
 
             if (experimentId) {
+                eventUsageLogic.actions.reportExperimentReleaseConditionsUpdated(parseInt(experimentId))
                 experimentLogic({ experimentId: parseInt(experimentId) }).actions.loadExperiment()
             }
         },

@@ -190,7 +190,8 @@ export function ResultsHeader(): JSX.Element {
 export function NoResultsEmptyState(): JSX.Element {
     type ErrorCode = 'no-events' | 'no-flag-info' | 'no-control-variant' | 'no-test-variant'
 
-    const { experimentResultsLoading, experimentResultCalculationError } = useValues(experimentLogic)
+    const { experiment, experimentResultsLoading, experimentResultCalculationError } = useValues(experimentLogic)
+    const { reportExperimentResultsLoadingTimeout } = useActions(experimentLogic)
 
     function ChecklistItem({ errorCode, value }: { errorCode: ErrorCode; value: boolean }): JSX.Element {
         const failureText = {
@@ -275,6 +276,7 @@ export function NoResultsEmptyState(): JSX.Element {
     }
 
     if (experimentResultCalculationError?.statusCode === 504) {
+        reportExperimentResultsLoadingTimeout(experiment.id)
         return (
             <div>
                 <div className="border rounded bg-bg-light py-10">
