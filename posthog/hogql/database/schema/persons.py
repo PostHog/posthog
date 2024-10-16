@@ -105,7 +105,7 @@ def select_from_persons_table(
                     exprs=[select.where, filter]
                 )
             else:
-                cast(ast.SelectQuery, cast(ast.CompareOperation, select.where).right).where = filter
+                select.where = filter
 
         for field_name, field_chain in join_or_table.fields_accessed.items():
             # We need to always select the 'id' field for the join constraint. The field name here is likely to

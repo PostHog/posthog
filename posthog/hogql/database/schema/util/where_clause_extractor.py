@@ -175,7 +175,12 @@ class WhereClauseExtractor(CloningVisitor):
             return self.visit_compare_operation(
                 ast.CompareOperation(op=CompareOperationOp.NotILike, left=node.args[0], right=node.args[1])
             )
+        elif node.name == "in":
+            # This didn't handle in(id, _subquery) correctly. Would be nice if it did.
+            return ast.Constant(value=1)
+
         args = [self.visit(arg) for arg in node.args]
+
         if any(has_tombstone(arg, self.tombstone_string) for arg in args):
             return ast.Constant(value=self.tombstone_string)
         return ast.Call(name=node.name, args=args)

@@ -182,3 +182,9 @@ class TestPersonWhereClauseExtractor(ClickhouseTestMixin, APIBaseTest):
             f"FROM person WHERE and(equals(person.team_id, {self.team.id}), ifNull(equals(transform(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties"
             in actual
         )
+
+    def test_id_in(self):
+        actual = self.get_clause(
+            "SELECT * FROM events WHERE in(person.id, (SELECT person_id FROM (SELECT argMax(raw_person_distinct_ids.person_id, raw_person_distinct_ids.version) AS person_id, raw_person_distinct_ids.distinct_id AS distinct_id FROM raw_person_distinct_ids GROUP BY raw_person_distinct_ids.distinct_id HAVING equals(argMax(raw_person_distinct_ids.is_deleted, raw_person_distinct_ids.version), 0)) AS person_distinct_ids WHERE ilike(distinct_id, '%test%')))"
+        )
+        assert actual is None
