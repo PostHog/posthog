@@ -308,6 +308,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         self._update_team(
             {
                 "session_recording_url_trigger_config": [{"url": "/replay-examples/", "matching": "regex"}],
+                "session_recording_opt_in": True,
             }
         )
 
