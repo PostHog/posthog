@@ -1,6 +1,6 @@
 import './Variables.scss'
 
-import { IconCopy, IconGear } from '@posthog/icons'
+import { IconCopy, IconGear, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonInput, Popover } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -8,17 +8,49 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { useEffect, useRef, useState } from 'react'
+import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+
+import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 
 import { dataVisualizationLogic } from '../../dataVisualizationLogic'
 import { Variable } from '../../types'
 import { NewVariableModal } from './NewVariableModal'
 import { variablesLogic } from './variablesLogic'
 
-export const Variables = (): JSX.Element => {
+export const VariablesForDashboard = (): JSX.Element => {
     const { featureFlags } = useValues(featureFlagLogic)
-    const { variablesForInsight } = useValues(variablesLogic)
+    const { dashboardVariables } = useValues(dashboardLogic)
+    const { overrideVariableValue } = useActions(dashboardLogic)
 
-    if (!featureFlags[FEATURE_FLAGS.INSIGHT_VARIABLES] || !variablesForInsight.length) {
+    if (!featureFlags[FEATURE_FLAGS.INSIGHT_VARIABLES] || !dashboardVariables.length) {
+        return <></>
+    }
+
+    return (
+        <>
+            <div className="flex gap-4 flex-wrap px-px mt-4">
+                {dashboardVariables.map((n) => (
+                    <VariableComponent
+                        key={n.id}
+                        variable={n}
+                        showEditingUI={false}
+                        onChange={overrideVariableValue}
+                        variableOverridesAreSet={false}
+                    />
+                ))}
+            </div>
+        </>
+    )
+}
+
+export const VariablesForInsight = (): JSX.Element => {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { variablesForInsight, showVariablesBar } = useValues(variablesLogic)
+    const { updateVariableValue, removeVariable } = useActions(variablesLogic)
+    const { showEditingUI } = useValues(dataVisualizationLogic)
+    const { variableOverridesAreSet } = useValues(dataNodeLogic)
+
+    if (!featureFlags[FEATURE_FLAGS.INSIGHT_VARIABLES] || !variablesForInsight.length || !showVariablesBar) {
         return <></>
     }
 
@@ -26,7 +58,14 @@ export const Variables = (): JSX.Element => {
         <>
             <div className="flex gap-4 flex-wrap px-px">
                 {variablesForInsight.map((n) => (
-                    <VariableComponent key={n.id} variable={n} />
+                    <VariableComponent
+                        key={n.id}
+                        variable={n}
+                        showEditingUI={showEditingUI}
+                        onChange={updateVariableValue}
+                        onRemove={removeVariable}
+                        variableOverridesAreSet={variableOverridesAreSet}
+                    />
                 ))}
             </div>
             <NewVariableModal />
@@ -34,10 +73,21 @@ export const Variables = (): JSX.Element => {
     )
 }
 
-const VariableInput = ({ variable, closePopover }: { variable: Variable; closePopover: () => void }): JSX.Element => {
-    const { showEditingUI } = useValues(dataVisualizationLogic)
-    const { updateVariableValue } = useActions(variablesLogic)
+interface VariableInputProps {
+    variable: Variable
+    showEditingUI: boolean
+    closePopover: () => void
+    onChange: (variableId: string, value: any) => void
+    onRemove?: (variableId: string) => void
+}
 
+const VariableInput = ({
+    variable,
+    showEditingUI,
+    closePopover,
+    onChange,
+    onRemove,
+}: VariableInputProps): JSX.Element => {
     const [localInputValue, setLocalInputValue] = useState(variable.value ?? variable.default_value ?? '')
 
     const inputRef = useRef<HTMLInputElement>(null)
@@ -59,14 +109,14 @@ const VariableInput = ({ variable, closePopover }: { variable: Variable; closePo
                     value={localInputValue.toString()}
                     onChange={(value) => setLocalInputValue(value)}
                     onPressEnter={() => {
-                        updateVariableValue(variable.id, localInputValue)
+                        onChange(variable.id, localInputValue)
                         closePopover()
                     }}
                 />
                 <LemonButton
                     type="primary"
                     onClick={() => {
-                        updateVariableValue(variable.id, localInputValue)
+                        onChange(variable.id, localInputValue)
                         closePopover()
                     }}
                 >
@@ -102,6 +152,14 @@ const VariableInput = ({ variable, closePopover }: { variable: Variable; closePo
                             onClick={() => void copyToClipboard(variableAsHogQL, 'variable HogQL')}
                             tooltip="Copy HogQL"
                         />
+                        {onRemove && (
+                            <LemonButton
+                                onClick={() => onRemove(variable.id)}
+                                icon={<IconTrash />}
+                                size="xsmall"
+                                tooltip="Remove variable from insight"
+                            />
+                        )}
                         <LemonButton icon={<IconGear />} size="xsmall" tooltip="Open variable settings" />
                     </div>
                 </>
@@ -110,13 +168,35 @@ const VariableInput = ({ variable, closePopover }: { variable: Variable; closePo
     )
 }
 
-const VariableComponent = ({ variable }: { variable: Variable }): JSX.Element => {
+interface VariableComponentProps {
+    variable: Variable
+    showEditingUI: boolean
+    onChange: (variableId: string, value: any) => void
+    variableOverridesAreSet: boolean
+    onRemove?: (variableId: string) => void
+}
+
+const VariableComponent = ({
+    variable,
+    showEditingUI,
+    onChange,
+    variableOverridesAreSet,
+    onRemove,
+}: VariableComponentProps): JSX.Element => {
     const [isPopoverOpen, setPopoverOpen] = useState(false)
 
     return (
         <Popover
             key={variable.id}
-            overlay={<VariableInput variable={variable} closePopover={() => setPopoverOpen(false)} />}
+            overlay={
+                <VariableInput
+                    variable={variable}
+                    showEditingUI={showEditingUI}
+                    onChange={onChange}
+                    closePopover={() => setPopoverOpen(false)}
+                    onRemove={onRemove}
+                />
+            }
             visible={isPopoverOpen}
             onClickOutside={() => setPopoverOpen(false)}
             className="DataVizVariable_Popover"
@@ -131,6 +211,7 @@ const VariableComponent = ({ variable }: { variable: Variable }): JSX.Element =>
                         type="secondary"
                         className="min-w-32 DataVizVariable_Button"
                         onClick={() => setPopoverOpen(!isPopoverOpen)}
+                        disabledReason={variableOverridesAreSet && 'Discard dashboard variables to change'}
                     >
                         {variable.value ?? variable.default_value}
                     </LemonButton>
