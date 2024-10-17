@@ -12,7 +12,7 @@ from xml import etree
 # 4. Land a version of the posthog repo with the updated `user_scripts` folder from the new branch (make sure this PR doesn't include changes to this file with the new version)
 # 5. Run the `copy_udfs_to_clickhouse` action in the `posthog_cloud_infra` repo to deploy the `user_scripts` folder to clickhouse
 # 6. After that deploy goes out, it is safe to land and deploy the full changes to the `posthog` repo
-UDF_VERSION = 1  # Last modified by: @aspicer, 2024-10-14
+UDF_VERSION = 2  # Last modified by: @aspicer, 2024-10-16
 
 CLICKHOUSE_XML_FILENAME = "user_defined_function.xml"
 ACTIVE_XML_CONFIG = "../../docker/clickhouse/user_defined_function.xml"

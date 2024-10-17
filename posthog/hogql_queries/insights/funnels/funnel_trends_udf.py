@@ -230,7 +230,7 @@ class FunnelTrendsUDF(FunnelTrends):
 
         where = ast.And(
             exprs=[
-                parse_expr("success_bool = 1"),
+                parse_expr("success_bool != 1") if actorsQuery.funnelTrendsDropOff else parse_expr("success_bool = 1"),
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.Eq,
                     left=parse_expr("entrance_period_start"),
