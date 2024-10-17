@@ -5,6 +5,7 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs/LemonTabs'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { Schemas } from 'scenes/data-warehouse/settings/source/Schemas'
+import { SourceConfiguration } from 'scenes/data-warehouse/settings/source/SourceConfiguration'
 import { Syncs } from 'scenes/data-warehouse/settings/source/Syncs'
 import { PipelineNodeLogs } from 'scenes/pipeline/PipelineNodeLogs'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -62,6 +63,7 @@ export function PipelineNode(params: { stage?: string; id?: string } = {}): JSX.
             ? {
                   [PipelineNodeTab.Schemas]: <Schemas id={node.id} />,
                   [PipelineNodeTab.Syncs]: <Syncs id={node.id} />,
+                  [PipelineNodeTab.SourceConfiguration]: <SourceConfiguration id={node.id} />,
               }
             : {
                   [PipelineNodeTab.Configuration]: <PipelineNodeConfiguration />,
