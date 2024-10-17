@@ -40,7 +40,7 @@ if (inputs.debug) {
             "label": "Airtable access token",
             "secret": True,
             "required": True,
-            "description": "Create this at https://airtable.com/create/tokens"
+            "description": "Create this at https://airtable.com/create/tokens",
         },
         {
             "key": "base_id",
@@ -48,7 +48,7 @@ if (inputs.debug) {
             "label": "Airtable base ID",
             "secret": False,
             "required": True,
-            "description": "Find this at https://airtable.com/developers/web/api/introduction"
+            "description": "Find this at https://airtable.com/developers/web/api/introduction",
         },
         {
             "key": "table_name",
@@ -64,7 +64,7 @@ if (inputs.debug) {
             "default": {"Timestamp": "{event.timestamp}", "Person Name": "{person.name}"},
             "secret": False,
             "required": True,
-            "description": "Map field names from Airtable to properties from events and person records."
+            "description": "Map field names from Airtable to properties from events and person records.",
         },
         {
             "key": "debug",
@@ -75,5 +75,5 @@ if (inputs.debug) {
             "required": False,
             "default": False,
         },
-    ]
+    ],
 )
