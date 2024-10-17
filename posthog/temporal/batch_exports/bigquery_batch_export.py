@@ -595,9 +595,10 @@ async def consume_batch_export_record_batches(
                 if done_event.is_set():
                     await logger.adebug("Empty queue with no more events being produced, closing writer loop")
                     flush_start_event.set()
+                    # Exit context manager to trigger flush
                     break
                 else:
-                    await asyncio.sleep(1)
+                    await asyncio.sleep(0.1)
                     continue
 
             record_batch = cast_record_batch_json_columns(record_batch, json_columns=json_columns)
@@ -606,6 +607,7 @@ async def consume_batch_export_record_batches(
             if writer.should_flush():
                 await logger.adebug("Writer finished, ready to flush events")
                 flush_start_event.set()
+                # Exit context manager to trigger flush
                 break
 
     await logger.adebug("Completed %s records", writer.records_total)
