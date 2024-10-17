@@ -49,7 +49,7 @@ class AlertCheckException(Exception):
     https://stackoverflow.com/a/69963663/5540417
     """
 
-    def __init__(self, err):
+    def __init__(self, err: Exception):
         self.__traceback__ = err.__traceback__
 
 
