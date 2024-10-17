@@ -235,9 +235,7 @@ class FunnelTrendsUDF(FunnelTrends):
                     op=ast.CompareOperationOp.Eq,
                     left=parse_expr("entrance_period_start"),
                     right=ast.Constant(value=entrancePeriodStart),
-                )
-                if entrancePeriodStart
-                else None,
+                ),
             ]
         )
         order_by = [ast.OrderExpr(expr=ast.Field(chain=["aggregation_target"]))]
