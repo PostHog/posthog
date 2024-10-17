@@ -8,9 +8,12 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument("--team-id", default=None, type=int, help="Team ID to migrate from (on this instance)")
+        # Make it dry-runnable
+        parser.add_argument("--dry-run", action="store_true", help="Dry run")
 
     def handle(self, **options):
         team_id = options["team_id"]
+        dry_run = options["dry_run"]
 
         if not team_id:
             raise CommandError("source Team ID is required")
@@ -29,7 +32,8 @@ class Command(BaseCommand):
         for p in people:
             if not PersonDistinctId.objects.filter(person=p).exists():
                 print(f"Deleting person {p} with no distinct ids")  # noqa: T201
-                p.delete()
+                if not dry_run:
+                    p.delete()
                 deleted += 1
 
         print(f"Deleted {deleted} persons with no distinct ids")  # noqa: T201
