@@ -138,7 +138,7 @@
     <function>
         <type>executable_pool</type>
         <name>aggregate_funnel_trends</name>
-        <return_type>Array(Tuple(UInt64, Int8, Nullable(String)))</return_type>
+        <return_type>Array(Tuple(UInt64, Int8, Nullable(String), UUID))</return_type>
         <return_name>result</return_name>
         <argument>
             <type>UInt8</type>
@@ -181,7 +181,7 @@
         <type>executable_pool</type>
         <name>aggregate_funnel_array_trends</name>
         <!-- Return type for trends is a start interval time, a success flag (1 or -1), and a breakdown value -->
-        <return_type>Array(Tuple(UInt64, Int8, Array(String)))</return_type>
+        <return_type>Array(Tuple(UInt64, Int8, Array(String), UUID))</return_type>
         <return_name>result</return_name>
         <argument>
             <type>UInt8</type>
@@ -220,7 +220,7 @@
         <type>executable_pool</type>
         <name>aggregate_funnel_cohort_trends</name>
         <!-- Return type for trends is a start interval time, a success flag (1 or -1), and a breakdown value -->
-        <return_type>Array(Tuple(UInt64, Int8, UInt64))</return_type>
+        <return_type>Array(Tuple(UInt64, Int8, UInt64, UUID))</return_type>
         <return_name>result</return_name>
         <argument>
             <type>UInt8</type>

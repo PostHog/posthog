@@ -83,7 +83,12 @@ class FunnelTrendsUDF(FunnelTrends):
             parse_select(
                 f"""
             SELECT
-                arraySort(t -> t.1, groupArray(tuple(toFloat(timestamp), _toUInt64(toDateTime({get_start_of_interval_hogql_str(self.context.interval.value, team=self.context.team, source='timestamp')})), {prop_selector}, arrayFilter((x) -> x != 0, [{steps}{exclusions}])))) as events_array,
+                arraySort(t -> t.1, groupArray(tuple(
+                    toFloat(timestamp),
+                    _toUInt64(toDateTime({get_start_of_interval_hogql_str(self.context.interval.value, team=self.context.team, source='timestamp')})),
+                    uuid,
+                    {prop_selector},
+                    arrayFilter((x) -> x != 0, [{steps}{exclusions}])))) as events_array,
                 arrayJoin({fn}(
                     {from_step},
                     {max_steps},

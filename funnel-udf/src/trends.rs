@@ -3,6 +3,7 @@ use std::str::FromStr;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use uuid::Uuid;
 use crate::PropVal;
 
 fn deserialize_number_from_string<'de, D>(deserializer: D) -> Result<u64, D::Error>
@@ -24,6 +25,7 @@ struct Event {
     timestamp: f64,
     #[serde(deserialize_with = "deserialize_number_from_string")]
     interval_start: u64,
+    uuid: Uuid,
     breakdown: PropVal,
     steps: Vec<i8>,
 }
@@ -40,7 +42,7 @@ struct Args {
 }
 
 #[derive(Serialize)]
-struct ResultStruct(u64, i8, PropVal);
+struct ResultStruct(u64, i8, PropVal, Uuid);
 
 struct Vars {
     interval_start_to_entered_timestamps: HashMap<u64, Vec<EnteredTimestamp>>,
