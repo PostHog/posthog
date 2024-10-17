@@ -21,16 +21,10 @@ class TestTemplateAirtable(BaseHogFunctionTemplateTest):
             (
                 "https://api.airtable.com/v0/test_base_id/test_table",
                 {
-                    "headers": {
-                        "Content-Type": "application/json",
-                        "Authorization": "Bearer test_token"
-                    },
-                    "body": {
-                        "fields": {"Name": "John Doe", "Email": "john@example.com"},
-                        "typecast": True
-                    },
-                    "method": "POST"
-                }
+                    "headers": {"Content-Type": "application/json", "Authorization": "Bearer test_token"},
+                    "body": {"fields": {"Name": "John Doe", "Email": "john@example.com"}, "typecast": True},
+                    "method": "POST",
+                },
             )
         )
         assert self.get_mock_print_calls() == snapshot([])
@@ -50,16 +44,10 @@ class TestTemplateAirtable(BaseHogFunctionTemplateTest):
             (
                 "https://api.airtable.com/v0/test_base_id/test_table",
                 {
-                    "headers": {
-                        "Content-Type": "application/json",
-                        "Authorization": "Bearer test_token"
-                    },
-                    "body": {
-                        "fields": {"Name": "John Doe", "Email": "john@example.com"},
-                        "typecast": True
-                    },
-                    "method": "POST"
-                }
+                    "headers": {"Content-Type": "application/json", "Authorization": "Bearer test_token"},
+                    "body": {"fields": {"Name": "John Doe", "Email": "john@example.com"}, "typecast": True},
+                    "method": "POST",
+                },
             )
         )
         assert self.get_mock_print_calls() == snapshot(
@@ -68,16 +56,10 @@ class TestTemplateAirtable(BaseHogFunctionTemplateTest):
                     "Request",
                     "https://api.airtable.com/v0/test_base_id/test_table",
                     {
-                        "headers": {
-                            "Content-Type": "application/json",
-                            "Authorization": "Bearer test_token"
-                        },
-                        "body": {
-                            "fields": {"Name": "John Doe", "Email": "john@example.com"},
-                            "typecast": True
-                        },
-                        "method": "POST"
-                    }
+                        "headers": {"Content-Type": "application/json", "Authorization": "Bearer test_token"},
+                        "body": {"fields": {"Name": "John Doe", "Email": "john@example.com"}, "typecast": True},
+                        "method": "POST",
+                    },
                 ),
                 ("Response", 200, {}),
             ]
