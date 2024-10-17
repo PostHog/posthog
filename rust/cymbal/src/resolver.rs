@@ -1,10 +1,11 @@
+use std::sync::Arc;
+
 use crate::{
-    error::{Error, JsResolveErr},
-    symbol_store::SymbolStore,
-    types::frames::{Frame, RawFrame},
+    error::Error,
+    symbol_store::{SymbolSetRef, SymbolStore},
+    types::frames::Frame,
 };
 use axum::async_trait;
-use sourcemap::SourceMap;
 
 #[async_trait]
 pub trait Resolver: Send + Sync + 'static {
@@ -16,7 +17,7 @@ pub trait Resolver: Send + Sync + 'static {
     // asynchronously get back results - which would permit internal batching etc.
     // Idk, that's a lot of complexity. I'm a lot less happy with this interface
     // than I am with the store one, though.
-    async fn resolve(&self, raw: RawFrame, team_id: i32) -> Result<Frame, Error>;
+    async fn resolve(&self, resolver: ResolverImpl, team_id: i32) -> Result<Frame, Error>;
 }
 
 pub struct ResolverImpl {
@@ -28,30 +29,12 @@ impl ResolverImpl {
         Self { store }
     }
 
-    async fn resolve_impl(&self, raw: &RawFrame, team_id: i32) -> Result<Frame, Error> {
-        let source_ref = raw.source_ref()?;
-        let source = self.store.fetch(team_id, source_ref).await?;
-
-        // Since we only support js right now, this is all we do. Everything from here
-        // is js specific
-        let RawFrame::JavaScript(raw) = raw;
-        let sm = SourceMap::from_reader(source.as_slice()).map_err(JsResolveErr::from)?;
-        let token = sm.lookup_token(raw.line, raw.column).ok_or_else(|| {
-            // Unwrap is safe because, if this frame couldn't give us a source ref, we'd know already
-            JsResolveErr::TokenNotFound(raw.source_ref().unwrap().to_string(), raw.line, raw.column)
-        })?;
-
-        Ok((raw, token).into())
-    }
-}
-
-#[async_trait]
-impl Resolver for ResolverImpl {
-    async fn resolve(&self, raw: RawFrame, team_id: i32) -> Result<Frame, Error> {
-        match self.resolve_impl(&raw, team_id).await {
-            Ok(frame) => Ok(frame),
-            Err(e) => raw.try_handle_resolve_error(e),
-        }
+    async fn resolve_impl(
+        &self,
+        source_ref: SymbolSetRef,
+        team_id: i32,
+    ) -> Result<Arc<Vec<u8>>, Error> {
+        return self.store.fetch(team_id, source_ref).await;
     }
 }
 
@@ -62,7 +45,6 @@ mod test {
 
     use crate::{
         config::Config,
-        resolver::Resolver,
         symbol_store::{basic::BasicStore, caching::CachingStore},
         types::{frames::RawFrame, ErrProps},
     };
