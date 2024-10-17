@@ -33,6 +33,7 @@ from posthog.models import (
     User,
 )
 from posthog.models.insight_caching_state import InsightCachingState
+from posthog.models.insight_variable import InsightVariable
 from posthog.models.project import Project
 from posthog.schema import (
     DataTableNode,
@@ -380,6 +381,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 team=self.team,
                 user=mock.ANY,
                 filters_override=None,
+                variables_override=None,
             )
 
         with patch(
@@ -393,6 +395,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 team=self.team,
                 user=mock.ANY,
                 filters_override=None,
+                variables_override=None,
             )
 
     def test_get_insight_by_short_id(self) -> None:
@@ -3596,3 +3599,60 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         self.assertNotIn("code", response)
         self.assertIsNotNone(response["results"][0]["types"])
+
+    def test_insight_variables_overrides(self):
+        dashboard = Dashboard.objects.create(
+            team=self.team,
+            name="dashboard 1",
+            created_by=self.user,
+        )
+        variable = InsightVariable.objects.create(
+            team=self.team, name="Test 1", code_name="test_1", default_value="some_default_value", type="String"
+        )
+        insight = Insight.objects.create(
+            filters={},
+            query={
+                "kind": "DataVisualizationNode",
+                "source": {
+                    "kind": "HogQLQuery",
+                    "query": "select {variables.test_1}",
+                    "variables": {
+                        str(variable.id): {
+                            "code_name": variable.code_name,
+                            "variableId": str(variable.id),
+                        }
+                    },
+                },
+                "chartSettings": {},
+                "tableSettings": {},
+            },
+            team=self.team,
+        )
+        DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/insights/{insight.pk}",
+            data={
+                "from_dashboard": dashboard.pk,
+                "variables_override": json.dumps(
+                    {
+                        str(variable.id): {
+                            "code_name": variable.code_name,
+                            "variableId": str(variable.id),
+                            "value": "override value!",
+                        }
+                    }
+                ),
+            },
+        ).json()
+
+        assert isinstance(response["query"], dict)
+        assert isinstance(response["query"]["source"], dict)
+        assert isinstance(response["query"]["source"]["variables"], dict)
+
+        assert len(response["query"]["source"]["variables"].keys()) == 1
+        for key, value in response["query"]["source"]["variables"].items():
+            assert key == str(variable.id)
+            assert value["code_name"] == variable.code_name
+            assert value["variableId"] == str(variable.id)
+            assert value["value"] == "override value!"

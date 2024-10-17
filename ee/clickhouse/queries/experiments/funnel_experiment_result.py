@@ -8,7 +8,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.constants import ExperimentNoResultsErrorKeys
 from posthog.hogql_queries.experiments import CONTROL_VARIANT_KEY
-from posthog.hogql_queries.experiments.funnel_statistics import (
+from posthog.hogql_queries.experiments.funnels_statistics import (
     are_results_significant,
     calculate_credible_intervals,
     calculate_probabilities,

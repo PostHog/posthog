@@ -30,7 +30,7 @@ from posthog.models.dashboard_templates import DashboardTemplate
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.user import User
 from posthog.user_permissions import UserPermissionsSerializerMixin
-from posthog.utils import filters_override_requested_by_client
+from posthog.utils import filters_override_requested_by_client, variables_override_requested_by_client
 
 logger = structlog.get_logger(__name__)
 
@@ -126,6 +126,7 @@ class DashboardBasicSerializer(
 class DashboardSerializer(DashboardBasicSerializer):
     tiles = serializers.SerializerMethodField()
     filters = serializers.SerializerMethodField()
+    variables = serializers.SerializerMethodField()
     created_by = UserBasicSerializer(read_only=True)
     use_template = serializers.CharField(write_only=True, allow_blank=True, required=False)
     use_dashboard = serializers.IntegerField(write_only=True, allow_null=True, required=False)
@@ -150,6 +151,7 @@ class DashboardSerializer(DashboardBasicSerializer):
             "use_dashboard",
             "delete_insights",
             "filters",
+            "variables",
             "tags",
             "tiles",
             "restriction_level",
@@ -161,6 +163,12 @@ class DashboardSerializer(DashboardBasicSerializer):
     def validate_filters(self, value) -> dict:
         if not isinstance(value, dict):
             raise serializers.ValidationError("Filters must be a dictionary")
+
+        return value
+
+    def validate_variables(self, value) -> dict:
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("Variables must be a dictionary")
 
         return value
 
@@ -301,6 +309,12 @@ class DashboardSerializer(DashboardBasicSerializer):
                 raise serializers.ValidationError("Filters must be a dictionary")
             instance.filters = request_filters
 
+        request_variables = initial_data.get("variables")
+        if request_variables:
+            if not isinstance(request_variables, dict):
+                raise serializers.ValidationError("Filters must be a dictionary")
+            instance.variables = request_variables
+
         instance = super().update(instance, validated_data)
 
         user = cast(User, self.context["request"].user)
@@ -409,6 +423,16 @@ class DashboardSerializer(DashboardBasicSerializer):
                 return filters_override
 
         return dashboard.filters
+
+    def get_variables(self, dashboard: Dashboard) -> dict:
+        request = self.context.get("request")
+        if request:
+            variables_override = variables_override_requested_by_client(request)
+
+            if variables_override is not None:
+                return variables_override
+
+        return dashboard.variables
 
     def validate(self, data):
         if data.get("use_dashboard", None) and data.get("use_template", None):
