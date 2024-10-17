@@ -336,12 +336,12 @@ def start_produce_batch_export_record_batches(
         view = SELECT_FROM_PERSONS_VIEW
 
     else:
-        if parameters["exclude_events"]:
+        if parameters.get("exclude_events", None):
             parameters["exclude_events"] = list(parameters["exclude_events"])
         else:
             parameters["exclude_events"] = []
 
-        if parameters["include_events"]:
+        if parameters.get("include_events", None):
             parameters["include_events"] = list(parameters["include_events"])
         else:
             parameters["include_events"] = []
@@ -367,7 +367,7 @@ def start_produce_batch_export_record_batches(
     parameters["team_id"] = team_id
     parameters["interval_start"] = dt.datetime.fromisoformat(interval_start).strftime("%Y-%m-%d %H:%M:%S")
     parameters["interval_end"] = dt.datetime.fromisoformat(interval_end).strftime("%Y-%m-%d %H:%M:%S")
-    extra_query_parameters = parameters.pop("extra_query_parameters") or {}
+    extra_query_parameters = parameters.pop("extra_query_parameters", {}) or {}
     parameters = {**parameters, **extra_query_parameters}
 
     queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_BUFFER_QUEUE_MAX_SIZE_BYTES)
