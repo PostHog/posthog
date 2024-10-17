@@ -1939,8 +1939,14 @@ class TestPrinter(BaseTest):
             dialect="clickhouse",
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
-        assert f"AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), in(id, tuple(1, 2, 3)))" in printed
-        assert f"AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), in(id, tuple(4, 5, 6)))" in printed
+        assert (
+            f"AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), in(person.id, tuple(1, 2, 3)))"
+            in printed
+        )
+        assert (
+            f"AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), in(person.id, tuple(4, 5, 6)))"
+            in printed
+        )
 
     def test_two_clauses(self):
         query = parse_select(
@@ -1957,7 +1963,10 @@ class TestPrinter(BaseTest):
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
         assert (
-            f"AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), in(id, tuple(7, 8, 9)), in(id, tuple(1, 2, 3)))"
+            f"AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), in(person.id, tuple(7, 8, 9)), in(person.id, tuple(1, 2, 3)))"
             in printed
         )
-        assert f"AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), in(id, tuple(4, 5, 6)))" in printed
+        assert (
+            f"AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), in(person.id, tuple(4, 5, 6)))"
+            in printed
+        )
