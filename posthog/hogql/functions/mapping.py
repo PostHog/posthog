@@ -363,38 +363,10 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     # comparison
     "equals": HogQLFunctionMeta("equals", 2, 2),
     "notEquals": HogQLFunctionMeta("notEquals", 2, 2),
-    "less": HogQLFunctionMeta(
-        "less",
-        2,
-        2,
-        signatures=[
-            ((DateTimeType(), DateTimeType()), BooleanType()),
-        ],
-    ),
-    "greater": HogQLFunctionMeta(
-        "greater",
-        2,
-        2,
-        signatures=[
-            ((DateTimeType(), DateTimeType()), BooleanType()),
-        ],
-    ),
-    "lessOrEquals": HogQLFunctionMeta(
-        "lessOrEquals",
-        2,
-        2,
-        signatures=[
-            ((DateTimeType(), DateTimeType()), BooleanType()),
-        ],
-    ),
-    "greaterOrEquals": HogQLFunctionMeta(
-        "greaterOrEquals",
-        2,
-        2,
-        signatures=[
-            ((DateTimeType(), DateTimeType()), BooleanType()),
-        ],
-    ),
+    "less": HogQLFunctionMeta("less", 2, 2),
+    "greater": HogQLFunctionMeta("greater", 2, 2),
+    "lessOrEquals": HogQLFunctionMeta("lessOrEquals", 2, 2),
+    "greaterOrEquals": HogQLFunctionMeta("greaterOrEquals", 2, 2),
     # logical
     "and": HogQLFunctionMeta("and", 2, None),
     "or": HogQLFunctionMeta("or", 2, None),
