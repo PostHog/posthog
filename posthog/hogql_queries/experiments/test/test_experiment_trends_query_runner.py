@@ -1,14 +1,13 @@
 from django.test import override_settings
-from posthog.hogql_queries.experiments.experiment_trend_query_runner import ExperimentTrendQueryRunner
+from posthog.hogql_queries.experiments.experiment_trends_query_runner import ExperimentTrendsQueryRunner
 from posthog.models.experiment import Experiment
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.schema import (
     EventsNode,
     ExperimentSignificanceCode,
-    ExperimentTrendQuery,
-    ExperimentTrendQueryResponse,
+    ExperimentTrendsQuery,
+    ExperimentTrendsQueryResponse,
     TrendsQuery,
-    TrendsQueryResponse,
 )
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from freezegun import freeze_time
@@ -22,7 +21,7 @@ import json
 
 
 @override_settings(IN_UNIT_TESTING=True)
-class TestExperimentTrendQueryRunner(ClickhouseTestMixin, APIBaseTest):
+class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def create_feature_flag(self, key="test-experiment"):
         return FeatureFlag.objects.create(
             name=f"Test experiment flag: {key}",
@@ -68,9 +67,9 @@ class TestExperimentTrendQueryRunner(ClickhouseTestMixin, APIBaseTest):
         count_query = TrendsQuery(series=[EventsNode(event="$pageview")])
         exposure_query = TrendsQuery(series=[EventsNode(event="$feature_flag_called")])
 
-        experiment_query = ExperimentTrendQuery(
+        experiment_query = ExperimentTrendsQuery(
             experiment_id=experiment.id,
-            kind="ExperimentTrendQuery",
+            kind="ExperimentTrendsQuery",
             count_query=count_query,
             exposure_query=exposure_query,
         )
@@ -100,8 +99,8 @@ class TestExperimentTrendQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         flush_persons_and_events()
 
-        query_runner = ExperimentTrendQueryRunner(
-            query=ExperimentTrendQuery(**experiment.metrics[0]["query"]), team=self.team
+        query_runner = ExperimentTrendsQueryRunner(
+            query=ExperimentTrendsQuery(**experiment.metrics[0]["query"]), team=self.team
         )
         result = query_runner.calculate()
 
@@ -126,9 +125,9 @@ class TestExperimentTrendQueryRunner(ClickhouseTestMixin, APIBaseTest):
             series=[EventsNode(event="custom_exposure_event", properties=[{"key": "valid_exposure", "value": "true"}])]
         )
 
-        experiment_query = ExperimentTrendQuery(
+        experiment_query = ExperimentTrendsQuery(
             experiment_id=experiment.id,
-            kind="ExperimentTrendQuery",
+            kind="ExperimentTrendsQuery",
             count_query=count_query,
             exposure_query=exposure_query,
         )
@@ -198,12 +197,12 @@ class TestExperimentTrendQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         flush_persons_and_events()
 
-        query_runner = ExperimentTrendQueryRunner(
-            query=ExperimentTrendQuery(**experiment.metrics[0]["query"]), team=self.team
+        query_runner = ExperimentTrendsQueryRunner(
+            query=ExperimentTrendsQuery(**experiment.metrics[0]["query"]), team=self.team
         )
         result = query_runner.calculate()
 
-        trend_result = cast(ExperimentTrendQueryResponse, result)
+        trend_result = cast(ExperimentTrendsQueryResponse, result)
 
         control_result = next(variant for variant in trend_result.variants if variant.key == "control")
         test_result = next(variant for variant in trend_result.variants if variant.key == "test")
@@ -222,9 +221,9 @@ class TestExperimentTrendQueryRunner(ClickhouseTestMixin, APIBaseTest):
         ff_property = f"$feature/{feature_flag.key}"
         count_query = TrendsQuery(series=[EventsNode(event="$pageview")])
 
-        experiment_query = ExperimentTrendQuery(
+        experiment_query = ExperimentTrendsQuery(
             experiment_id=experiment.id,
-            kind="ExperimentTrendQuery",
+            kind="ExperimentTrendsQuery",
             count_query=count_query,
             exposure_query=None,  # No exposure query provided
         )
@@ -290,12 +289,12 @@ class TestExperimentTrendQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         flush_persons_and_events()
 
-        query_runner = ExperimentTrendQueryRunner(
-            query=ExperimentTrendQuery(**experiment.metrics[0]["query"]), team=self.team
+        query_runner = ExperimentTrendsQueryRunner(
+            query=ExperimentTrendsQuery(**experiment.metrics[0]["query"]), team=self.team
         )
         result = query_runner.calculate()
 
-        trend_result = cast(ExperimentTrendQueryResponse, result)
+        trend_result = cast(ExperimentTrendsQueryResponse, result)
 
         control_result = next(variant for variant in trend_result.variants if variant.key == "control")
         test_result = next(variant for variant in trend_result.variants if variant.key == "test")
@@ -314,9 +313,9 @@ class TestExperimentTrendQueryRunner(ClickhouseTestMixin, APIBaseTest):
         count_query = TrendsQuery(series=[EventsNode(event="$pageview", math="avg")])
         exposure_query = TrendsQuery(series=[EventsNode(event="$feature_flag_called")])
 
-        experiment_query = ExperimentTrendQuery(
+        experiment_query = ExperimentTrendsQuery(
             experiment_id=experiment.id,
-            kind="ExperimentTrendQuery",
+            kind="ExperimentTrendsQuery",
             count_query=count_query,
             exposure_query=exposure_query,
         )
@@ -324,8 +323,8 @@ class TestExperimentTrendQueryRunner(ClickhouseTestMixin, APIBaseTest):
         experiment.metrics = [{"type": "primary", "query": experiment_query.model_dump()}]
         experiment.save()
 
-        query_runner = ExperimentTrendQueryRunner(
-            query=ExperimentTrendQuery(**experiment.metrics[0]["query"]), team=self.team
+        query_runner = ExperimentTrendsQueryRunner(
+            query=ExperimentTrendsQuery(**experiment.metrics[0]["query"]), team=self.team
         )
 
         prepared_count_query = query_runner.prepared_count_query
@@ -340,9 +339,9 @@ class TestExperimentTrendQueryRunner(ClickhouseTestMixin, APIBaseTest):
         count_query = TrendsQuery(series=[EventsNode(event="$pageview")])
         exposure_query = TrendsQuery(series=[EventsNode(event="$feature_flag_called")])
 
-        experiment_query = ExperimentTrendQuery(
+        experiment_query = ExperimentTrendsQuery(
             experiment_id=experiment.id,
-            kind="ExperimentTrendQuery",
+            kind="ExperimentTrendsQuery",
             count_query=count_query,
             exposure_query=exposure_query,
         )
@@ -386,8 +385,8 @@ class TestExperimentTrendQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         flush_persons_and_events()
 
-        query_runner = ExperimentTrendQueryRunner(
-            query=ExperimentTrendQuery(**experiment.metrics[0]["query"]), team=self.team
+        query_runner = ExperimentTrendsQueryRunner(
+            query=ExperimentTrendsQuery(**experiment.metrics[0]["query"]), team=self.team
         )
         result = query_runner.calculate()
 
@@ -433,16 +432,15 @@ class TestExperimentTrendQueryRunner(ClickhouseTestMixin, APIBaseTest):
         experiment = self.create_experiment(feature_flag=feature_flag)
 
         count_query = TrendsQuery(series=[EventsNode(event="$pageview")])
-        experiment_query = ExperimentTrendQuery(
+        experiment_query = ExperimentTrendsQuery(
             experiment_id=experiment.id,
-            kind="ExperimentTrendQuery",
+            kind="ExperimentTrendsQuery",
             count_query=count_query,
         )
 
-        query_runner = ExperimentTrendQueryRunner(query=experiment_query, team=self.team)
-
+        query_runner = ExperimentTrendsQueryRunner(query=experiment_query, team=self.team)
         with self.assertRaises(ValidationError) as context:
-            query_runner._validate_event_variants(TrendsQueryResponse(results=[]))
+            query_runner.calculate()
 
         expected_errors = json.dumps(
             {
@@ -472,17 +470,15 @@ class TestExperimentTrendQueryRunner(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
         count_query = TrendsQuery(series=[EventsNode(event="$pageview")])
-        experiment_query = ExperimentTrendQuery(
+        experiment_query = ExperimentTrendsQuery(
             experiment_id=experiment.id,
-            kind="ExperimentTrendQuery",
+            kind="ExperimentTrendsQuery",
             count_query=count_query,
         )
 
-        query_runner = ExperimentTrendQueryRunner(query=experiment_query, team=self.team)
-        result = query_runner.count_query_runner.calculate()
-
+        query_runner = ExperimentTrendsQueryRunner(query=experiment_query, team=self.team)
         with self.assertRaises(ValidationError) as context:
-            query_runner._validate_event_variants(result)
+            query_runner.calculate()
 
         expected_errors = json.dumps(
             {
@@ -512,17 +508,15 @@ class TestExperimentTrendQueryRunner(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
         count_query = TrendsQuery(series=[EventsNode(event="$pageview")])
-        experiment_query = ExperimentTrendQuery(
+        experiment_query = ExperimentTrendsQuery(
             experiment_id=experiment.id,
-            kind="ExperimentTrendQuery",
+            kind="ExperimentTrendsQuery",
             count_query=count_query,
         )
 
-        query_runner = ExperimentTrendQueryRunner(query=experiment_query, team=self.team)
-        result = query_runner.count_query_runner.calculate()
-
+        query_runner = ExperimentTrendsQueryRunner(query=experiment_query, team=self.team)
         with self.assertRaises(ValidationError) as context:
-            query_runner._validate_event_variants(result)
+            query_runner.calculate()
 
         expected_errors = json.dumps(
             {
@@ -554,17 +548,15 @@ class TestExperimentTrendQueryRunner(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
         count_query = TrendsQuery(series=[EventsNode(event="$pageview")])
-        experiment_query = ExperimentTrendQuery(
+        experiment_query = ExperimentTrendsQuery(
             experiment_id=experiment.id,
-            kind="ExperimentTrendQuery",
+            kind="ExperimentTrendsQuery",
             count_query=count_query,
         )
 
-        query_runner = ExperimentTrendQueryRunner(query=experiment_query, team=self.team)
-        result = query_runner.count_query_runner.calculate()
-
+        query_runner = ExperimentTrendsQueryRunner(query=experiment_query, team=self.team)
         with self.assertRaises(ValidationError) as context:
-            query_runner._validate_event_variants(result)
+            query_runner.calculate()
 
         expected_errors = json.dumps(
             {
