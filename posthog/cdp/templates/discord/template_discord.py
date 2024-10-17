@@ -9,14 +9,16 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     category=["Customer Success"],
     hog="""
 let res := fetch(inputs.webhookUrl, {
-    'body': inputs.content,
+    'body': {
+        'content': inputs.content
+    },
     'method': 'POST',
     'headers': {
         'Content-Type': 'application/json'
     }
 });
 
-if (res.status != 200 or not res.body.ok) {
+if (res.status >= 400) {
     throw Error(f'Failed to post message to Discord: {res.status}: {res.body}');
 }
 """.strip(),
@@ -31,10 +33,10 @@ if (res.status != 200 or not res.body.ok) {
         },
         {
             "key": "content",
-            "type": "json",
+            "type": "string",
             "label": "Content",
             "description": "(see https://support.discord.com/hc/en-us/articles/210298617-Markdown-Text-101-Chat-Formatting-Bold-Italic-Underline)",
-            "default": {"content": "**{person.name}** triggered event: '{event.event}'"},
+            "default": "**{person.name}** triggered event: '{event.event}'",
             "secret": False,
             "required": True,
         },
@@ -46,9 +48,7 @@ if (res.status != 200 or not res.body.ok) {
             description="Posts a message to Discord when a user enrolls or un-enrolls in an early access feature",
             filters=SUB_TEMPLATE_COMMON["early_access_feature_enrollment"].filters,
             inputs={
-                "content": {
-                    "content": "**{person.name}** {event.properties.$feature_enrollment ? 'enrolled in' : 'un-enrolled from'} the early access feature for '{event.properties.$feature_flag}'"
-                },
+                "content": "**{person.name}** {event.properties.$feature_enrollment ? 'enrolled in' : 'un-enrolled from'} the early access feature for '{event.properties.$feature_flag}'"
             },
         ),
         HogFunctionSubTemplate(
@@ -56,9 +56,7 @@ if (res.status != 200 or not res.body.ok) {
             name="Post to Discord on survey response",
             description="Posts a message to Discord when a user responds to a survey",
             filters=SUB_TEMPLATE_COMMON["survey_response"].filters,
-            inputs={
-                "content": {"content": "**{person.name}** responded to survey **{event.properties.$survey_name}**"},
-            },
+            inputs={"content": "**{person.name}** responded to survey **{event.properties.$survey_name}**"},
         ),
     ],
 )
