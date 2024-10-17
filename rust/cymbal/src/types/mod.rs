@@ -5,7 +5,6 @@ use serde_json::Value;
 
 pub mod frames;
 
-
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Mechanism {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -37,7 +36,6 @@ pub struct Exception {
     pub thread_id: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stacktrace: Option<Stacktrace>,
-
 }
 
 // Given a Clickhouse Event's properties, we care about the contents
@@ -80,8 +78,10 @@ mod test {
         // errors out because of missing exception_list property, which is required
         let props: Result<ErrProps, Error> = serde_json::from_str(&raw.properties.unwrap());
         assert!(props.is_err());
-        assert_eq!(props.unwrap_err().to_string(), "missing field `$exception_list` at line 275 column 5");
-
+        assert_eq!(
+            props.unwrap_err().to_string(),
+            "missing field `$exception_list` at line 275 column 5"
+        );
     }
 
     #[test]
@@ -93,8 +93,14 @@ mod test {
         let props: ErrProps = serde_json::from_str(&raw.properties.unwrap()).unwrap();
 
         assert_eq!(props.exception_list.len(), 1);
-        assert_eq!(props.exception_list[0].exception_type, "UnhandledRejection".to_string());
-        assert_eq!(props.exception_list[0].exception_message, "Unexpected usage".to_string());
+        assert_eq!(
+            props.exception_list[0].exception_type,
+            "UnhandledRejection".to_string()
+        );
+        assert_eq!(
+            props.exception_list[0].exception_message,
+            "Unexpected usage".to_string()
+        );
         let mechanism = props.exception_list[0].mechanism.as_ref().unwrap();
         assert_eq!(mechanism.handled, Some(false));
         assert_eq!(mechanism.mechanism_type, None);
@@ -105,14 +111,20 @@ mod test {
         assert_eq!(stacktrace.frames.len(), 2);
         let RawFrame::JavaScript(frame) = &stacktrace.frames[0];
 
-        assert_eq!(frame.source_url, Some("https://app-static.eu.posthog.com/static/chunk-PGUQKT6S.js".to_string()));
+        assert_eq!(
+            frame.source_url,
+            Some("https://app-static.eu.posthog.com/static/chunk-PGUQKT6S.js".to_string())
+        );
         assert_eq!(frame.fn_name, "?".to_string());
         assert_eq!(frame.in_app, true);
         assert_eq!(frame.line, 64);
         assert_eq!(frame.column, 25112);
 
         let RawFrame::JavaScript(frame) = &stacktrace.frames[1];
-        assert_eq!(frame.source_url, Some("https://app-static.eu.posthog.com/static/chunk-PGUQKT6S.js".to_string()));
+        assert_eq!(
+            frame.source_url,
+            Some("https://app-static.eu.posthog.com/static/chunk-PGUQKT6S.js".to_string())
+        );
         assert_eq!(frame.fn_name, "n.loadForeignModule".to_string());
         assert_eq!(frame.in_app, true);
         assert_eq!(frame.line, 64);
@@ -126,7 +138,6 @@ mod test {
 
     #[test]
     fn it_rejects_invalid_error_props() {
-
         let raw: &'static str = r#"{
             "$exception_list": []
         }"#;
@@ -143,7 +154,10 @@ mod test {
 
         let props: Result<ErrProps, Error> = serde_json::from_str(&raw);
         assert!(props.is_err());
-        assert_eq!(props.unwrap_err().to_string(), "missing field `value` at line 4 column 13");
+        assert_eq!(
+            props.unwrap_err().to_string(),
+            "missing field `value` at line 4 column 13"
+        );
 
         let raw: &'static str = r#"{
             "$exception_list": [{
@@ -154,6 +168,9 @@ mod test {
 
         let props: Result<ErrProps, Error> = serde_json::from_str(&raw);
         assert!(props.is_err());
-        assert_eq!(props.unwrap_err().to_string(), "missing field `type` at line 5 column 13");
+        assert_eq!(
+            props.unwrap_err().to_string(),
+            "missing field `type` at line 5 column 13"
+        );
     }
 }

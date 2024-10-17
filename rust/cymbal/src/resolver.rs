@@ -91,11 +91,12 @@ mod test {
 
         let exception: ClickHouseEvent = serde_json::from_str(EXAMPLE_EXCEPTION).unwrap();
         let props: ErrProps = serde_json::from_str(&exception.properties.unwrap()).unwrap();
-        let mut test_stack: Vec<RawFrame> = props.exception_list[0].stacktrace
-                .as_ref()
-                .unwrap()
-                .frames
-                .clone();
+        let mut test_stack: Vec<RawFrame> = props.exception_list[0]
+            .stacktrace
+            .as_ref()
+            .unwrap()
+            .frames
+            .clone();
 
         // We're going to pretend out stack consists exclusively of JS frames whose source
         // we have locally
