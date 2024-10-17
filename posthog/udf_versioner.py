@@ -2,6 +2,7 @@ import argparse
 import os
 import shutil
 import datetime
+import re
 import xml.etree.ElementTree as ET
 from xml import etree
 
@@ -13,6 +14,9 @@ from xml import etree
 # 5. Run the `copy_udfs_to_clickhouse` action in the `posthog_cloud_infra` repo to deploy the `user_scripts` folder to clickhouse
 # 6. After that deploy goes out, it is safe to land and deploy the full changes to the `posthog` repo
 UDF_VERSION = 2  # Last modified by: @aspicer, 2024-10-16
+
+# Clean up all versions less than this
+EARLIEST_UDF_VERSION = 1
 
 CLICKHOUSE_XML_FILENAME = "user_defined_function.xml"
 ACTIVE_XML_CONFIG = "../../docker/clickhouse/user_defined_function.xml"
@@ -47,6 +51,14 @@ def prepare_version(force=False):
         last_version_xml = ET.parse(ACTIVE_XML_CONFIG)
 
     last_version_root = last_version_xml.getroot()
+
+    # Remove old versions from last_version
+    for function in list(last_version_root):
+        name = function.find("name")
+        match = re.search(r"_v(\d+)$", name.text)
+        if match is None or int(match.group(1)) < EARLIEST_UDF_VERSION:
+            last_version_root.remove(function)
+
     # We want to update the name and the command to include the version, and add it to last version
     for function in list(base_xml.getroot()):
         name = function.find("name")
