@@ -27,6 +27,7 @@ from .meta_ads.template_meta_ads import template as meta_ads
 from .activecampaign.template_activecampaign import template as activecampaign
 from .google_ads.template_google_ads import template as google_ads
 from .attio.template_attio import template as attio
+from .microsoft_teams.template_microsoft_teams import template as microsoft_teams
 from .google_cloud_storage.template_google_cloud_storage import (
     template as google_cloud_storage,
     TemplateGoogleCloudStorageMigrator,
@@ -56,6 +57,7 @@ HOG_FUNCTION_TEMPLATES = [
     mailjet_create_contact,
     mailjet_update_contact_list,
     meta_ads,
+    microsoft_teams,
     posthog,
     rudderstack,
     salesforce_create,
