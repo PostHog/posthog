@@ -870,6 +870,9 @@ class ApiRequest {
     public insightVariables(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('insight_variables')
     }
+    public insightVariable(variableId: string, teamId?: TeamType['id']): ApiRequest {
+        return this.insightVariables(teamId).addPathComponent(variableId)
+    }
 
     // ActivityLog
     public activity_log(teamId?: TeamType['id']): ApiRequest {
@@ -2304,8 +2307,11 @@ const api = {
         async list(options?: ApiMethodOptions | undefined): Promise<PaginatedResponse<Variable>> {
             return await new ApiRequest().insightVariables().get(options)
         },
-        async create(data: Partial<any>): Promise<Variable> {
+        async create(data: Partial<Variable>): Promise<Variable> {
             return await new ApiRequest().insightVariables().create({ data })
+        },
+        async update(variableId: string, data: Partial<Variable>): Promise<Variable> {
+            return await new ApiRequest().insightVariable(variableId).update({ data })
         },
     },
 
