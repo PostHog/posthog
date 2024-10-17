@@ -104,7 +104,7 @@
          data.breakdown AS prop
   FROM
     (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), toUInt64(toDateTime(toStartOfWeek(timestamp, 0), 'UTC')), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))) AS events_array,
-            arrayJoin(aggregate_funnel_array_trends(0, 3, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
+            arrayJoin(aggregate_funnel_array_trends_v2(0, 3, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
             toTimeZone(toDateTime(toUInt64(af_tuple.1), 'UTC'), 'UTC') AS entrance_period_start,
             af_tuple.2 AS success_bool,
             af_tuple.3 AS breakdown,
