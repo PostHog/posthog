@@ -366,10 +366,10 @@ def get_query_runner(
             limit_context=limit_context,
         )
 
-    if kind == "ExperimentFunnelQuery":
-        from .experiments.experiment_funnel_query_runner import ExperimentFunnelQueryRunner
+    if kind == "ExperimentFunnelsQuery":
+        from .experiments.experiment_funnels_query_runner import ExperimentFunnelsQueryRunner
 
-        return ExperimentFunnelQueryRunner(
+        return ExperimentFunnelsQueryRunner(
             query=query,
             team=team,
             timings=timings,
@@ -377,10 +377,10 @@ def get_query_runner(
             limit_context=limit_context,
         )
 
-    if kind == "ExperimentTrendQuery":
-        from .experiments.experiment_trend_query_runner import ExperimentTrendQueryRunner
+    if kind == "ExperimentTrendsQuery":
+        from .experiments.experiment_trends_query_runner import ExperimentTrendsQueryRunner
 
-        return ExperimentTrendQueryRunner(
+        return ExperimentTrendsQueryRunner(
             query=query,
             team=team,
             timings=timings,

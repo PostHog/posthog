@@ -4,7 +4,7 @@ from django.conf import settings
 from posthog.constants import ExperimentNoResultsErrorKeys
 from posthog.hogql import ast
 from posthog.hogql_queries.experiments import CONTROL_VARIANT_KEY
-from posthog.hogql_queries.experiments.trend_statistics import (
+from posthog.hogql_queries.experiments.trends_statistics import (
     are_results_significant,
     calculate_credible_intervals,
     calculate_probabilities,
@@ -17,14 +17,14 @@ from rest_framework.exceptions import ValidationError
 from posthog.schema import (
     BaseMathType,
     BreakdownFilter,
-    CachedExperimentTrendQueryResponse,
+    CachedExperimentTrendsQueryResponse,
     ChartDisplayType,
     EventPropertyFilter,
     EventsNode,
     ExperimentSignificanceCode,
-    ExperimentTrendQuery,
-    ExperimentTrendQueryResponse,
-    ExperimentVariantTrendBaseStats,
+    ExperimentTrendsQuery,
+    ExperimentTrendsQueryResponse,
+    ExperimentVariantTrendsBaseStats,
     InsightDateRange,
     PropertyMathType,
     TrendsFilter,
@@ -35,10 +35,10 @@ from typing import Any, Optional
 import threading
 
 
-class ExperimentTrendQueryRunner(QueryRunner):
-    query: ExperimentTrendQuery
-    response: ExperimentTrendQueryResponse
-    cached_response: CachedExperimentTrendQueryResponse
+class ExperimentTrendsQueryRunner(QueryRunner):
+    query: ExperimentTrendsQuery
+    response: ExperimentTrendsQueryResponse
+    cached_response: CachedExperimentTrendsQueryResponse
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -207,7 +207,7 @@ class ExperimentTrendQueryRunner(QueryRunner):
 
         return prepared_exposure_query
 
-    def calculate(self) -> ExperimentTrendQueryResponse:
+    def calculate(self) -> ExperimentTrendsQueryResponse:
         shared_results: dict[str, Optional[Any]] = {"count_result": None, "exposure_result": None}
         errors = []
 
@@ -249,14 +249,12 @@ class ExperimentTrendQueryRunner(QueryRunner):
         self._validate_event_variants(count_result)
 
         # Statistical analysis
-        control_variant, test_variants = self._get_variants_with_base_stats(
-            count_result.results, exposure_result.results
-        )
+        control_variant, test_variants = self._get_variants_with_base_stats(count_result, exposure_result)
         probabilities = calculate_probabilities(control_variant, test_variants)
         significance_code, p_value = are_results_significant(control_variant, test_variants, probabilities)
         credible_intervals = calculate_credible_intervals([control_variant, *test_variants])
 
-        return ExperimentTrendQueryResponse(
+        return ExperimentTrendsQueryResponse(
             insight=count_result,
             variants=[variant.model_dump() for variant in [control_variant, *test_variants]],
             probability={
@@ -270,14 +268,14 @@ class ExperimentTrendQueryRunner(QueryRunner):
         )
 
     def _get_variants_with_base_stats(
-        self, count_results: list[dict[str, Any]], exposure_results: list[dict[str, Any]]
-    ) -> tuple[ExperimentVariantTrendBaseStats, list[ExperimentVariantTrendBaseStats]]:
-        control_variant: Optional[ExperimentVariantTrendBaseStats] = None
+        self, count_results: TrendsQueryResponse, exposure_results: TrendsQueryResponse
+    ) -> tuple[ExperimentVariantTrendsBaseStats, list[ExperimentVariantTrendsBaseStats]]:
+        control_variant: Optional[ExperimentVariantTrendsBaseStats] = None
         test_variants = []
         exposure_counts = {}
         exposure_ratios = {}
 
-        for result in exposure_results:
+        for result in exposure_results.results:
             count = result.get("count", 0)
             breakdown_value = result.get("breakdown_value")
             exposure_counts[breakdown_value] = count
@@ -288,11 +286,11 @@ class ExperimentTrendQueryRunner(QueryRunner):
             for key, count in exposure_counts.items():
                 exposure_ratios[key] = count / control_exposure
 
-        for result in count_results:
+        for result in count_results.results:
             count = result.get("count", 0)
             breakdown_value = result.get("breakdown_value")
             if breakdown_value == CONTROL_VARIANT_KEY:
-                control_variant = ExperimentVariantTrendBaseStats(
+                control_variant = ExperimentVariantTrendsBaseStats(
                     key=breakdown_value,
                     count=count,
                     exposure=1,
@@ -301,7 +299,7 @@ class ExperimentTrendQueryRunner(QueryRunner):
                 )
             else:
                 test_variants.append(
-                    ExperimentVariantTrendBaseStats(
+                    ExperimentVariantTrendsBaseStats(
                         key=breakdown_value,
                         count=count,
                         # TODO: in the absence of exposure data, we should throw rather than default to 1
