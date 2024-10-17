@@ -851,7 +851,7 @@ export const experimentLogic = kea<experimentLogicType>([
             },
         ],
     })),
-    selectors(({ asyncActions }) => ({
+    selectors({
         props: [() => [(_, props) => props], (props) => props],
         experimentId: [
             () => [(_, props) => props.experimentId ?? 'new'],
@@ -891,7 +891,9 @@ export const experimentLogic = kea<experimentLogicType>([
                     key: [Scene.Experiment, experimentId],
                     name: experiment?.name || '',
                     onRename: async (name: string) => {
-                        await asyncActions.updateExperiment({ name })
+                        // :KLUDGE: work around a type error when using asyncActions accessed via a callback passed to selectors()
+                        const logic = experimentLogic({ experimentId })
+                        await logic.asyncActions.updateExperiment({ name })
                     },
                 },
             ],
@@ -1381,7 +1383,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 )
             },
         ],
-    })),
+    }),
     forms(({ actions }) => ({
         experiment: {
             options: { showErrorsOnTouch: true },
