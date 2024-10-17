@@ -392,7 +392,7 @@ function UrlTriggerRow({ trigger, index }: { trigger: SessionReplayUrlTriggerCon
             <span title={trigger.url} className="flex-1 truncate">
                 {trigger.matching === 'regex' ? 'Matches regex: ' : ''} {trigger.url}
             </span>
-            <div className="Actions flex space-x-2 shrink-0">
+            <div className="Actions flex space-x-1 shrink-0">
                 <LemonButton
                     icon={<IconPencil />}
                     onClick={() => setEditUrlTriggerIndex(index)}
