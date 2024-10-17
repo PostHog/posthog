@@ -32,6 +32,20 @@ class FunnelTrendsUDF(FunnelTrends):
             self.context.funnelWindowInterval * DATERANGE_MAP[self.context.funnelWindowIntervalUnit].total_seconds()
         )
 
+    def matched_event_select(self):
+        if self._include_matched_events():
+            # return "[] as matching_events,"
+            return (
+                # "groupArrayIf(tuple(timestamp, uuid, $session_id, $window_id), uuid = af_tuple.4) as matching_events,"
+                # af_tuple.4 as matched_event_uuids_array_array,
+                """
+                groupArray(tuple(timestamp, uuid, $session_id, $window_id)) as user_events,
+                mapFromArrays(arrayMap(x -> x.2, user_events), user_events) as user_events_map,
+                [user_events_map[af_tuple.4]] as matching_events,
+                """
+            )
+        return ""
+
     # This is the function that calls the UDF
     # This is used by both the query itself and the actors query
     def _inner_aggregation_query(self):
@@ -101,6 +115,7 @@ class FunnelTrendsUDF(FunnelTrends):
                 toTimeZone(toDateTime(_toUInt64(af_tuple.1)), '{self.context.team.timezone}') as entrance_period_start,
                 af_tuple.2 as success_bool,
                 af_tuple.3 as breakdown,
+                {self.matched_event_select()}
                 aggregation_target as aggregation_target
             FROM {{inner_event_query}}
             GROUP BY aggregation_target{breakdown_prop}
@@ -178,6 +193,15 @@ class FunnelTrendsUDF(FunnelTrends):
             )
         return cast(ast.SelectQuery, s)
 
+    def _matching_events(self):
+        if (
+            hasattr(self.context, "actorsQuery")
+            and self.context.actorsQuery is not None
+            and self.context.actorsQuery.includeRecordings
+        ):
+            return [ast.Alias(alias="matching_events", expr=ast.Field(chain=["matching_events"]))]
+        return []
+
     def actor_query(
         self,
         extra_fields: Optional[list[str]] = None,
@@ -204,6 +228,7 @@ class FunnelTrendsUDF(FunnelTrends):
 
         select: list[ast.Expr] = [
             ast.Alias(alias="actor_id", expr=ast.Field(chain=["aggregation_target"])),
+            *self._matching_events(),
             *([ast.Field(chain=[field]) for field in extra_fields or []]),
         ]
         select_from = ast.JoinExpr(table=self._inner_aggregation_query())

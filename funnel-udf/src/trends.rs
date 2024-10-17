@@ -74,6 +74,8 @@ fn parse_args(line: &str) -> Args {
     serde_json::from_str(line).expect("Invalid JSON input")
 }
 
+const NIL_UUID: Uuid = Uuid::nil();
+
 impl AggregateFunnelRow {
     #[inline(always)]
     fn calculate_funnel_from_user_events(&mut self, args: &Args) {
@@ -118,7 +120,7 @@ impl AggregateFunnelRow {
         // At this point, everything left in entered_timestamps is a failure, if it has made it to from_step
         for entered_timestamp in vars.interval_start_to_entered_timestamps.values() {
             if !self.results.contains_key(&(entered_timestamp[0].timestamp as u64)) && entered_timestamp[0].timings.len() > 0 {
-                self.results.insert(entered_timestamp[0].timestamp as u64, ResultStruct(entered_timestamp[0].timestamp as u64, -1, prop_val.clone() ));
+                self.results.insert(entered_timestamp[0].timestamp as u64, ResultStruct(entered_timestamp[0].timestamp as u64, -1, prop_val.clone(), NIL_UUID));
             }
         }
     }
@@ -169,7 +171,7 @@ impl AggregateFunnelRow {
                             if entered_timestamp[args.num_steps].timestamp != 0.0 {
                                 self.results.insert(
                                     entered_timestamp[0].timestamp as u64,
-                                    ResultStruct(entered_timestamp[0].timestamp as u64, 1, prop_val.clone())
+                                    ResultStruct(entered_timestamp[0].timestamp as u64, 1, prop_val.clone(), event.uuid)
                                 );
                             } else if step == args.from_step + 1 {
                                 entered_timestamp[0].timings.push(1.0)
