@@ -851,7 +851,7 @@ export const experimentLogic = kea<experimentLogicType>([
             },
         ],
     })),
-    selectors({
+    selectors(({ asyncActions }) => ({
         props: [() => [(_, props) => props], (props) => props],
         experimentId: [
             () => [(_, props) => props.experimentId ?? 'new'],
@@ -889,8 +889,10 @@ export const experimentLogic = kea<experimentLogicType>([
                 },
                 {
                     key: [Scene.Experiment, experimentId],
-                    name: experiment?.name || 'New',
-                    path: urls.experiment(experimentId || 'new'),
+                    name: experiment?.name || '',
+                    onRename: async (name: string) => {
+                        await asyncActions.updateExperiment({ name })
+                    },
                 },
             ],
         ],
@@ -1379,7 +1381,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 )
             },
         ],
-    }),
+    })),
     forms(({ actions }) => ({
         experiment: {
             options: { showErrorsOnTouch: true },
