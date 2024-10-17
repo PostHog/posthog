@@ -3,7 +3,6 @@ from functools import cached_property
 from typing import Any, Optional, cast
 
 from django.shortcuts import get_object_or_404
-from django.db.models import Q
 from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, request, response, serializers, viewsets
 from rest_framework.decorators import action
@@ -399,10 +398,10 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def safely_get_queryset(self, queryset):
         # IMPORTANT: This is actually what ensures that a user cannot read/update a project for which they don't have permission
         visible_teams_ids = UserPermissions(cast(User, self.request.user)).team_ids_visible_for_user
-        queryset &= Q(id__in=visible_teams_ids)
+        queryset = queryset.filter(id__in=visible_teams_ids)
         if isinstance(self.request.successful_authenticator, PersonalAPIKeyAuthentication):
             if scoped_organizations := self.request.successful_authenticator.personal_api_key.scoped_organizations:
-                queryset &= Q(organization_id__in=scoped_organizations)
+                queryset = queryset.filter(organization_id__in=scoped_organizations)
         return queryset.filter(id__in=visible_teams_ids)
 
     def get_serializer_class(self) -> type[serializers.BaseSerializer]:
