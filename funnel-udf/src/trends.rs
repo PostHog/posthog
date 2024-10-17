@@ -16,8 +16,7 @@ where
 
 #[derive(Clone, Deserialize)]
 struct EnteredTimestamp {
-    timestamp: f64,
-    timings: Vec<f64>,
+    timestamp: f64
 }
 
 #[derive(Clone, Deserialize)]
@@ -44,8 +43,14 @@ struct Args {
 #[derive(Serialize)]
 struct ResultStruct(u64, i8, PropVal, Uuid);
 
+struct IntervalData {
+    max_step: usize,
+    max_step_event_uuid: Uuid,
+    entered_timestamp: Vec<EnteredTimestamp>,
+}
+
 struct Vars {
-    interval_start_to_entered_timestamps: HashMap<u64, Vec<EnteredTimestamp>>,
+    interval_start_to_entered_timestamps: HashMap<u64, IntervalData>,
 }
 
 struct AggregateFunnelRow {
@@ -55,7 +60,6 @@ struct AggregateFunnelRow {
 
 const DEFAULT_ENTERED_TIMESTAMP: EnteredTimestamp = EnteredTimestamp {
     timestamp: 0.0,
-    timings: vec![],
 };
 
 pub fn process_line(line: &str) -> Value {
@@ -73,8 +77,6 @@ pub fn process_line(line: &str) -> Value {
 fn parse_args(line: &str) -> Args {
     serde_json::from_str(line).expect("Invalid JSON input")
 }
-
-const NIL_UUID: Uuid = Uuid::nil();
 
 impl AggregateFunnelRow {
     #[inline(always)]
@@ -118,9 +120,9 @@ impl AggregateFunnelRow {
 
 
         // At this point, everything left in entered_timestamps is a failure, if it has made it to from_step
-        for entered_timestamp in vars.interval_start_to_entered_timestamps.values() {
-            if !self.results.contains_key(&(entered_timestamp[0].timestamp as u64)) && entered_timestamp[0].timings.len() > 0 {
-                self.results.insert(entered_timestamp[0].timestamp as u64, ResultStruct(entered_timestamp[0].timestamp as u64, -1, prop_val.clone(), NIL_UUID));
+        for interval_data in vars.interval_start_to_entered_timestamps.values() {
+            if !self.results.contains_key(&(interval_data.entered_timestamp[0].timestamp as u64)) && interval_data.max_step >= args.from_step + 1 {
+                self.results.insert(interval_data.entered_timestamp[0].timestamp as u64, ResultStruct(interval_data.entered_timestamp[0].timestamp as u64, -1, prop_val.clone(), interval_data.max_step_event_uuid));
             }
         }
     }
@@ -145,36 +147,32 @@ impl AggregateFunnelRow {
             if step == 1 {
                 if !vars.interval_start_to_entered_timestamps.contains_key(&event.interval_start) && !self.results.contains_key(&event.interval_start) {
                     let mut entered_timestamp = vec![DEFAULT_ENTERED_TIMESTAMP.clone(); args.num_steps + 1];
-                    entered_timestamp[0] = EnteredTimestamp { timestamp: event.interval_start as f64, timings: if args.from_step == 0 {vec![1.0]} else {vec![]} };
-                    entered_timestamp[1] = EnteredTimestamp { timestamp: event.timestamp, timings: vec![event.timestamp] };
-                    vars.interval_start_to_entered_timestamps.insert(event.interval_start, entered_timestamp);
+                    entered_timestamp[0] = EnteredTimestamp { timestamp: event.interval_start as f64 };
+                    entered_timestamp[1] = EnteredTimestamp { timestamp: event.timestamp };
+                    vars.interval_start_to_entered_timestamps.insert(event.interval_start, IntervalData { max_step: 1, max_step_event_uuid: event.uuid, entered_timestamp: entered_timestamp });
                 }
             } else {
-                for entered_timestamp in vars.interval_start_to_entered_timestamps.values_mut() {
-                    let in_match_window = (event.timestamp - entered_timestamp[step - 1].timestamp) <= args.conversion_window_limit as f64;
-                    let already_reached_this_step = entered_timestamp[step].timestamp == entered_timestamp[step - 1].timestamp;
+                for interval_data in vars.interval_start_to_entered_timestamps.values_mut() {
+                    let in_match_window = (event.timestamp - interval_data.entered_timestamp[step - 1].timestamp) <= args.conversion_window_limit as f64;
+                    let already_reached_this_step = interval_data.entered_timestamp[step].timestamp == interval_data.entered_timestamp[step - 1].timestamp;
                     if in_match_window && !already_reached_this_step {
                         if exclusion {
                             return false;
                         }
                         let is_unmatched_step_attribution = self.breakdown_step.map(|breakdown_step| step == breakdown_step - 1).unwrap_or(false) && *prop_val != event.breakdown;
                         if !is_unmatched_step_attribution {
-                            entered_timestamp[step] = EnteredTimestamp {
-                                timestamp: entered_timestamp[step - 1].timestamp,
-                                timings: {
-                                    let mut timings = entered_timestamp[step - 1].timings.clone();
-                                    timings.push(event.timestamp);
-                                    timings
-                                },
+                            interval_data.entered_timestamp[step] = EnteredTimestamp {
+                                timestamp: interval_data.entered_timestamp[step - 1].timestamp
                             };
                             // check if we have hit the goal. if we have, remove it from the list and add it to the successful_timestamps
-                            if entered_timestamp[args.num_steps].timestamp != 0.0 {
+                            if interval_data.entered_timestamp[args.num_steps].timestamp != 0.0 {
                                 self.results.insert(
-                                    entered_timestamp[0].timestamp as u64,
-                                    ResultStruct(entered_timestamp[0].timestamp as u64, 1, prop_val.clone(), event.uuid)
+                                    interval_data.entered_timestamp[0].timestamp as u64,
+                                    ResultStruct(interval_data.entered_timestamp[0].timestamp as u64, 1, prop_val.clone(), event.uuid)
                                 );
-                            } else if step == args.from_step + 1 {
-                                entered_timestamp[0].timings.push(1.0)
+                            } else if step > interval_data.max_step {
+                                interval_data.max_step = step;
+                                interval_data.max_step_event_uuid = event.uuid;
                             }
                         }
                     }
@@ -184,10 +182,10 @@ impl AggregateFunnelRow {
         // If a strict funnel, clear all of the steps that we didn't match to
         // If we are processing multiple events, skip this step, because ordering makes it complicated
         if args.funnel_order_type == "strict" {
-            for entered_timestamp in vars.interval_start_to_entered_timestamps.values_mut() {
-                for i in 1..entered_timestamp.len() {
+            for interval_data in vars.interval_start_to_entered_timestamps.values_mut() {
+                for i in 1..interval_data.entered_timestamp.len() {
                     if !event.steps.contains(&(i as i8)) {
-                        entered_timestamp[i] = DEFAULT_ENTERED_TIMESTAMP;
+                        interval_data.entered_timestamp[i] = DEFAULT_ENTERED_TIMESTAMP;
                     }
                 }
             }

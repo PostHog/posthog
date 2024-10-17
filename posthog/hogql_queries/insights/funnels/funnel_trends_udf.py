@@ -34,16 +34,11 @@ class FunnelTrendsUDF(FunnelTrends):
 
     def matched_event_select(self):
         if self._include_matched_events():
-            # return "[] as matching_events,"
-            return (
-                # "groupArrayIf(tuple(timestamp, uuid, $session_id, $window_id), uuid = af_tuple.4) as matching_events,"
-                # af_tuple.4 as matched_event_uuids_array_array,
-                """
+            return """
                 groupArray(tuple(timestamp, uuid, $session_id, $window_id)) as user_events,
                 mapFromArrays(arrayMap(x -> x.2, user_events), user_events) as user_events_map,
                 [user_events_map[af_tuple.4]] as matching_events,
                 """
-            )
         return ""
 
     # This is the function that calls the UDF
