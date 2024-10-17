@@ -15,10 +15,9 @@ from posthog.constants import (
     TRENDS_CUMULATIVE,
     TRENDS_LINEAR,
     UNIQUE_USERS,
-    ExperimentSignificanceCode,
     ExperimentNoResultsErrorKeys,
 )
-from posthog.hogql_queries.experiments.trend_statistics import (
+from posthog.hogql_queries.experiments.trends_statistics import (
     are_results_significant,
     calculate_credible_intervals,
     calculate_probabilities,
@@ -28,6 +27,7 @@ from posthog.models.filters.filter import Filter
 from posthog.models.team import Team
 from posthog.queries.trends.trends import Trends
 from posthog.queries.trends.util import ALL_SUPPORTED_MATH_FUNCTIONS
+from posthog.schema import ExperimentSignificanceCode
 
 Probability = float
 

@@ -12,6 +12,7 @@ import { experimentLogic } from '../experimentLogic'
 
 export function ReleaseConditionsTable(): JSX.Element {
     const { experiment } = useValues(experimentLogic)
+    const { reportExperimentReleaseConditionsViewed } = useActions(experimentLogic)
     const { aggregationLabel } = useValues(groupsModel)
     const { openSidePanel } = useActions(sidePanelStateLogic)
 
@@ -65,7 +66,10 @@ export function ReleaseConditionsTable(): JSX.Element {
                     <div className="ml-auto mb-2">
                         <LemonButton
                             icon={<IconFlag />}
-                            onClick={() => openSidePanel(SidePanelTab.ExperimentFeatureFlag)}
+                            onClick={() => {
+                                openSidePanel(SidePanelTab.ExperimentFeatureFlag)
+                                reportExperimentReleaseConditionsViewed(experiment.id)
+                            }}
                             type="secondary"
                             size="xsmall"
                             className="font-semibold"
