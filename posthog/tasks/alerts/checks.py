@@ -1,7 +1,10 @@
+import math
+import time
+import traceback
+
 from datetime import datetime, timedelta, UTC
 from typing import cast
 from dateutil.relativedelta import relativedelta
-import traceback
 
 from celery import shared_task
 from celery.canvas import chain
@@ -34,8 +37,6 @@ from posthog.tasks.alerts.utils import (
     alert_calculation_interval_to_relativedelta,
 )
 from posthog.tasks.alerts.trends import check_trends_alert
-import time
-import math
 
 
 logger = structlog.get_logger(__name__)
