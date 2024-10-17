@@ -525,7 +525,7 @@ class ExperimentSignificanceCode(StrEnum):
     HIGH_P_VALUE = "high_p_value"
 
 
-class ExperimentVariantFunnelBaseStats(BaseModel):
+class ExperimentVariantFunnelsBaseStats(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -534,7 +534,7 @@ class ExperimentVariantFunnelBaseStats(BaseModel):
     success_count: float
 
 
-class ExperimentVariantTrendBaseStats(BaseModel):
+class ExperimentVariantTrendsBaseStats(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -875,8 +875,8 @@ class NodeKind(StrEnum):
     WEB_STATS_TABLE_QUERY = "WebStatsTableQuery"
     WEB_EXTERNAL_CLICKS_TABLE_QUERY = "WebExternalClicksTableQuery"
     WEB_GOALS_QUERY = "WebGoalsQuery"
-    EXPERIMENT_FUNNEL_QUERY = "ExperimentFunnelQuery"
-    EXPERIMENT_TREND_QUERY = "ExperimentTrendQuery"
+    EXPERIMENT_FUNNELS_QUERY = "ExperimentFunnelsQuery"
+    EXPERIMENT_TRENDS_QUERY = "ExperimentTrendsQuery"
     DATABASE_SCHEMA_QUERY = "DatabaseSchemaQuery"
     SUGGESTED_QUESTIONS_QUERY = "SuggestedQuestionsQuery"
     TEAM_TAXONOMY_QUERY = "TeamTaxonomyQuery"
@@ -1914,7 +1914,7 @@ class CachedEventsQueryResponse(BaseModel):
     types: list[str]
 
 
-class CachedExperimentTrendQueryResponse(BaseModel):
+class CachedExperimentTrendsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1936,7 +1936,7 @@ class CachedExperimentTrendQueryResponse(BaseModel):
     significance_code: ExperimentSignificanceCode
     significant: bool
     timezone: str
-    variants: list[ExperimentVariantTrendBaseStats]
+    variants: list[ExperimentVariantTrendsBaseStats]
 
 
 class CachedFunnelCorrelationResponse(BaseModel):
@@ -2673,7 +2673,7 @@ class Response11(BaseModel):
     probability: dict[str, float]
     significance_code: ExperimentSignificanceCode
     significant: bool
-    variants: list[ExperimentVariantTrendBaseStats]
+    variants: list[ExperimentVariantTrendsBaseStats]
 
 
 class DataWarehousePersonPropertyFilter(BaseModel):
@@ -2826,7 +2826,7 @@ class EventsQueryResponse(BaseModel):
     types: list[str]
 
 
-class ExperimentTrendQueryResponse(BaseModel):
+class ExperimentTrendsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2836,7 +2836,7 @@ class ExperimentTrendQueryResponse(BaseModel):
     probability: dict[str, float]
     significance_code: ExperimentSignificanceCode
     significant: bool
-    variants: list[ExperimentVariantTrendBaseStats]
+    variants: list[ExperimentVariantTrendsBaseStats]
 
 
 class BreakdownFilter1(BaseModel):
@@ -3439,7 +3439,7 @@ class QueryResponseAlternative16(BaseModel):
     probability: dict[str, float]
     significance_code: ExperimentSignificanceCode
     significant: bool
-    variants: list[ExperimentVariantFunnelBaseStats]
+    variants: list[ExperimentVariantFunnelsBaseStats]
 
 
 class QueryResponseAlternative17(BaseModel):
@@ -3452,7 +3452,7 @@ class QueryResponseAlternative17(BaseModel):
     probability: dict[str, float]
     significance_code: ExperimentSignificanceCode
     significant: bool
-    variants: list[ExperimentVariantTrendBaseStats]
+    variants: list[ExperimentVariantTrendsBaseStats]
 
 
 class QueryResponseAlternative18(BaseModel):
@@ -3701,7 +3701,7 @@ class QueryResponseAlternative28(BaseModel):
     probability: dict[str, float]
     significance_code: ExperimentSignificanceCode
     significant: bool
-    variants: list[ExperimentVariantFunnelBaseStats]
+    variants: list[ExperimentVariantFunnelsBaseStats]
 
 
 class QueryResponseAlternative29(BaseModel):
@@ -3714,7 +3714,7 @@ class QueryResponseAlternative29(BaseModel):
     probability: dict[str, float]
     significance_code: ExperimentSignificanceCode
     significant: bool
-    variants: list[ExperimentVariantTrendBaseStats]
+    variants: list[ExperimentVariantTrendsBaseStats]
 
 
 class QueryResponseAlternative30(BaseModel):
@@ -4153,7 +4153,7 @@ class AnyResponseType(
     ]
 
 
-class CachedExperimentFunnelQueryResponse(BaseModel):
+class CachedExperimentFunnelsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -4175,7 +4175,7 @@ class CachedExperimentFunnelQueryResponse(BaseModel):
     significance_code: ExperimentSignificanceCode
     significant: bool
     timezone: str
-    variants: list[ExperimentVariantFunnelBaseStats]
+    variants: list[ExperimentVariantFunnelsBaseStats]
 
 
 class CachedHogQLQueryResponse(BaseModel):
@@ -4339,7 +4339,7 @@ class Response10(BaseModel):
     probability: dict[str, float]
     significance_code: ExperimentSignificanceCode
     significant: bool
-    variants: list[ExperimentVariantFunnelBaseStats]
+    variants: list[ExperimentVariantFunnelsBaseStats]
 
 
 class DataWarehouseNode(BaseModel):
@@ -4578,7 +4578,7 @@ class EventsNode(BaseModel):
     response: Optional[dict[str, Any]] = None
 
 
-class ExperimentFunnelQueryResponse(BaseModel):
+class ExperimentFunnelsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -4588,7 +4588,7 @@ class ExperimentFunnelQueryResponse(BaseModel):
     probability: dict[str, float]
     significance_code: ExperimentSignificanceCode
     significant: bool
-    variants: list[ExperimentVariantFunnelBaseStats]
+    variants: list[ExperimentVariantFunnelsBaseStats]
 
 
 class FunnelExclusionActionsNode(BaseModel):
@@ -5501,18 +5501,18 @@ class EventsQuery(BaseModel):
     where: Optional[list[str]] = Field(default=None, description="HogQL filters to apply on returned data")
 
 
-class ExperimentTrendQuery(BaseModel):
+class ExperimentTrendsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     count_query: TrendsQuery
     experiment_id: int
     exposure_query: Optional[TrendsQuery] = None
-    kind: Literal["ExperimentTrendQuery"] = "ExperimentTrendQuery"
+    kind: Literal["ExperimentTrendsQuery"] = "ExperimentTrendsQuery"
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
-    response: Optional[ExperimentTrendQueryResponse] = None
+    response: Optional[ExperimentTrendsQueryResponse] = None
 
 
 class FunnelsQuery(BaseModel):
@@ -5926,16 +5926,16 @@ class DatabaseSchemaQueryResponse(BaseModel):
     ]
 
 
-class ExperimentFunnelQuery(BaseModel):
+class ExperimentFunnelsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     experiment_id: int
-    kind: Literal["ExperimentFunnelQuery"] = "ExperimentFunnelQuery"
+    kind: Literal["ExperimentFunnelsQuery"] = "ExperimentFunnelsQuery"
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
-    response: Optional[ExperimentFunnelQueryResponse] = None
+    response: Optional[ExperimentFunnelsQueryResponse] = None
     source: FunnelsQuery
 
 
@@ -6255,8 +6255,8 @@ class DataTableNode(BaseModel):
         WebGoalsQuery,
         SessionAttributionExplorerQuery,
         ErrorTrackingQuery,
-        ExperimentFunnelQuery,
-        ExperimentTrendQuery,
+        ExperimentFunnelsQuery,
+        ExperimentTrendsQuery,
     ] = Field(..., description="Source of the events")
 
 
@@ -6295,8 +6295,8 @@ class HogQLAutocomplete(BaseModel):
             WebGoalsQuery,
             SessionAttributionExplorerQuery,
             ErrorTrackingQuery,
-            ExperimentFunnelQuery,
-            ExperimentTrendQuery,
+            ExperimentFunnelsQuery,
+            ExperimentTrendsQuery,
         ]
     ] = Field(default=None, description="Query in whose context to validate.")
     startPosition: int = Field(..., description="Start position of the editor word")
@@ -6339,8 +6339,8 @@ class HogQLMetadata(BaseModel):
             WebGoalsQuery,
             SessionAttributionExplorerQuery,
             ErrorTrackingQuery,
-            ExperimentFunnelQuery,
-            ExperimentTrendQuery,
+            ExperimentFunnelsQuery,
+            ExperimentTrendsQuery,
         ]
     ] = Field(
         default=None,
@@ -6381,8 +6381,8 @@ class QueryRequest(BaseModel):
         WebGoalsQuery,
         SessionAttributionExplorerQuery,
         ErrorTrackingQuery,
-        ExperimentFunnelQuery,
-        ExperimentTrendQuery,
+        ExperimentFunnelsQuery,
+        ExperimentTrendsQuery,
         DataVisualizationNode,
         DataTableNode,
         SavedInsightNode,
@@ -6446,8 +6446,8 @@ class QuerySchemaRoot(
             WebGoalsQuery,
             SessionAttributionExplorerQuery,
             ErrorTrackingQuery,
-            ExperimentFunnelQuery,
-            ExperimentTrendQuery,
+            ExperimentFunnelsQuery,
+            ExperimentTrendsQuery,
             DataVisualizationNode,
             DataTableNode,
             SavedInsightNode,
@@ -6485,8 +6485,8 @@ class QuerySchemaRoot(
         WebGoalsQuery,
         SessionAttributionExplorerQuery,
         ErrorTrackingQuery,
-        ExperimentFunnelQuery,
-        ExperimentTrendQuery,
+        ExperimentFunnelsQuery,
+        ExperimentTrendsQuery,
         DataVisualizationNode,
         DataTableNode,
         SavedInsightNode,

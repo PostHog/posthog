@@ -7,14 +7,14 @@ from posthog.hogql_queries.experiments import (
     FF_DISTRIBUTION_THRESHOLD,
     MIN_PROBABILITY_FOR_SIGNIFICANCE,
 )
-from posthog.schema import ExperimentSignificanceCode, ExperimentVariantFunnelBaseStats
+from posthog.schema import ExperimentSignificanceCode, ExperimentVariantFunnelsBaseStats
 
 Probability = float
 
 
 def calculate_probabilities(
-    control_variant: ExperimentVariantFunnelBaseStats,
-    test_variants: list[ExperimentVariantFunnelBaseStats],
+    control_variant: ExperimentVariantFunnelsBaseStats,
+    test_variants: list[ExperimentVariantFunnelsBaseStats],
     priors: tuple[int, int] = (1, 1),
 ) -> list[Probability]:
     """
@@ -60,7 +60,7 @@ def calculate_probabilities(
 
 
 def simulate_winning_variant_for_conversion(
-    target_variant: ExperimentVariantFunnelBaseStats, variants: list[ExperimentVariantFunnelBaseStats]
+    target_variant: ExperimentVariantFunnelsBaseStats, variants: list[ExperimentVariantFunnelsBaseStats]
 ) -> Probability:
     random_sampler = default_rng()
     prior_success = 1
@@ -94,11 +94,11 @@ def simulate_winning_variant_for_conversion(
 
 
 def are_results_significant(
-    control_variant: ExperimentVariantFunnelBaseStats,
-    test_variants: list[ExperimentVariantFunnelBaseStats],
+    control_variant: ExperimentVariantFunnelsBaseStats,
+    test_variants: list[ExperimentVariantFunnelsBaseStats],
     probabilities: list[Probability],
 ) -> tuple[ExperimentSignificanceCode, Probability]:
-    def get_conversion_rate(variant: ExperimentVariantFunnelBaseStats):
+    def get_conversion_rate(variant: ExperimentVariantFunnelsBaseStats):
         return variant.success_count / (variant.success_count + variant.failure_count)
 
     control_sample_size = control_variant.success_count + control_variant.failure_count
@@ -136,7 +136,7 @@ def are_results_significant(
 
 
 def calculate_expected_loss(
-    target_variant: ExperimentVariantFunnelBaseStats, variants: list[ExperimentVariantFunnelBaseStats]
+    target_variant: ExperimentVariantFunnelsBaseStats, variants: list[ExperimentVariantFunnelsBaseStats]
 ) -> float:
     """
     Calculates expected loss in conversion rate for a given variant.

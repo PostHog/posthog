@@ -477,10 +477,10 @@
                     "$ref": "#/definitions/ErrorTrackingQuery"
                 },
                 {
-                    "$ref": "#/definitions/ExperimentFunnelQuery"
+                    "$ref": "#/definitions/ExperimentFunnelsQuery"
                 },
                 {
-                    "$ref": "#/definitions/ExperimentTrendQuery"
+                    "$ref": "#/definitions/ExperimentTrendsQuery"
                 }
             ]
         },
@@ -1250,7 +1250,7 @@
             ],
             "type": "object"
         },
-        "CachedExperimentFunnelQueryResponse": {
+        "CachedExperimentFunnelsQueryResponse": {
             "additionalProperties": false,
             "properties": {
                 "cache_key": {
@@ -1313,7 +1313,7 @@
                 },
                 "variants": {
                     "items": {
-                        "$ref": "#/definitions/ExperimentVariantFunnelBaseStats"
+                        "$ref": "#/definitions/ExperimentVariantFunnelsBaseStats"
                     },
                     "type": "array"
                 }
@@ -1334,7 +1334,7 @@
             ],
             "type": "object"
         },
-        "CachedExperimentTrendQueryResponse": {
+        "CachedExperimentTrendsQueryResponse": {
             "additionalProperties": false,
             "properties": {
                 "cache_key": {
@@ -1397,7 +1397,7 @@
                 },
                 "variants": {
                     "items": {
-                        "$ref": "#/definitions/ExperimentVariantTrendBaseStats"
+                        "$ref": "#/definitions/ExperimentVariantTrendsBaseStats"
                     },
                     "type": "array"
                 }
@@ -3712,7 +3712,7 @@
                                 },
                                 "variants": {
                                     "items": {
-                                        "$ref": "#/definitions/ExperimentVariantFunnelBaseStats"
+                                        "$ref": "#/definitions/ExperimentVariantFunnelsBaseStats"
                                     },
                                     "type": "array"
                                 }
@@ -3762,7 +3762,7 @@
                                 },
                                 "variants": {
                                     "items": {
-                                        "$ref": "#/definitions/ExperimentVariantTrendBaseStats"
+                                        "$ref": "#/definitions/ExperimentVariantTrendsBaseStats"
                                     },
                                     "type": "array"
                                 }
@@ -3893,10 +3893,10 @@
                             "$ref": "#/definitions/ErrorTrackingQuery"
                         },
                         {
-                            "$ref": "#/definitions/ExperimentFunnelQuery"
+                            "$ref": "#/definitions/ExperimentFunnelsQuery"
                         },
                         {
-                            "$ref": "#/definitions/ExperimentTrendQuery"
+                            "$ref": "#/definitions/ExperimentTrendsQuery"
                         }
                     ],
                     "description": "Source of the events"
@@ -5128,14 +5128,14 @@
             "required": ["columns", "hogql", "results", "types"],
             "type": "object"
         },
-        "ExperimentFunnelQuery": {
+        "ExperimentFunnelsQuery": {
             "additionalProperties": false,
             "properties": {
                 "experiment_id": {
                     "type": "integer"
                 },
                 "kind": {
-                    "const": "ExperimentFunnelQuery",
+                    "const": "ExperimentFunnelsQuery",
                     "type": "string"
                 },
                 "modifiers": {
@@ -5143,7 +5143,7 @@
                     "description": "Modifiers used when performing the query"
                 },
                 "response": {
-                    "$ref": "#/definitions/ExperimentFunnelQueryResponse"
+                    "$ref": "#/definitions/ExperimentFunnelsQueryResponse"
                 },
                 "source": {
                     "$ref": "#/definitions/FunnelsQuery"
@@ -5152,7 +5152,7 @@
             "required": ["experiment_id", "kind", "source"],
             "type": "object"
         },
-        "ExperimentFunnelQueryResponse": {
+        "ExperimentFunnelsQueryResponse": {
             "additionalProperties": false,
             "properties": {
                 "credible_intervals": {
@@ -5186,7 +5186,7 @@
                 },
                 "variants": {
                     "items": {
-                        "$ref": "#/definitions/ExperimentVariantFunnelBaseStats"
+                        "$ref": "#/definitions/ExperimentVariantFunnelsBaseStats"
                     },
                     "type": "array"
                 }
@@ -5206,7 +5206,7 @@
             "enum": ["significant", "not_enough_exposure", "low_win_probability", "high_loss", "high_p_value"],
             "type": "string"
         },
-        "ExperimentTrendQuery": {
+        "ExperimentTrendsQuery": {
             "additionalProperties": false,
             "properties": {
                 "count_query": {
@@ -5219,7 +5219,7 @@
                     "$ref": "#/definitions/TrendsQuery"
                 },
                 "kind": {
-                    "const": "ExperimentTrendQuery",
+                    "const": "ExperimentTrendsQuery",
                     "type": "string"
                 },
                 "modifiers": {
@@ -5227,13 +5227,13 @@
                     "description": "Modifiers used when performing the query"
                 },
                 "response": {
-                    "$ref": "#/definitions/ExperimentTrendQueryResponse"
+                    "$ref": "#/definitions/ExperimentTrendsQueryResponse"
                 }
             },
             "required": ["count_query", "experiment_id", "kind"],
             "type": "object"
         },
-        "ExperimentTrendQueryResponse": {
+        "ExperimentTrendsQueryResponse": {
             "additionalProperties": false,
             "properties": {
                 "credible_intervals": {
@@ -5267,7 +5267,7 @@
                 },
                 "variants": {
                     "items": {
-                        "$ref": "#/definitions/ExperimentVariantTrendBaseStats"
+                        "$ref": "#/definitions/ExperimentVariantTrendsBaseStats"
                     },
                     "type": "array"
                 }
@@ -5283,7 +5283,7 @@
             ],
             "type": "object"
         },
-        "ExperimentVariantFunnelBaseStats": {
+        "ExperimentVariantFunnelsBaseStats": {
             "additionalProperties": false,
             "properties": {
                 "failure_count": {
@@ -5299,7 +5299,7 @@
             "required": ["key", "success_count", "failure_count"],
             "type": "object"
         },
-        "ExperimentVariantTrendBaseStats": {
+        "ExperimentVariantTrendsBaseStats": {
             "additionalProperties": false,
             "properties": {
                 "absolute_exposure": {
@@ -7615,8 +7615,8 @@
                 "WebStatsTableQuery",
                 "WebExternalClicksTableQuery",
                 "WebGoalsQuery",
-                "ExperimentFunnelQuery",
-                "ExperimentTrendQuery",
+                "ExperimentFunnelsQuery",
+                "ExperimentTrendsQuery",
                 "DatabaseSchemaQuery",
                 "SuggestedQuestionsQuery",
                 "TeamTaxonomyQuery",
@@ -8913,7 +8913,7 @@
                         },
                         "variants": {
                             "items": {
-                                "$ref": "#/definitions/ExperimentVariantFunnelBaseStats"
+                                "$ref": "#/definitions/ExperimentVariantFunnelsBaseStats"
                             },
                             "type": "array"
                         }
@@ -8963,7 +8963,7 @@
                         },
                         "variants": {
                             "items": {
-                                "$ref": "#/definitions/ExperimentVariantTrendBaseStats"
+                                "$ref": "#/definitions/ExperimentVariantTrendsBaseStats"
                             },
                             "type": "array"
                         }
@@ -9558,7 +9558,7 @@
                         },
                         "variants": {
                             "items": {
-                                "$ref": "#/definitions/ExperimentVariantFunnelBaseStats"
+                                "$ref": "#/definitions/ExperimentVariantFunnelsBaseStats"
                             },
                             "type": "array"
                         }
@@ -9608,7 +9608,7 @@
                         },
                         "variants": {
                             "items": {
-                                "$ref": "#/definitions/ExperimentVariantTrendBaseStats"
+                                "$ref": "#/definitions/ExperimentVariantTrendsBaseStats"
                             },
                             "type": "array"
                         }
@@ -10001,10 +10001,10 @@
                     "$ref": "#/definitions/ErrorTrackingQuery"
                 },
                 {
-                    "$ref": "#/definitions/ExperimentFunnelQuery"
+                    "$ref": "#/definitions/ExperimentFunnelsQuery"
                 },
                 {
-                    "$ref": "#/definitions/ExperimentTrendQuery"
+                    "$ref": "#/definitions/ExperimentTrendsQuery"
                 },
                 {
                     "$ref": "#/definitions/DataVisualizationNode"

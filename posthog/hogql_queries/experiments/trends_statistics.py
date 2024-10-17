@@ -12,13 +12,13 @@ from ee.clickhouse.queries.experiments import (
     P_VALUE_SIGNIFICANCE_LEVEL,
 )
 
-from posthog.schema import ExperimentSignificanceCode, ExperimentVariantTrendBaseStats
+from posthog.schema import ExperimentSignificanceCode, ExperimentVariantTrendsBaseStats
 
 Probability = float
 
 
 def calculate_probabilities(
-    control_variant: ExperimentVariantTrendBaseStats, test_variants: list[ExperimentVariantTrendBaseStats]
+    control_variant: ExperimentVariantTrendsBaseStats, test_variants: list[ExperimentVariantTrendsBaseStats]
 ) -> list[Probability]:
     """
     Calculates probability that A is better than B. First variant is control, rest are test variants.
@@ -59,7 +59,7 @@ def calculate_probabilities(
 
 
 def simulate_winning_variant_for_arrival_rates(
-    target_variant: ExperimentVariantTrendBaseStats, variants: list[ExperimentVariantTrendBaseStats]
+    target_variant: ExperimentVariantTrendsBaseStats, variants: list[ExperimentVariantTrendsBaseStats]
 ) -> float:
     random_sampler = default_rng()
     simulations_count = 100_000
@@ -85,8 +85,8 @@ def simulate_winning_variant_for_arrival_rates(
 
 
 def are_results_significant(
-    control_variant: ExperimentVariantTrendBaseStats,
-    test_variants: list[ExperimentVariantTrendBaseStats],
+    control_variant: ExperimentVariantTrendsBaseStats,
+    test_variants: list[ExperimentVariantTrendsBaseStats],
     probabilities: list[Probability],
 ) -> tuple[ExperimentSignificanceCode, Probability]:
     # TODO: Experiment with Expected Loss calculations for trend experiments
@@ -152,7 +152,7 @@ def poisson_p_value(control_count, control_exposure, test_count, test_exposure):
 
 
 def calculate_p_value(
-    control_variant: ExperimentVariantTrendBaseStats, test_variants: list[ExperimentVariantTrendBaseStats]
+    control_variant: ExperimentVariantTrendsBaseStats, test_variants: list[ExperimentVariantTrendsBaseStats]
 ) -> Probability:
     best_test_variant = max(test_variants, key=lambda variant: variant.count)
 

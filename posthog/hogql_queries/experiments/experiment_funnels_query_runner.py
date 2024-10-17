@@ -2,7 +2,7 @@ import json
 from posthog.constants import ExperimentNoResultsErrorKeys
 from posthog.hogql import ast
 from posthog.hogql_queries.experiments import CONTROL_VARIANT_KEY
-from posthog.hogql_queries.experiments.funnel_statistics import (
+from posthog.hogql_queries.experiments.funnels_statistics import (
     are_results_significant,
     calculate_credible_intervals,
     calculate_probabilities,
@@ -11,11 +11,11 @@ from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.models.experiment import Experiment
 from ..insights.funnels.funnels_query_runner import FunnelsQueryRunner
 from posthog.schema import (
-    CachedExperimentFunnelQueryResponse,
-    ExperimentFunnelQuery,
-    ExperimentFunnelQueryResponse,
+    CachedExperimentFunnelsQueryResponse,
+    ExperimentFunnelsQuery,
+    ExperimentFunnelsQueryResponse,
     ExperimentSignificanceCode,
-    ExperimentVariantFunnelBaseStats,
+    ExperimentVariantFunnelsBaseStats,
     FunnelsQuery,
     FunnelsQueryResponse,
     InsightDateRange,
@@ -26,10 +26,10 @@ from zoneinfo import ZoneInfo
 from rest_framework.exceptions import ValidationError
 
 
-class ExperimentFunnelQueryRunner(QueryRunner):
-    query: ExperimentFunnelQuery
-    response: ExperimentFunnelQueryResponse
-    cached_response: CachedExperimentFunnelQueryResponse
+class ExperimentFunnelsQueryRunner(QueryRunner):
+    query: ExperimentFunnelsQuery
+    response: ExperimentFunnelsQueryResponse
+    cached_response: CachedExperimentFunnelsQueryResponse
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -37,23 +37,23 @@ class ExperimentFunnelQueryRunner(QueryRunner):
         self.feature_flag = self.experiment.feature_flag
         self.variants = [variant["key"] for variant in self.feature_flag.variants]
         self.prepared_funnel_query = self._prepare_funnel_query()
-        self.funnel_query_runner = FunnelsQueryRunner(
+        self.funnels_query_runner = FunnelsQueryRunner(
             query=self.prepared_funnel_query, team=self.team, timings=self.timings, limit_context=self.limit_context
         )
 
-    def calculate(self) -> ExperimentFunnelQueryResponse:
-        funnel_results = self.funnel_query_runner.calculate()
+    def calculate(self) -> ExperimentFunnelsQueryResponse:
+        funnels_result = self.funnels_query_runner.calculate()
 
-        self._validate_event_variants(funnel_results)
+        self._validate_event_variants(funnels_result)
 
         # Statistical analysis
-        control_variant, test_variants = self._get_variants_with_base_stats(funnel_results)
+        control_variant, test_variants = self._get_variants_with_base_stats(funnels_result)
         probabilities = calculate_probabilities(control_variant, test_variants)
         significance_code, loss = are_results_significant(control_variant, test_variants, probabilities)
         credible_intervals = calculate_credible_intervals([control_variant, *test_variants])
 
-        return ExperimentFunnelQueryResponse(
-            insight=funnel_results,
+        return ExperimentFunnelsQueryResponse(
+            insight=funnels_result,
             variants=[variant.model_dump() for variant in [control_variant, *test_variants]],
             probability={
                 variant.key: probability
@@ -101,12 +101,12 @@ class ExperimentFunnelQueryRunner(QueryRunner):
         return prepared_funnel_query
 
     def _get_variants_with_base_stats(
-        self, funnel_results: FunnelsQueryResponse
-    ) -> tuple[ExperimentVariantFunnelBaseStats, list[ExperimentVariantFunnelBaseStats]]:
-        control_variant: Optional[ExperimentVariantFunnelBaseStats] = None
+        self, funnels_result: FunnelsQueryResponse
+    ) -> tuple[ExperimentVariantFunnelsBaseStats, list[ExperimentVariantFunnelsBaseStats]]:
+        control_variant: Optional[ExperimentVariantFunnelsBaseStats] = None
         test_variants = []
 
-        for result in funnel_results.results:
+        for result in funnels_result.results:
             result_dict = cast(list[dict[str, Any]], result)
             first_step = result_dict[0]
             last_step = result_dict[-1]
@@ -118,14 +118,14 @@ class ExperimentFunnelQueryRunner(QueryRunner):
             breakdown_value = cast(list[str], first_step["breakdown_value"])[0]
 
             if breakdown_value == CONTROL_VARIANT_KEY:
-                control_variant = ExperimentVariantFunnelBaseStats(
+                control_variant = ExperimentVariantFunnelsBaseStats(
                     key=breakdown_value,
                     success_count=int(success),
                     failure_count=int(failure),
                 )
             else:
                 test_variants.append(
-                    ExperimentVariantFunnelBaseStats(
+                    ExperimentVariantFunnelsBaseStats(
                         key=breakdown_value, success_count=int(success), failure_count=int(failure)
                     )
                 )
@@ -135,7 +135,7 @@ class ExperimentFunnelQueryRunner(QueryRunner):
 
         return control_variant, test_variants
 
-    def _validate_event_variants(self, funnel_results: FunnelsQueryResponse):
+    def _validate_event_variants(self, funnels_result: FunnelsQueryResponse):
         errors = {
             ExperimentNoResultsErrorKeys.NO_EVENTS: True,
             ExperimentNoResultsErrorKeys.NO_FLAG_INFO: True,
@@ -143,14 +143,14 @@ class ExperimentFunnelQueryRunner(QueryRunner):
             ExperimentNoResultsErrorKeys.NO_TEST_VARIANT: True,
         }
 
-        if not funnel_results.results or not funnel_results.results:
+        if not funnels_result.results or not funnels_result.results:
             raise ValidationError(code="no-results", detail=json.dumps(errors))
 
         errors[ExperimentNoResultsErrorKeys.NO_EVENTS] = False
 
         # Funnels: the first step must be present for *any* results to show up
         eventsWithOrderZero = []
-        for eventArr in funnel_results.results:
+        for eventArr in funnels_result.results:
             for event in eventArr:
                 event_dict = cast(dict[str, Any], event)
                 if event_dict.get("order") == 0:

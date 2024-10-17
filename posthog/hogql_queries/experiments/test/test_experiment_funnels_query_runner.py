@@ -1,10 +1,10 @@
 from typing import cast
-from posthog.hogql_queries.experiments.experiment_funnel_query_runner import ExperimentFunnelQueryRunner
+from posthog.hogql_queries.experiments.experiment_funnels_query_runner import ExperimentFunnelsQueryRunner
 from posthog.models.experiment import Experiment
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.schema import (
     EventsNode,
-    ExperimentFunnelQuery,
+    ExperimentFunnelsQuery,
     ExperimentSignificanceCode,
     FunnelsQuery,
 )
@@ -18,7 +18,7 @@ import json
 from posthog.test.test_journeys import journeys_for
 
 
-class TestExperimentFunnelQueryRunner(ClickhouseTestMixin, APIBaseTest):
+class TestExperimentFunnelsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def create_feature_flag(self, key="test-experiment"):
         return FeatureFlag.objects.create(
             name=f"Test experiment flag: {key}",
@@ -66,9 +66,9 @@ class TestExperimentFunnelQueryRunner(ClickhouseTestMixin, APIBaseTest):
             series=[EventsNode(event="$pageview"), EventsNode(event="purchase")],
             dateRange={"date_from": "2020-01-01", "date_to": "2020-01-14"},
         )
-        experiment_query = ExperimentFunnelQuery(
+        experiment_query = ExperimentFunnelsQuery(
             experiment_id=experiment.id,
-            kind="ExperimentFunnelQuery",
+            kind="ExperimentFunnelsQuery",
             source=funnels_query,
         )
 
@@ -96,8 +96,8 @@ class TestExperimentFunnelQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         flush_persons_and_events()
 
-        query_runner = ExperimentFunnelQueryRunner(
-            query=ExperimentFunnelQuery(**experiment.metrics[0]["query"]), team=self.team
+        query_runner = ExperimentFunnelsQueryRunner(
+            query=ExperimentFunnelsQuery(**experiment.metrics[0]["query"]), team=self.team
         )
         result = query_runner.calculate()
 
@@ -127,9 +127,9 @@ class TestExperimentFunnelQueryRunner(ClickhouseTestMixin, APIBaseTest):
             series=[EventsNode(event="$pageview"), EventsNode(event="purchase")],
             dateRange={"date_from": "2020-01-01", "date_to": "2020-01-14"},
         )
-        experiment_query = ExperimentFunnelQuery(
+        experiment_query = ExperimentFunnelsQuery(
             experiment_id=experiment.id,
-            kind="ExperimentFunnelQuery",
+            kind="ExperimentFunnelsQuery",
             source=funnels_query,
         )
 
@@ -170,8 +170,8 @@ class TestExperimentFunnelQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         flush_persons_and_events()
 
-        query_runner = ExperimentFunnelQueryRunner(
-            query=ExperimentFunnelQuery(**experiment.metrics[0]["query"]), team=self.team
+        query_runner = ExperimentFunnelsQueryRunner(
+            query=ExperimentFunnelsQuery(**experiment.metrics[0]["query"]), team=self.team
         )
         result = query_runner.calculate()
 
@@ -210,13 +210,13 @@ class TestExperimentFunnelQueryRunner(ClickhouseTestMixin, APIBaseTest):
             series=[EventsNode(event="$pageview"), EventsNode(event="purchase")],
             dateRange={"date_from": "2020-01-01", "date_to": "2020-01-14"},
         )
-        experiment_query = ExperimentFunnelQuery(
+        experiment_query = ExperimentFunnelsQuery(
             experiment_id=experiment.id,
-            kind="ExperimentFunnelQuery",
+            kind="ExperimentFunnelsQuery",
             source=funnels_query,
         )
 
-        query_runner = ExperimentFunnelQueryRunner(query=experiment_query, team=self.team)
+        query_runner = ExperimentFunnelsQueryRunner(query=experiment_query, team=self.team)
         with self.assertRaises(ValidationError) as context:
             query_runner.calculate()
 
@@ -252,13 +252,13 @@ class TestExperimentFunnelQueryRunner(ClickhouseTestMixin, APIBaseTest):
             series=[EventsNode(event="$pageview"), EventsNode(event="purchase")],
             dateRange={"date_from": "2020-01-01", "date_to": "2020-01-14"},
         )
-        experiment_query = ExperimentFunnelQuery(
+        experiment_query = ExperimentFunnelsQuery(
             experiment_id=experiment.id,
-            kind="ExperimentFunnelQuery",
+            kind="ExperimentFunnelsQuery",
             source=funnels_query,
         )
 
-        query_runner = ExperimentFunnelQueryRunner(query=experiment_query, team=self.team)
+        query_runner = ExperimentFunnelsQueryRunner(query=experiment_query, team=self.team)
         with self.assertRaises(ValidationError) as context:
             query_runner.calculate()
 
@@ -294,13 +294,13 @@ class TestExperimentFunnelQueryRunner(ClickhouseTestMixin, APIBaseTest):
             series=[EventsNode(event="$pageview"), EventsNode(event="purchase")],
             dateRange={"date_from": "2020-01-01", "date_to": "2020-01-14"},
         )
-        experiment_query = ExperimentFunnelQuery(
+        experiment_query = ExperimentFunnelsQuery(
             experiment_id=experiment.id,
-            kind="ExperimentFunnelQuery",
+            kind="ExperimentFunnelsQuery",
             source=funnels_query,
         )
 
-        query_runner = ExperimentFunnelQueryRunner(query=experiment_query, team=self.team)
+        query_runner = ExperimentFunnelsQueryRunner(query=experiment_query, team=self.team)
         with self.assertRaises(ValidationError) as context:
             query_runner.calculate()
 
@@ -338,13 +338,13 @@ class TestExperimentFunnelQueryRunner(ClickhouseTestMixin, APIBaseTest):
             series=[EventsNode(event="$pageview"), EventsNode(event="purchase")],
             dateRange={"date_from": "2020-01-01", "date_to": "2020-01-14"},
         )
-        experiment_query = ExperimentFunnelQuery(
+        experiment_query = ExperimentFunnelsQuery(
             experiment_id=experiment.id,
-            kind="ExperimentFunnelQuery",
+            kind="ExperimentFunnelsQuery",
             source=funnels_query,
         )
 
-        query_runner = ExperimentFunnelQueryRunner(query=experiment_query, team=self.team)
+        query_runner = ExperimentFunnelsQueryRunner(query=experiment_query, team=self.team)
         with self.assertRaises(ValidationError) as context:
             query_runner.calculate()
 
