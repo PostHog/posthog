@@ -1,6 +1,5 @@
 import { lemonToast, Spinner } from '@posthog/lemon-ui'
-import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
-import { router } from 'kea-router'
+import { actions, connect, events, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { liveEventsHostOrigin } from 'lib/utils/apiHost'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -10,8 +9,13 @@ import type { liveEventsTableLogicType } from './liveEventsTableLogicType'
 
 const ERROR_TOAST_ID = 'live-stream-error'
 
+export interface LiveEventsTableProps {
+    showLiveStreamErrorToast: boolean
+}
+
 export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
     path(['scenes', 'activity', 'live-events', 'liveEventsTableLogic']),
+    props({} as LiveEventsTableProps),
     connect({
         values: [teamLogic, ['currentTeam']],
     }),
@@ -26,7 +30,6 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
         setClientSideFilters: (clientSideFilters) => ({ clientSideFilters }),
         pollStats: true,
         setStats: (stats) => ({ stats }),
-        showLiveStreamErrorToast: true,
         addEventHost: (eventHost) => ({ eventHost }),
     })),
     reducers({
@@ -110,7 +113,7 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
             },
         ],
     })),
-    listeners(({ actions, values, cache }) => ({
+    listeners(({ actions, values, cache, props }) => ({
         setFilters: () => {
             actions.clearEvents()
             actions.updateEventsConnection()
@@ -153,15 +156,13 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
             }
 
             source.onerror = function (e) {
-                console.error('Failed to poll events: ', e)
-                if (
-                    !cache.hasShownLiveStreamErrorToast &&
-                    !router.values.currentLocation.pathname.includes('onboarding')
-                ) {
-                    lemonToast.error(
-                        `Cannot connect to the live event stream. Continuing to retry in the background…`,
-                        { icon: <Spinner />, toastId: ERROR_TOAST_ID, autoClose: false }
-                    )
+                if (!cache.hasShownLiveStreamErrorToast && props.showLiveStreamErrorToast) {
+                    console.error('Failed to poll events. You likely have no events coming in.', e)
+                    lemonToast.error(`No live events found. Continuing to retry in the background…`, {
+                        icon: <Spinner />,
+                        toastId: ERROR_TOAST_ID,
+                        autoClose: false,
+                    })
                     cache.hasShownLiveStreamErrorToast = true // Only show once
                 }
             }

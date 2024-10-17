@@ -517,6 +517,14 @@ class EventsQueryPersonColumn(BaseModel):
     uuid: str
 
 
+class ExperimentSignificanceCode(StrEnum):
+    SIGNIFICANT = "significant"
+    NOT_ENOUGH_EXPOSURE = "not_enough_exposure"
+    LOW_WIN_PROBABILITY = "low_win_probability"
+    HIGH_LOSS = "high_loss"
+    HIGH_P_VALUE = "high_p_value"
+
+
 class ExperimentVariantFunnelResult(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -526,7 +534,7 @@ class ExperimentVariantFunnelResult(BaseModel):
     success_count: float
 
 
-class ExperimentVariantTrendResult(BaseModel):
+class ExperimentVariantTrendBaseStats(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1020,30 +1028,6 @@ class QueryResponseAlternative16(BaseModel):
     )
     insight: Literal["FUNNELS"] = "FUNNELS"
     results: dict[str, ExperimentVariantFunnelResult]
-
-
-class QueryResponseAlternative17(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    insight: Literal["TRENDS"] = "TRENDS"
-    results: dict[str, ExperimentVariantTrendResult]
-
-
-class QueryResponseAlternative28(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    insight: Literal["FUNNELS"] = "FUNNELS"
-    results: dict[str, ExperimentVariantFunnelResult]
-
-
-class QueryResponseAlternative29(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    insight: Literal["TRENDS"] = "TRENDS"
-    results: dict[str, ExperimentVariantTrendResult]
 
 
 class QueryResponseAlternative38(BaseModel):
@@ -1955,15 +1939,20 @@ class CachedExperimentTrendQueryResponse(BaseModel):
     calculation_trigger: Optional[str] = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
-    insight: Literal["TRENDS"] = "TRENDS"
+    credible_intervals: dict[str, list[float]]
+    insight: TrendsQueryResponse
     is_cached: bool
     last_refresh: AwareDatetime
     next_allowed_client_refresh: AwareDatetime
+    p_value: float
+    probability: dict[str, float]
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
-    results: dict[str, ExperimentVariantTrendResult]
+    significance_code: ExperimentSignificanceCode
+    significant: bool
     timezone: str
+    variants: list[ExperimentVariantTrendBaseStats]
 
 
 class CachedFunnelCorrelationResponse(BaseModel):
@@ -2702,8 +2691,13 @@ class Response11(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    insight: Literal["TRENDS"] = "TRENDS"
-    results: dict[str, ExperimentVariantTrendResult]
+    credible_intervals: dict[str, list[float]]
+    insight: TrendsQueryResponse
+    p_value: float
+    probability: dict[str, float]
+    significance_code: ExperimentSignificanceCode
+    significant: bool
+    variants: list[ExperimentVariantTrendBaseStats]
 
 
 class DataWarehousePersonPropertyFilter(BaseModel):
@@ -2868,8 +2862,13 @@ class ExperimentTrendQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    insight: Literal["TRENDS"] = "TRENDS"
-    results: dict[str, ExperimentVariantTrendResult]
+    credible_intervals: dict[str, list[float]]
+    insight: TrendsQueryResponse
+    p_value: float
+    probability: dict[str, float]
+    significance_code: ExperimentSignificanceCode
+    significant: bool
+    variants: list[ExperimentVariantTrendBaseStats]
 
 
 class BreakdownFilter1(BaseModel):
@@ -3461,6 +3460,19 @@ class QueryResponseAlternative15(BaseModel):
     )
 
 
+class QueryResponseAlternative17(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    credible_intervals: dict[str, list[float]]
+    insight: TrendsQueryResponse
+    p_value: float
+    probability: dict[str, float]
+    significance_code: ExperimentSignificanceCode
+    significant: bool
+    variants: list[ExperimentVariantTrendBaseStats]
+
+
 class QueryResponseAlternative18(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3695,6 +3707,19 @@ class QueryResponseAlternative27(BaseModel):
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
+
+
+class QueryResponseAlternative29(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    credible_intervals: dict[str, list[float]]
+    insight: TrendsQueryResponse
+    p_value: float
+    probability: dict[str, float]
+    significance_code: ExperimentSignificanceCode
+    significant: bool
+    variants: list[ExperimentVariantTrendBaseStats]
 
 
 class QueryResponseAlternative30(BaseModel):
@@ -5787,7 +5812,6 @@ class QueryResponseAlternative(
             QueryResponseAlternative25,
             QueryResponseAlternative26,
             QueryResponseAlternative27,
-            QueryResponseAlternative28,
             QueryResponseAlternative29,
             QueryResponseAlternative30,
             QueryResponseAlternative31,
@@ -5827,7 +5851,6 @@ class QueryResponseAlternative(
         QueryResponseAlternative25,
         QueryResponseAlternative26,
         QueryResponseAlternative27,
-        QueryResponseAlternative28,
         QueryResponseAlternative29,
         QueryResponseAlternative30,
         QueryResponseAlternative31,
@@ -6349,6 +6372,7 @@ class QueryRequest(BaseModel):
             " `query_status` response field."
         ),
     )
+    variables_override: Optional[dict[str, dict[str, Any]]] = None
 
 
 class QuerySchemaRoot(
