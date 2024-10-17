@@ -581,23 +581,20 @@ class TestResolver(BaseTest):
         node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
         self._assert_first_columm_is_type(node, ast.IntegerType(nullable=False))
 
-    def test_interval_type_arithmetic_and_datetime_comparison(self):
-        # Ensure that common timestamp filtering expressions are not resolved as nullable types, as these types being
-        # nullable would cause them to be wrapped in `ifNull` calls during printing, preventing ClickHouse from doing
-        # effective partition and index optimizations, causing us to read more data than is necessary.
-        node = self._select("""
-            SELECT count()
-            FROM events
-            WHERE and(
-                greaterOrEquals(timestamp, minus(assumeNotNull(toDateTime('2024-09-16 00:00:00')), toIntervalDay(30))),
-                lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-10-16 23:59:59')))
-            )
-        """)
+    def test_interval_type_arithmetic(self):
+        operators = ["+", "-"]
+        granularites = ["Second", "Minute", "Hour", "Day", "Week", "Month", "Quarter", "Year"]
+        exprs = []
+        for granularity in granularites:
+            for operator in operators:
+                exprs.append(f"timestamp {operator} toInterval{granularity}(1)")
+
+        node = self._select(f"""SELECT {",".join(exprs)} FROM events""")
         node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
 
-        assert node.where is not None and isinstance(node.where.type, ast.CallType)
-        for arg_type in node.where.type.arg_types:
-            assert arg_type == ast.BooleanType(nullable=False)
+        assert len(node.select) == len(exprs)
+        for selected in node.select:
+            assert selected.type == ast.DateTimeType(nullable=False)
 
     def test_recording_button_tag(self):
         node: ast.SelectQuery = self._select("select <RecordingButton sessionId={'12345'} />")
