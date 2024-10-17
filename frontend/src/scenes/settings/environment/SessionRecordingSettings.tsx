@@ -18,11 +18,12 @@ import { Form } from 'kea-forms'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { EventSelect } from 'lib/components/EventSelect/EventSelect'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FlagSelector } from 'lib/components/FlagSelector'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { PropertySelect } from 'lib/components/PropertySelect/PropertySelect'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { SESSION_REPLAY_MINIMUM_DURATION_OPTIONS } from 'lib/constants'
+import { FEATURE_FLAGS, SESSION_REPLAY_MINIMUM_DURATION_OPTIONS } from 'lib/constants'
 import { IconCancel, IconSelectEvents } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
@@ -609,7 +610,9 @@ export function ReplayCostControl(): JSX.Element | null {
                     </>
                 )}
                 <LinkedFlagSelector />
-                <UrlTriggerOptions />
+                <FlaggedFeature flag={FEATURE_FLAGS.SESSION_REPLAY_URL_TRIGGER}>
+                    <UrlTriggerOptions />
+                </FlaggedFeature>
             </>
         </PayGateMini>
     )
