@@ -50,17 +50,17 @@ class AlertCalculationInterval(StrEnum):
     MONTHLY = "monthly"
 
 
-class AlertCondition(BaseModel):
-    pass
-    model_config = ConfigDict(
-        extra="forbid",
-    )
+class AlertConditionType(StrEnum):
+    ABSOLUTE_VALUE = "absolute_value"
+    RELATIVE_INCREASE = "relative_increase"
+    RELATIVE_DECREASE = "relative_decrease"
 
 
 class AlertState(StrEnum):
     FIRING = "Firing"
     NOT_FIRING = "Not firing"
     ERRORED = "Errored"
+    SNOOZED = "Snoozed"
 
 
 class Kind(StrEnum):
@@ -797,7 +797,12 @@ class InsightNodeKind(StrEnum):
     LIFECYCLE_QUERY = "LifecycleQuery"
 
 
-class InsightsThresholdAbsolute(BaseModel):
+class InsightThresholdType(StrEnum):
+    ABSOLUTE = "absolute"
+    PERCENTAGE = "percentage"
+
+
+class InsightsThresholdBounds(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1702,6 +1707,13 @@ class ActorsQueryResponse(BaseModel):
         default=None, description="Measured timings for different parts of the query generation process"
     )
     types: list[str]
+
+
+class AlertCondition(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    type: AlertConditionType
 
 
 class Breakdown(BaseModel):
@@ -3078,7 +3090,8 @@ class InsightThreshold(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    absoluteThreshold: Optional[InsightsThresholdAbsolute] = None
+    bounds: Optional[InsightsThresholdBounds] = None
+    type: InsightThresholdType
 
 
 class LifecycleFilter(BaseModel):
