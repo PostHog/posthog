@@ -34,16 +34,20 @@ class AST:
             return visitor.visit_unknown(self)
         raise NotImplementedError(f"{visitor.__class__.__name__} has no method {method_name}")
 
-    def __str__(self):
+    def to_hogql(self):
         from posthog.hogql.printer import print_prepared_ast
         from posthog.hogql.context import HogQLContext
 
-        printed = print_prepared_ast(
+        return print_prepared_ast(
             node=self,
             context=HogQLContext(enable_select_queries=True, limit_top_select=False),
             dialect="hogql",
         )
-        return f"sql({printed})"
+
+    def __str__(self):
+        if isinstance(self, Type):
+            return super().__str__()
+        return f"sql({self.to_hogql()})"
 
 
 _T_AST = TypeVar("_T_AST", bound=AST)
