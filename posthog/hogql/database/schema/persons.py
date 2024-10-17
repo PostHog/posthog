@@ -224,7 +224,10 @@ class PersonsTable(LazyTable):
 
     def lazy_select(self, table_to_add: LazyTableToAdd, context, node):
         # assume that if the select_from is not persons table we're doing a join
-        is_join = not isinstance(node.select_from.type.table, PersonsTable)
+        try:
+            is_join = not isinstance(node.select_from.type.table, PersonsTable)
+        except AttributeError:
+            is_join = False
         if self.filter is not None:
             return select_from_persons_table(
                 table_to_add, context, node, filter=clone_expr(self.filter, True), is_join=is_join

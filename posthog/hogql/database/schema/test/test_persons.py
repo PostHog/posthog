@@ -75,6 +75,25 @@ class TestPersonOptimization(ClickhouseTestMixin, APIBaseTest):
         assert len(response.results) == 2
 
     @snapshot_clickhouse_queries
+    def test_subquery_alias(self):
+        _create_event(event="$pageview", distinct_id="3", team=self.team)
+        response = execute_hogql_query(
+            parse_select(
+                """
+                select person_id, persons.id from (
+                    select
+                        person_id
+                    from events
+                ) as source
+                inner join persons ON (source.person_id=persons.id)
+                where notEquals(persons.properties.$some_prop, 'something')
+                """
+            ),
+            self.team,
+        )
+        assert len(response.results) == 1
+
+    @snapshot_clickhouse_queries
     def test_join(self):
         response = execute_hogql_query(
             parse_select(
