@@ -638,7 +638,7 @@ function UsageTab({ featureFlag }: { id: string; featureFlag: FeatureFlagType })
         ) {
             enrichUsageDashboard()
         }
-    }, [dashboard])
+    }, [dashboard, hasEnrichedAnalytics, enrichUsageDashboard])
 
     const propertyFilter: AnyPropertyFilter[] = [
         {
