@@ -32,12 +32,12 @@ export const teamMembersLogic = kea<teamMembersLogicType>([
         explicitMembers: {
             __default: [] as ExplicitTeamMemberType[],
             loadMembers: async () => {
-                return await api.get(`api/projects/${teamLogic.values.currentTeamId}/explicit_members/`)
+                return await api.get(`api/environments/${teamLogic.values.currentTeamId}/explicit_members/`)
             },
             addMembers: async ({ userUuids, level }: AddMembersFields) => {
                 const newMembers: ExplicitTeamMemberType[] = await Promise.all(
                     userUuids.map((userUuid) =>
-                        api.create(`api/projects/${teamLogic.values.currentTeamId}/explicit_members/`, {
+                        api.create(`api/environments/${teamLogic.values.currentTeamId}/explicit_members/`, {
                             user_uuid: userUuid,
                             level,
                         })
@@ -49,7 +49,9 @@ export const teamMembersLogic = kea<teamMembersLogicType>([
                 return [...values.explicitMembers, ...newMembers]
             },
             removeMember: async ({ member }: { member: BaseMemberType }) => {
-                await api.delete(`api/projects/${teamLogic.values.currentTeamId}/explicit_members/${member.user.uuid}/`)
+                await api.delete(
+                    `api/environments/${teamLogic.values.currentTeamId}/explicit_members/${member.user.uuid}/`
+                )
                 lemonToast.success(
                     <>
                         {member.user.uuid === userLogic.values.user?.uuid
@@ -164,7 +166,7 @@ export const teamMembersLogic = kea<teamMembersLogicType>([
     })),
     listeners(({ actions }) => ({
         changeUserAccessLevel: async ({ user, newLevel }) => {
-            await api.update(`api/projects/${teamLogic.values.currentTeamId}/explicit_members/${user.uuid}/`, {
+            await api.update(`api/environments/${teamLogic.values.currentTeamId}/explicit_members/${user.uuid}/`, {
                 level: newLevel,
             })
             lemonToast.success(

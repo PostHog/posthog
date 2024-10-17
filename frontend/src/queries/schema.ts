@@ -1221,6 +1221,7 @@ export interface QueryRequest {
      */
     query: QuerySchema
     filters_override?: DashboardFilter
+    variables_override?: Record<string, Record<string, any>>
 }
 
 /**
@@ -1979,25 +1980,38 @@ export interface DashboardFilter {
     properties?: AnyPropertyFilter[] | null
 }
 
-export interface InsightsThresholdAbsolute {
+export interface InsightsThresholdBounds {
     lower?: number
     upper?: number
 }
 
+export enum InsightThresholdType {
+    ABSOLUTE = 'absolute',
+    PERCENTAGE = 'percentage',
+}
+
 export interface InsightThreshold {
-    absoluteThreshold?: InsightsThresholdAbsolute
-    // More types of thresholds or conditions can be added here
+    type: InsightThresholdType
+    bounds?: InsightsThresholdBounds
+}
+
+export enum AlertConditionType {
+    ABSOLUTE_VALUE = 'absolute_value', // default alert, checks absolute value of current interval
+    RELATIVE_INCREASE = 'relative_increase', // checks increase in value during current interval compared to previous interval
+    RELATIVE_DECREASE = 'relative_decrease', // checks decrease in value during current interval compared to previous interval
 }
 
 export interface AlertCondition {
     // Conditions in addition to the separate threshold
     // TODO: Think about things like relative thresholds, rate of change, etc.
+    type: AlertConditionType
 }
 
 export enum AlertState {
     FIRING = 'Firing',
     NOT_FIRING = 'Not firing',
     ERRORED = 'Errored',
+    SNOOZED = 'Snoozed',
 }
 
 export enum AlertCalculationInterval {

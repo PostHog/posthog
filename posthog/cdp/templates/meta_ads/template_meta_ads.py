@@ -26,7 +26,7 @@ let res := fetch(f'https://graph.facebook.com/v21.0/{inputs.pixelId}/events', {
     }
 })
 if (res.status >= 400) {
-    print('Error from graph.facebook.com api:', res.status, res.body)
+    throw Error(f'Error from graph.facebook.com (status {res.status}): {res.body}')
 }
 """.strip(),
     inputs_schema=[

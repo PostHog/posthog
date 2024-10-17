@@ -33,6 +33,7 @@ from posthog.schema import (
     FunnelsQuery,
     HogQLQuery,
     HogQLQueryModifiers,
+    HogQLVariable,
     InsightActorsQuery,
     InsightActorsQueryOptions,
     LifecycleQuery,
@@ -720,6 +721,20 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
     def _refresh_frequency(self) -> timedelta:
         return timedelta(minutes=1)
+
+    def apply_variable_overrides(self, variable_overrides: list[HogQLVariable]):
+        """Irreversably update self.query with provided variable overrides."""
+        if not hasattr(self.query, "variables") or not self.query.kind == "HogQLQuery" or len(variable_overrides) == 0:
+            return
+
+        assert isinstance(self.query, HogQLQuery)
+
+        if not self.query.variables:
+            return
+
+        for variable in variable_overrides:
+            if self.query.variables.get(variable.variableId):
+                self.query.variables[variable.variableId] = variable
 
     def apply_dashboard_filters(self, dashboard_filter: DashboardFilter):
         """Irreversably update self.query with provided dashboard filters."""
