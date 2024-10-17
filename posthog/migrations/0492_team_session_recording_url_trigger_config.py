@@ -6,7 +6,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0490_dashboard_variables"),
+        ("posthog", "0491_alertconfiguration_snoozed_until_and_more"),
     ]
 
     operations = [
