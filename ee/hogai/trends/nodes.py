@@ -4,6 +4,7 @@ import xml.etree.ElementTree as ET
 from functools import cached_property
 from typing import Union, cast
 
+from django.utils.functional import classproperty
 from langchain.agents.format_scratchpad import format_log_to_str
 from langchain.agents.output_parsers import ReActJsonSingleInputOutputParser
 from langchain_core.agents import AgentAction, AgentFinish
@@ -11,7 +12,7 @@ from langchain_core.exceptions import OutputParserException
 from langchain_core.messages import AIMessage, BaseMessage, merge_message_runs
 from langchain_core.output_parsers import PydanticOutputParser
 from langchain_core.prompts import ChatPromptTemplate, HumanMessagePromptTemplate
-from langchain_core.runnables import RunnableLambda, RunnablePassthrough
+from langchain_core.runnables import RunnableConfig, RunnableLambda, RunnablePassthrough
 from pydantic import ValidationError
 
 from ee.hogai.hardcoded_definitions import hardcoded_prop_defs
@@ -133,7 +134,7 @@ class CreateTrendsPlanNode(AssistantNode):
 
         return conversation
 
-    def run(self, state: AssistantState):
+    def run(self, state: AssistantState, config: RunnableConfig):
         intermediate_steps = state.get("intermediate_steps") or []
 
         prompt = (
@@ -178,7 +179,8 @@ class CreateTrendsPlanNode(AssistantNode):
                         "tools": toolkit.render_text_description(),
                         "tool_names": ", ".join([t["name"] for t in toolkit.tools]),
                         "intermediate_steps": intermediate_steps,
-                    }
+                    },
+                    config,
                 ),
             )
         except OutputParserException as e:
@@ -210,7 +212,7 @@ class CreateTrendsPlanToolsNode(AssistantNode):
             return AssistantNodeName.GENERATE_TRENDS
         return AssistantNodeName.CREATE_TRENDS_PLAN
 
-    def run(self, state: AssistantState):
+    def run(self, state: AssistantState, config: RunnableConfig):
         toolkit = TrendsAgentToolkit(self._team)
         intermediate_steps = state.get("intermediate_steps") or []
         action, _ = intermediate_steps[-1]
@@ -317,7 +319,11 @@ class GenerateTrendsNode(AssistantNode):
 
         return conversation
 
-    def run(self, state: AssistantState):
+    @classproperty
+    def output_parser(cls):
+        return PydanticOutputParser[GenerateTrendOutputModel](pydantic_object=GenerateTrendOutputModel)
+
+    def run(self, state: AssistantState, config: RunnableConfig):
         generated_plan = state.get("plan", "")
 
         llm = llm_gpt_4o.with_structured_output(
@@ -341,11 +347,11 @@ class GenerateTrendsNode(AssistantNode):
             # Result from structured output is a parsed dict. Convert to a string since the output parser expects it.
             | RunnableLambda(lambda x: json.dumps(x))
             # Validate a string input.
-            | PydanticOutputParser[GenerateTrendOutputModel](pydantic_object=GenerateTrendOutputModel)
+            | self.output_parser
         )
 
         try:
-            message = chain.invoke({})
+            message = chain.invoke({}, config)
         except OutputParserException as e:
             if e.send_to_llm:
                 observation = str(e.observation)
@@ -371,5 +377,5 @@ class GenerateTrendsToolsNode(AssistantNode):
 
     name = AssistantNodeName.GENERATE_TRENDS_TOOLS
 
-    def run(self, state: AssistantState):
+    def run(self, state: AssistantState, config: RunnableConfig):
         return state

@@ -169,11 +169,11 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     def chat(self, request: Request, *args, **kwargs):
         assert request.user is not None
         validated_body = Conversation.model_validate(request.data)
-        chain = Assistant(self.team)
+        assistant = Assistant(self.team)
 
         def generate():
             last_message = None
-            for message in chain.stream({"question": validated_body.messages[0].content}):
+            for message in assistant.stream({"messages": validated_body.messages}):
                 if message:
                     last_message = message[0].model_dump_json()
                     yield last_message
