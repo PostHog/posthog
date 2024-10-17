@@ -1081,6 +1081,20 @@ def filters_override_requested_by_client(request: Request) -> Optional[dict]:
     return None
 
 
+def variables_override_requested_by_client(request: Request) -> Optional[dict[str, dict]]:
+    raw_variables = request.query_params.get("variables_override")
+
+    if raw_variables is not None:
+        try:
+            return json.loads(raw_variables)
+        except Exception:
+            raise serializers.ValidationError(
+                {"variables_override": "Invalid JSON passed in variables_override parameter"}
+            )
+
+    return None
+
+
 def _request_has_key_set(key: str, request: Request, allowed_values: Optional[list[str]] = None) -> bool | str:
     query_param = request.query_params.get(key)
     data_value = request.data.get(key)

@@ -13,7 +13,7 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             post: {
-                '/api/projects/:team_id/query/chat/': chatResponse,
+                '/api/environments/:team_id/query/chat/': chatResponse,
             },
         }),
     ],
@@ -36,8 +36,40 @@ const Template = ({ sessionId }: { sessionId: string }): JSX.Element => {
 }
 
 export const Welcome: StoryFn = () => {
+    useStorybookMocks({
+        post: {
+            '/api/projects/:team_id/query/': () => [
+                200,
+                {
+                    questions: [
+                        'What are my most popular pages?',
+                        'Where are my users located?',
+                        'Who are the biggest customers?',
+                        'Which feature drives most usage?',
+                    ],
+                },
+            ],
+        },
+    })
+
     const sessionId = 'd210b263-8521-4c5b-b3c4-8e0348df574b'
     return <Template sessionId={sessionId} />
+}
+
+export const WelcomeLoadingSuggestions: StoryFn = () => {
+    useStorybookMocks({
+        post: {
+            '/api/projects/:team_id/query/': (_req, _res, ctx) => [ctx.delay('infinite')],
+        },
+    })
+
+    const sessionId = 'd210b263-8521-4c5b-b3c4-8e0348df574b'
+    return <Template sessionId={sessionId} />
+}
+WelcomeLoadingSuggestions.parameters = {
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
 }
 
 export const Thread: StoryFn = () => {
@@ -54,7 +86,7 @@ export const Thread: StoryFn = () => {
 export const EmptyThreadLoading: StoryFn = () => {
     useStorybookMocks({
         post: {
-            '/api/projects/:team_id/query/chat/': (_req, _res, ctx) => [ctx.delay('infinite')],
+            '/api/environments/:team_id/query/chat/': (_req, _res, ctx) => [ctx.delay('infinite')],
         },
     })
 

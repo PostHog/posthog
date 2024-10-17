@@ -1,6 +1,8 @@
 // A React component that renders a list of key-value pairs in a simple way.
 
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { getCoreFilterDefinition } from 'lib/taxonomy'
 import { useEffect, useState } from 'react'
 
 export interface SimpleKeyValueListProps {
@@ -22,10 +24,14 @@ export function SimpleKeyValueList({
 
     useEffect(() => {
         const sortedItems = Object.entries(item).sort((a, b) => {
-            if (a[0] < b[0]) {
+            // if this is a posthog property we want to sort by its label
+            const left = getCoreFilterDefinition(a[0], TaxonomicFilterGroupType.EventProperties)?.label || a[0]
+            const right = getCoreFilterDefinition(b[0], TaxonomicFilterGroupType.EventProperties)?.label || b[0]
+
+            if (left < right) {
                 return -1
             }
-            if (a[0] > b[0]) {
+            if (left > right) {
                 return 1
             }
             return 0

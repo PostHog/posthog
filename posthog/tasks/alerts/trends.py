@@ -70,6 +70,7 @@ def check_trends_alert(alert: AlertConfiguration, insight: Insight, query: Trend
 
             calculation_result = calculate_for_query_based_insight(
                 insight,
+                team=alert.team,
                 execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
                 user=None,
                 filters_override=filters_override,
@@ -95,6 +96,7 @@ def check_trends_alert(alert: AlertConfiguration, insight: Insight, query: Trend
 
             calculation_result = calculate_for_query_based_insight(
                 insight,
+                team=alert.team,
                 execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
                 user=None,
                 filters_override=filters_overrides,
@@ -128,6 +130,7 @@ def check_trends_alert(alert: AlertConfiguration, insight: Insight, query: Trend
 
             calculation_result = calculate_for_query_based_insight(
                 insight,
+                team=alert.team,
                 execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
                 user=None,
                 filters_override=filters_overrides,

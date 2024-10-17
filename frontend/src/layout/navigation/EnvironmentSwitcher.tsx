@@ -16,6 +16,14 @@ import { AvailableFeature } from '~/types'
 import { globalModalsLogic } from '../GlobalModals'
 import { environmentSwitcherLogic } from './environmentsSwitcherLogic'
 
+/**
+ * Regex matching a possible emoji (any emoji) at the beginning of the string.
+ * Examples: In "👋 Hello", match group 1 is "👋". In "Hello" or "Hello 👋", there are no matches.
+ * From https://stackoverflow.com/a/67705964/351526
+ */
+const EMOJI_INITIAL_REGEX =
+    /^(\u00a9|\u00ae|[\u25a0-\u27bf]|\ud83c[\ud000-\udfff]|\ud83d[\ud000-\udfff]|\ud83e[\ud000-\udfff]) /
+
 export function EnvironmentSwitcherOverlay({ onClickInside }: { onClickInside?: () => void }): JSX.Element {
     const { sortedProjectsMap } = useValues(environmentSwitcherLogic)
     const { currentOrganization, projectCreationForbiddenReason } = useValues(organizationLogic)
@@ -31,10 +39,16 @@ export function EnvironmentSwitcherOverlay({ onClickInside }: { onClickInside?: 
 
         const projectSectionsResult: LemonMenuSection[] = []
         for (const [projectId, [projectName, projectTeams]] of sortedProjectsMap.entries()) {
+            const projectNameWithoutEmoji = projectName.replace(EMOJI_INITIAL_REGEX, '').trim()
+            const projectNameEmojiMatch = projectName.match(EMOJI_INITIAL_REGEX)?.[1]
             const projectItems: LemonMenuItem[] = [
                 {
-                    label: projectName,
-                    icon: <UploadedLogo name={projectName} entityId={projectId} outlinedLettermark />,
+                    label: <span className="opacity-[var(--opacity-disabled)]">{projectNameWithoutEmoji}</span>,
+                    icon: projectNameEmojiMatch ? (
+                        <div className="size-6 text-xl leading-6 text-center">{projectNameEmojiMatch}</div>
+                    ) : (
+                        <UploadedLogo name={projectName} entityId={projectId} outlinedLettermark />
+                    ),
                     disabledReason: 'Select an environment of this project below',
                     onClick: () => {},
                     sideAction: {
@@ -50,6 +64,7 @@ export function EnvironmentSwitcherOverlay({ onClickInside }: { onClickInside?: 
                         },
                         'data-attr': 'new-environment-button',
                     },
+                    className: 'opacity-100',
                 },
             ]
             for (const team of projectTeams) {
@@ -154,6 +169,7 @@ function EnvironmentSwitcherSearch(): JSX.Element {
             value={environmentSwitcherSearch}
             onChange={setEnvironmentSwitcherSearch}
             type="search"
+            fullWidth
             autoFocus
             placeholder="Search projects & environments"
             className="min-w-64"
