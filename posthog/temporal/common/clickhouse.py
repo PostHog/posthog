@@ -1,3 +1,4 @@
+import asyncio
 import collections.abc
 import contextlib
 import datetime as dt
@@ -11,7 +12,7 @@ import pyarrow as pa
 import requests
 from django.conf import settings
 
-from posthog.temporal.common.asyncpa import AsyncRecordBatchReader
+import posthog.temporal.common.asyncpa as asyncpa
 
 
 def encode_clickhouse_data(data: typing.Any, quote_char="'") -> bytes:
@@ -383,12 +384,30 @@ class ClickHouseClient:
         """Execute the given query in ClickHouse and stream back the response as Arrow record batches.
 
         This method makes sense when running with FORMAT ArrowStream, although we currently do not enforce this.
-        As pyarrow doesn't support async/await buffers, this method is sync and utilizes requests instead of aiohttp.
         """
         async with self.apost_query(query, *data, query_parameters=query_parameters, query_id=query_id) as response:
-            reader = AsyncRecordBatchReader(response.content.iter_chunks())
+            reader = asyncpa.AsyncRecordBatchReader(response.content.iter_chunks())
             async for batch in reader:
                 yield batch
+
+    async def aproduce_query_as_arrow_record_batches(
+        self,
+        query,
+        *data,
+        queue: asyncio.Queue,
+        done_event: asyncio.Event,
+        query_parameters=None,
+        query_id: str | None = None,
+    ) -> None:
+        """Execute the given query in ClickHouse and produce Arrow record batches to given buffer queue.
+
+        This method makes sense when running with FORMAT ArrowStream, although we currently do not enforce this.
+        This method is intended to be ran as a background task, producing record batches continuously, while other
+        downstream consumer tasks process them from the queue.
+        """
+        async with self.apost_query(query, *data, query_parameters=query_parameters, query_id=query_id) as response:
+            reader = asyncpa.AsyncRecordBatchProducer(response.content.iter_chunks())
+            await reader.produce(queue=queue, done_event=done_event)
 
     async def __aenter__(self):
         """Enter method part of the AsyncContextManager protocol."""

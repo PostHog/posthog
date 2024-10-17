@@ -1,36 +1,22 @@
 from datetime import datetime, UTC, timedelta
-from typing import Any, Optional, cast
-from dateutil.relativedelta import relativedelta
 
 
 from django.db import models
 from django.core.exceptions import ValidationError
+import pydantic
 
 from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager import conversion_to_query_based
 from posthog.models.insight import Insight
 from posthog.models.utils import UUIDModel, CreatedMetaFields
-from posthog.schema import AlertCondition, InsightThreshold, AlertState, AlertCalculationInterval
+from posthog.schema import InsightThreshold, AlertState, AlertCalculationInterval
 
 
 ALERT_STATE_CHOICES = [
     (AlertState.FIRING, AlertState.FIRING),
     (AlertState.NOT_FIRING, AlertState.NOT_FIRING),
     (AlertState.ERRORED, AlertState.ERRORED),
+    (AlertState.SNOOZED, AlertState.SNOOZED),
 ]
-
-
-def alert_calculation_interval_to_relativedelta(alert_calculation_interval: AlertCalculationInterval) -> relativedelta:
-    match alert_calculation_interval:
-        case AlertCalculationInterval.HOURLY:
-            return relativedelta(hours=1)
-        case AlertCalculationInterval.DAILY:
-            return relativedelta(days=1)
-        case AlertCalculationInterval.WEEKLY:
-            return relativedelta(weeks=1)
-        case AlertCalculationInterval.MONTHLY:
-            return relativedelta(months=1)
-        case _:
-            raise ValueError(f"Invalid alert calculation interval: {alert_calculation_interval}")
 
 
 def are_alerts_supported_for_insight(insight: Insight) -> bool:
@@ -41,32 +27,6 @@ def are_alerts_supported_for_insight(insight: Insight) -> bool:
         if query is None or query.get("kind") != "TrendsQuery":
             return False
     return True
-
-
-class ConditionValidator:
-    def __init__(self, threshold: Optional[InsightThreshold], condition: AlertCondition):
-        self.threshold = threshold
-        self.condition = condition
-
-    def validate(self, calculated_value: float) -> list[str]:
-        validators: Any = [
-            self.validate_absolute_threshold,
-        ]
-        breaches = []
-        for validator in validators:
-            breaches += validator(calculated_value)
-        return breaches
-
-    def validate_absolute_threshold(self, calculated_value: float) -> list[str]:
-        if not self.threshold or not self.threshold.absoluteThreshold:
-            return []
-
-        absolute_threshold = self.threshold.absoluteThreshold
-        if absolute_threshold.lower is not None and calculated_value < absolute_threshold.lower:
-            return [f"The trend value ({calculated_value}) is below the lower threshold ({absolute_threshold.lower})"]
-        if absolute_threshold.upper is not None and calculated_value > absolute_threshold.upper:
-            return [f"The trend value ({calculated_value}) is above the upper threshold ({absolute_threshold.upper})"]
-        return []
 
 
 class Alert(models.Model):
@@ -95,11 +55,15 @@ class Threshold(CreatedMetaFields, UUIDModel):
     configuration = models.JSONField(default=dict)
 
     def clean(self):
-        config = InsightThreshold.model_validate(self.configuration)
-        if not config or not config.absoluteThreshold:
+        try:
+            config = InsightThreshold.model_validate(self.configuration)
+        except pydantic.ValidationError as e:
+            raise ValidationError(f"Invalid threshold configuration: {e}")
+
+        if not config or not config.bounds:
             return
-        if config.absoluteThreshold.lower is not None and config.absoluteThreshold.upper is not None:
-            if config.absoluteThreshold.lower > config.absoluteThreshold.upper:
+        if config.bounds.lower is not None and config.bounds.upper is not None:
+            if config.bounds.lower > config.bounds.upper:
                 raise ValidationError("Lower threshold must be less than upper threshold")
 
 
@@ -145,7 +109,10 @@ class AlertConfiguration(CreatedMetaFields, UUIDModel):
 
     last_notified_at = models.DateTimeField(null=True, blank=True)
     last_checked_at = models.DateTimeField(null=True, blank=True)
+    # UTC time for when next alert check is due
     next_check_at = models.DateTimeField(null=True, blank=True)
+    # UTC time until when we shouldn't check alert/notify user
+    snoozed_until = models.DateTimeField(null=True, blank=True)
 
     def __str__(self):
         return f"{self.name} (Team: {self.team})"
@@ -158,75 +125,6 @@ class AlertConfiguration(CreatedMetaFields, UUIDModel):
                 kwargs["update_fields"].append("state")
 
         super().save(*args, **kwargs)
-
-    def evaluate_condition(self, calculated_value) -> list[str]:
-        threshold = InsightThreshold.model_validate(self.threshold.configuration) if self.threshold else None
-        condition = AlertCondition.model_validate(self.condition)
-        validator = ConditionValidator(threshold=threshold, condition=condition)
-        return validator.validate(calculated_value)
-
-    def add_check(
-        self, *, aggregated_value: Optional[float], error: Optional[dict] = None
-    ) -> tuple["AlertCheck", list[str], Optional[dict], bool]:
-        """
-        Add a new AlertCheck, managing state transitions and cool down.
-
-        Args:
-            aggregated_value: result of insight calculation compressed to one number to compare against threshold
-            error: any error raised while calculating insight value, if present then set state as errored
-        """
-
-        targets_notified: dict[str, list[str]] = {}
-        breaches = []
-        notify = False
-
-        if not error:
-            try:
-                breaches = self.evaluate_condition(aggregated_value) if aggregated_value is not None else []
-            except Exception as err:
-                # error checking the condition
-                error = {
-                    "message": f"Error checking alert condition {str(err)}",
-                }
-
-        if error:
-            # If the alert is not already errored, notify user
-            if self.state != AlertState.ERRORED:
-                self.state = AlertState.ERRORED
-                notify = True
-        elif breaches:
-            # If the alert is not already firing, notify user
-            if self.state != AlertState.FIRING:
-                self.state = AlertState.FIRING
-                notify = True
-        else:
-            self.state = AlertState.NOT_FIRING  # Set the Alert to not firing if the threshold is no longer met
-            # TODO: Optionally send a resolved notification when alert goes from firing to not_firing?
-
-        now = datetime.now(UTC)
-        self.last_checked_at = datetime.now(UTC)
-
-        # IMPORTANT: update next_check_at according to interval
-        # ensure we don't recheck alert until the next interval is due
-        self.next_check_at = (self.next_check_at or now) + alert_calculation_interval_to_relativedelta(
-            cast(AlertCalculationInterval, self.calculation_interval)
-        )
-
-        if notify:
-            self.last_notified_at = now
-            targets_notified = {"users": list(self.subscribed_users.all().values_list("email", flat=True))}
-
-        alert_check = AlertCheck.objects.create(
-            alert_configuration=self,
-            calculated_value=aggregated_value,
-            condition=self.condition,
-            targets_notified=targets_notified,
-            state=self.state,
-            error=error,
-        )
-
-        self.save()
-        return alert_check, breaches, error, notify
 
 
 class AlertSubscription(CreatedMetaFields, UUIDModel):
