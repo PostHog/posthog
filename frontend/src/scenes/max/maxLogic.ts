@@ -11,7 +11,7 @@ export interface MaxLogicProps {
     sessionId: string
 }
 
-interface TrendGenerationResult {
+export interface TrendGenerationResult {
     reasoning_steps?: string[]
     answer?: ExperimentalAITrendsQuery
 }
