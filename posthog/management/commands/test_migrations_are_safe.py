@@ -67,13 +67,18 @@ def validate_migration_sql(sql) -> bool:
                 f"\n\n\033[91mFound a DROP TABLE command. This could lead to unsafe states for the app. Please avoid dropping tables.\nSource: `{operation_sql}`"
             )
             return True
-        if "CONSTRAINT" in operation_sql and (
-            "-- existing-table-constraint-ignore" not in operation_sql
+        if (
+            "CONSTRAINT" in operation_sql
+            # Ignore for new foreign key columns that are nullable, as their foreign key constraint does not lock
+            and not re.match(r"ADD COLUMN .+ NULL CONSTRAINT", operation_sql)
+            and "-- existing-table-constraint-ignore" not in operation_sql
             and " NOT VALID" not in operation_sql
+            and " VALIDATE CONSTRAINT "
+            not in operation_sql  # VALIDATE CONSTRAINT is a different, non-locking operation
             and (
                 table_being_altered not in tables_created_so_far
-                or _get_table("ALTER TABLE", operation_sql) not in new_tables
-            )  # Ignore for brand-new tables
+                or _get_table("ALTER TABLE", operation_sql) not in new_tables  # Ignore for brand-new tables
+            )
         ):
             print(
                 f"\n\n\033[91mFound a CONSTRAINT command without NOT VALID. This locks tables which causes downtime. "

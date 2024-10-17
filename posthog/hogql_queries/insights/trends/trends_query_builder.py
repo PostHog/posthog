@@ -738,7 +738,6 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
 
         # Actions
         if isinstance(self.series, ActionsNode):
-            assert self.team.project_id is not None
             try:
                 action = Action.objects.get(pk=int(self.series.id), team__project_id=self.team.project_id)
                 return action_to_expr(action)
