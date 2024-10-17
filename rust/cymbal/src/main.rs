@@ -99,7 +99,7 @@ async fn main() -> Result<(), Error> {
             }
         };
 
-        if len(properties.exception_list) == 0 {
+        if properties.exception_list.is_empty() {
             metrics::counter!(ERRORS, "cause" => "no_exception_list").increment(1);
             continue;
         }
@@ -109,11 +109,11 @@ async fn main() -> Result<(), Error> {
             continue;
         };
 
-        let stack_trace: Vec<RawFrame> = trace.frames;
+        let stack_trace: &Vec<RawFrame> = &trace.frames;
 
         let mut resolved_frames = Vec::new();
         for frame in stack_trace {
-            let resolved = match context.resolver.resolve(frame, 1).await {
+            let resolved = match context.resolver.resolve(frame.clone(), 1).await {
                 Ok(r) => r,
                 Err(err) => {
                     metrics::counter!(ERRORS, "cause" => "frame_not_parsable").increment(1);
