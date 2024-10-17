@@ -6,7 +6,16 @@ import posthog from 'posthog-js'
 
 import { OnlineExportContext, QueryExportContext } from '~/types'
 
-import { DashboardFilter, DataNode, HogQLQuery, HogQLQueryResponse, NodeKind, PersonsNode, QueryStatus } from './schema'
+import {
+    DashboardFilter,
+    DataNode,
+    HogQLQuery,
+    HogQLQueryResponse,
+    HogQLVariable,
+    NodeKind,
+    PersonsNode,
+    QueryStatus,
+} from './schema'
 import {
     isAsyncResponse,
     isDataTableNode,
@@ -79,6 +88,7 @@ async function executeQuery<N extends DataNode>(
     queryId?: string,
     setPollResponse?: (response: QueryStatus) => void,
     filtersOverride?: DashboardFilter | null,
+    variablesOverride?: Record<string, HogQLVariable> | null,
     /**
      * Whether to limit the function to just polling the provided query ID.
      * This is important in shared contexts, where we cannot create arbitrary queries via POST – we can only GET.
@@ -91,7 +101,15 @@ async function executeQuery<N extends DataNode>(
         !!featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.QUERY_ASYNC]
 
     if (!pollOnly) {
-        const response = await api.query(queryNode, methodOptions, queryId, refresh, isAsyncQuery, filtersOverride)
+        const response = await api.query(
+            queryNode,
+            methodOptions,
+            queryId,
+            refresh,
+            isAsyncQuery,
+            filtersOverride,
+            variablesOverride
+        )
 
         if (!isAsyncResponse(response)) {
             // Executed query synchronously or from cache
@@ -124,6 +142,7 @@ export async function performQuery<N extends DataNode>(
     queryId?: string,
     setPollResponse?: (status: QueryStatus) => void,
     filtersOverride?: DashboardFilter | null,
+    variablesOverride?: Record<string, HogQLVariable> | null,
     pollOnly = false
 ): Promise<NonNullable<N['response']>> {
     let response: NonNullable<N['response']>
@@ -141,6 +160,7 @@ export async function performQuery<N extends DataNode>(
                 queryId,
                 setPollResponse,
                 filtersOverride,
+                variablesOverride,
                 pollOnly
             )
             if (isHogQLQuery(queryNode) && response && typeof response === 'object') {

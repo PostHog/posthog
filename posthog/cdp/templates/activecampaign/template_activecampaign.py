@@ -41,7 +41,7 @@ let res := fetch(f'https://{inputs.accountName}.api-us1.com/api/3/contact/sync',
 })
 
 if (res.status >= 400) {
-    print(f'Error from {inputs.accountName}.api-us1.com api:', res.status, res.body)
+    throw Error(f'Error from {inputs.accountName}.api-us1.com (status {res.status}): {res.body}')
 } else {
     print('Contact has been created or updated successfully!')
 }

@@ -16,7 +16,8 @@ describe('Alerts', () => {
     const createAlert = (
         name: string = 'Alert name',
         lowerThreshold: string = '100',
-        upperThreshold: string = '200'
+        upperThreshold: string = '200',
+        condition?: string
     ): void => {
         cy.get('[data-attr=more-button]').click()
         cy.contains('Manage alerts').click()
@@ -24,6 +25,13 @@ describe('Alerts', () => {
 
         cy.get('[data-attr=alertForm-name]').clear().type(name)
         cy.get('[data-attr=subscribed-users').click().type('{downarrow}{enter}')
+
+        if (condition) {
+            cy.get('[data-attr=alertForm-condition').click()
+            cy.contains(condition).click()
+            cy.contains('%').click()
+        }
+
         cy.get('[data-attr=alertForm-lower-threshold').clear().type(lowerThreshold)
         cy.get('[data-attr=alertForm-upper-threshold').clear().type(upperThreshold)
         cy.contains('Create alert').click()
@@ -39,7 +47,6 @@ describe('Alerts', () => {
         cy.get('[data-attr=insight-edit-button]').click()
         cy.get('[data-attr=chart-filter]').click()
         cy.contains(displayType).click()
-        cy.get('.insight-empty-state').should('not.exist')
         cy.get('[data-attr=insight-save-button]').contains('Save').click()
         cy.url().should('not.include', '/edit')
     }
@@ -69,7 +76,7 @@ describe('Alerts', () => {
     })
 
     it('Should warn about an alert deletion', () => {
-        setInsightDisplayTypeAndSave('Number')
+        setInsightDisplayTypeAndSave('Area chart')
 
         createAlert('Alert to be deleted because of a changed insight')
 
@@ -89,5 +96,29 @@ describe('Alerts', () => {
         cy.get('[data-attr=more-button]').click()
         cy.contains('Manage alerts').click()
         cy.contains('Alert to be deleted because of a changed insight').should('not.exist')
+    })
+
+    it('Should allow create and delete a relative alert', () => {
+        cy.get('[data-attr=more-button]').click()
+        // Alerts should be disabled for trends represented with graphs
+        cy.get('[data-attr=manage-alerts-button]').should('have.attr', 'aria-disabled', 'true')
+
+        setInsightDisplayTypeAndSave('Bar chart')
+
+        createAlert('Alert name', '10', '20', 'increases by')
+        cy.reload()
+
+        // Check the alert has the same values as when it was created
+        cy.get('[data-attr=more-button]').click()
+        cy.contains('Manage alerts').click()
+        cy.get('[data-attr=alert-list-item]').contains('Alert name').click()
+        cy.get('[data-attr=alertForm-name]').should('have.value', 'Alert name')
+        cy.get('[data-attr=alertForm-lower-threshold').should('have.value', '10')
+        cy.get('[data-attr=alertForm-upper-threshold').should('have.value', '20')
+        cy.contains('Delete alert').click()
+        cy.wait(2000)
+
+        cy.reload()
+        cy.contains('Alert name').should('not.exist')
     })
 })

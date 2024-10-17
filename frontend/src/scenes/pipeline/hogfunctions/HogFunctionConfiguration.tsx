@@ -13,6 +13,7 @@ import {
     Link,
     SpinnerOverlay,
 } from '@posthog/lemon-ui'
+import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { NotFound } from 'lib/components/NotFound'
@@ -340,89 +341,97 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                             <div className="border bg-bg-light rounded p-3 space-y-2">
                                 <div className="space-y-2">
                                     <HogFunctionInputs />
-
                                     {showSource ? (
-                                        <>
-                                            <LemonButton
-                                                icon={<IconPlus />}
-                                                size="small"
-                                                type="secondary"
-                                                className="my-4"
-                                                onClick={() => {
-                                                    setConfigurationValue('inputs_schema', [
-                                                        ...(configuration.inputs_schema ?? []),
-                                                        {
-                                                            type: 'string',
-                                                            key: `input_${
-                                                                (configuration.inputs_schema?.length ?? 0) + 1
-                                                            }`,
-                                                            label: '',
-                                                            required: false,
-                                                        },
-                                                    ])
-                                                }}
-                                            >
-                                                Add input variable
-                                            </LemonButton>
-                                            <LemonField name="hog">
-                                                {({ value, onChange }) => (
-                                                    <>
-                                                        <div className="flex justify-between gap-2">
-                                                            <LemonLabel>Function source code</LemonLabel>
-                                                            <LemonButton
-                                                                size="xsmall"
-                                                                type="secondary"
-                                                                onClick={() => setShowSource(false)}
-                                                            >
-                                                                Hide source code
-                                                            </LemonButton>
-                                                        </div>
-                                                        <span className="text-xs text-muted-alt">
-                                                            This is the underlying Hog code that will run whenever the
-                                                            filters match.{' '}
-                                                            <Link to="https://posthog.com/docs/hog">See the docs</Link>{' '}
-                                                            for more info
-                                                        </span>
-                                                        <CodeEditorResizeable
-                                                            language="hog"
-                                                            value={value ?? ''}
-                                                            onChange={(v) => onChange(v ?? '')}
-                                                            globals={globalsWithInputs}
-                                                            options={{
-                                                                minimap: {
-                                                                    enabled: false,
-                                                                },
-                                                                wordWrap: 'on',
-                                                                scrollBeyondLastLine: false,
-                                                                automaticLayout: true,
-                                                                fixedOverflowWidgets: true,
-                                                                suggest: {
-                                                                    showInlineDetails: true,
-                                                                },
-                                                                quickSuggestionsDelay: 300,
-                                                            }}
-                                                        />
-                                                    </>
-                                                )}
-                                            </LemonField>
-                                        </>
+                                        <LemonButton
+                                            icon={<IconPlus />}
+                                            size="small"
+                                            type="secondary"
+                                            className="my-4"
+                                            onClick={() => {
+                                                setConfigurationValue('inputs_schema', [
+                                                    ...(configuration.inputs_schema ?? []),
+                                                    {
+                                                        type: 'string',
+                                                        key: `input_${(configuration.inputs_schema?.length ?? 0) + 1}`,
+                                                        label: '',
+                                                        required: false,
+                                                    },
+                                                ])
+                                            }}
+                                        >
+                                            Add input variable
+                                        </LemonButton>
+                                    ) : null}
+                                </div>
+                            </div>
+
+                            <div
+                                className={clsx(
+                                    'border rounded p-3 space-y-2',
+                                    showSource ? 'bg-bg-light' : 'bg-accent-3000'
+                                )}
+                            >
+                                <div className="flex items-center gap-2 justify-end">
+                                    <div className="flex-1 space-y-2">
+                                        <h2 className="mb-0">Edit source</h2>
+                                        {!showSource ? <p>Click here to edit the function's source code</p> : null}
+                                    </div>
+
+                                    {!showSource ? (
+                                        <LemonButton
+                                            type="secondary"
+                                            onClick={() => setShowSource(true)}
+                                            disabledReason={
+                                                !hasAddon
+                                                    ? 'Editing the source code requires the Data Pipelines addon'
+                                                    : undefined
+                                            }
+                                        >
+                                            Edit source code
+                                        </LemonButton>
                                     ) : (
-                                        <div className="flex justify-end mt-2">
-                                            <LemonButton
-                                                size="xsmall"
-                                                type="secondary"
-                                                onClick={() => setShowSource(true)}
-                                                disabledReason={
-                                                    !hasAddon
-                                                        ? 'Editing the source code requires the Data Pipelines addon'
-                                                        : undefined
-                                                }
-                                            >
-                                                Show function source code
-                                            </LemonButton>
-                                        </div>
+                                        <LemonButton
+                                            size="xsmall"
+                                            type="secondary"
+                                            onClick={() => setShowSource(false)}
+                                        >
+                                            Hide source code
+                                        </LemonButton>
                                     )}
                                 </div>
+
+                                {showSource ? (
+                                    <LemonField name="hog">
+                                        {({ value, onChange }) => (
+                                            <>
+                                                <span className="text-xs text-muted-alt">
+                                                    This is the underlying Hog code that will run whenever the filters
+                                                    match. <Link to="https://posthog.com/docs/hog">See the docs</Link>{' '}
+                                                    for more info
+                                                </span>
+                                                <CodeEditorResizeable
+                                                    language="hog"
+                                                    value={value ?? ''}
+                                                    onChange={(v) => onChange(v ?? '')}
+                                                    globals={globalsWithInputs}
+                                                    options={{
+                                                        minimap: {
+                                                            enabled: false,
+                                                        },
+                                                        wordWrap: 'on',
+                                                        scrollBeyondLastLine: false,
+                                                        automaticLayout: true,
+                                                        fixedOverflowWidgets: true,
+                                                        suggest: {
+                                                            showInlineDetails: true,
+                                                        },
+                                                        quickSuggestionsDelay: 300,
+                                                    }}
+                                                />
+                                            </>
+                                        )}
+                                    </LemonField>
+                                ) : null}
                             </div>
 
                             {id ? <HogFunctionTest id={id} /> : <HogFunctionTestPlaceholder />}
