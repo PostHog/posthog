@@ -343,7 +343,8 @@ class Resolver(CloningVisitor):
 
             # :TRICKY: Make sure to clone and visit _all_ JoinExpr fields/nodes.
             node.type = node_type
-            node.table = cast(ast.Field, clone_expr(node.table))
+            assert node.table is not None
+            node.table = clone_expr(node.table)
             node.table.type = node_table_type
             if node.table_args is not None:
                 node.table_args = [self.visit(arg) for arg in node.table_args]
@@ -375,6 +376,7 @@ class Resolver(CloningVisitor):
                 node.constraint = self.visit_join_constraint(node.constraint)
 
             node.table = super().visit(node.table)
+            assert node.table is not None
             if isinstance(node.table, ast.SelectQuery) and node.table.view_name is not None and node.alias is not None:
                 if node.alias in scope.tables:
                     raise QueryError(
@@ -389,10 +391,12 @@ class Resolver(CloningVisitor):
                     raise QueryError(
                         f'Already have joined a table called "{node.alias}". Can\'t join another one with the same name.'
                     )
-                node.type = ast.SelectQueryAliasType(alias=node.alias, select_query_type=node.table.type)
+                node.type = ast.SelectQueryAliasType(
+                    alias=node.alias, select_query_type=cast(ast.SelectQueryType, node.table.type)
+                )
                 scope.tables[node.alias] = node.type
             else:
-                node.type = node.table.type
+                node.type = cast(ast.SelectQueryType, node.table.type)
                 scope.anonymous_tables.append(node.type)
 
             # :TRICKY: Make sure to clone and visit _all_ JoinExpr fields/nodes.
