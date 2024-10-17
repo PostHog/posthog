@@ -1,3 +1,4 @@
+from typing import cast
 from posthog.hogql_queries.experiments.experiment_funnel_query_runner import ExperimentFunnelQueryRunner
 from posthog.models.experiment import Experiment
 from posthog.models.feature_flag.feature_flag import FeatureFlag
@@ -227,7 +228,7 @@ class TestExperimentFunnelQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 ExperimentNoResultsErrorKeys.NO_TEST_VARIANT: True,
             }
         )
-        self.assertEqual(context.exception.detail[0], expected_errors)
+        self.assertEqual(cast(list, context.exception.detail)[0], expected_errors)
 
     @freeze_time("2020-01-01T12:00:00Z")
     def test_validate_event_variants_no_control(self):
@@ -269,7 +270,7 @@ class TestExperimentFunnelQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 ExperimentNoResultsErrorKeys.NO_TEST_VARIANT: False,
             }
         )
-        self.assertEqual(context.exception.detail[0], expected_errors)
+        self.assertEqual(cast(list, context.exception.detail)[0], expected_errors)
 
     @freeze_time("2020-01-01T12:00:00Z")
     def test_validate_event_variants_no_test(self):
@@ -311,7 +312,7 @@ class TestExperimentFunnelQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 ExperimentNoResultsErrorKeys.NO_TEST_VARIANT: True,
             }
         )
-        self.assertEqual(context.exception.detail[0], expected_errors)
+        self.assertEqual(cast(list, context.exception.detail)[0], expected_errors)
 
     @freeze_time("2020-01-01T12:00:00Z")
     def test_validate_event_variants_no_flag_info(self):
@@ -355,4 +356,4 @@ class TestExperimentFunnelQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 ExperimentNoResultsErrorKeys.NO_TEST_VARIANT: True,
             }
         )
-        self.assertEqual(context.exception.detail[0], expected_errors)
+        self.assertEqual(cast(list, context.exception.detail)[0], expected_errors)

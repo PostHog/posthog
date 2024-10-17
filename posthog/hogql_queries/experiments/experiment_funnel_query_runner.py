@@ -152,12 +152,13 @@ class ExperimentFunnelQueryRunner(QueryRunner):
         eventsWithOrderZero = []
         for eventArr in funnel_results.results:
             for event in eventArr:
-                if event.get("order") == 0:
-                    eventsWithOrderZero.append(event)
+                event_dict = cast(dict[str, Any], event)
+                if event_dict.get("order") == 0:
+                    eventsWithOrderZero.append(event_dict)
 
         # Check if "control" is present
         for event in eventsWithOrderZero:
-            event_variant = event.get("breakdown_value")[0]
+            event_variant = event.get("breakdown_value", [None])[0]
             if event_variant == "control":
                 errors[ExperimentNoResultsErrorKeys.NO_CONTROL_VARIANT] = False
                 errors[ExperimentNoResultsErrorKeys.NO_FLAG_INFO] = False
@@ -166,7 +167,7 @@ class ExperimentFunnelQueryRunner(QueryRunner):
         # Check if at least one of the test variants is present
         test_variants = [variant for variant in self.variants if variant != "control"]
         for event in eventsWithOrderZero:
-            event_variant = event.get("breakdown_value")[0]
+            event_variant = event.get("breakdown_value", [None])[0]
             if event_variant in test_variants:
                 errors[ExperimentNoResultsErrorKeys.NO_TEST_VARIANT] = False
                 errors[ExperimentNoResultsErrorKeys.NO_FLAG_INFO] = False
