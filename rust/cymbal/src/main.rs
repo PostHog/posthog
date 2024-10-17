@@ -115,19 +115,9 @@ async fn main() -> Result<(), Error> {
             }
         };
 
-        let store = match BasicStore::new(&config) {
-            Ok(r) => r,
-            Err(_err) => {
-                metrics::counter!(ERRORS, "cause" => "invalid_store").increment(1);
-                continue;
-            }
-        };
-
-        let resolver = ResolverImpl::new(Box::new(store));
-
         let mut resolved_frames = Vec::new();
         for frame in stack_trace {
-            let resolved = match resolver.resolve(frame, 1).await {
+            let resolved = match context.resolver.resolve(frame, 1).await {
                 Ok(r) => r,
                 Err(err) => {
                     metrics::counter!(ERRORS, "cause" => "frame_not_parsable").increment(1);
