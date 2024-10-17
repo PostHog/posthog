@@ -28,5 +28,8 @@ class Command(BaseCommand):
         deleted = 0
         for p in people:
             if not PersonDistinctId.objects.filter(person=p).exists():
+                print(f"Deleting person {p} with no distinct ids")  # noqa: T201
                 p.delete()
                 deleted += 1
+
+        print(f"Deleted {deleted} persons with no distinct ids")  # noqa: T201
