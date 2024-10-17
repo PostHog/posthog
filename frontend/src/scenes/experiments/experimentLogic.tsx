@@ -889,8 +889,12 @@ export const experimentLogic = kea<experimentLogicType>([
                 },
                 {
                     key: [Scene.Experiment, experimentId],
-                    name: experiment?.name || 'New',
-                    path: urls.experiment(experimentId || 'new'),
+                    name: experiment?.name || '',
+                    onRename: async (name: string) => {
+                        // :KLUDGE: work around a type error when using asyncActions accessed via a callback passed to selectors()
+                        const logic = experimentLogic({ experimentId })
+                        await logic.asyncActions.updateExperiment({ name })
+                    },
                 },
             ],
         ],

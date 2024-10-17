@@ -104,7 +104,7 @@ async fn main() -> Result<(), Error> {
             continue;
         };
 
-        let _stack_trace: Vec<RawFrame> = match serde_json::from_str(trace) {
+        let stack_trace: Vec<RawFrame> = match serde_json::from_str(trace) {
             Ok(r) => r,
             Err(err) => {
                 metrics::counter!(ERRORS, "cause" => "invalid_stack_trace").increment(1);
@@ -112,6 +112,19 @@ async fn main() -> Result<(), Error> {
                 continue;
             }
         };
+
+        let mut resolved_frames = Vec::new();
+        for frame in stack_trace {
+            let resolved = match context.resolver.resolve(frame, 1).await {
+                Ok(r) => r,
+                Err(err) => {
+                    metrics::counter!(ERRORS, "cause" => "frame_not_parsable").increment(1);
+                    error!("Error parsing stack frame: {:?}", err);
+                    continue;
+                }
+            };
+            resolved_frames.push(resolved);
+        }
 
         metrics::counter!(STACK_PROCESSED).increment(1);
     }

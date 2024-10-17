@@ -12,6 +12,7 @@ export type AlertConfig = TrendsAlertConfig
 export interface AlertTypeBase {
     name: string
     condition: AlertCondition
+    threshold: { configuration: InsightThreshold }
     enabled: boolean
     insight: QueryBasedInsightModel
     config: AlertConfig
@@ -20,6 +21,7 @@ export interface AlertTypeBase {
 export interface AlertTypeWrite extends Omit<AlertTypeBase, 'insight'> {
     subscribed_users: number[]
     insight: number
+    snoozed_until?: string | null
 }
 
 export interface AlertCheck {
@@ -33,7 +35,7 @@ export interface AlertCheck {
 export interface AlertType extends AlertTypeBase {
     id: string
     subscribed_users: UserBasicType[]
-    threshold: { configuration: InsightThreshold }
+    condition: AlertCondition
     created_by: UserBasicType
     created_at: string
     state: AlertState
@@ -41,4 +43,5 @@ export interface AlertType extends AlertTypeBase {
     last_checked_at: string
     checks: AlertCheck[]
     calculation_interval: AlertCalculationInterval
+    snoozed_until?: string
 }
