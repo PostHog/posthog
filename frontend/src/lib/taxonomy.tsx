@@ -1484,8 +1484,6 @@ export const NON_DOLLAR_POSTHOG_PROPERTY_KEYS = [
     'email_service_available',
     'slack_service_available',
     'commit_sha',
-    'token',
-    'distinct_id',
 ]
 
 /** Return whether a given filter key is part of PostHog's core (marked by the PostHog logo). */
