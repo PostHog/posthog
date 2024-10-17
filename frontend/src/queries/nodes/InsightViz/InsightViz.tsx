@@ -10,7 +10,7 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
-import { DashboardFilter, InsightVizNode } from '~/queries/schema'
+import { DashboardFilter, HogQLVariable, InsightVizNode } from '~/queries/schema'
 import { QueryContext } from '~/queries/types'
 import { isFunnelsQuery } from '~/queries/utils'
 import { InsightLogicProps, ItemMode } from '~/types'
@@ -38,6 +38,7 @@ type InsightVizProps = {
     embedded?: boolean
     inSharedMode?: boolean
     filtersOverride?: DashboardFilter | null
+    variablesOverride?: Record<string, HogQLVariable> | null
 }
 
 let uniqueNode = 0
@@ -51,6 +52,7 @@ export function InsightViz({
     embedded,
     inSharedMode,
     filtersOverride,
+    variablesOverride,
 }: InsightVizProps): JSX.Element {
     const [key] = useState(() => `InsightViz.${uniqueKey || uniqueNode++}`)
     const insightProps: InsightLogicProps = context?.insightProps || {
@@ -59,6 +61,7 @@ export function InsightViz({
         setQuery,
         dataNodeCollectionId: key,
         filtersOverride,
+        variablesOverride,
     }
 
     if (!insightProps.setQuery && setQuery) {
@@ -75,6 +78,7 @@ export function InsightViz({
         loadPriority: insightProps.loadPriority,
         dataNodeCollectionId: insightVizDataCollectionId(insightProps, vizKey),
         filtersOverride,
+        variablesOverride,
     }
 
     const { insightMode } = useValues(insightSceneLogic)

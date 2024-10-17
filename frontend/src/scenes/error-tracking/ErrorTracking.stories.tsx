@@ -20,7 +20,7 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             post: {
-                '/api/projects/:team_id/query': async (req, res, ctx) => {
+                '/api/environments/:team_id/query': async (req, res, ctx) => {
                     const query = (await req.clone().json()).query
                     if (query.kind === NodeKind.ErrorTrackingQuery) {
                         return res(ctx.json(errorTrackingQueryResponse))

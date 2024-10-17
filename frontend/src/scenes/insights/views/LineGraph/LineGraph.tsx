@@ -2,7 +2,7 @@ import 'chartjs-adapter-dayjs-3'
 
 import { LegendOptions } from 'chart.js'
 import { DeepPartial } from 'chart.js/dist/types/utils'
-import annotationPlugin, { AnnotationPluginOptions } from 'chartjs-plugin-annotation'
+import annotationPlugin, { AnnotationOptions } from 'chartjs-plugin-annotation'
 import ChartDataLabels from 'chartjs-plugin-datalabels'
 import ChartjsPluginStacked100, { ExtendedChartData } from 'chartjs-plugin-stacked100'
 import clsx from 'clsx'
@@ -279,7 +279,7 @@ export function LineGraph_({
     hideYAxis,
     legend = { display: false },
     yAxisScaleType,
-    alertLines = [],
+    alertLines,
 }: LineGraphProps): JSX.Element {
     let datasets = _datasets
 
@@ -397,8 +397,8 @@ export function LineGraph_({
             }
         }
 
-        const annotations = alertLines.reduce((acc, { value }, idx) => {
-            acc[`${idx}`] = {
+        const annotations = (alertLines || []).reduce((acc, { value }, idx) => {
+            acc[idx] = {
                 type: 'line',
                 yMin: value,
                 yMax: value,
@@ -408,7 +408,7 @@ export function LineGraph_({
             }
 
             return acc
-        }, {} as AnnotationPluginOptions['annotations'])
+        }, {} as Record<string, AnnotationOptions>)
 
         datasets = datasets.map(processDataset)
 

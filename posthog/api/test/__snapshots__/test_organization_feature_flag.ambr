@@ -7,7 +7,6 @@
          "posthog_user"."first_name",
          "posthog_user"."last_name",
          "posthog_user"."is_staff",
-         "posthog_user"."is_active",
          "posthog_user"."date_joined",
          "posthog_user"."uuid",
          "posthog_user"."current_organization_id",
@@ -19,6 +18,7 @@
          "posthog_user"."is_email_verified",
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
+         "posthog_user"."is_active",
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
@@ -483,6 +483,7 @@
          "posthog_dashboard"."deleted",
          "posthog_dashboard"."last_accessed_at",
          "posthog_dashboard"."filters",
+         "posthog_dashboard"."variables",
          "posthog_dashboard"."creation_mode",
          "posthog_dashboard"."restriction_level",
          "posthog_dashboard"."deprecated_tags",
@@ -840,6 +841,7 @@
          "posthog_dashboard"."deleted",
          "posthog_dashboard"."last_accessed_at",
          "posthog_dashboard"."filters",
+         "posthog_dashboard"."variables",
          "posthog_dashboard"."creation_mode",
          "posthog_dashboard"."restriction_level",
          "posthog_dashboard"."deprecated_tags",
@@ -1106,6 +1108,7 @@
          "posthog_dashboard"."deleted",
          "posthog_dashboard"."last_accessed_at",
          "posthog_dashboard"."filters",
+         "posthog_dashboard"."variables",
          "posthog_dashboard"."creation_mode",
          "posthog_dashboard"."restriction_level",
          "posthog_dashboard"."deprecated_tags",
@@ -1914,9 +1917,10 @@
   '''
   SELECT 1 AS "a"
   FROM "posthog_featureflag"
+  INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
   WHERE (NOT "posthog_featureflag"."deleted"
          AND "posthog_featureflag"."key" = 'copied-flag-key'
-         AND "posthog_featureflag"."team_id" = 2)
+         AND "posthog_team"."project_id" = 2)
   LIMIT 1
   '''
 # ---
@@ -2041,7 +2045,6 @@
          "posthog_user"."first_name",
          "posthog_user"."last_name",
          "posthog_user"."is_staff",
-         "posthog_user"."is_active",
          "posthog_user"."date_joined",
          "posthog_user"."uuid",
          "posthog_user"."current_organization_id",
@@ -2053,6 +2056,7 @@
          "posthog_user"."is_email_verified",
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
+         "posthog_user"."is_active",
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
@@ -2192,7 +2196,6 @@
          "posthog_user"."first_name",
          "posthog_user"."last_name",
          "posthog_user"."is_staff",
-         "posthog_user"."is_active",
          "posthog_user"."date_joined",
          "posthog_user"."uuid",
          "posthog_user"."current_organization_id",
@@ -2205,6 +2208,7 @@
          "posthog_user"."requested_password_reset_at",
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
+         "posthog_user"."is_active",
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
@@ -2225,7 +2229,6 @@
          "posthog_user"."first_name",
          "posthog_user"."last_name",
          "posthog_user"."is_staff",
-         "posthog_user"."is_active",
          "posthog_user"."date_joined",
          "posthog_user"."uuid",
          "posthog_user"."current_organization_id",
@@ -2238,6 +2241,7 @@
          "posthog_user"."requested_password_reset_at",
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
+         "posthog_user"."is_active",
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",

@@ -107,8 +107,10 @@ export enum NodeKind {
     DatabaseSchemaQuery = 'DatabaseSchemaQuery',
 
     // AI queries
+    SuggestedQuestionsQuery = 'SuggestedQuestionsQuery',
     TeamTaxonomyQuery = 'TeamTaxonomyQuery',
     EventTaxonomyQuery = 'EventTaxonomyQuery',
+    ActorsPropertyTaxonomyQuery = 'ActorsPropertyTaxonomyQuery',
 }
 
 export type AnyDataNode =
@@ -168,7 +170,7 @@ export type QuerySchema =
     | SavedInsightNode
     | InsightVizNode
 
-    // New queries, not yet implemented
+    // Classic insights
     | TrendsQuery
     | FunnelsQuery
     | RetentionQuery
@@ -179,6 +181,9 @@ export type QuerySchema =
 
     // Misc
     | DatabaseSchemaQuery
+
+    // AI
+    | SuggestedQuestionsQuery
 
 // Keep this, because QuerySchema itself will be collapsed as it is used in other models
 export type QuerySchemaRoot = QuerySchema
@@ -1216,6 +1221,7 @@ export interface QueryRequest {
      */
     query: QuerySchema
     filters_override?: DashboardFilter
+    variables_override?: Record<string, Record<string, any>>
 }
 
 /**
@@ -1590,9 +1596,11 @@ export type InsightQueryNode =
     | StickinessQuery
     | LifecycleQuery
 
-export interface ExperimentVariantTrendResult {
+export interface ExperimentVariantTrendBaseStats {
+    key: string
     count: number
     exposure: number
+    absolute_exposure: number
 }
 
 export interface ExperimentVariantFunnelResult {
@@ -1601,9 +1609,22 @@ export interface ExperimentVariantFunnelResult {
     failure_count: number
 }
 
+export enum ExperimentSignificanceCode {
+    Significant = 'significant',
+    NotEnoughExposure = 'not_enough_exposure',
+    LowWinProbability = 'low_win_probability',
+    HighLoss = 'high_loss',
+    HighPValue = 'high_p_value',
+}
+
 export interface ExperimentTrendQueryResponse {
-    insight: InsightType.TRENDS
-    results: Record<string, ExperimentVariantTrendResult>
+    insight: TrendsQueryResponse
+    variants: ExperimentVariantTrendBaseStats[]
+    probability: Record<string, number>
+    significant: boolean
+    significance_code: ExperimentSignificanceCode
+    p_value: number
+    credible_intervals: Record<string, [number, number]>
 }
 
 export type CachedExperimentTrendQueryResponse = CachedQueryResponse<ExperimentTrendQueryResponse>
@@ -1991,6 +2012,16 @@ export interface HogCompileResponse {
     bytecode: any[]
 }
 
+export interface SuggestedQuestionsQuery extends DataNode<SuggestedQuestionsQueryResponse> {
+    kind: NodeKind.SuggestedQuestionsQuery
+}
+
+export interface SuggestedQuestionsQueryResponse {
+    questions: string[]
+}
+
+export type CachedSuggestedQuestionsQueryResponse = CachedQueryResponse<SuggestedQuestionsQueryResponse>
+
 export interface TeamTaxonomyItem {
     event: string
     count: integer
@@ -2022,3 +2053,18 @@ export interface EventTaxonomyQuery extends DataNode<EventTaxonomyQueryResponse>
 export type EventTaxonomyQueryResponse = AnalyticsQueryResponseBase<EventTaxonomyResponse>
 
 export type CachedEventTaxonomyQueryResponse = CachedQueryResponse<EventTaxonomyQueryResponse>
+
+export interface ActorsPropertyTaxonomyResponse {
+    sample_values: string[]
+    sample_count: integer
+}
+
+export interface ActorsPropertyTaxonomyQuery extends DataNode<ActorsPropertyTaxonomyQueryResponse> {
+    kind: NodeKind.ActorsPropertyTaxonomyQuery
+    property: string
+    group_type_index?: integer
+}
+
+export type ActorsPropertyTaxonomyQueryResponse = AnalyticsQueryResponseBase<ActorsPropertyTaxonomyResponse>
+
+export type CachedActorsPropertyTaxonomyQueryResponse = CachedQueryResponse<ActorsPropertyTaxonomyQueryResponse>
