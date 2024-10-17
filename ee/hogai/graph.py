@@ -35,4 +35,7 @@ class AssistantGraph:
 
     def stream(self, messages: list[BaseMessage]):
         assistant_graph = self._compile_graph()
-        return assistant_graph.stream({"messages": messages})
+        return assistant_graph.stream(
+            {"messages": messages},
+            config={"recursion_limit": 24},
+        )
