@@ -428,28 +428,30 @@ function UrlTriggerOptions(): JSX.Element | null {
     const { newUrlTrigger } = useActions(sessionReplayIngestionControlLogic)
 
     return (
-        <>
-            <div className="flex flex-col space-y-2">
-                <div className="flex items-center mb-4 gap-2 justify-between">
-                    <LemonLabel className="text-base">Enable recordings when URL matches</LemonLabel>
-                    <LemonButton
-                        onClick={() => {
-                            newUrlTrigger()
-                        }}
-                        type="secondary"
-                        icon={<IconPlus />}
-                        data-attr="session-replay-add-url-trigger"
-                    >
-                        Add
-                    </LemonButton>
-                </div>
-
-                {isAddUrlTriggerConfigFormVisible && <UrlTriggerForm />}
-                {urlTriggerConfig?.map((trigger, index) => (
-                    <UrlTriggerRow key={`${trigger.url}-${trigger.matching}`} trigger={trigger} index={index} />
-                ))}
+        <div className="flex flex-col space-y-2 mt-4">
+            <div className="flex items-center gap-2 justify-between">
+                <LemonLabel className="text-base">Enable recordings when URL matches</LemonLabel>
+                <LemonButton
+                    onClick={() => {
+                        newUrlTrigger()
+                    }}
+                    type="secondary"
+                    icon={<IconPlus />}
+                    data-attr="session-replay-add-url-trigger"
+                >
+                    Add
+                </LemonButton>
             </div>
-        </>
+            <p>
+                Adding a URL trigger means recording will only be started when the user visits a page that matches the
+                URL.
+            </p>
+
+            {isAddUrlTriggerConfigFormVisible && <UrlTriggerForm />}
+            {urlTriggerConfig?.map((trigger, index) => (
+                <UrlTriggerRow key={`${trigger.url}-${trigger.matching}`} trigger={trigger} index={index} />
+            ))}
+        </div>
     )
 }
 
