@@ -74,7 +74,7 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
     }, [propsQuery])
 
     const query = readOnly ? propsQuery : localQuery
-    const setQuery = readOnly ? undefined : propsSetQuery ?? localSetQuery
+    const setQuery = propsSetQuery ?? localSetQuery
 
     const queryContext = props.context || {}
 
@@ -98,7 +98,7 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
         component = (
             <DataTable
                 query={query}
-                setQuery={setQuery as ((query: DataTableNode) => void) | undefined}
+                setQuery={setQuery as unknown as (query: DataTableNode) => void}
                 context={queryContext}
                 cachedResults={props.cachedResults}
                 uniqueKey={uniqueKey}
@@ -108,7 +108,7 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
         component = (
             <DataTableVisualization
                 query={query}
-                setQuery={setQuery as ((query: DataVisualizationNode) => void) | undefined}
+                setQuery={setQuery as unknown as (query: DataVisualizationNode) => void}
                 cachedResults={props.cachedResults}
                 uniqueKey={uniqueKey}
                 context={queryContext}
@@ -122,7 +122,7 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
         component = (
             <InsightViz
                 query={query}
-                setQuery={setQuery as ((query: InsightVizNode) => void) | undefined}
+                setQuery={setQuery as unknown as (query: InsightVizNode) => void}
                 context={queryContext}
                 readOnly={readOnly}
                 uniqueKey={uniqueKey}

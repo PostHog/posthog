@@ -1,7 +1,7 @@
 import './Variables.scss'
 
 import { IconCopy, IconGear, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonInput, LemonSegmentedButton, Popover } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonInput, LemonSegmentedButton, LemonSelect, Popover } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -152,6 +152,14 @@ const VariableInput = ({
                                 label: 'false',
                             },
                         ]}
+                    />
+                )}
+                {variable.type === 'List' && (
+                    <LemonSelect
+                        className="grow"
+                        value={localInputValue}
+                        onChange={(value) => setLocalInputValue(value)}
+                        options={variable.values.map((n) => ({ label: n, value: n }))}
                     />
                 )}
                 <LemonButton
