@@ -180,7 +180,9 @@ export function Surveys(): JSX.Element {
                         />
                         <div className="flex-1" />
                         <div className="mt-10 mr-5">
-                            <SurveyAppearancePreview survey={templatedSurvey} previewPageIndex={0} />
+                            {globalSurveyAppearanceConfigAvailable && (
+                                <SurveyAppearancePreview survey={templatedSurvey} previewPageIndex={0} />
+                            )}
                         </div>
                     </div>
                 </>
