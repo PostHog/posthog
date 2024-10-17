@@ -588,6 +588,30 @@
                 }
             ]
         },
+        "AssistantMessage": {
+            "additionalProperties": false,
+            "properties": {
+                "content": {
+                    "type": "string"
+                },
+                "payload": {
+                    "$ref": "#/definitions/AssistantMessagePayload"
+                },
+                "type": {
+                    "enum": ["human", "ai"],
+                    "type": "string"
+                }
+            },
+            "required": ["type", "content"],
+            "type": "object"
+        },
+        "AssistantMessagePayload": {
+            "$ref": "#/definitions/VisualizationMessagePayload"
+        },
+        "AssistantMessageType": {
+            "enum": ["visualization", "noop"],
+            "type": "string"
+        },
         "AutocompleteCompletionItem": {
             "additionalProperties": false,
             "properties": {
@@ -11320,6 +11344,20 @@
                 }
             },
             "required": ["results"],
+            "type": "object"
+        },
+        "VisualizationMessagePayload": {
+            "additionalProperties": false,
+            "properties": {
+                "plan": {
+                    "type": "string"
+                },
+                "type": {
+                    "const": "visualization",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "plan"],
             "type": "object"
         },
         "VizSpecificOptions": {

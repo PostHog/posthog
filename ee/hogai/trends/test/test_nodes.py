@@ -2,7 +2,8 @@ from django.test import override_settings
 from langchain_core.messages import HumanMessage
 
 from ee.hogai.trends.nodes import CreateTrendsPlanNode, GenerateTrendsNode
-from ee.hogai.utils import AssistantMessage, AssistantMessageType
+from ee.hogai.utils import AssistantMessage
+from posthog.schema import VisualizationMessagePayload
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -26,7 +27,7 @@ class TestPlanAgentNode(ClickhouseTestMixin, APIBaseTest):
                     AssistantMessage(
                         content="schema",
                         type="ai",
-                        payload={"plan": "randomplan", "type": AssistantMessageType.VISUALIZATION},
+                        payload=VisualizationMessagePayload(plan="randomplan"),
                     ),
                 ]
             }
@@ -45,7 +46,7 @@ class TestPlanAgentNode(ClickhouseTestMixin, APIBaseTest):
                     AssistantMessage(
                         content="schema",
                         type="ai",
-                        payload={"plan": "randomplan", "type": AssistantMessageType.VISUALIZATION},
+                        payload=VisualizationMessagePayload(plan="randomplan"),
                     ),
                     HumanMessage(content="Text"),
                 ]
@@ -115,7 +116,7 @@ class TestGenerateTrendsNode(ClickhouseTestMixin, APIBaseTest):
                     AssistantMessage(
                         content="schema",
                         type="ai",
-                        payload={"plan": "randomplan", "type": AssistantMessageType.VISUALIZATION},
+                        payload=VisualizationMessagePayload(plan="randomplan"),
                     ),
                     HumanMessage(content="Follow Up"),
                 ],
@@ -173,7 +174,7 @@ class TestGenerateTrendsNode(ClickhouseTestMixin, APIBaseTest):
                     AssistantMessage(
                         content="schema",
                         type="ai",
-                        payload={"plan": "randomplan", "type": AssistantMessageType.VISUALIZATION},
+                        payload=VisualizationMessagePayload(plan="randomplan"),
                     ),
                     HumanMessage(content="Follow"),
                     HumanMessage(content="Up"),

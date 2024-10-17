@@ -63,6 +63,16 @@ class AlertState(StrEnum):
     ERRORED = "Errored"
 
 
+class Type(StrEnum):
+    HUMAN = "human"
+    AI = "ai"
+
+
+class AssistantMessageType(StrEnum):
+    VISUALIZATION = "visualization"
+    NOOP = "noop"
+
+
 class Kind(StrEnum):
     METHOD = "Method"
     FUNCTION = "Function"
@@ -318,7 +328,7 @@ class DatabaseSchemaSource(BaseModel):
     status: str
 
 
-class Type(StrEnum):
+class Type1(StrEnum):
     POSTHOG = "posthog"
     DATA_WAREHOUSE = "data_warehouse"
     VIEW = "view"
@@ -1456,6 +1466,14 @@ class TrendsQueryResponse(BaseModel):
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
+
+
+class VisualizationMessagePayload(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    plan: str
+    type: Literal["visualization"] = "visualization"
 
 
 class ActionsPie(BaseModel):
@@ -2759,7 +2777,7 @@ class DatabaseSchemaTableCommon(BaseModel):
     fields: dict[str, DatabaseSchemaField]
     id: str
     name: str
-    type: Type
+    type: Type1
 
 
 class ElementPropertyFilter(BaseModel):
@@ -4131,6 +4149,15 @@ class AnyResponseType(
         Any,
         EventsQueryResponse,
     ]
+
+
+class AssistantMessage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    content: str
+    payload: Optional[VisualizationMessagePayload] = None
+    type: Type
 
 
 class CachedHogQLQueryResponse(BaseModel):

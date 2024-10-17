@@ -35,18 +35,20 @@ from ee.hogai.trends.toolkit import (
 from ee.hogai.trends.utils import GenerateTrendOutputModel
 from ee.hogai.utils import (
     AssistantMessage,
-    AssistantMessageType,
     AssistantNode,
     AssistantNodeName,
     AssistantState,
-    VisualizationMessagePayload,
     llm_gpt_4o,
     remove_line_breaks,
 )
 from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.group_type_mapping import GroupTypeMapping
-from posthog.schema import CachedTeamTaxonomyQueryResponse, TeamTaxonomyQuery
+from posthog.schema import (
+    CachedTeamTaxonomyQueryResponse,
+    TeamTaxonomyQuery,
+    VisualizationMessagePayload,
+)
 
 
 class CreateTrendsPlanNode(AssistantNode):
@@ -356,7 +358,7 @@ class GenerateTrendsNode(AssistantNode):
                 AssistantMessage(
                     type="ai",
                     content=cast(GenerateTrendOutputModel, message).model_dump_json(),
-                    payload=VisualizationMessagePayload(type=AssistantMessageType.VISUALIZATION, plan=generated_plan),
+                    payload=VisualizationMessagePayload(plan=generated_plan),
                 )
             ]
         }

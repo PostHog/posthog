@@ -8,12 +8,19 @@ from pydantic import BaseModel, Field, RootModel
 
 from ee.hogai.hardcoded_definitions import hardcoded_prop_defs
 from posthog.hogql.database.schema.channel_type import POSSIBLE_CHANNEL_TYPES
+from posthog.hogql_queries.ai.actors_property_taxonomy_query_runner import ActorsPropertyTaxonomyQueryRunner
 from posthog.hogql_queries.ai.event_taxonomy_query_runner import EventTaxonomyQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.property_definition import PropertyDefinition, PropertyType
 from posthog.models.team.team import Team
-from posthog.schema import CachedEventTaxonomyQueryResponse, EventTaxonomyQuery, ExperimentalAITrendsQuery
+from posthog.schema import (
+    ActorsPropertyTaxonomyQuery,
+    CachedActorsPropertyTaxonomyQueryResponse,
+    CachedEventTaxonomyQueryResponse,
+    EventTaxonomyQuery,
+    ExperimentalAITrendsQuery,
+)
 
 
 class ToolkitTool(TypedDict):
@@ -301,6 +308,9 @@ class TrendsAgentToolkit:
     def _format_property_values(
         self, property_definition: PropertyDefinition, sample_values: list[str], sample_count: Optional[int] = 0
     ) -> str:
+        if len(sample_values) == 0 or sample_count == 0:
+            return f"The property {property_definition.name} does not have any values in the taxonomy."
+
         # Add quotes to the String type, so the LLM can easily infer a type.
         # Strings like "true" or "10" are interpreted as booleans or numbers without quotes, so the schema generation fails.
         if property_definition.property_type == PropertyType.String:
@@ -373,7 +383,47 @@ class TrendsAgentToolkit:
         if entity == "session":
             return self._retrieve_session_properties(property_name)
 
-        return "No values have been found."
+        if entity == "person":
+            query = ActorsPropertyTaxonomyQuery(property=property_name)
+        else:
+            group_index = next((group.group_type_index for group in self.groups if group.group_type == entity), None)
+            if group_index is None:
+                return f"The entity {entity} does not exist in the taxonomy."
+            query = ActorsPropertyTaxonomyQuery(group_type_index=group_index, property=property_name)
+
+        try:
+            if query.group_type_index is not None:
+                prop_type = PropertyDefinition.Type.GROUP
+                group_type_index = query.group_type_index
+            else:
+                prop_type = PropertyDefinition.Type.EVENT
+                group_type_index = None
+
+            property_definition = PropertyDefinition.objects.get(
+                team=self._team,
+                name=property_name,
+                type=prop_type,
+                group_type_index=group_type_index,
+            )
+        except PropertyDefinition.DoesNotExist:
+            return f"The property {property_name} does not exist in the taxonomy for the entity {entity}."
+
+        response = ActorsPropertyTaxonomyQueryRunner(query, self._team).run(
+            ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
+        )
+
+        # TODO: incorrect response handling. Should it be retried?
+        if not isinstance(response, CachedActorsPropertyTaxonomyQueryResponse):
+            return f"The entity {entity} does not exist in the taxonomy."
+
+        if not response.results:
+            return f"Property values for {property_name} do not exist in the taxonomy for the entity {entity}."
+
+        return self._format_property_values(
+            property_definition,
+            response.results.sample_values,
+            response.results.sample_count,
+        )
 
     def handle_incorrect_response(self, response: str) -> str:
         """

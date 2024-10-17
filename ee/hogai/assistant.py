@@ -6,7 +6,7 @@ from ee.hogai.utils import AssistantNodeName, AssistantState
 from posthog.models.team.team import Team
 
 
-class AssistantGraph:
+class Assistant:
     _team: Team
     _graph: StateGraph
 
@@ -38,4 +38,5 @@ class AssistantGraph:
         return assistant_graph.stream(
             {"messages": messages},
             config={"recursion_limit": 24},
+            stream_mode="messages",
         )

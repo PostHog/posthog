@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from enum import StrEnum
-from typing import Annotated, Literal, Optional, TypedDict
+from typing import Annotated, Optional, TypedDict
 
 from langchain_core.agents import AgentAction
 from langchain_core.messages import BaseMessage
@@ -11,21 +11,18 @@ from langgraph.graph.message import add_messages
 from pydantic import BaseModel, Field
 
 from posthog.models.team.team import Team
+from posthog.schema import AssistantMessage as AssistantMessageSchema
 
 llm_gpt_4o = ChatOpenAI(model="gpt-4o", temperature=0.7, streaming=True)
 
 
-class AssistantMessageType(StrEnum):
-    VISUALIZATION = "visualization"
+class AssistantMessage(BaseMessage, AssistantMessageSchema):
+    pass
 
 
-class VisualizationMessagePayload(BaseModel):
-    type: Literal[AssistantMessageType.VISUALIZATION]
-    plan: str
-
-
-class AssistantMessage(BaseMessage):
-    payload: Optional[VisualizationMessagePayload] = Field(None, discriminator="type")
+class Conversation(BaseModel):
+    messages: list[AssistantMessage] = Field(..., max_length=20)
+    session_id: str
 
 
 class AssistantState(TypedDict):
