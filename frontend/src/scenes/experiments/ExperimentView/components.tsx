@@ -360,7 +360,6 @@ export function PageHeaderCustom(): JSX.Element {
         launchExperiment,
         endExperiment,
         archiveExperiment,
-        setEditExperiment,
         loadExperimentResults,
         loadSecondaryMetricResults,
         createExposureCohort,
@@ -374,9 +373,6 @@ export function PageHeaderCustom(): JSX.Element {
                 <>
                     {experiment && !isExperimentRunning && (
                         <div className="flex items-center">
-                            <LemonButton type="secondary" className="mr-2" onClick={() => setEditExperiment(true)}>
-                                Edit
-                            </LemonButton>
                             <LemonButton
                                 type="primary"
                                 data-attr="launch-experiment"
