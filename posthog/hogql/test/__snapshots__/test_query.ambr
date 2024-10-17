@@ -663,14 +663,11 @@
   GROUP BY person_distinct_id2.distinct_id 
   HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) 
   SETTINGS optimize_aggregation_in_order=1) AS s__pdi ON equals(s.distinct_id, s__pdi.distinct_id) LEFT JOIN (
-  SELECT person.id AS id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS properties___sneaky_mail 
-  FROM person 
-  WHERE and(equals(person.team_id, 420), ifNull(in(tuple(person.id, person.version), (
-  SELECT person.id AS id, max(person.version) AS version 
+  SELECT person.id AS id, argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), person.version) AS properties___sneaky_mail 
   FROM person 
   WHERE equals(person.team_id, 420) 
   GROUP BY person.id 
-  HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, %(hogql_val_1)s), person.version), plus(now64(6, %(hogql_val_2)s), toIntervalDay(1))), 0)))), 0)) 
+  HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, %(hogql_val_1)s), person.version), plus(now64(6, %(hogql_val_2)s), toIntervalDay(1))), 0)) 
   SETTINGS optimize_aggregation_in_order=1) AS s__pdi__person ON equals(s__pdi.s__pdi___person_id, s__pdi__person.id) 
   WHERE equals(s.team_id, 420) 
   GROUP BY s__pdi__person.properties___sneaky_mail 
