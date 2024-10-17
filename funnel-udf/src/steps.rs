@@ -1,9 +1,9 @@
-use std::iter::repeat;
+use crate::PropVal;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::iter::repeat;
 use uuid::Uuid;
-use crate::PropVal;
 
 #[derive(Clone, Deserialize)]
 struct EnteredTimestamp {
@@ -36,7 +36,7 @@ struct Result(i8, PropVal, Vec<f64>, Vec<Vec<Uuid>>);
 struct Vars {
     max_step: (usize, EnteredTimestamp),
     event_uuids: Vec<Vec<Uuid>>,
-    entered_timestamp: Vec<EnteredTimestamp>
+    entered_timestamp: Vec<EnteredTimestamp>,
 }
 
 struct AggregateFunnelRow {
@@ -53,7 +53,7 @@ const DEFAULT_ENTERED_TIMESTAMP: EnteredTimestamp = EnteredTimestamp {
 };
 
 pub fn process_line(line: &str) -> Value {
-    let args = parse_args(&line);
+    let args = parse_args(line);
     let mut aggregate_funnel_row = AggregateFunnelRow {
         results: Vec::with_capacity(args.prop_vals.len()),
         breakdown_step: Option::None,
@@ -74,7 +74,9 @@ impl AggregateFunnelRow {
             self.breakdown_step = args.breakdown_attribution_type[5..].parse::<usize>().ok()
         }
 
-        args.prop_vals.iter().for_each(|prop_val| self.loop_prop_val(args, prop_val));
+        args.prop_vals
+            .iter()
+            .for_each(|prop_val| self.loop_prop_val(args, prop_val));
 
         &self.results
     }
@@ -84,10 +86,12 @@ impl AggregateFunnelRow {
         let mut vars = Vars {
             max_step: (0, DEFAULT_ENTERED_TIMESTAMP.clone()),
             event_uuids: repeat(Vec::new()).take(args.num_steps).collect(),
-            entered_timestamp: vec![DEFAULT_ENTERED_TIMESTAMP.clone(); args.num_steps + 1]
+            entered_timestamp: vec![DEFAULT_ENTERED_TIMESTAMP.clone(); args.num_steps + 1],
         };
 
-        let filtered_events = args.value.iter()
+        let filtered_events = args
+            .value
+            .iter()
             .filter(|e| {
                 if args.breakdown_attribution_type == "all_events" {
                     e.breakdown == *prop_val
@@ -109,22 +113,20 @@ impl AggregateFunnelRow {
                 if !self.process_event(
                     args,
                     &mut vars,
-                    &events_with_same_timestamp[0],
+                    events_with_same_timestamp[0],
                     prop_val,
-                    false
+                    false,
                 ) {
                     return;
                 }
-            } else if events_with_same_timestamp.iter().map(|x| &x.steps).all_equal() {
+            } else if events_with_same_timestamp
+                .iter()
+                .map(|x| &x.steps)
+                .all_equal()
+            {
                 // Deal with the most common case where they are all the same event (order doesn't matter)
                 for event in events_with_same_timestamp {
-                    if !self.process_event(
-                        args,
-                        &mut vars,
-                        event,
-                        prop_val,
-                        false
-                    ) {
+                    if !self.process_event(args, &mut vars, event, prop_val, false) {
                         return;
                     }
                 }
@@ -136,21 +138,20 @@ impl AggregateFunnelRow {
                 let sorted_events = events_with_same_timestamp
                     .iter()
                     .flat_map(|&event| {
-                        event.steps
+                        event
+                            .steps
                             .iter()
                             .filter(|&&step| step > 0)
-                            .map(|&step| Event { steps: vec![step], ..event.clone() })
-                    }).sorted_by_key(|event| event.steps[0]);
+                            .map(|&step| Event {
+                                steps: vec![step],
+                                ..event.clone()
+                            })
+                    })
+                    .sorted_by_key(|event| event.steps[0]);
 
                 // Run exclusions, if they exist, then run matching events.
                 for event in sorted_events {
-                    if !self.process_event(
-                        args,
-                        &mut vars,
-                        &event,
-                        &prop_val,
-                        true
-                    ) {
+                    if !self.process_event(args, &mut vars, &event, prop_val, true) {
                         return;
                     }
                 }
@@ -175,7 +176,11 @@ impl AggregateFunnelRow {
         self.results.push(Result(
             final_index as i8 - 1,
             prop_val.clone(),
-            final_value.timings.windows(2).map(|w| w[1] - w[0]).collect(),
+            final_value
+                .timings
+                .windows(2)
+                .map(|w| w[1] - w[0])
+                .collect(),
             vars.event_uuids,
         ))
     }
@@ -187,7 +192,7 @@ impl AggregateFunnelRow {
         vars: &mut Vars,
         event: &Event,
         prop_val: &PropVal,
-        processing_multiple_events: bool
+        processing_multiple_events: bool,
     ) -> bool {
         for step in event.steps.iter().rev() {
             let mut exclusion = false;
@@ -198,17 +203,25 @@ impl AggregateFunnelRow {
                 *step
             }) as usize;
 
-            let in_match_window = (event.timestamp - vars.entered_timestamp[step - 1].timestamp) <= args.conversion_window_limit as f64;
-            let already_reached_this_step = vars.entered_timestamp[step].timestamp == vars.entered_timestamp[step - 1].timestamp
+            let in_match_window = (event.timestamp - vars.entered_timestamp[step - 1].timestamp)
+                <= args.conversion_window_limit as f64;
+            let already_reached_this_step = vars.entered_timestamp[step].timestamp
+                == vars.entered_timestamp[step - 1].timestamp
                 && vars.entered_timestamp[step].timestamp != 0.0;
 
             if in_match_window && !already_reached_this_step {
                 if exclusion {
-                    self.results.push(Result(-1, prop_val.clone(), vec![], vec![]));
+                    self.results
+                        .push(Result(-1, prop_val.clone(), vec![], vec![]));
                     return false;
                 }
-                let is_unmatched_step_attribution = self.breakdown_step.map(|breakdown_step| step == breakdown_step - 1).unwrap_or(false) && *prop_val != event.breakdown;
-                let already_used_event = processing_multiple_events && vars.entered_timestamp[step-1].uuids.contains(&event.uuid);
+                let is_unmatched_step_attribution = self
+                    .breakdown_step
+                    .map(|breakdown_step| step == breakdown_step - 1)
+                    .unwrap_or(false)
+                    && *prop_val != event.breakdown;
+                let already_used_event = processing_multiple_events
+                    && vars.entered_timestamp[step - 1].uuids.contains(&event.uuid);
                 if !is_unmatched_step_attribution && !already_used_event {
                     vars.entered_timestamp[step] = EnteredTimestamp {
                         timestamp: vars.entered_timestamp[step - 1].timestamp,
