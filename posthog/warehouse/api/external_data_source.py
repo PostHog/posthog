@@ -40,6 +40,7 @@ from posthog.temporal.data_imports.pipelines.hubspot.auth import (
     get_hubspot_access_token_from_code,
 )
 from posthog.warehouse.models.external_data_schema import (
+    filter_clickhouse_incremental_fields,
     filter_mssql_incremental_fields,
     filter_mysql_incremental_fields,
     filter_postgres_incremental_fields,
@@ -66,6 +67,8 @@ def get_generic_sql_error(source_type: ExternalDataSource.Type):
         name = "MySQL"
     elif source_type == ExternalDataSource.Type.MSSQL:
         name = "SQL database"
+    elif source_type == ExternalDataSource.Type.CLICKHOUSE:
+        name = "ClickHouse"
     else:
         name = "Postgres"
 
@@ -294,6 +297,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             ExternalDataSource.Type.POSTGRES,
             ExternalDataSource.Type.MYSQL,
             ExternalDataSource.Type.MSSQL,
+            ExternalDataSource.Type.CLICKHOUSE,
         ]:
             try:
                 new_source_model, sql_schemas = self._handle_sql_source(request, *args, **kwargs)
@@ -316,6 +320,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             ExternalDataSource.Type.POSTGRES,
             ExternalDataSource.Type.MYSQL,
             ExternalDataSource.Type.MSSQL,
+            ExternalDataSource.Type.CLICKHOUSE,
         ]:
             default_schemas = sql_schemas
         elif source_type == ExternalDataSource.Type.SNOWFLAKE:
@@ -840,6 +845,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             ExternalDataSource.Type.POSTGRES,
             ExternalDataSource.Type.MYSQL,
             ExternalDataSource.Type.MSSQL,
+            ExternalDataSource.Type.CLICKHOUSE,
         ]:
             # Importing pymssql requires mssql drivers to be installed locally - see posthog/warehouse/README.md
             from pymssql import OperationalError as MSSQLOperationalError
@@ -874,11 +880,18 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 private_key=ssh_tunnel_auth_type_private_key,
             )
 
-            if not host or not port or not database or not user or not password or not schema:
-                return Response(
-                    status=status.HTTP_400_BAD_REQUEST,
-                    data={"message": "Missing required parameters: host, port, database, user, password, schema"},
-                )
+            if source_type == ExternalDataSource.Type.CLICKHOUSE:
+                if not host or not port or not database or not user or not schema:
+                    return Response(
+                        status=status.HTTP_400_BAD_REQUEST,
+                        data={"message": "Missing required parameters: host, port, database, user, schema"},
+                    )
+            else:
+                if not host or not port or not database or not user or not password or not schema:
+                    return Response(
+                        status=status.HTTP_400_BAD_REQUEST,
+                        data={"message": "Missing required parameters: host, port, database, user, password, schema"},
+                    )
 
             if using_ssh_tunnel:
                 auth_valid, auth_error_message = ssh_tunnel.is_auth_valid()
@@ -972,6 +985,11 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             elif source_type == ExternalDataSource.Type.MSSQL:
                 filtered_results = [
                     (table_name, filter_mssql_incremental_fields(columns)) for table_name, columns in result.items()
+                ]
+            elif source_type == ExternalDataSource.Type.CLICKHOUSE:
+                filtered_results = [
+                    (table_name, filter_clickhouse_incremental_fields(columns))
+                    for table_name, columns in result.items()
                 ]
 
             result_mapped_to_options = [

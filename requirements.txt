@@ -40,6 +40,8 @@ async-timeout==4.0.2
     # via
     #   aiokafka
     #   redis
+asynch==0.2.5
+    # via clickhouse-sqlalchemy
 attrs==23.2.0
     # via
     #   aiohttp
@@ -93,6 +95,8 @@ charset-normalizer==2.1.0
     # via
     #   requests
     #   snowflake-connector-python
+ciso8601==2.3.1
+    # via asynch
 click==8.1.7
     # via
     #   celery
@@ -110,8 +114,11 @@ clickhouse-driver==0.2.7
     # via
     #   -r requirements.in
     #   clickhouse-pool
+    #   clickhouse-sqlalchemy
     #   sentry-sdk
 clickhouse-pool==0.5.3
+    # via -r requirements.in
+clickhouse-sqlalchemy==0.3.2
     # via -r requirements.in
 cryptography==39.0.2
     # via
@@ -363,6 +370,8 @@ langsmith==0.1.132
     #   -r requirements.in
     #   langchain
     #   langchain-core
+leb128==1.0.8
+    # via asynch
 lxml==4.9.4
     # via
     #   -r requirements.in
@@ -370,6 +379,8 @@ lxml==4.9.4
     #   toronado
     #   xmlsec
     #   zeep
+lz4==4.3.3
+    # via asynch
 lzstring==1.0.4
     # via -r requirements.in
 makefun==1.15.2
@@ -549,6 +560,7 @@ python3-saml==1.12.0
 pytz==2023.3
     # via
     #   -r requirements.in
+    #   asynch
     #   clickhouse-driver
     #   dlt
     #   infi-clickhouse-orm
@@ -580,6 +592,7 @@ regex==2023.12.25
 requests==2.32.0
     # via
     #   -r requirements.in
+    #   clickhouse-sqlalchemy
     #   dlt
     #   geoip2
     #   google-api-core
@@ -679,6 +692,7 @@ sortedcontainers==2.4.0
 sqlalchemy==2.0.31
     # via
     #   -r requirements.in
+    #   clickhouse-sqlalchemy
     #   langchain
     #   snowflake-sqlalchemy
     #   sqlalchemy-bigquery
@@ -753,7 +767,9 @@ tzdata==2023.3
     #   dlt
     #   pandas
 tzlocal==2.1
-    # via clickhouse-driver
+    # via
+    #   asynch
+    #   clickhouse-driver
 unicodecsv==0.14.1
     # via djangorestframework-csv
 uritemplate==4.1.1
@@ -798,6 +814,8 @@ yarl==1.9.4
 zeep==4.2.1
     # via simple-salesforce
 zstd==1.5.5.1
-    # via -r requirements.in
+    # via
+    #   -r requirements.in
+    #   asynch
 zxcvbn==4.4.28
     # via -r requirements.in

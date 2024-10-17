@@ -14,6 +14,7 @@ celery==5.3.4
 celery-redbeat==2.1.1
 clickhouse-driver==0.2.7
 clickhouse-pool==0.5.3
+clickhouse-sqlalchemy==0.3.2
 cryptography==39.0.2
 dj-database-url==0.5.0
 Django~=4.2.15

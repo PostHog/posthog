@@ -58,6 +58,7 @@ class DataImportPipeline:
             and inputs.job_type != ExternalDataSource.Type.MSSQL
             and inputs.job_type != ExternalDataSource.Type.SNOWFLAKE
             and inputs.job_type != ExternalDataSource.Type.BIGQUERY
+            and inputs.job_type != ExternalDataSource.Type.CLICKHOUSE
         )
 
         if self.should_chunk_pipeline:

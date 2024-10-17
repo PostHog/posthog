@@ -4044,6 +4044,7 @@ export const externalDataSources = [
     'Salesforce',
     'Vitally',
     'BigQuery',
+    'ClickHouse',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]

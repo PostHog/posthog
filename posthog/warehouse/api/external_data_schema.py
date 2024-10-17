@@ -27,6 +27,7 @@ from posthog.warehouse.data_load.service import (
     cancel_external_data_workflow,
 )
 from posthog.warehouse.models.external_data_schema import (
+    filter_clickhouse_incremental_fields,
     filter_mssql_incremental_fields,
     filter_mysql_incremental_fields,
     filter_postgres_incremental_fields,
@@ -285,6 +286,7 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.
             ExternalDataSource.Type.POSTGRES,
             ExternalDataSource.Type.MYSQL,
             ExternalDataSource.Type.MSSQL,
+            ExternalDataSource.Type.CLICKHOUSE,
         ]:
             # TODO(@Gilbert09): Move all this into a util and replace elsewhere
             host = source.job_inputs.get("host")
@@ -332,6 +334,8 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.
                 incremental_fields_func = filter_mysql_incremental_fields
             elif source.source_type == ExternalDataSource.Type.MSSQL:
                 incremental_fields_func = filter_mssql_incremental_fields
+            elif source.source_type == ExternalDataSource.Type.CLICKHOUSE:
+                incremental_fields_func = filter_clickhouse_incremental_fields
 
             incremental_columns = [
                 {"field": name, "field_type": field_type, "label": name, "type": field_type}

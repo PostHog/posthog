@@ -365,13 +365,13 @@ def filter_mssql_incremental_fields(columns: list[tuple[str, str]]) -> list[tupl
 def get_mssql_schemas(
     host: str, port: str, database: str, user: str, password: str, schema: str, ssh_tunnel: SSHTunnel
 ) -> dict[str, list[tuple[str, str]]]:
-    def get_schemas(postgres_host: str, postgres_port: int):
+    def get_schemas(mssql_host: str, mssql_port: int):
         # Importing pymssql requires mssql drivers to be installed locally - see posthog/warehouse/README.md
         import pymssql
 
         connection = pymssql.connect(
-            server=postgres_host,
-            port=str(postgres_port),
+            server=mssql_host,
+            port=str(mssql_port),
             database=database,
             user=user,
             password=password,
@@ -404,6 +404,59 @@ def get_mssql_schemas(
     return get_schemas(host, int(port))
 
 
+def filter_clickhouse_incremental_fields(columns: list[tuple[str, str]]) -> list[tuple[str, IncrementalFieldType]]:
+    results: list[tuple[str, IncrementalFieldType]] = []
+    for column_name, type in columns:
+        type = type.lower()
+        if type == "date" or type == "date32":
+            results.append((column_name, IncrementalFieldType.Date))
+        elif type == "datetime" or type == "datetime64":
+            results.append((column_name, IncrementalFieldType.DateTime))
+        elif type != "interval" and (type.startswith("int") or type.startswith("uint")):
+            results.append((column_name, IncrementalFieldType.Integer))
+
+    return results
+
+
+def get_clickhouse_schemas(
+    host: str, port: str, database: str, user: str, password: str, schema: str, ssh_tunnel: SSHTunnel
+) -> dict[str, list[tuple[str, str]]]:
+    def get_schemas(clickhouse_host: str, clickhouse_port: int):
+        from clickhouse_driver import Client
+
+        with Client(
+            host=clickhouse_host,
+            port=9000,
+            database=database,
+            user=user,
+            password=password,
+            connect_timeout=5,
+        ) as clickhouse_client:
+            results = clickhouse_client.execute(
+                "SELECT table_name, column_name, data_type FROM information_schema.columns WHERE table_schema = %(schema)s ORDER BY table_name ASC",
+                {"schema": schema},
+            )
+
+        schema_list = defaultdict(list)
+
+        assert results is not None and not isinstance(results, int)
+
+        for row in results:
+            if row:
+                schema_list[row[0]].append((row[1], row[2]))  # type: ignore
+
+        return schema_list
+
+    if ssh_tunnel.enabled:
+        with ssh_tunnel.get_tunnel(host, int(port)) as tunnel:
+            if tunnel is None:
+                raise Exception("Can't open tunnel to SSH server")
+
+            return get_schemas(tunnel.local_bind_host, tunnel.local_bind_port)
+
+    return get_schemas(host, int(port))
+
+
 def get_sql_schemas_for_source_type(
     source_type: ExternalDataSource.Type,
     host: str,
@@ -420,6 +473,8 @@ def get_sql_schemas_for_source_type(
         schemas = get_mysql_schemas(host, port, database, user, password, schema, ssh_tunnel)
     elif source_type == ExternalDataSource.Type.MSSQL:
         schemas = get_mssql_schemas(host, port, database, user, password, schema, ssh_tunnel)
+    elif source_type == ExternalDataSource.Type.CLICKHOUSE:
+        schemas = get_clickhouse_schemas(host, port, database, user, password, schema, ssh_tunnel)
     else:
         raise Exception("Unsupported source_type")
 

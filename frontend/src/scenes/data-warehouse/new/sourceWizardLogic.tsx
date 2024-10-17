@@ -44,6 +44,85 @@ const Caption = (): JSX.Element => (
 
 export const getHubspotRedirectUri = (): string => `${window.location.origin}/data-warehouse/hubspot/redirect`
 
+const SSH_TUNNEL_FIELD: SourceFieldConfig = {
+    name: 'ssh-tunnel',
+    label: 'Use SSH tunnel?',
+    type: 'switch-group',
+    default: false,
+    fields: [
+        {
+            name: 'host',
+            label: 'Tunnel host',
+            type: 'text',
+            required: true,
+            placeholder: 'localhost',
+        },
+        {
+            name: 'port',
+            label: 'Tunnel port',
+            type: 'number',
+            required: true,
+            placeholder: '22',
+        },
+        {
+            type: 'select',
+            name: 'auth_type',
+            label: 'Authentication type',
+            required: true,
+            defaultValue: 'password',
+            options: [
+                {
+                    label: 'Password',
+                    value: 'password',
+                    fields: [
+                        {
+                            name: 'username',
+                            label: 'Tunnel username',
+                            type: 'text',
+                            required: true,
+                            placeholder: 'User1',
+                        },
+                        {
+                            name: 'password',
+                            label: 'Tunnel password',
+                            type: 'password',
+                            required: true,
+                            placeholder: '',
+                        },
+                    ],
+                },
+                {
+                    label: 'Key pair',
+                    value: 'keypair',
+                    fields: [
+                        {
+                            name: 'username',
+                            label: 'Tunnel username',
+                            type: 'text',
+                            required: false,
+                            placeholder: 'User1',
+                        },
+                        {
+                            name: 'private_key',
+                            label: 'Tunnel private key',
+                            type: 'textarea',
+                            required: true,
+                            placeholder: '',
+                        },
+                        {
+                            name: 'passphrase',
+                            label: 'Tunnel passphrase',
+                            type: 'password',
+                            required: false,
+                            placeholder: '',
+                        },
+                    ],
+                },
+            ],
+        },
+    ],
+}
+
 export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
     Stripe: {
         name: 'Stripe',
@@ -122,84 +201,7 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
                 required: true,
                 placeholder: 'public',
             },
-            {
-                name: 'ssh-tunnel',
-                label: 'Use SSH tunnel?',
-                type: 'switch-group',
-                default: false,
-                fields: [
-                    {
-                        name: 'host',
-                        label: 'Tunnel host',
-                        type: 'text',
-                        required: true,
-                        placeholder: 'localhost',
-                    },
-                    {
-                        name: 'port',
-                        label: 'Tunnel port',
-                        type: 'number',
-                        required: true,
-                        placeholder: '22',
-                    },
-                    {
-                        type: 'select',
-                        name: 'auth_type',
-                        label: 'Authentication type',
-                        required: true,
-                        defaultValue: 'password',
-                        options: [
-                            {
-                                label: 'Password',
-                                value: 'password',
-                                fields: [
-                                    {
-                                        name: 'username',
-                                        label: 'Tunnel username',
-                                        type: 'text',
-                                        required: true,
-                                        placeholder: 'User1',
-                                    },
-                                    {
-                                        name: 'password',
-                                        label: 'Tunnel password',
-                                        type: 'password',
-                                        required: true,
-                                        placeholder: '',
-                                    },
-                                ],
-                            },
-                            {
-                                label: 'Key pair',
-                                value: 'keypair',
-                                fields: [
-                                    {
-                                        name: 'username',
-                                        label: 'Tunnel username',
-                                        type: 'text',
-                                        required: false,
-                                        placeholder: 'User1',
-                                    },
-                                    {
-                                        name: 'private_key',
-                                        label: 'Tunnel private key',
-                                        type: 'textarea',
-                                        required: true,
-                                        placeholder: '',
-                                    },
-                                    {
-                                        name: 'passphrase',
-                                        label: 'Tunnel passphrase',
-                                        type: 'password',
-                                        required: false,
-                                        placeholder: '',
-                                    },
-                                ],
-                            },
-                        ],
-                    },
-                ],
-            },
+            SSH_TUNNEL_FIELD,
         ],
     },
     MySQL: {
@@ -253,84 +255,7 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
                 required: true,
                 placeholder: 'public',
             },
-            {
-                name: 'ssh-tunnel',
-                label: 'Use SSH tunnel?',
-                type: 'switch-group',
-                default: false,
-                fields: [
-                    {
-                        name: 'host',
-                        label: 'Tunnel host',
-                        type: 'text',
-                        required: true,
-                        placeholder: 'localhost',
-                    },
-                    {
-                        name: 'port',
-                        label: 'Tunnel port',
-                        type: 'number',
-                        required: true,
-                        placeholder: '22',
-                    },
-                    {
-                        type: 'select',
-                        name: 'auth_type',
-                        label: 'Authentication type',
-                        required: true,
-                        defaultValue: 'password',
-                        options: [
-                            {
-                                label: 'Password',
-                                value: 'password',
-                                fields: [
-                                    {
-                                        name: 'username',
-                                        label: 'Tunnel username',
-                                        type: 'text',
-                                        required: true,
-                                        placeholder: 'User1',
-                                    },
-                                    {
-                                        name: 'password',
-                                        label: 'Tunnel password',
-                                        type: 'password',
-                                        required: true,
-                                        placeholder: '',
-                                    },
-                                ],
-                            },
-                            {
-                                label: 'Key pair',
-                                value: 'keypair',
-                                fields: [
-                                    {
-                                        name: 'username',
-                                        label: 'Tunnel username',
-                                        type: 'text',
-                                        required: false,
-                                        placeholder: 'User1',
-                                    },
-                                    {
-                                        name: 'private_key',
-                                        label: 'Tunnel private key',
-                                        type: 'textarea',
-                                        required: true,
-                                        placeholder: '',
-                                    },
-                                    {
-                                        name: 'passphrase',
-                                        label: 'Tunnel passphrase',
-                                        type: 'password',
-                                        required: false,
-                                        placeholder: '',
-                                    },
-                                ],
-                            },
-                        ],
-                    },
-                ],
-            },
+            SSH_TUNNEL_FIELD,
         ],
     },
     MSSQL: {
@@ -385,84 +310,7 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
                 required: true,
                 placeholder: 'dbo',
             },
-            {
-                name: 'ssh-tunnel',
-                label: 'Use SSH tunnel?',
-                type: 'switch-group',
-                default: false,
-                fields: [
-                    {
-                        name: 'host',
-                        label: 'Tunnel host',
-                        type: 'text',
-                        required: true,
-                        placeholder: 'localhost',
-                    },
-                    {
-                        name: 'port',
-                        label: 'Tunnel port',
-                        type: 'number',
-                        required: true,
-                        placeholder: '22',
-                    },
-                    {
-                        type: 'select',
-                        name: 'auth_type',
-                        label: 'Authentication type',
-                        required: true,
-                        defaultValue: 'password',
-                        options: [
-                            {
-                                label: 'Password',
-                                value: 'password',
-                                fields: [
-                                    {
-                                        name: 'username',
-                                        label: 'Tunnel username',
-                                        type: 'text',
-                                        required: true,
-                                        placeholder: 'User1',
-                                    },
-                                    {
-                                        name: 'password',
-                                        label: 'Tunnel password',
-                                        type: 'password',
-                                        required: true,
-                                        placeholder: '',
-                                    },
-                                ],
-                            },
-                            {
-                                label: 'Key pair',
-                                value: 'keypair',
-                                fields: [
-                                    {
-                                        name: 'username',
-                                        label: 'Tunnel username',
-                                        type: 'text',
-                                        required: false,
-                                        placeholder: 'User1',
-                                    },
-                                    {
-                                        name: 'private_key',
-                                        label: 'Tunnel private key',
-                                        type: 'textarea',
-                                        required: true,
-                                        placeholder: '',
-                                    },
-                                    {
-                                        name: 'passphrase',
-                                        label: 'Tunnel passphrase',
-                                        type: 'password',
-                                        required: false,
-                                        placeholder: '',
-                                    },
-                                ],
-                            },
-                        ],
-                    },
-                ],
-            },
+            SSH_TUNNEL_FIELD,
         ],
     },
     Snowflake: {
@@ -627,6 +475,60 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
             },
         ],
         caption: '',
+    },
+    ClickHouse: {
+        name: 'ClickHouse',
+        caption: (
+            <>
+                Enter your ClickHouse credentials to automatically pull your ClickHouse data into the PostHog data
+                warehouse.
+            </>
+        ),
+        fields: [
+            {
+                name: 'host',
+                label: 'Host',
+                type: 'text',
+                required: true,
+                placeholder: 'localhost',
+            },
+            {
+                name: 'port',
+                label: 'Port',
+                type: 'number',
+                required: true,
+                placeholder: '9000',
+            },
+            {
+                name: 'dbname',
+                label: 'Database',
+                type: 'text',
+                required: true,
+                placeholder: 'clickhouse',
+            },
+            {
+                name: 'user',
+                label: 'User',
+                type: 'text',
+                required: true,
+                placeholder: 'clickhouse',
+            },
+            {
+                name: 'password',
+                label: 'Password',
+                type: 'password',
+                required: false,
+                placeholder: '',
+            },
+            {
+                name: 'schema',
+                label: 'Schema',
+                type: 'text',
+                required: true,
+                placeholder: 'default',
+            },
+            SSH_TUNNEL_FIELD,
+        ],
     },
 }
 

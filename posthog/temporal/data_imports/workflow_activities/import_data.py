@@ -115,6 +115,7 @@ async def import_data_activity(inputs: ImportDataActivityInputs):
             ExternalDataSource.Type.POSTGRES,
             ExternalDataSource.Type.MYSQL,
             ExternalDataSource.Type.MSSQL,
+            ExternalDataSource.Type.CLICKHOUSE,
         ]:
             if is_posthog_team(inputs.team_id):
                 from posthog.temporal.data_imports.pipelines.sql_database_v2 import sql_source_for_type

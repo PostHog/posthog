@@ -25,6 +25,7 @@ class ExternalDataSource(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
         MSSQL = "MSSQL", "MSSQL"
         VITALLY = "Vitally", "Vitally"
         BIGQUERY = "BigQuery", "BigQuery"
+        CLICKHOUSE = "ClickHouse", "ClickHouse"
 
     class Status(models.TextChoices):
         RUNNING = "Running", "Running"

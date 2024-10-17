@@ -20,6 +20,7 @@ from posthog.utils import str_to_bool
 from posthog.warehouse.types import IncrementalFieldType
 from posthog.warehouse.models.external_data_source import ExternalDataSource
 from sqlalchemy.sql import text
+from clickhouse_sqlalchemy import Table as ClickHouseTable
 
 from .helpers import (
     table_rows,
@@ -86,6 +87,8 @@ def sql_source_for_type(
         credentials = ConnectionStringCredentials(
             f"mssql+pyodbc://{user}:{password}@{host}:{port}/{database}?driver=ODBC+Driver+18+for+SQL+Server&TrustServerCertificate=yes"
         )
+    elif source_type == ExternalDataSource.Type.CLICKHOUSE:
+        credentials = ConnectionStringCredentials(f"clickhouse+http://{user}:{password}@{host}:{port}/{database}")
     else:
         raise Exception("Unsupported source_type")
 
@@ -96,6 +99,7 @@ def sql_source_for_type(
         incremental=incremental,
         team_id=team_id,
         connect_args=connect_args,
+        table_object=ClickHouseTable if source_type == ExternalDataSource.Type.CLICKHOUSE else Table,
     )
 
     return db_source
@@ -196,6 +200,7 @@ def sql_database(
     incremental: Optional[dlt.sources.incremental] = None,
     team_id: Optional[int] = None,
     connect_args: Optional[list[str]] = None,
+    table_object: type[Table] = Table,
 ) -> Iterable[DltResource]:
     """
     A DLT source which loads data from an SQL database using SQLAlchemy.
@@ -218,7 +223,7 @@ def sql_database(
 
     # use provided tables or all tables
     if table_names:
-        tables = [Table(name, metadata, autoload_with=engine) for name in table_names]
+        tables = [table_object(name, metadata, autoload_with=engine) for name in table_names]
     else:
         metadata.reflect(bind=engine)
         tables = list(metadata.tables.values())
@@ -272,7 +277,13 @@ def get_binary_columns(engine: Engine, schema_name: str, table_name: str) -> lis
 
     for column_name, data_type in results:
         lower_data_type = data_type.lower()
-        if lower_data_type == "bytea" or lower_data_type == "binary" or lower_data_type == "varbinary":
+        if (
+            lower_data_type == "bytea"
+            or lower_data_type == "binary"
+            or lower_data_type == "varbinary"
+            or lower_data_type == "ipv6"
+            or lower_data_type == "ipv4"
+        ):
             binary_cols.append(column_name)
 
     return binary_cols

@@ -6,6 +6,7 @@ import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import IconAwsS3 from 'public/services/aws-s3.png'
 import Iconazure from 'public/services/azure.png'
 import IconBigQuery from 'public/services/bigquery.png'
+import IconClickHouse from 'public/services/clickhouse.png'
 import IconCloudflare from 'public/services/cloudflare.png'
 import IconGoogleCloudStorage from 'public/services/google-cloud-storage.png'
 import IconHubspot from 'public/services/hubspot.png'
@@ -193,6 +194,7 @@ export function RenderDataWarehouseSourceIcon({
         MSSQL: IconMSSQL,
         Vitally: IconVitally,
         BigQuery: IconBigQuery,
+        ClickHouse: IconClickHouse,
     }[type]
 
     return (
