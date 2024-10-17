@@ -401,10 +401,20 @@
         },
         "AlertCondition": {
             "additionalProperties": false,
+            "properties": {
+                "type": {
+                    "$ref": "#/definitions/AlertConditionType"
+                }
+            },
+            "required": ["type"],
             "type": "object"
         },
+        "AlertConditionType": {
+            "enum": ["absolute_value", "relative_increase", "relative_decrease"],
+            "type": "string"
+        },
         "AlertState": {
-            "enum": ["Firing", "Not firing", "Errored"],
+            "enum": ["Firing", "Not firing", "Errored", "Snoozed"],
             "type": "string"
         },
         "AnyDataNode": {
@@ -6901,11 +6911,19 @@
         "InsightThreshold": {
             "additionalProperties": false,
             "properties": {
-                "absoluteThreshold": {
-                    "$ref": "#/definitions/InsightsThresholdAbsolute"
+                "bounds": {
+                    "$ref": "#/definitions/InsightsThresholdBounds"
+                },
+                "type": {
+                    "$ref": "#/definitions/InsightThresholdType"
                 }
             },
+            "required": ["type"],
             "type": "object"
+        },
+        "InsightThresholdType": {
+            "enum": ["absolute", "percentage"],
+            "type": "string"
         },
         "InsightVizNode": {
             "additionalProperties": false,
@@ -7209,7 +7227,7 @@
             "required": ["kind"],
             "type": "object"
         },
-        "InsightsThresholdAbsolute": {
+        "InsightsThresholdBounds": {
             "additionalProperties": false,
             "properties": {
                 "lower": {
