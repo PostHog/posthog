@@ -126,6 +126,9 @@ export const experimentLogic = kea<experimentLogicType>([
                 'reportExperimentReset',
                 'reportExperimentExposureCohortCreated',
                 'reportExperimentVariantShipped',
+                'reportExperimentVariantScreenshotUploaded',
+                'reportExperimentResultsLoadingTimeout',
+                'reportExperimentReleaseConditionsViewed',
             ],
             insightDataLogic({ dashboardItemId: EXPERIMENT_INSIGHT_ID }),
             ['setQuery'],
@@ -775,6 +778,9 @@ export const experimentLogic = kea<experimentLogicType>([
                         }
                     } catch (error: any) {
                         actions.setExperimentResultCalculationError({ detail: error.detail, statusCode: error.status })
+                        if (error.status === 504) {
+                            actions.reportExperimentResultsLoadingTimeout(values.experimentId)
+                        }
                         return null
                     }
                 },

@@ -26,6 +26,7 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
 
     const displayedEventProperties: Properties = {}
     const visibleSystemProperties: Properties = {}
+    const featureFlagProperties: Properties = {}
     let systemPropsCount = 0
     for (const key of Object.keys(event.properties)) {
         if (CORE_FILTER_DEFINITIONS_BY_GROUP.events[key] && CORE_FILTER_DEFINITIONS_BY_GROUP.events[key].system) {
@@ -35,7 +36,11 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
             }
         }
         if (!CORE_FILTER_DEFINITIONS_BY_GROUP.events[key] || !CORE_FILTER_DEFINITIONS_BY_GROUP.events[key].system) {
-            displayedEventProperties[key] = event.properties[key]
+            if (key.startsWith('$feature') || key === '$active_feature_flags') {
+                featureFlagProperties[key] = event.properties[key]
+            } else {
+                displayedEventProperties[key] = event.properties[key]
+            }
         }
     }
 
@@ -94,6 +99,26 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
             content: (
                 <div className="ml-10 my-2">
                     <ErrorDisplay eventProperties={event.properties} />
+                </div>
+            ),
+        })
+    }
+
+    if (Object.keys(featureFlagProperties).length > 0) {
+        tabs.push({
+            key: 'feature_flags',
+            label: 'Feature flags',
+            content: (
+                <div className="ml-10 mt-2">
+                    <PropertiesTable
+                        type={PropertyDefinitionType.Event}
+                        properties={{
+                            ...featureFlagProperties,
+                        }}
+                        useDetectedPropertyType={true}
+                        tableProps={tableProps}
+                        searchable
+                    />
                 </div>
             ),
         })

@@ -1,6 +1,11 @@
 // Adapted from https://raw.githubusercontent.com/microsoft/monaco-editor/main/src/basic-languages/mysql/mysql.ts
 
+import { Monaco } from '@monaco-editor/react'
+import { hogQLAutocompleteProvider } from 'lib/monaco/hogQLAutocompleteProvider'
+import { hogQLMetadataProvider } from 'lib/monaco/hogQLMetadataProvider'
 import { languages } from 'monaco-editor'
+
+import { HogLanguage } from '~/queries/schema'
 
 export const conf: () => languages.LanguageConfiguration = () => ({
     comments: {
@@ -845,3 +850,24 @@ export const language: () => languages.IMonarchLanguage = () => ({
         ],
     },
 })
+
+export function initHogQLLanguage(monaco: Monaco, lang: HogLanguage = HogLanguage.hogQL): void {
+    if (!monaco.languages.getLanguages().some(({ id }) => id === lang)) {
+        monaco.languages.register(
+            lang === 'hogQL'
+                ? {
+                      id: lang,
+                      extensions: ['.sql', '.hogql'],
+                      mimetypes: ['application/hogql'],
+                  }
+                : {
+                      id: lang,
+                      mimetypes: ['application/hogql+expr'],
+                  }
+        )
+        monaco.languages.setLanguageConfiguration(lang, conf())
+        monaco.languages.setMonarchTokensProvider(lang, language())
+        monaco.languages.registerCompletionItemProvider(lang, hogQLAutocompleteProvider(lang))
+        monaco.languages.registerCodeActionProvider(lang, hogQLMetadataProvider())
+    }
+}
