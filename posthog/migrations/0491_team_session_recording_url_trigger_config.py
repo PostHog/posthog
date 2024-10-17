@@ -6,7 +6,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0487_team_survey_config"),
+        ("posthog", "0490_dashboard_variables"),
     ]
 
     operations = [
