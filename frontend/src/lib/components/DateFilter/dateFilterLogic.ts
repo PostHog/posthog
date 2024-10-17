@@ -112,8 +112,9 @@ export const dateFilterLogic = kea<dateFilterLogicType>([
                 s.isFixedDate,
                 s.dateOptions,
                 (_, p) => p.isFixedDateMode,
+                (_, p) => p.placeholder,
             ],
-            (dateFrom, dateTo, isFixedRange, isDateToNow, isFixedDate, dateOptions, isFixedDateMode) =>
+            (dateFrom, dateTo, isFixedRange, isDateToNow, isFixedDate, dateOptions, isFixedDateMode, placeholder) =>
                 isFixedRange
                     ? formatDateRange(dayjs(dateFrom), dayjs(dateTo))
                     : isDateToNow
@@ -123,7 +124,9 @@ export const dateFilterLogic = kea<dateFilterLogicType>([
                     : dateFilterToText(
                           dateFrom,
                           dateTo,
-                          isFixedDateMode ? SELECT_FIXED_VALUE_PLACEHOLDER : NO_OVERRIDE_RANGE_PLACEHOLDER,
+                          isFixedDateMode
+                              ? placeholder ?? SELECT_FIXED_VALUE_PLACEHOLDER
+                              : NO_OVERRIDE_RANGE_PLACEHOLDER,
                           dateOptions,
                           false
                       ),
