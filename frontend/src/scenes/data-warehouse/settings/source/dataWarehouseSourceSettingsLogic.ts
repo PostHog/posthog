@@ -121,10 +121,19 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
                     ...values.source?.job_inputs,
                     ...payload,
                 }
-                const updatedSource = await api.externalDataSources.update(values.sourceId, {
-                    job_inputs: newJobInputs,
-                })
-                actions.loadSourceSuccess(updatedSource)
+                try {
+                    const updatedSource = await api.externalDataSources.update(values.sourceId, {
+                        job_inputs: newJobInputs,
+                    })
+                    actions.loadSourceSuccess(updatedSource)
+                    lemonToast.success('Source updated')
+                } catch (e: any) {
+                    if (e.message) {
+                        lemonToast.error(e.message)
+                    } else {
+                        lemonToast.error('Cant update source at this time')
+                    }
+                }
             },
         },
     })),

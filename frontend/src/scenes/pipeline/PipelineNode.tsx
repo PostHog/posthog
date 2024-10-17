@@ -57,7 +57,6 @@ export function PipelineNode(params: { stage?: string; id?: string } = {}): JSX.
     if (!stage) {
         return <NotFound object="pipeline stage" />
     }
-
     const tabToContent: Partial<Record<PipelineNodeTab, JSX.Element>> =
         node.backend === PipelineBackend.ManagedSource
             ? {
