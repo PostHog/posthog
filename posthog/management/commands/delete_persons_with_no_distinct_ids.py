@@ -1,6 +1,5 @@
 from django.core.management.base import BaseCommand, CommandError
-
-from posthog.models import Team, Person, PersonDistinctId
+from django.db import connection
 
 
 class Command(BaseCommand):
@@ -17,22 +16,55 @@ class Command(BaseCommand):
         if not team_id:
             raise CommandError("source Team ID is required")
 
-        team = Team.objects.get(pk=team_id)
-
         print("Deleting persons with no distinct ids for team", team_id)  # noqa: T201
 
-        # There's a relationship from persondistinctid to person, but not in the other
-        # direction, so we have to iterate over the entire person set to find the ones
-        # that have no distinct ids
-        people = Person.objects.filter(team=team)
+        if dry_run:
+            delete_persons_without_distinct_ids_raw_sql_dry_run(team_id)
+        else:
+            delete_persons_without_distinct_ids_raw_sql(team_id)
 
-        # Delete persons with no distinct ids
-        deleted = 0
-        for p in people:
-            if not PersonDistinctId.objects.filter(person=p).exists():
-                print(f"Deleting person {p} with no distinct ids")  # noqa: T201
-                if not dry_run:
-                    p.delete()
-                deleted += 1
 
-        print(f"Deleted {deleted} persons with no distinct ids")  # noqa: T201
+def delete_persons_without_distinct_ids_raw_sql(team_id):
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            WITH persons_to_delete AS (
+                SELECT p.id
+                FROM posthog_person p
+                LEFT JOIN posthog_persondistinctid pd ON p.id = pd.person_id AND p.team_id = pd.team_id
+                WHERE p.team_id = %s AND pd.id IS NULL
+            )
+            DELETE FROM posthog_person
+            WHERE id IN (SELECT id FROM persons_to_delete)
+            RETURNING id;
+        """,
+            [team_id],
+        )
+
+        deleted_ids = cursor.fetchall()
+        deleted_count = len(deleted_ids)
+
+    print(f"Deleted {deleted_count} Person objects with no PersonDistinctIds for team {team_id}.")  # noqa: T201
+    return deleted_count
+
+
+def delete_persons_without_distinct_ids_raw_sql_dry_run(team_id):
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            WITH persons_to_delete AS (
+                SELECT p.id
+                FROM posthog_person p
+                LEFT JOIN posthog_persondistinctid pd ON p.id = pd.person_id AND p.team_id = pd.team_id
+                WHERE p.team_id = %s AND pd.id IS NULL
+            )
+            SELECT COUNT(*) FROM persons_to_delete;
+        """,
+            [team_id],
+        )
+
+        deleted_count = cursor.fetchone()
+        deleted_count = deleted_count[0] if deleted_count else 0
+
+    print(f"Would have deleted {deleted_count} Person objects with no PersonDistinctIds for team {team_id}.")  # noqa: T201
+    return deleted_count
