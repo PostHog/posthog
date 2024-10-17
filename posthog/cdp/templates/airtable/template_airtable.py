@@ -9,17 +9,25 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     icon_url="/static/posthog-icon.svg",
     category=["Custom"],
     hog="""
+let url := f'https://api.airtable.com/v0/{inputs.base_id}/{inputs.table_name}'
+
 let payload := {
-  'headers': inputs.headers,
-  'body': inputs.body,
-  'method': inputs.method
+  'headers': {
+    'Content-Type': 'application/json',
+    'Authorization': f'Bearer {inputs.access_token}'
+  },
+  'body': {
+    'fields': inputs.fields,
+    'typecast': true
+  },
+  'method': 'POST'
 }
 
 if (inputs.debug) {
-  print('Request', inputs.url, payload)
+  print('Request', url, payload)
 }
 
-let res := fetch(inputs.url, payload);
+let res := fetch(url, payload);
 
 if (inputs.debug) {
   print('Response', res.status, res.body);
@@ -27,56 +35,36 @@ if (inputs.debug) {
 """.strip(),
     inputs_schema=[
         {
-            "key": "url",
+            "key": "access_token",
             "type": "string",
-            "label": "Webhook URL",
+            "label": "Airtable access token",
+            "secret": True,
+            "required": True,
+            "description": "Create this at https://airtable.com/create/tokens"
+        },
+        {
+            "key": "base_id",
+            "type": "string",
+            "label": "Airtable base ID",
+            "secret": False,
+            "required": True,
+            "description": "Find this at https://airtable.com/developers/web/api/introduction"
+        },
+        {
+            "key": "table_name",
+            "type": "string",
+            "label": "Table name",
             "secret": False,
             "required": True,
         },
         {
-            "key": "method",
-            "type": "choice",
-            "label": "Method",
-            "secret": False,
-            "choices": [
-                {
-                    "label": "POST",
-                    "value": "POST",
-                },
-                {
-                    "label": "PUT",
-                    "value": "PUT",
-                },
-                {
-                    "label": "PATCH",
-                    "value": "PATCH",
-                },
-                {
-                    "label": "GET",
-                    "value": "GET",
-                },
-                {
-                    "label": "DELETE",
-                    "value": "DELETE",
-                },
-            ],
-            "default": "POST",
-            "required": False,
-        },
-        {
-            "key": "body",
+            "key": "fields",
             "type": "json",
-            "label": "JSON Body",
-            "default": {"event": "{event}", "person": "{person}"},
+            "label": "Fields",
+            "default": {"Timestamp": "{event.timestamp}", "Person Name": "{person.name}"},
             "secret": False,
-            "required": False,
-        },
-        {
-            "key": "headers",
-            "type": "dictionary",
-            "label": "Headers",
-            "secret": False,
-            "required": False,
+            "required": True,
+            "description": "Map field names from Airtable to properties from events and person records."
         },
         {
             "key": "debug",
@@ -87,17 +75,5 @@ if (inputs.debug) {
             "required": False,
             "default": False,
         },
-    ],
-    sub_templates=[
-        HogFunctionSubTemplate(
-            id="early_access_feature_enrollment",
-            name="HTTP Webhook on feature enrollment",
-            filters=SUB_TEMPLATE_COMMON["early_access_feature_enrollment"].filters,
-        ),
-        HogFunctionSubTemplate(
-            id="survey_response",
-            name="HTTP Webhook on survey response",
-            filters=SUB_TEMPLATE_COMMON["survey_response"].filters,
-        ),
-    ],
+    ]
 )
