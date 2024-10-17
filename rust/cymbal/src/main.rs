@@ -9,8 +9,6 @@ use cymbal::{
     config::Config,
     error::Error,
     metric_consts::{ERRORS, EVENT_RECEIVED, STACK_PROCESSED},
-    resolver::{Resolver, ResolverImpl},
-    symbol_store::basic::BasicStore,
     types::{frames::RawFrame, ErrProps},
 };
 use envconfig::Envconfig;
