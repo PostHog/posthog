@@ -103,7 +103,9 @@ class CachingTeamSerializer(serializers.ModelSerializer):
             "session_recording_minimum_duration_milliseconds",
             "session_recording_linked_flag",
             "session_recording_network_payload_capture_config",
+            "session_recording_url_trigger_config",
             "session_replay_config",
+            "survey_config",
             "recording_domains",
             "inject_web_apps",
             "surveys_opt_in",
@@ -155,7 +157,9 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "session_recording_minimum_duration_milliseconds",
             "session_recording_linked_flag",
             "session_recording_network_payload_capture_config",
+            "session_recording_url_trigger_config",
             "session_replay_config",
+            "survey_config",
             "effective_membership_level",
             "access_control",
             "week_start_day",
@@ -327,6 +331,38 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
     def update(self, instance: Team, validated_data: dict[str, Any]) -> Team:
         before_update = instance.__dict__.copy()
+
+        if "survey_config" in validated_data:
+            if instance.survey_config is not None and validated_data.get("survey_config") is not None:
+                validated_data["survey_config"] = {
+                    **instance.survey_config,
+                    **validated_data["survey_config"],
+                }
+
+            if validated_data.get("survey_config") is None:
+                del before_update["survey_config"]
+
+            survey_config_changes_between = dict_changes_between(
+                "Survey",
+                before_update.get("survey_config", {}),
+                validated_data.get("survey_config", {}),
+                use_field_exclusions=True,
+            )
+
+            if survey_config_changes_between:
+                log_activity(
+                    organization_id=cast(UUIDT, instance.organization_id),
+                    team_id=instance.pk,
+                    user=cast(User, self.context["request"].user),
+                    was_impersonated=is_impersonated_session(request),
+                    scope="Survey",
+                    item_id="",
+                    activity="updated",
+                    detail=Detail(
+                        name="global survey appearance",
+                        changes=survey_config_changes_between,
+                    ),
+                )
 
         if (
             "session_replay_config" in validated_data

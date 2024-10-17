@@ -1,11 +1,8 @@
-from datetime import datetime
-from typing import Optional
-
-from posthog.caching.utils import ThresholdMode, is_stale
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.query import execute_hogql_query
+from posthog.hogql_queries.ai.utils import TaxonomyCacheMixin
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.schema import (
     CachedTeamTaxonomyQueryResponse,
@@ -15,7 +12,7 @@ from posthog.schema import (
 )
 
 
-class TeamTaxonomyQueryRunner(QueryRunner):
+class TeamTaxonomyQueryRunner(TaxonomyCacheMixin, QueryRunner):
     """
     Calculates the top events for a team sorted by count. The EventDefinition model doesn't store the count of events,
     so this query mitigates that.
@@ -63,12 +60,3 @@ class TeamTaxonomyQueryRunner(QueryRunner):
         )
 
         return query
-
-    def _is_stale(self, last_refresh: Optional[datetime], lazy: bool = False) -> bool:
-        """
-        Despite the lazy mode, it caches for an hour by default. We don't want frequent updates here.
-        """
-        return is_stale(self.team, date_to=None, interval=None, last_refresh=last_refresh, mode=ThresholdMode.AI)
-
-    def cache_target_age(self, last_refresh: Optional[datetime], lazy: bool = False) -> Optional[datetime]:
-        return None

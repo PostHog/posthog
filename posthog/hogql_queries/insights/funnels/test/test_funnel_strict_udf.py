@@ -4,9 +4,10 @@ from unittest.mock import Mock, patch
 from freezegun import freeze_time
 
 from hogql_parser import parse_expr
-from posthog.constants import INSIGHT_FUNNELS
+from posthog.constants import INSIGHT_FUNNELS, FunnelOrderType
 from posthog.hogql.constants import HogQLGlobalSettings, MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY
 from posthog.hogql.query import execute_hogql_query
+from posthog.hogql_queries.insights.funnels.funnel_udf import udf_event_array_filter
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
 from posthog.hogql_queries.insights.funnels.test.test_funnel_strict import (
     BaseTestFunnelStrictStepsBreakdown,
@@ -15,7 +16,14 @@ from posthog.hogql_queries.insights.funnels.test.test_funnel_strict import (
     BaseTestFunnelStrictStepsConversionTime,
 )
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
-from posthog.schema import FunnelsQuery
+from posthog.schema import (
+    FunnelsQuery,
+    EventsNode,
+    BreakdownFilter,
+    FunnelsFilter,
+    BreakdownAttributionType,
+    StepOrderValue,
+)
 from posthog.test.base import _create_person, _create_event
 
 
@@ -49,7 +57,9 @@ class TestFunnelStrictStepsUDF(BaseTestFunnelStrictSteps):
         query = cast(FunnelsQuery, filter_to_query(filters))
         runner = FunnelsQueryRunner(query=query, team=self.team)
         inner_aggregation_query = runner.funnel_class._inner_aggregation_query()
-        inner_aggregation_query.select.append(parse_expr(f"{runner.funnel_class._array_filter()} AS filtered_array"))
+        inner_aggregation_query.select.append(
+            parse_expr(f"{udf_event_array_filter(StepOrderValue.STRICT)} AS filtered_array")
+        )
         inner_aggregation_query.having = None
         response = execute_hogql_query(
             query_type="FunnelsQuery",
@@ -63,6 +73,43 @@ class TestFunnelStrictStepsUDF(BaseTestFunnelStrictSteps):
         )
         # Make sure the events have been condensed down to one
         self.assertEqual(1, len(response.results[0][-1]))
+
+    def test_different_prop_val_in_strict_filter(self):
+        funnels_query = FunnelsQuery(
+            series=[EventsNode(event="first"), EventsNode(event="second")],
+            breakdownFilter=BreakdownFilter(breakdown="bd"),
+            funnelsFilter=FunnelsFilter(funnelOrderType=FunnelOrderType.STRICT),
+        )
+
+        _create_person(
+            distinct_ids=["many_other_events"],
+            team_id=self.team.pk,
+            properties={"test": "okay"},
+        )
+        _create_event(team=self.team, event="first", distinct_id="many_other_events", properties={"bd": "one"})
+        _create_event(team=self.team, event="first", distinct_id="many_other_events", properties={"bd": "two"})
+        _create_event(team=self.team, event="unmatched", distinct_id="many_other_events", properties={"bd": "one"})
+        _create_event(team=self.team, event="unmatched", distinct_id="many_other_events", properties={"bd": "two"})
+        _create_event(team=self.team, event="second", distinct_id="many_other_events", properties={"bd": "one"})
+        _create_event(team=self.team, event="second", distinct_id="many_other_events", properties={"bd": "two"})
+
+        # First Touchpoint (just "one")
+        results = FunnelsQueryRunner(query=funnels_query, team=self.team).calculate().results
+
+        assert 2 == len(results[0])
+        assert results[0][-1]["count"] == 0
+        assert all(result["breakdown"] == ["one"] for result in results[0])
+
+        # All events attribution
+        assert funnels_query.funnelsFilter is not None
+        funnels_query.funnelsFilter.breakdownAttributionType = BreakdownAttributionType.ALL_EVENTS
+        results = FunnelsQueryRunner(query=funnels_query, team=self.team).calculate().results
+
+        assert 2 == len(results)
+        one = next(x for x in results if x[0]["breakdown"] == ["one"])
+        assert one[-1]["count"] == 0
+        two = next(x for x in results if x[0]["breakdown"] == ["two"])
+        assert two[-1]["count"] == 0
 
     def test_multiple_events_same_timestamp_doesnt_blow_up(self):
         _create_person(distinct_ids=["test"], team_id=self.team.pk)

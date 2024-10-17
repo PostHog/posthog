@@ -4,6 +4,7 @@ import { CombinedLocation } from 'kea-router/lib/utils'
 import { objectsEqual } from 'kea-test-utils'
 import { AlertType } from 'lib/components/Alerts/types'
 import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
+import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { createEmptyInsight, insightLogic } from 'scenes/insights/insightLogic'
 import { insightLogicType } from 'scenes/insights/insightLogicType'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -18,8 +19,8 @@ import { ActivityFilters } from '~/layout/navigation-3000/sidepanel/panels/activ
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { getDefaultQuery } from '~/queries/nodes/InsightViz/utils'
-import { DashboardFilter, Node } from '~/queries/schema'
-import { ActivityScope, Breadcrumb, InsightShortId, InsightType, ItemMode } from '~/types'
+import { DashboardFilter, HogQLVariable, Node } from '~/queries/schema'
+import { ActivityScope, Breadcrumb, DashboardType, InsightShortId, InsightType, ItemMode } from '~/types'
 
 import { insightDataLogic } from './insightDataLogic'
 import { insightDataLogicType } from './insightDataLogicType'
@@ -49,13 +50,19 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             insightMode: ItemMode,
             itemId: string | undefined,
             alertId: AlertType['id'] | undefined,
-            filtersOverride: DashboardFilter | undefined
+            filtersOverride: DashboardFilter | undefined,
+            variablesOverride: Record<string, HogQLVariable> | undefined,
+            dashboardId: DashboardType['id'] | undefined,
+            dashboardName: DashboardType['name'] | undefined
         ) => ({
             insightId,
             insightMode,
             itemId,
             alertId,
+            dashboardId,
+            dashboardName,
             filtersOverride,
+            variablesOverride,
         }),
         setInsightLogicRef: (logic: BuiltLogic<insightLogicType> | null, unmount: null | (() => void)) => ({
             logic,
@@ -99,10 +106,29 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 setSceneState: (_, { alertId }) => (alertId !== undefined ? alertId : null),
             },
         ],
+        dashboardId: [
+            null as null | DashboardType['id'],
+            {
+                setSceneState: (_, { dashboardId }) => (dashboardId !== undefined ? dashboardId : null),
+            },
+        ],
+        dashboardName: [
+            null as null | DashboardType['name'],
+            {
+                setSceneState: (_, { dashboardName }) => (dashboardName !== undefined ? dashboardName : null),
+            },
+        ],
         filtersOverride: [
             null as null | DashboardFilter,
             {
                 setSceneState: (_, { filtersOverride }) => (filtersOverride !== undefined ? filtersOverride : null),
+            },
+        ],
+        variablesOverride: [
+            null as null | Record<string, HogQLVariable>,
+            {
+                setSceneState: (_, { variablesOverride }) =>
+                    variablesOverride !== undefined ? variablesOverride : null,
             },
         ],
         insightLogicRef: [
@@ -132,17 +158,42 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             (s) => [
                 s.insightLogicRef,
                 s.insight,
+                s.dashboardId,
+                s.dashboardName,
                 groupsModel.selectors.aggregationLabel,
                 cohortsModel.selectors.cohortsById,
                 mathsLogic.selectors.mathDefinitions,
             ],
-            (insightLogicRef, insight, aggregationLabel, cohortsById, mathDefinitions): Breadcrumb[] => {
+            (
+                insightLogicRef,
+                insight,
+                dashboardId,
+                dashboardName,
+                aggregationLabel,
+                cohortsById,
+                mathDefinitions
+            ): Breadcrumb[] => {
                 return [
-                    {
-                        key: Scene.SavedInsights,
-                        name: 'Product analytics',
-                        path: urls.savedInsights(),
-                    },
+                    ...(dashboardId !== null && dashboardName
+                        ? [
+                              {
+                                  key: Scene.Dashboards,
+                                  name: 'Dashboards',
+                                  path: urls.dashboards(),
+                              },
+                              {
+                                  key: Scene.Dashboard,
+                                  name: dashboardName,
+                                  path: urls.dashboard(dashboardId),
+                              },
+                          ]
+                        : [
+                              {
+                                  key: Scene.SavedInsights,
+                                  name: 'Product analytics',
+                                  path: urls.savedInsights(),
+                              },
+                          ]),
                     {
                         key: [Scene.Insight, insight?.short_id || 'new'],
                         name:
@@ -180,7 +231,11 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 const oldRef = values.insightLogicRef // free old logic after mounting new one
                 const oldRef2 = values.insightDataLogicRef // free old logic after mounting new one
                 if (insightId) {
-                    const insightProps = { dashboardItemId: insightId, filtersOverride: values.filtersOverride }
+                    const insightProps = {
+                        dashboardItemId: insightId,
+                        filtersOverride: values.filtersOverride,
+                        variablesOverride: values.variablesOverride,
+                    }
 
                     const logic = insightLogic.build(insightProps)
                     const unmount = logic.mount()
@@ -200,7 +255,11 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                     oldRef2.unmount()
                 }
             } else if (insightId) {
-                values.insightLogicRef?.logic.actions.loadInsight(insightId as InsightShortId, values.filtersOverride)
+                values.insightLogicRef?.logic.actions.loadInsight(
+                    insightId as InsightShortId,
+                    values.filtersOverride,
+                    values.variablesOverride
+                )
             }
         },
     })),
@@ -244,14 +303,29 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 return
             }
 
+            const dashboardName = dashboardLogic.findMounted({ id: dashboard })?.values.dashboard?.name
+            const filtersOverride = dashboardLogic.findMounted({ id: dashboard })?.values.temporaryFilters
+
             if (
                 insightId !== values.insightId ||
                 insightMode !== values.insightMode ||
                 itemId !== values.itemId ||
                 alert_id !== values.alertId ||
-                !objectsEqual(searchParams['filters_override'], values.filtersOverride)
+                !objectsEqual(searchParams['variables_override'], values.variablesOverride) ||
+                !objectsEqual(filtersOverride, values.filtersOverride) ||
+                dashboard !== values.dashboardId ||
+                dashboardName !== values.dashboardName
             ) {
-                actions.setSceneState(insightId, insightMode, itemId, alert_id, searchParams['filters_override'])
+                actions.setSceneState(
+                    insightId,
+                    insightMode,
+                    itemId,
+                    alert_id,
+                    filtersOverride,
+                    searchParams['variables_override'],
+                    dashboard,
+                    dashboardName
+                )
             }
 
             let queryFromUrl: Node | null = null

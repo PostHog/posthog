@@ -13,7 +13,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { isObject, pluralize } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
-import { ActivityScope, TeamType } from '~/types'
+import { ActivityScope, TeamSurveyConfigType, TeamType } from '~/types'
 
 const teamActionsMapping: Record<
     keyof TeamType,
@@ -35,6 +35,17 @@ const teamActionsMapping: Record<
                     {prefix} the minimum session recording duration to {after / 1000} seconds
                 </>,
             ],
+        }
+    },
+    session_recording_url_trigger_config(change: ActivityChange | undefined): ChangeMapping | null {
+        const before = change?.before
+        const after = change?.after
+        if (before === null && after === null) {
+            return null
+        }
+
+        return {
+            description: [<>Changed session replay URL triggers</>],
         }
     },
     capture_console_log_opt_in(change: ActivityChange | undefined): ChangeMapping | null {
@@ -138,6 +149,48 @@ const teamActionsMapping: Record<
                 </>,
             ],
         }
+    },
+    survey_config: (change: ActivityChange | undefined): ChangeMapping | null => {
+        const before = change!.before as TeamSurveyConfigType
+        const after = change!.after as TeamSurveyConfigType
+        const descriptions = []
+        const preamble = 'Survey Configuration : '
+        if (before === undefined) {
+            descriptions.push('Survey Configuration was enabled')
+        }
+
+        const propertyChangeDesc = (
+            name: string,
+            callback: (config: TeamSurveyConfigType) => string | undefined
+        ): void => {
+            if (callback(before) !== callback(after)) {
+                descriptions.push(`${preamble} ${name} was changed from "${callback(before)}" to "${callback(after)}"`)
+            }
+        }
+
+        if (before?.appearance?.whiteLabel !== after?.appearance?.whiteLabel) {
+            descriptions.push(
+                `${preamble} Survey white labeling was ${after?.appearance?.whiteLabel ? 'enabled' : 'disabled'}`
+            )
+        }
+
+        if (before?.appearance?.displayThankYouMessage !== after?.appearance?.displayThankYouMessage) {
+            descriptions.push(
+                `${preamble} displayThankYouMessage was ${after?.appearance?.whiteLabel ? 'enabled' : 'disabled'}`
+            )
+        }
+
+        propertyChangeDesc('backgroundColor', (c) => c?.appearance?.backgroundColor)
+        propertyChangeDesc('submitButtonColor', (c) => c?.appearance?.submitButtonColor)
+        propertyChangeDesc('submitButtonTextColor', (c) => c?.appearance?.submitButtonTextColor)
+        propertyChangeDesc('ratingButtonColor', (c) => c?.appearance?.ratingButtonColor)
+        propertyChangeDesc('ratingButtonActiveColor', (c) => c?.appearance?.ratingButtonActiveColor)
+        propertyChangeDesc('borderColor', (c) => c?.appearance?.borderColor)
+        propertyChangeDesc('placeholder', (c) => c?.appearance?.placeholder)
+        propertyChangeDesc('thankYouMessageHeader', (c) => c?.appearance?.thankYouMessageHeader)
+        propertyChangeDesc('position', (c) => c?.appearance?.position)
+
+        return { description: descriptions }
     },
     session_replay_config(change: ActivityChange | undefined): ChangeMapping | null {
         // TODO we'll eventually need a deeper mapping for this nested object

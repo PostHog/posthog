@@ -7,7 +7,7 @@ from dateutil import parser
 from django.conf import settings
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
-
+from posthog.queries.util import PersonPropertiesMode
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.client import sync_execute
@@ -65,6 +65,7 @@ def format_person_query(cohort: Cohort, index: int, hogql_context: HogQLContext)
         ),
         cohort.team,
         cohort_pk=cohort.pk,
+        persons_on_events_mode=cohort.team.person_on_events_mode,
     )
 
     query, params = query_builder.get_query()
@@ -151,6 +152,7 @@ def get_entity_query(
     team_id: int,
     group_idx: Union[int, str],
     hogql_context: HogQLContext,
+    person_properties_mode: Optional[PersonPropertiesMode] = None,
 ) -> tuple[str, dict[str, str]]:
     if event_id:
         return f"event = %({f'event_{group_idx}'})s", {f"event_{group_idx}": event_id}
@@ -161,6 +163,9 @@ def get_entity_query(
             action=action,
             prepend="_{}_action".format(group_idx),
             hogql_context=hogql_context,
+            person_properties_mode=person_properties_mode
+            if person_properties_mode
+            else PersonPropertiesMode.USING_SUBQUERY,
         )
         return action_filter_query, action_params
     else:
@@ -350,7 +355,9 @@ def recalculate_cohortpeople(
             "new_version": pending_version,
         },
         settings={
-            "max_execution_time": 240,
+            "max_execution_time": 600,
+            "send_timeout": 600,
+            "receive_timeout": 600,
             "optimize_on_insert": 0,
         },
         workload=Workload.OFFLINE,

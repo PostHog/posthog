@@ -312,7 +312,7 @@ def create_event_definitions_sql(
             SELECT {",".join(event_definition_fields)}
             FROM posthog_eventdefinition
             {enterprise_join}
-            WHERE team_id = %(team_id)s {conditions}
+            WHERE team_id = %(project_id)s {conditions}
             ORDER BY {additional_ordering}name ASC
         """
 

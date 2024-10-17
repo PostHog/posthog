@@ -17,6 +17,8 @@ export interface LemonMenuItemBase
     > {
     label: string | JSX.Element
     key?: React.Key
+    /** @deprecated You're probably doing something wrong if you're setting per-item classes. */
+    className?: string
     /** True if the item is a custom element. */
     custom?: boolean
 }

@@ -18,6 +18,7 @@ from posthog.hogql_queries.query_runner import CacheMissResponse, ExecutionMode,
 from posthog.models import Team, User
 from posthog.schema import (
     DatabaseSchemaQueryResponse,
+    HogQLVariable,
     HogQuery,
     DashboardFilter,
     HogQLAutocomplete,
@@ -35,6 +36,7 @@ def process_query_dict(
     query_json: dict,
     *,
     dashboard_filters_json: Optional[dict] = None,
+    variables_override_json: Optional[dict] = None,
     limit_context: Optional[LimitContext] = None,
     execution_mode: ExecutionMode = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
     user: Optional[User] = None,
@@ -44,11 +46,17 @@ def process_query_dict(
 ) -> dict | BaseModel:
     model = QuerySchemaRoot.model_validate(query_json)
     tag_queries(query=query_json)
+
     dashboard_filters = DashboardFilter.model_validate(dashboard_filters_json) if dashboard_filters_json else None
+    variables_override = (
+        [HogQLVariable.model_validate(n) for n in variables_override_json.values()] if variables_override_json else None
+    )
+
     return process_query_model(
         team,
         model.root,
         dashboard_filters=dashboard_filters,
+        variables_override=variables_override,
         limit_context=limit_context,
         execution_mode=execution_mode,
         user=user,
@@ -63,6 +71,7 @@ def process_query_model(
     query: BaseModel,  # mypy has problems with unions and isinstance
     *,
     dashboard_filters: Optional[DashboardFilter] = None,
+    variables_override: Optional[list[HogQLVariable]] = None,
     limit_context: Optional[LimitContext] = None,
     execution_mode: ExecutionMode = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
     user: Optional[User] = None,
@@ -80,6 +89,7 @@ def process_query_model(
                 team,
                 query.source,
                 dashboard_filters=dashboard_filters,
+                variables_override=variables_override,
                 limit_context=limit_context,
                 execution_mode=execution_mode,
                 user=user,
@@ -119,6 +129,8 @@ def process_query_model(
     else:  # Query runner available - it will handle execution as well as caching
         if dashboard_filters:
             query_runner.apply_dashboard_filters(dashboard_filters)
+        if variables_override:
+            query_runner.apply_variable_overrides(variables_override)
         result = query_runner.run(
             execution_mode=execution_mode,
             user=user,

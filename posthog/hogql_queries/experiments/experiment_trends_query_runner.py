@@ -1,38 +1,50 @@
+import json
 from zoneinfo import ZoneInfo
 from django.conf import settings
+from posthog.constants import ExperimentNoResultsErrorKeys
 from posthog.hogql import ast
+from posthog.hogql_queries.experiments import CONTROL_VARIANT_KEY
+from posthog.hogql_queries.experiments.trends_statistics import (
+    are_results_significant,
+    calculate_credible_intervals,
+    calculate_probabilities,
+)
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.models.experiment import Experiment
 from posthog.queries.trends.util import ALL_SUPPORTED_MATH_FUNCTIONS
+from rest_framework.exceptions import ValidationError
 from posthog.schema import (
     BaseMathType,
     BreakdownFilter,
-    CachedExperimentTrendQueryResponse,
+    CachedExperimentTrendsQueryResponse,
     ChartDisplayType,
     EventPropertyFilter,
     EventsNode,
-    ExperimentTrendQuery,
-    ExperimentTrendQueryResponse,
-    ExperimentVariantTrendResult,
+    ExperimentSignificanceCode,
+    ExperimentTrendsQuery,
+    ExperimentTrendsQueryResponse,
+    ExperimentVariantTrendsBaseStats,
     InsightDateRange,
     PropertyMathType,
     TrendsFilter,
     TrendsQuery,
+    TrendsQueryResponse,
 )
 from typing import Any, Optional
 import threading
 
 
-class ExperimentTrendQueryRunner(QueryRunner):
-    query: ExperimentTrendQuery
-    response: ExperimentTrendQueryResponse
-    cached_response: CachedExperimentTrendQueryResponse
+class ExperimentTrendsQueryRunner(QueryRunner):
+    query: ExperimentTrendsQuery
+    response: ExperimentTrendsQueryResponse
+    cached_response: CachedExperimentTrendsQueryResponse
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.experiment = Experiment.objects.get(id=self.query.experiment_id)
         self.feature_flag = self.experiment.feature_flag
+        self.variants = [variant["key"] for variant in self.feature_flag.variants]
         self.breakdown_key = f"$feature/{self.feature_flag.key}"
 
         self.prepared_count_query = self._prepare_count_query()
@@ -195,8 +207,8 @@ class ExperimentTrendQueryRunner(QueryRunner):
 
         return prepared_exposure_query
 
-    def calculate(self) -> ExperimentTrendQueryResponse:
-        shared_results: dict[str, Optional[Any]] = {"count_response": None, "exposure_response": None}
+    def calculate(self) -> ExperimentTrendsQueryResponse:
+        shared_results: dict[str, Optional[Any]] = {"count_result": None, "exposure_result": None}
         errors = []
 
         def run(query_runner: TrendsQueryRunner, result_key: str, is_parallel: bool):
@@ -214,12 +226,12 @@ class ExperimentTrendQueryRunner(QueryRunner):
 
         # This exists so that we're not spawning threads during unit tests
         if settings.IN_UNIT_TESTING:
-            run(self.count_query_runner, "count_response", False)
-            run(self.exposure_query_runner, "exposure_response", False)
+            run(self.count_query_runner, "count_result", False)
+            run(self.exposure_query_runner, "exposure_result", False)
         else:
             jobs = [
-                threading.Thread(target=run, args=(self.count_query_runner, "count_response", True)),
-                threading.Thread(target=run, args=(self.exposure_query_runner, "exposure_response", True)),
+                threading.Thread(target=run, args=(self.count_query_runner, "count_result", True)),
+                threading.Thread(target=run, args=(self.exposure_query_runner, "exposure_result", True)),
             ]
             [j.start() for j in jobs]  # type: ignore
             [j.join() for j in jobs]  # type: ignore
@@ -228,32 +240,112 @@ class ExperimentTrendQueryRunner(QueryRunner):
         if errors:
             raise errors[0]
 
-        count_response = shared_results["count_response"]
-        exposure_response = shared_results["exposure_response"]
+        count_result = shared_results["count_result"]
+        exposure_result = shared_results["exposure_result"]
 
-        if count_response is None or exposure_response is None:
+        if count_result is None or exposure_result is None:
             raise ValueError("One or both query runners failed to produce a response")
 
-        results = self._process_results(count_response.results, exposure_response.results)
-        return ExperimentTrendQueryResponse(insight="TRENDS", results=results)
+        self._validate_event_variants(count_result)
 
-    def _process_results(
-        self, count_results: list[dict[str, Any]], exposure_results: list[dict[str, Any]]
-    ) -> dict[str, ExperimentVariantTrendResult]:
-        variants = self.feature_flag.variants
-        processed_results = {variant["key"]: ExperimentVariantTrendResult(count=0, exposure=0) for variant in variants}
+        # Statistical analysis
+        control_variant, test_variants = self._get_variants_with_base_stats(count_result, exposure_result)
+        probabilities = calculate_probabilities(control_variant, test_variants)
+        significance_code, p_value = are_results_significant(control_variant, test_variants, probabilities)
+        credible_intervals = calculate_credible_intervals([control_variant, *test_variants])
 
-        for result in count_results:
-            variant = result.get("breakdown_value")
-            if variant in processed_results:
-                processed_results[variant].count += result.get("count", 0)
+        return ExperimentTrendsQueryResponse(
+            insight=count_result,
+            variants=[variant.model_dump() for variant in [control_variant, *test_variants]],
+            probability={
+                variant.key: probability
+                for variant, probability in zip([control_variant, *test_variants], probabilities)
+            },
+            significant=significance_code == ExperimentSignificanceCode.SIGNIFICANT,
+            significance_code=significance_code,
+            p_value=p_value,
+            credible_intervals=credible_intervals,
+        )
 
-        for result in exposure_results:
-            variant = result.get("breakdown_value")
-            if variant in processed_results:
-                processed_results[variant].exposure += result.get("count", 0)
+    def _get_variants_with_base_stats(
+        self, count_results: TrendsQueryResponse, exposure_results: TrendsQueryResponse
+    ) -> tuple[ExperimentVariantTrendsBaseStats, list[ExperimentVariantTrendsBaseStats]]:
+        control_variant: Optional[ExperimentVariantTrendsBaseStats] = None
+        test_variants = []
+        exposure_counts = {}
+        exposure_ratios = {}
 
-        return processed_results
+        for result in exposure_results.results:
+            count = result.get("count", 0)
+            breakdown_value = result.get("breakdown_value")
+            exposure_counts[breakdown_value] = count
+
+        control_exposure = exposure_counts.get(CONTROL_VARIANT_KEY, 0)
+
+        if control_exposure != 0:
+            for key, count in exposure_counts.items():
+                exposure_ratios[key] = count / control_exposure
+
+        for result in count_results.results:
+            count = result.get("count", 0)
+            breakdown_value = result.get("breakdown_value")
+            if breakdown_value == CONTROL_VARIANT_KEY:
+                control_variant = ExperimentVariantTrendsBaseStats(
+                    key=breakdown_value,
+                    count=count,
+                    exposure=1,
+                    # TODO: in the absence of exposure data, we should throw rather than default to 1
+                    absolute_exposure=exposure_counts.get(breakdown_value, 1),
+                )
+            else:
+                test_variants.append(
+                    ExperimentVariantTrendsBaseStats(
+                        key=breakdown_value,
+                        count=count,
+                        # TODO: in the absence of exposure data, we should throw rather than default to 1
+                        exposure=exposure_ratios.get(breakdown_value, 1),
+                        absolute_exposure=exposure_counts.get(breakdown_value, 1),
+                    )
+                )
+
+        if control_variant is None:
+            raise ValueError("Control variant not found in count results")
+
+        return control_variant, test_variants
+
+    def _validate_event_variants(self, count_result: TrendsQueryResponse):
+        errors = {
+            ExperimentNoResultsErrorKeys.NO_EVENTS: True,
+            ExperimentNoResultsErrorKeys.NO_FLAG_INFO: True,
+            ExperimentNoResultsErrorKeys.NO_CONTROL_VARIANT: True,
+            ExperimentNoResultsErrorKeys.NO_TEST_VARIANT: True,
+        }
+
+        if not count_result.results or not count_result.results[0]:
+            raise ValidationError(code="no-results", detail=json.dumps(errors))
+
+        errors[ExperimentNoResultsErrorKeys.NO_EVENTS] = False
+
+        # Check if "control" is present
+        for event in count_result.results:
+            event_variant = event.get("breakdown_value")
+            if event_variant == "control":
+                errors[ExperimentNoResultsErrorKeys.NO_CONTROL_VARIANT] = False
+                errors[ExperimentNoResultsErrorKeys.NO_FLAG_INFO] = False
+                break
+        # Check if at least one of the test variants is present
+        test_variants = [variant for variant in self.variants if variant != "control"]
+
+        for event in count_result.results:
+            event_variant = event.get("breakdown_value")
+            if event_variant in test_variants:
+                errors[ExperimentNoResultsErrorKeys.NO_TEST_VARIANT] = False
+                errors[ExperimentNoResultsErrorKeys.NO_FLAG_INFO] = False
+                break
+
+        has_errors = any(errors.values())
+        if has_errors:
+            raise ValidationError(detail=json.dumps(errors))
 
     def to_query(self) -> ast.SelectQuery:
         raise ValueError(f"Cannot convert source query of type {self.query.count_query.kind} to query")

@@ -12,7 +12,7 @@ export SENTRY_DSN="${SENTRY_DSN:-'https://public@sentry.example.com/1'}"
 POSTHOG_SECRET=$(head -c 28 /dev/urandom | sha224sum -b | head -c 56)
 export POSTHOG_SECRET
 
-ENCRYPTION_KEY=$(head -c 32 /dev/urandom | base64 | tr +/ -_ | tr -d =)
+ENCRYPTION_SALT_KEYS=$(openssl rand -hex 16)
 export ENCRYPTION_SALT_KEYS
 
 # Talk to the user

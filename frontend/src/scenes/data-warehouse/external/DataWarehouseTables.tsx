@@ -132,18 +132,17 @@ export const DatabaseTableTreeWithItems = ({ inline, collapsible = true }: Datab
             >
                 Add join
             </LemonButton>
-            {table.type == 'view' ||
-                (table.type == 'materialized_view' && (
-                    <LemonButton
-                        onClick={() => {
-                            router.actions.push(urls.dataWarehouseView(table.id))
-                        }}
-                        data-attr="schema-list-item-edit"
-                        fullWidth
-                    >
-                        Edit view definition
-                    </LemonButton>
-                ))}
+            {(table.type == 'view' || table.type == 'materialized_view') && (
+                <LemonButton
+                    onClick={() => {
+                        router.actions.push(urls.dataWarehouseView(table.id))
+                    }}
+                    data-attr="schema-list-item-edit"
+                    fullWidth
+                >
+                    Edit view definition
+                </LemonButton>
+            )}
             {featureFlags[FEATURE_FLAGS.DATA_MODELING] && table.type === 'view' && (
                 <LemonButton
                     onClick={() => {

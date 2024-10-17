@@ -126,6 +126,9 @@ export const experimentLogic = kea<experimentLogicType>([
                 'reportExperimentReset',
                 'reportExperimentExposureCohortCreated',
                 'reportExperimentVariantShipped',
+                'reportExperimentVariantScreenshotUploaded',
+                'reportExperimentResultsLoadingTimeout',
+                'reportExperimentReleaseConditionsViewed',
             ],
             insightDataLogic({ dashboardItemId: EXPERIMENT_INSIGHT_ID }),
             ['setQuery'],
@@ -775,6 +778,9 @@ export const experimentLogic = kea<experimentLogicType>([
                         }
                     } catch (error: any) {
                         actions.setExperimentResultCalculationError({ detail: error.detail, statusCode: error.status })
+                        if (error.status === 504) {
+                            actions.reportExperimentResultsLoadingTimeout(values.experimentId)
+                        }
                         return null
                     }
                 },
@@ -883,8 +889,12 @@ export const experimentLogic = kea<experimentLogicType>([
                 },
                 {
                     key: [Scene.Experiment, experimentId],
-                    name: experiment?.name || 'New',
-                    path: urls.experiment(experimentId || 'new'),
+                    name: experiment?.name || '',
+                    onRename: async (name: string) => {
+                        // :KLUDGE: work around a type error when using asyncActions accessed via a callback passed to selectors()
+                        const logic = experimentLogic({ experimentId })
+                        await logic.asyncActions.updateExperiment({ name })
+                    },
                 },
             ],
         ],

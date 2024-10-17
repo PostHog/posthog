@@ -386,7 +386,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                 instance.targeting_flag.active = False
             instance.targeting_flag.save()
 
-        iteration_count = validated_data.get("iteration_count")
+        iteration_count = validated_data.get("iteration_count", None)
         if (
             instance.current_iteration is not None
             and iteration_count is not None
@@ -396,8 +396,9 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                 f"Cannot change survey recurrence to {iteration_count}, should be at least {instance.current_iteration}"
             )
 
-        instance.iteration_count = iteration_count
-        instance.iteration_frequency_days = validated_data.get("iteration_frequency_days")
+        if iteration_count is not None:
+            instance.iteration_count = iteration_count
+            instance.iteration_frequency_days = validated_data.get("iteration_frequency_days")
 
         instance = super().update(instance, validated_data)
 
@@ -646,6 +647,12 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return activity_page_response(activity_page, limit, page, request)
 
 
+class SurveyConfigSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Team
+        fields = ["survey_config"]
+
+
 class SurveyAPISerializer(serializers.ModelSerializer):
     """
     Serializer for the exposed /api/surveys endpoint, to be used in posthog-js and for headless APIs.
@@ -732,7 +739,19 @@ def surveys(request: Request):
         many=True,
     ).data
 
-    return cors_response(request, JsonResponse({"surveys": surveys}))
+    serialized_survey_config: dict[str, Any] = {}
+    if team.survey_config is not None:
+        serialized_survey_config = SurveyConfigSerializer(team).data
+
+    return cors_response(
+        request,
+        JsonResponse(
+            {
+                "surveys": surveys,
+                "survey_config": serialized_survey_config.get("survey_config", None),
+            }
+        ),
+    )
 
 
 @contextmanager
