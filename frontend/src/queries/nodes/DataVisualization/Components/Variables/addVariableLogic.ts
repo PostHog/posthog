@@ -1,6 +1,6 @@
-import { actions, connect, kea, key, path, props, reducers } from 'kea'
-import { loaders } from 'kea-loaders'
-import api from 'lib/api'
+import { lemonToast } from '@posthog/lemon-ui'
+import { actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
+import api, { ApiError } from 'lib/api'
 
 import { BooleanVariable, ListVariable, NumberVariable, StringVariable, Variable, VariableType } from '../../types'
 import type { addVariableLogicType } from './addVariableLogicType'
@@ -30,6 +30,7 @@ export const addVariableLogic = kea<addVariableLogicType>([
         openModal: (variableType: VariableType) => ({ variableType }),
         closeModal: true,
         updateVariable: (variable: Variable) => ({ variable }),
+        save: true,
     }),
     reducers({
         variableType: [
@@ -97,20 +98,18 @@ export const addVariableLogic = kea<addVariableLogicType>([
             },
         ],
     }),
-    loaders(({ values, actions }) => ({
-        savedVariable: [
-            null as null | Variable,
-            {
-                save: async () => {
-                    const variable = await api.insightVariables.create(values.variable)
+    listeners(({ values, actions }) => ({
+        save: async () => {
+            try {
+                const variable = await api.insightVariables.create(values.variable)
 
-                    actions.getVariables()
-                    actions.addVariable({ variableId: variable.id, code_name: variable.code_name })
-                    actions.closeModal()
-
-                    return variable
-                },
-            },
-        ],
+                actions.getVariables()
+                actions.addVariable({ variableId: variable.id, code_name: variable.code_name })
+                actions.closeModal()
+            } catch (e: any) {
+                const error = e as ApiError
+                lemonToast.error(error.detail ?? error.message)
+            }
+        },
     })),
 ])
