@@ -108,7 +108,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         client = Client()
         client.force_login(self.user)
 
-        response = client.patch("/api/projects/@current/", data, content_type="application/json")
+        response = client.patch("/api/environments/@current/", data, content_type="application/json")
         self.assertEqual(response.status_code, expected_status_code)
 
         client.logout()
@@ -3644,7 +3644,7 @@ class TestDatabaseCheckForDecide(BaseTest, QueryMatchingTest):
         client = Client()
         client.force_login(self.user)
 
-        response = client.patch("/api/projects/@current/", data, content_type="application/json")
+        response = client.patch("/api/environments/@current/", data, content_type="application/json")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         client.logout()
