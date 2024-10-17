@@ -314,20 +314,13 @@ function prepareQueueParams(
     let parameters: HogFunctionInvocation['queueParameters'] = _params
     let blob: CyclotronJobUpdate['blob'] = undefined
 
-    if (parameters && 'body' in parameters) {
-        // Fetch request
-        const { body, ...rest } = parameters
-        parameters = rest
-        blob = body ? Buffer.from(body) : undefined
-    } else if (parameters && 'response' in parameters && parameters.response) {
-        // Fetch response
-        const { body, ...rest } = parameters.response
-        parameters = {
-            ...parameters,
-            response: rest,
-        }
-        blob = body ? Buffer.from(body) : undefined
+    if (!parameters) {
+        return { parameters, blob }
     }
+
+    const { body, ...rest } = parameters
+    parameters = rest
+    blob = body ? Buffer.from(body) : undefined
 
     return {
         parameters,
@@ -352,14 +345,7 @@ export function cyclotronJobToInvocation(job: CyclotronJob, hogFunction: HogFunc
     if (job.blob && params) {
         // Deserialize the blob into the params
         try {
-            const body = job.blob ? Buffer.from(job.blob).toString('utf-8') : undefined
-            if ('response' in params && params.response) {
-                // Fetch response
-                params.response.body = body
-            } else if ('method' in params) {
-                // Fetch request
-                params.body = body
-            }
+            params.body = job.blob ? Buffer.from(job.blob).toString('utf-8') : undefined
         } catch (e) {
             status.error('Error parsing blob', e, job.blob)
             captureException(e)

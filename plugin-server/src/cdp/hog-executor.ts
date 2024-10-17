@@ -9,6 +9,7 @@ import { Hub, ValueMatcher } from '../types'
 import { status } from '../utils/status'
 import { HogFunctionManager } from './hog-function-manager'
 import {
+    CyclotronFetchFailureInfo,
     HogFunctionInvocation,
     HogFunctionInvocationGlobals,
     HogFunctionInvocationGlobalsWithInputs,
@@ -217,24 +218,40 @@ export class HogExecutor {
                 const {
                     logs = [],
                     response = null,
+                    trace = [],
                     error,
                     timings = [],
                 } = invocation.queueParameters as HogFunctionQueueParametersFetchResponse
+
+                let body = invocation.queueParameters.body
                 // Reset the queue parameters to be sure
                 invocation.queue = 'hog'
                 invocation.queueParameters = undefined
 
-                const status = typeof response?.status === 'number' ? response.status : 503
-
-                // Special handling for fetch
-                if (status >= 400) {
-                    // Generic warn log for bad status codes
+                // If we got a trace, then the last "result" is the final attempt, and we should try to grab a status from it
+                // or any preceding attempts, and produce a log message for each of them
+                let status = null
+                if (trace.length > 0) {
                     logs.push({
-                        level: 'warn',
+                        level: 'error',
                         timestamp: DateTime.now(),
-                        message: `Fetch returned bad status: ${status}`,
+                        message: `Fetch failed after ${trace.length} attempts`,
                     })
+                    for (const attempt of trace) {
+                        logs.push({
+                            level: 'warn',
+                            timestamp: DateTime.now(),
+                            message: fetchFailureToLogMessage(attempt),
+                        })
+                        if (attempt.status) {
+                            status = attempt.status
+                        }
+                    }
                 }
+
+                // If we got a response from fetch, we know the response code was in the <300 range,
+                // but if we didn't (indicating a bug in the fetch worker), we use a default of 503
+                status = response?.status ?? 503
 
                 if (!invocation.vmState) {
                     throw new Error("VM state wasn't provided for queue parameters")
@@ -244,9 +261,9 @@ export class HogExecutor {
                     throw new Error(error)
                 }
 
-                if (typeof response?.body === 'string') {
+                if (typeof body === 'string') {
                     try {
-                        response.body = JSON.parse(response.body)
+                        body = JSON.parse(body)
                     } catch (e) {
                         // pass - if it isn't json we just pass it on
                     }
@@ -255,7 +272,7 @@ export class HogExecutor {
                 // Finally we create the response object as the VM expects
                 invocation.vmState!.stack.push({
                     status,
-                    body: response?.body,
+                    body: body,
                 })
                 invocation.timings = invocation.timings.concat(timings)
                 result.logs = [...logs, ...result.logs]
@@ -512,4 +529,8 @@ export class HogExecutor {
 
         return values
     }
+}
+
+function fetchFailureToLogMessage(failure: CyclotronFetchFailureInfo): string {
+    return `Fetch failure of kind ${failure.kind} with status ${failure.status} and message ${failure.message}`
 }
