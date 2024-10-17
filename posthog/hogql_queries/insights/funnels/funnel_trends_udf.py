@@ -16,6 +16,12 @@ HUMAN_READABLE_TIMESTAMP_FORMAT = "%-d-%b-%Y"
 
 
 class FunnelTrendsUDF(FunnelTrends):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # In base, these fields only get added if you're running an actors query
+        if "uuid" not in self._extra_event_fields:
+            self._extra_event_fields.append("uuid")
+
     def get_step_counts_query(self):
         max_steps = self.context.max_steps
         return self._get_step_counts_query(

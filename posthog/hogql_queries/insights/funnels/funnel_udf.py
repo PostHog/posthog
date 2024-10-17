@@ -31,21 +31,6 @@ class FunnelUDF(FunnelBase):
         # In base, these fields only get added if you're running an actors query
         if "uuid" not in self._extra_event_fields:
             self._extra_event_fields.append("uuid")
-        for property in ("$session_id", "$window_id"):
-            if property not in self._extra_event_properties:
-                self._extra_event_properties.append(property)
-
-    # I think I can delete this
-    def get_step_counts_query(self):
-        max_steps = self.context.max_steps
-        return self._get_step_counts_query(
-            outer_select=[
-                *self._get_matching_event_arrays(max_steps),
-            ],
-            inner_select=[
-                *self._get_matching_events(max_steps),
-            ],
-        )
 
     def conversion_window_limit(self) -> int:
         return int(
