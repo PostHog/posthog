@@ -1,9 +1,11 @@
-import { actions, kea, path, reducers } from 'kea'
+import { actions, connect, kea, key, path, props, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 
 import { BooleanVariable, ListVariable, NumberVariable, StringVariable, Variable, VariableType } from '../../types'
 import type { addVariableLogicType } from './addVariableLogicType'
+import { variableDataLogic } from './variableDataLogic'
+import { variablesLogic } from './variablesLogic'
 
 const DEFAULT_VARIABLE: StringVariable = {
     id: '',
@@ -13,8 +15,17 @@ const DEFAULT_VARIABLE: StringVariable = {
     code_name: '',
 }
 
+export interface AddVariableLogicProps {
+    key: string
+}
+
 export const addVariableLogic = kea<addVariableLogicType>([
     path(['queries', 'nodes', 'DataVisualization', 'Components', 'Variables', 'variableLogic']),
+    props({ key: '' } as AddVariableLogicProps),
+    key((props) => props.key),
+    connect({
+        actions: [variableDataLogic, ['getVariables'], variablesLogic, ['addVariable']],
+    }),
     actions({
         openModal: (variableType: VariableType) => ({ variableType }),
         closeModal: true,
@@ -86,12 +97,18 @@ export const addVariableLogic = kea<addVariableLogicType>([
             },
         ],
     }),
-    loaders(({ values }) => ({
+    loaders(({ values, actions }) => ({
         savedVariable: [
             null as null | Variable,
             {
                 save: async () => {
-                    return await api.insightVariables.create(values.variable)
+                    const variable = await api.insightVariables.create(values.variable)
+
+                    actions.getVariables()
+                    actions.addVariable({ variableId: variable.id, code_name: variable.code_name })
+                    actions.closeModal()
+
+                    return variable
                 },
             },
         ],

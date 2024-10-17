@@ -30,7 +30,8 @@ def extend_api_router() -> None:
         projects_router,
         organizations_router,
         project_feature_flags_router,
-        project_dashboards_router,
+        environment_dashboards_router,
+        legacy_project_dashboards_router,
     )
 
     root_router.register(r"billing", billing.BillingViewset, "billing")
@@ -67,7 +68,14 @@ def extend_api_router() -> None:
         "environment_explicit_members",
         ["team_id"],
     )
-    project_dashboards_router.register(
+
+    environment_dashboards_router.register(
+        r"collaborators",
+        dashboard_collaborator.DashboardCollaboratorViewSet,
+        "environment_dashboard_collaborators",
+        ["project_id", "dashboard_id"],
+    )
+    legacy_project_dashboards_router.register(
         r"collaborators",
         dashboard_collaborator.DashboardCollaboratorViewSet,
         "project_dashboard_collaborators",
