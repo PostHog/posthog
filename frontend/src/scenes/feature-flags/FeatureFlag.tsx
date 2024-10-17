@@ -950,11 +950,11 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                     </span>
                                 </div>
                             </div>
-                            <div className="col-span-4 flex items-center gap-1">
+                            <div className="col-span-3 flex justify-between items-center gap-1">
                                 <span>Rollout</span>
                                 <LemonButton
                                     onClick={distributeVariantsEqually}
-                                    tooltip="Redistribute variant rollout percentages equally"
+                                    tooltip="Normalize variant rollout percentages"
                                 >
                                     <IconBalance />
                                 </LemonButton>
