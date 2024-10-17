@@ -32,6 +32,9 @@ let res := fetch(url, payload);
 if (inputs.debug) {
   print('Response', res.status, res.body);
 }
+if (res.status >= 400) {
+    throw Error(f'Error from api.airtable.com (status {res.status}): {res.body}')
+}
 """.strip(),
     inputs_schema=[
         {
