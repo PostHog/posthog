@@ -15,6 +15,7 @@ import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { dataVisualizationLogic } from '../../dataVisualizationLogic'
 import { Variable } from '../../types'
 import { NewVariableModal } from './NewVariableModal'
+import { variableModalLogic } from './variableModalLogic'
 import { variablesLogic } from './variablesLogic'
 
 export const VariablesForDashboard = (): JSX.Element => {
@@ -49,6 +50,7 @@ export const VariablesForInsight = (): JSX.Element => {
     const { updateVariableValue, removeVariable } = useActions(variablesLogic)
     const { showEditingUI } = useValues(dataVisualizationLogic)
     const { variableOverridesAreSet } = useValues(dataNodeLogic)
+    const { openExistingVariableModal } = useActions(variableModalLogic)
 
     if (!featureFlags[FEATURE_FLAGS.INSIGHT_VARIABLES] || !variablesForInsight.length || !showVariablesBar) {
         return <></>
@@ -65,6 +67,7 @@ export const VariablesForInsight = (): JSX.Element => {
                         onChange={updateVariableValue}
                         onRemove={removeVariable}
                         variableOverridesAreSet={variableOverridesAreSet}
+                        variableSettingsOnClick={() => openExistingVariableModal(n)}
                     />
                 ))}
             </div>
@@ -79,6 +82,7 @@ interface VariableInputProps {
     closePopover: () => void
     onChange: (variableId: string, value: any) => void
     onRemove?: (variableId: string) => void
+    variableSettingsOnClick?: () => void
 }
 
 const VariableInput = ({
@@ -87,6 +91,7 @@ const VariableInput = ({
     closePopover,
     onChange,
     onRemove,
+    variableSettingsOnClick,
 }: VariableInputProps): JSX.Element => {
     const [localInputValue, setLocalInputValue] = useState(() => {
         const val = variable.value ?? variable.default_value
@@ -191,7 +196,7 @@ const VariableInput = ({
                                     }
                                 }
                             }}
-                            className="text-xs flex flex-1 items-center"
+                            className="text-xs flex flex-1 items-center mr-2"
                         >
                             {variableAsHogQL}
                         </code>
@@ -209,7 +214,14 @@ const VariableInput = ({
                                 tooltip="Remove variable from insight"
                             />
                         )}
-                        <LemonButton icon={<IconGear />} size="xsmall" tooltip="Open variable settings" />
+                        {variableSettingsOnClick && (
+                            <LemonButton
+                                onClick={variableSettingsOnClick}
+                                icon={<IconGear />}
+                                size="xsmall"
+                                tooltip="Open variable settings"
+                            />
+                        )}
                     </div>
                 </>
             )}
@@ -223,6 +235,7 @@ interface VariableComponentProps {
     onChange: (variableId: string, value: any) => void
     variableOverridesAreSet: boolean
     onRemove?: (variableId: string) => void
+    variableSettingsOnClick?: () => void
 }
 
 const VariableComponent = ({
@@ -231,6 +244,7 @@ const VariableComponent = ({
     onChange,
     variableOverridesAreSet,
     onRemove,
+    variableSettingsOnClick,
 }: VariableComponentProps): JSX.Element => {
     const [isPopoverOpen, setPopoverOpen] = useState(false)
 
@@ -244,6 +258,12 @@ const VariableComponent = ({
                     onChange={onChange}
                     closePopover={() => setPopoverOpen(false)}
                     onRemove={onRemove}
+                    variableSettingsOnClick={() => {
+                        if (variableSettingsOnClick) {
+                            setPopoverOpen(false)
+                            variableSettingsOnClick()
+                        }
+                    }}
                 />
             }
             visible={isPopoverOpen}
