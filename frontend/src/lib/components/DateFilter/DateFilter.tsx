@@ -38,6 +38,7 @@ export interface DateFilterProps {
     dropdownPlacement?: Placement
     /* True when we're not dealing with ranges, but a single date / relative date */
     isFixedDateMode?: boolean
+    placeholder?: string
 }
 interface RawDateFilterProps extends DateFilterProps {
     dateFrom?: string | null | dayjs.Dayjs
@@ -62,6 +63,7 @@ export function DateFilter({
     max,
     isFixedDateMode = false,
     allowedRollingDateOptions,
+    placeholder,
 }: RawDateFilterProps): JSX.Element {
     const key = useRef(uuid()).current
     const logicProps: DateFilterLogicProps = {
@@ -72,6 +74,7 @@ export function DateFilter({
         dateOptions,
         isDateFormatted,
         isFixedDateMode,
+        placeholder,
     }
     const {
         open,
