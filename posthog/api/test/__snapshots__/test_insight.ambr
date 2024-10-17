@@ -851,6 +851,7 @@
          "posthog_dashboard"."deleted",
          "posthog_dashboard"."last_accessed_at",
          "posthog_dashboard"."filters",
+         "posthog_dashboard"."variables",
          "posthog_dashboard"."creation_mode",
          "posthog_dashboard"."restriction_level",
          "posthog_dashboard"."deprecated_tags",
@@ -965,6 +966,7 @@
          "posthog_dashboard"."deleted",
          "posthog_dashboard"."last_accessed_at",
          "posthog_dashboard"."filters",
+         "posthog_dashboard"."variables",
          "posthog_dashboard"."creation_mode",
          "posthog_dashboard"."restriction_level",
          "posthog_dashboard"."deprecated_tags",
@@ -1021,6 +1023,7 @@
          "posthog_dashboard"."deleted",
          "posthog_dashboard"."last_accessed_at",
          "posthog_dashboard"."filters",
+         "posthog_dashboard"."variables",
          "posthog_dashboard"."creation_mode",
          "posthog_dashboard"."restriction_level",
          "posthog_dashboard"."deprecated_tags",
@@ -1228,8 +1231,8 @@
   SELECT COUNT(*) AS "__count"
   FROM "posthog_dashboarditem"
   INNER JOIN "posthog_team" ON ("posthog_dashboarditem"."team_id" = "posthog_team"."id")
-  WHERE (NOT ("posthog_dashboarditem"."deleted")
-         AND "posthog_team"."project_id" = 2)
+  WHERE ("posthog_team"."project_id" = 2
+         AND NOT ("posthog_dashboarditem"."deleted"))
   '''
 # ---
 # name: TestInsight.test_listing_insights_does_not_nplus1.26
@@ -1376,8 +1379,8 @@
   INNER JOIN "posthog_team" ON ("posthog_dashboarditem"."team_id" = "posthog_team"."id")
   LEFT OUTER JOIN "posthog_user" ON ("posthog_dashboarditem"."created_by_id" = "posthog_user"."id")
   LEFT OUTER JOIN "posthog_user" T5 ON ("posthog_dashboarditem"."last_modified_by_id" = T5."id")
-  WHERE (NOT ("posthog_dashboarditem"."deleted")
-         AND "posthog_team"."project_id" = 2)
+  WHERE ("posthog_team"."project_id" = 2
+         AND NOT ("posthog_dashboarditem"."deleted"))
   ORDER BY "posthog_dashboarditem"."order" ASC
   LIMIT 100
   '''
@@ -1395,6 +1398,7 @@
          "posthog_dashboard"."deleted",
          "posthog_dashboard"."last_accessed_at",
          "posthog_dashboard"."filters",
+         "posthog_dashboard"."variables",
          "posthog_dashboard"."creation_mode",
          "posthog_dashboard"."restriction_level",
          "posthog_dashboard"."deprecated_tags",
@@ -1513,6 +1517,7 @@
          "posthog_dashboard"."deleted",
          "posthog_dashboard"."last_accessed_at",
          "posthog_dashboard"."filters",
+         "posthog_dashboard"."variables",
          "posthog_dashboard"."creation_mode",
          "posthog_dashboard"."restriction_level",
          "posthog_dashboard"."deprecated_tags",
@@ -1640,6 +1645,7 @@
          "posthog_dashboard"."deleted",
          "posthog_dashboard"."last_accessed_at",
          "posthog_dashboard"."filters",
+         "posthog_dashboard"."variables",
          "posthog_dashboard"."creation_mode",
          "posthog_dashboard"."restriction_level",
          "posthog_dashboard"."deprecated_tags",
@@ -1840,6 +1846,7 @@
          "posthog_dashboard"."deleted",
          "posthog_dashboard"."last_accessed_at",
          "posthog_dashboard"."filters",
+         "posthog_dashboard"."variables",
          "posthog_dashboard"."creation_mode",
          "posthog_dashboard"."restriction_level",
          "posthog_dashboard"."deprecated_tags",
