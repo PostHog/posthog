@@ -100,8 +100,8 @@ export enum NodeKind {
     WebGoalsQuery = 'WebGoalsQuery',
 
     // Experiment queries
-    ExperimentFunnelQuery = 'ExperimentFunnelQuery',
-    ExperimentTrendQuery = 'ExperimentTrendQuery',
+    ExperimentFunnelsQuery = 'ExperimentFunnelsQuery',
+    ExperimentTrendsQuery = 'ExperimentTrendsQuery',
 
     // Database metadata
     DatabaseSchemaQuery = 'DatabaseSchemaQuery',
@@ -133,8 +133,8 @@ export type AnyDataNode =
     | WebGoalsQuery
     | SessionAttributionExplorerQuery
     | ErrorTrackingQuery
-    | ExperimentFunnelQuery
-    | ExperimentTrendQuery
+    | ExperimentFunnelsQuery
+    | ExperimentTrendsQuery
 
 /**
  * @discriminator kind
@@ -161,8 +161,8 @@ export type QuerySchema =
     | WebGoalsQuery
     | SessionAttributionExplorerQuery
     | ErrorTrackingQuery
-    | ExperimentFunnelQuery
-    | ExperimentTrendQuery
+    | ExperimentFunnelsQuery
+    | ExperimentTrendsQuery
 
     // Interface nodes
     | DataVisualizationNode
@@ -610,8 +610,8 @@ export interface DataTableNode
                     | WebGoalsQuery
                     | SessionAttributionExplorerQuery
                     | ErrorTrackingQuery
-                    | ExperimentFunnelQuery
-                    | ExperimentTrendQuery
+                    | ExperimentFunnelsQuery
+                    | ExperimentTrendsQuery
                 )['response']
             >
         >,
@@ -631,8 +631,8 @@ export interface DataTableNode
         | WebGoalsQuery
         | SessionAttributionExplorerQuery
         | ErrorTrackingQuery
-        | ExperimentFunnelQuery
-        | ExperimentTrendQuery
+        | ExperimentFunnelsQuery
+        | ExperimentTrendsQuery
     /** Columns shown in the table, unless the `source` provides them. */
     columns?: HogQLExpression[]
     /** Columns that aren't shown in the table, even if in columns or returned data */
@@ -1596,14 +1596,14 @@ export type InsightQueryNode =
     | StickinessQuery
     | LifecycleQuery
 
-export interface ExperimentVariantTrendBaseStats {
+export interface ExperimentVariantTrendsBaseStats {
     key: string
     count: number
     exposure: number
     absolute_exposure: number
 }
 
-export interface ExperimentVariantFunnelResult {
+export interface ExperimentVariantFunnelsBaseStats {
     key: string
     success_count: number
     failure_count: number
@@ -1617,9 +1617,9 @@ export enum ExperimentSignificanceCode {
     HighPValue = 'high_p_value',
 }
 
-export interface ExperimentTrendQueryResponse {
+export interface ExperimentTrendsQueryResponse {
     insight: TrendsQueryResponse
-    variants: ExperimentVariantTrendBaseStats[]
+    variants: ExperimentVariantTrendsBaseStats[]
     probability: Record<string, number>
     significant: boolean
     significance_code: ExperimentSignificanceCode
@@ -1627,26 +1627,31 @@ export interface ExperimentTrendQueryResponse {
     credible_intervals: Record<string, [number, number]>
 }
 
-export type CachedExperimentTrendQueryResponse = CachedQueryResponse<ExperimentTrendQueryResponse>
+export type CachedExperimentTrendsQueryResponse = CachedQueryResponse<ExperimentTrendsQueryResponse>
 
-export interface ExperimentFunnelQueryResponse {
-    insight: InsightType.FUNNELS
-    results: Record<string, ExperimentVariantFunnelResult>
+export interface ExperimentFunnelsQueryResponse {
+    insight: FunnelsQueryResponse
+    variants: ExperimentVariantFunnelsBaseStats[]
+    probability: Record<string, number>
+    significant: boolean
+    significance_code: ExperimentSignificanceCode
+    expected_loss: number
+    credible_intervals: Record<string, [number, number]>
 }
 
-export type CachedExperimentFunnelQueryResponse = CachedQueryResponse<ExperimentFunnelQueryResponse>
+export type CachedExperimentFunnelsQueryResponse = CachedQueryResponse<ExperimentFunnelsQueryResponse>
 
-export interface ExperimentFunnelQuery extends DataNode<ExperimentFunnelQueryResponse> {
-    kind: NodeKind.ExperimentFunnelQuery
+export interface ExperimentFunnelsQuery extends DataNode<ExperimentFunnelsQueryResponse> {
+    kind: NodeKind.ExperimentFunnelsQuery
     source: FunnelsQuery
     experiment_id: integer
 }
 
-export interface ExperimentTrendQuery extends DataNode<ExperimentTrendQueryResponse> {
-    kind: NodeKind.ExperimentTrendQuery
+export interface ExperimentTrendsQuery extends DataNode<ExperimentTrendsQueryResponse> {
+    kind: NodeKind.ExperimentTrendsQuery
     count_query: TrendsQuery
     // Defaults to $feature_flag_called if not specified
-    // https://github.com/PostHog/posthog/blob/master/posthog/hogql_queries/experiments/experiment_trend_query_runner.py
+    // https://github.com/PostHog/posthog/blob/master/posthog/hogql_queries/experiments/experiment_trends_query_runner.py
     exposure_query?: TrendsQuery
     experiment_id: integer
 }
