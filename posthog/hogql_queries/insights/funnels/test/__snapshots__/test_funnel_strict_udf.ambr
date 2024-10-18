@@ -586,7 +586,7 @@
      GROUP BY aggregation_target,
               steps,
               prop
-     HAVING steps = max_steps)
+     HAVING steps = max(max_steps))
   WHERE steps IN [1, 2, 3]
     AND arrayFlatten(array(prop)) = arrayFlatten(array('finance'))
   ORDER BY aggregation_target
@@ -706,7 +706,7 @@
      GROUP BY aggregation_target,
               steps,
               prop
-     HAVING steps = max_steps)
+     HAVING steps = max(max_steps))
   WHERE steps IN [2, 3]
     AND arrayFlatten(array(prop)) = arrayFlatten(array('finance'))
   ORDER BY aggregation_target
@@ -826,7 +826,7 @@
      GROUP BY aggregation_target,
               steps,
               prop
-     HAVING steps = max_steps)
+     HAVING steps = max(max_steps))
   WHERE steps IN [1, 2, 3]
     AND arrayFlatten(array(prop)) = arrayFlatten(array('technology'))
   ORDER BY aggregation_target
@@ -946,7 +946,7 @@
      GROUP BY aggregation_target,
               steps,
               prop
-     HAVING steps = max_steps)
+     HAVING steps = max(max_steps))
   WHERE steps IN [2, 3]
     AND arrayFlatten(array(prop)) = arrayFlatten(array('technology'))
   ORDER BY aggregation_target

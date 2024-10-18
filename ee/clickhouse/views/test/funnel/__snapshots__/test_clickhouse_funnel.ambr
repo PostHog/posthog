@@ -46,7 +46,7 @@
            WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
               steps
-     HAVING steps = max_steps)
+     HAVING steps = max(max_steps))
   '''
 # ---
 # name: ClickhouseTestFunnelGroups.test_funnel_aggregation_with_groups.1
@@ -94,7 +94,7 @@
            WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
               steps
-     HAVING steps = max_steps)
+     HAVING steps = max(max_steps))
   WHERE steps IN [1, 2]
   ORDER BY aggregation_target
   LIMIT 100
@@ -150,7 +150,7 @@
            WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
               steps
-     HAVING steps = max_steps)
+     HAVING steps = max(max_steps))
   '''
 # ---
 # name: ClickhouseTestFunnelGroups.test_funnel_group_aggregation_with_groups_entity_filtering.1
@@ -199,7 +199,7 @@
            WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
               steps
-     HAVING steps = max_steps)
+     HAVING steps = max(max_steps))
   WHERE steps IN [1, 2]
   ORDER BY aggregation_target
   LIMIT 100
@@ -269,7 +269,7 @@
            WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
               steps
-     HAVING steps = max_steps)
+     HAVING steps = max(max_steps))
   '''
 # ---
 # name: ClickhouseTestFunnelGroups.test_funnel_with_groups_entity_filtering.1
@@ -331,7 +331,7 @@
            WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
               steps
-     HAVING steps = max_steps)
+     HAVING steps = max(max_steps))
   WHERE steps IN [1, 2]
   ORDER BY aggregation_target
   LIMIT 100
@@ -408,7 +408,7 @@
            WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
               steps
-     HAVING steps = max_steps)
+     HAVING steps = max(max_steps))
   '''
 # ---
 # name: ClickhouseTestFunnelGroups.test_funnel_with_groups_global_filtering.1
@@ -477,7 +477,7 @@
            WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
               steps
-     HAVING steps = max_steps)
+     HAVING steps = max(max_steps))
   WHERE steps IN [1, 2]
   ORDER BY aggregation_target
   LIMIT 100

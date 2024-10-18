@@ -101,20 +101,6 @@
   LIMIT 100
   '''
 # ---
-# name: TestOrganizationResourceAccessAPI.test_list_organization_resource_access_is_not_nplus1.14
-  '''
-  SELECT "ee_organizationresourceaccess"."id",
-         "ee_organizationresourceaccess"."resource",
-         "ee_organizationresourceaccess"."access_level",
-         "ee_organizationresourceaccess"."organization_id",
-         "ee_organizationresourceaccess"."created_by_id",
-         "ee_organizationresourceaccess"."created_at",
-         "ee_organizationresourceaccess"."updated_at"
-  FROM "ee_organizationresourceaccess"
-  WHERE "ee_organizationresourceaccess"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
-  LIMIT 100
-  '''
-# ---
 # name: TestOrganizationResourceAccessAPI.test_list_organization_resource_access_is_not_nplus1.2
   '''
   SELECT "posthog_organization"."id",
