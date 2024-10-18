@@ -180,7 +180,6 @@ class TrendsActorsQueryBuilder:
 
     def _get_events_query(self) -> ast.SelectQuery:
         columns: list[ast.Expr] = [
-            ast.Alias(alias="uuid", expr=ast.Field(chain=["e", "uuid"])),
             *(
                 [ast.Alias(alias="$session_id", expr=ast.Field(chain=["e", "$session_id"]))]
                 if self.include_recordings
