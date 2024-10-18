@@ -23,7 +23,7 @@ class HogQLContext:
     """Context given to a HogQL expression printer"""
 
     # Team making the queries
-    team_id: Optional[int]
+    team_id: Optional[int] = None
     # Team making the queries - if team is passed in, then the team isn't queried when creating the database
     team: Optional["Team"] = None
     # Virtual database we're querying, will be populated from team_id if not present
