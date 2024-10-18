@@ -1,7 +1,7 @@
 from posthog.cdp.templates.hog_function_template import HogFunctionTemplate, HogFunctionSubTemplate, SUB_TEMPLATE_COMMON
 
 template: HogFunctionTemplate = HogFunctionTemplate(
-    status="beta",
+    status="free",
     id="template-discord",
     name="Discord",
     description="Sends a message to a discord channel",
