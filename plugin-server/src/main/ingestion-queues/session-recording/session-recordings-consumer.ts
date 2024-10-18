@@ -1,6 +1,5 @@
 import { captureException } from '@sentry/node'
 import crypto from 'crypto'
-import { Redis } from 'ioredis'
 import { mkdirSync, rmSync } from 'node:fs'
 import { CODES, features, KafkaConsumer, librdkafkaVersion, Message, TopicPartition } from 'node-rdkafka'
 import { Counter, Gauge, Histogram, Summary } from 'prom-client'
@@ -17,7 +16,7 @@ import { PluginServerService, PluginsServerConfig, RedisPool, TeamId, ValueMatch
 import { BackgroundRefresher } from '../../../utils/background-refresher'
 import { KafkaProducerWrapper } from '../../../utils/db/kafka-producer-wrapper'
 import { PostgresRouter } from '../../../utils/db/postgres'
-import { createRedisPool } from '../../../utils/db/redis'
+import { createRedis, createRedisPool } from '../../../utils/db/redis'
 import { status } from '../../../utils/status'
 import { fetchTeamTokensWithRecordings } from '../../../worker/ingestion/team-manager'
 import { ObjectStorage } from '../../services/object_storage'
@@ -170,8 +169,7 @@ export class SessionRecordingIngester {
         private config: PluginsServerConfig,
         private postgres: PostgresRouter,
         private objectStorage: ObjectStorage,
-        private consumeOverflow: boolean,
-        captureRedis: Redis | undefined
+        private consumeOverflow: boolean
     ) {
         this.isDebugLoggingEnabled = buildIntegerMatcher(config.SESSION_RECORDING_DEBUG_PARTITION, true)
 
@@ -182,17 +180,6 @@ export class SessionRecordingIngester {
 
         this.redisPool = createRedisPool(this.config, 'session-recording')
         this.realtimeManager = new RealtimeManager(this.redisPool, this.config)
-
-        if (config.SESSION_RECORDING_OVERFLOW_ENABLED && captureRedis && !consumeOverflow) {
-            this.overflowDetection = new OverflowManager(
-                config.SESSION_RECORDING_OVERFLOW_BUCKET_CAPACITY,
-                config.SESSION_RECORDING_OVERFLOW_BUCKET_REPLENISH_RATE,
-                config.SESSION_RECORDING_OVERFLOW_MIN_PER_BATCH,
-                24 * 3600, // One day,
-                CAPTURE_OVERFLOW_REDIS_KEY,
-                captureRedis
-            )
-        }
 
         // We create a hash of the cluster to use as a unique identifier for the high-water marks
         // This enables us to swap clusters without having to worry about resetting the high-water marks
@@ -491,6 +478,18 @@ export class SessionRecordingIngester {
             this.replayEventsIngester = new ReplayEventsIngester(
                 this.sharedClusterProducerWrapper.producer,
                 this.persistentHighWaterMarker
+            )
+        }
+
+        if (this.config.SESSION_RECORDING_OVERFLOW_ENABLED && !this.consumeOverflow) {
+            this.overflowDetection = new OverflowManager(
+                this.config.SESSION_RECORDING_OVERFLOW_BUCKET_CAPACITY,
+                this.config.SESSION_RECORDING_OVERFLOW_BUCKET_REPLENISH_RATE,
+                this.config.SESSION_RECORDING_OVERFLOW_MIN_PER_BATCH,
+                24 * 3600, // One day,
+                CAPTURE_OVERFLOW_REDIS_KEY,
+                // Dedicated redis used only used for this service - connects to the shared posthog redis
+                await createRedis(this.config, 'posthog')
             )
         }
 
