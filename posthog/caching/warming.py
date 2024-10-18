@@ -127,7 +127,12 @@ def schedule_warming_for_teams_task():
     max_retries=3,
 )
 def warm_insight_cache_task(insight_id: int, dashboard_id: Optional[int]):
-    insight = Insight.objects.get(pk=insight_id)
+    try:
+        insight = Insight.objects.get(pk=insight_id)
+    except Insight.DoesNotExist:
+        logger.info(f"Warming insight cache failed 404 insight not found: {insight_id}")
+        return
+
     dashboard = None
 
     tag_queries(team_id=insight.team_id, insight_id=insight.pk, trigger="warmingV2")
