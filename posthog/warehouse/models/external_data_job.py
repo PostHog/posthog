@@ -29,7 +29,10 @@ class ExternalDataJob(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     __repr__ = sane_repr("id")
 
     def folder_path(self) -> str:
-        return f"team_{self.team_id}_{self.pipeline.source_type}_{str(self.schema_id)}".lower().replace("-", "_")
+        if self.schema:
+            return self.schema.folder_path()
+        else:
+            raise ValueError("Job does not have a schema")
 
     def deprecated_folder_path(self) -> str:
         return f"team_{self.team_id}_{self.pipeline.source_type}_{str(self.pk)}".lower().replace("-", "_")

@@ -60,6 +60,9 @@ class ExternalDataSchema(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
 
     __repr__ = sane_repr("name")
 
+    def folder_path(self) -> str:
+        return f"team_{self.team_id}_{self.source.source_type}_{str(self.id)}".lower().replace("-", "_")
+
     @property
     def is_incremental(self):
         return self.sync_type == self.SyncType.INCREMENTAL

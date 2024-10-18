@@ -27,6 +27,7 @@ from posthog.warehouse.models import (
     ExternalDataJob,
     ExternalDataSource,
     ExternalDataSchema,
+    get_external_data_job,
 )
 
 from posthog.temporal.data_imports.pipelines.schemas import (
@@ -379,9 +380,7 @@ async def test_run_stripe_job(activity_environment, team, minio_client, **kwargs
             schema=customer_schema,
         )
 
-        new_job = await sync_to_async(
-            ExternalDataJob.objects.filter(id=new_job.id).prefetch_related("pipeline").prefetch_related("schema").get
-        )()
+        new_job = await get_external_data_job(new_job.id)
 
         inputs = ImportDataActivityInputs(
             team_id=team.id,
@@ -403,16 +402,17 @@ async def test_run_stripe_job(activity_environment, team, minio_client, **kwargs
             job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
         )
 
+        charge_schema = await _create_schema("Charge", new_source, team)
+
         new_job: ExternalDataJob = await sync_to_async(ExternalDataJob.objects.create)(
             team_id=team.id,
             pipeline_id=new_source.pk,
             status=ExternalDataJob.Status.RUNNING,
             rows_synced=0,
+            schema=charge_schema,
         )
 
-        new_job = await sync_to_async(ExternalDataJob.objects.filter(id=new_job.id).prefetch_related("pipeline").get)()
-
-        charge_schema = await _create_schema("Charge", new_source, team)
+        new_job = await get_external_data_job(new_job.id)
 
         inputs = ImportDataActivityInputs(
             team_id=team.id,
