@@ -36,6 +36,9 @@ class FunnelUDF(FunnelBase):
             """
         return ""
 
+    def udf_event_array_filter(self):
+        return self._udf_event_array_filter(1, 3, 4)
+
     # This is the function that calls the UDF
     # This is used by both the query itself and the actors query
     def _inner_aggregation_query(self):
@@ -89,7 +92,7 @@ class FunnelUDF(FunnelBase):
                     '{breakdown_attribution_string}',
                     '{self.context.funnelsFilter.funnelOrderType}',
                     {prop_vals},
-                    {self.udf_event_array_filter(1, 3, 4)}
+                    {self.udf_event_array_filter()}
                 )) as af_tuple,
                 af_tuple.1 as step_reached,
                 af_tuple.1 + 1 as steps, -- Backward compatibility

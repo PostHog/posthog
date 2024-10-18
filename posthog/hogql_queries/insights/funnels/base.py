@@ -94,7 +94,7 @@ class FunnelBase(ABC):
     # arrayRotateRight turns [1,2,3] into [3,1,2]
     # arrayRotateRight turns [1,2,3] into [2,3,1]
     # For some reason, using these uses much less memory than using indexing in clickhouse to check the previous and next element
-    def udf_event_array_filter(self, timestamp_index: int, prop_val_index: int, steps_index: int):
+    def _udf_event_array_filter(self, timestamp_index: int, prop_val_index: int, steps_index: int):
         return f"""arrayFilter(
                     (x, x_before, x_after) -> not (
                         length(x.{steps_index}) <= 1

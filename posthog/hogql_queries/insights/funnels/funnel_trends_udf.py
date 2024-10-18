@@ -46,6 +46,9 @@ class FunnelTrendsUDF(FunnelTrends):
                 """
         return ""
 
+    def udf_event_array_filter(self):
+        return self._udf_event_array_filter(1, 4, 5)
+
     # This is the function that calls the UDF
     # This is used by both the query itself and the actors query
     def _inner_aggregation_query(self):
@@ -111,7 +114,7 @@ class FunnelTrendsUDF(FunnelTrends):
                     '{breakdown_attribution_string}',
                     '{self.context.funnelsFilter.funnelOrderType}',
                     {prop_vals},
-                    {self.udf_event_array_filter(1, 4, 5)}
+                    {self.udf_event_array_filter()}
                 )) as af_tuple,
                 toTimeZone(toDateTime(_toUInt64(af_tuple.1)), '{self.context.team.timezone}') as entrance_period_start,
                 af_tuple.2 as success_bool,
