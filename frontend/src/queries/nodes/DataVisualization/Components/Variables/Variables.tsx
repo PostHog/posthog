@@ -1,7 +1,7 @@
 import './Variables.scss'
 
 import { IconCopy, IconGear, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonInput, Popover } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonInput, LemonSegmentedButton, Popover } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -88,7 +88,15 @@ const VariableInput = ({
     onChange,
     onRemove,
 }: VariableInputProps): JSX.Element => {
-    const [localInputValue, setLocalInputValue] = useState(variable.value ?? variable.default_value ?? '')
+    const [localInputValue, setLocalInputValue] = useState(() => {
+        const val = variable.value ?? variable.default_value
+
+        if (variable.type === 'Number' && !val) {
+            return 0
+        }
+
+        return val ?? ''
+    })
 
     const inputRef = useRef<HTMLInputElement>(null)
     const codeRef = useRef<HTMLElement>(null)
@@ -102,17 +110,50 @@ const VariableInput = ({
     return (
         <div>
             <div className="flex gap-1 p-1">
-                <LemonInput
-                    inputRef={inputRef}
-                    placeholder="Value..."
-                    className="flex flex-1"
-                    value={localInputValue.toString()}
-                    onChange={(value) => setLocalInputValue(value)}
-                    onPressEnter={() => {
-                        onChange(variable.id, localInputValue)
-                        closePopover()
-                    }}
-                />
+                {variable.type === 'String' && (
+                    <LemonInput
+                        inputRef={inputRef}
+                        placeholder="Value..."
+                        className="flex flex-1"
+                        value={localInputValue.toString()}
+                        onChange={(value) => setLocalInputValue(value)}
+                        onPressEnter={() => {
+                            onChange(variable.id, localInputValue)
+                            closePopover()
+                        }}
+                    />
+                )}
+                {variable.type === 'Number' && (
+                    <LemonInput
+                        type="number"
+                        inputRef={inputRef}
+                        placeholder="Value..."
+                        className="flex flex-1"
+                        value={Number(localInputValue)}
+                        onChange={(value) => setLocalInputValue(value ?? 0)}
+                        onPressEnter={() => {
+                            onChange(variable.id, localInputValue)
+                            closePopover()
+                        }}
+                    />
+                )}
+                {variable.type === 'Boolean' && (
+                    <LemonSegmentedButton
+                        className="grow"
+                        value={localInputValue ? 'true' : 'false'}
+                        onChange={(value) => setLocalInputValue(value === 'true')}
+                        options={[
+                            {
+                                value: 'true',
+                                label: 'true',
+                            },
+                            {
+                                value: 'false',
+                                label: 'false',
+                            },
+                        ]}
+                    />
+                )}
                 <LemonButton
                     type="primary"
                     onClick={() => {
@@ -213,7 +254,7 @@ const VariableComponent = ({
                         onClick={() => setPopoverOpen(!isPopoverOpen)}
                         disabledReason={variableOverridesAreSet && 'Discard dashboard variables to change'}
                     >
-                        {variable.value ?? variable.default_value}
+                        {variable.value?.toString() ?? variable.default_value?.toString()}
                     </LemonButton>
                 </LemonField.Pure>
             </div>

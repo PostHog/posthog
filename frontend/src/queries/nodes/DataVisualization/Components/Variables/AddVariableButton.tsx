@@ -57,7 +57,7 @@ export const AddVariableButton = (): JSX.Element => {
                               ]
                             : variables.map((n) => ({
                                   label: n.name,
-                                  onClick: () => addVariable({ variableId: n.id, code_name: '' }),
+                                  onClick: () => addVariable({ variableId: n.id, code_name: n.code_name }),
                               })),
                     },
                 ]}
