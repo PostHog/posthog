@@ -4,14 +4,13 @@ from math import exp, lgamma, log, ceil
 
 from flaky import flaky
 
-from posthog.constants import ExperimentSignificanceCode
-from posthog.hogql_queries.experiments.trend_statistics import (
+from posthog.hogql_queries.experiments.trends_statistics import (
     are_results_significant,
     calculate_credible_intervals,
     calculate_p_value,
     calculate_probabilities,
 )
-from posthog.schema import ExperimentVariantTrendResult
+from posthog.schema import ExperimentSignificanceCode, ExperimentVariantTrendsBaseStats
 
 Probability = float
 
@@ -24,7 +23,7 @@ def logbeta(x: float, y: float) -> float:
 # Helper function to calculate probability using a different method than the one used in actual code
 # calculation: https://www.evanmiller.org/bayesian-ab-testing.html#count_ab
 def calculate_probability_of_winning_for_target_count_data(
-    target_variant: ExperimentVariantTrendResult, other_variants: list[ExperimentVariantTrendResult]
+    target_variant: ExperimentVariantTrendsBaseStats, other_variants: list[ExperimentVariantTrendsBaseStats]
 ) -> Probability:
     """
     Calculates the probability of winning for target variant.
@@ -98,8 +97,8 @@ def probability_C_beats_A_and_B_count_data(
 @flaky(max_runs=10, min_passes=1)
 class TestTrendExperimentCalculator(unittest.TestCase):
     def test_calculate_results(self):
-        variant_control = ExperimentVariantTrendResult(key="A", count=20, exposure=1, absolute_exposure=200)
-        variant_test = ExperimentVariantTrendResult(key="B", count=30, exposure=1, absolute_exposure=200)
+        variant_control = ExperimentVariantTrendsBaseStats(key="A", count=20, exposure=1, absolute_exposure=200)
+        variant_test = ExperimentVariantTrendsBaseStats(key="B", count=30, exposure=1, absolute_exposure=200)
 
         probabilities = calculate_probabilities(variant_control, [variant_test])
         self.assertAlmostEqual(probabilities[1], 0.92, places=1)
@@ -118,8 +117,8 @@ class TestTrendExperimentCalculator(unittest.TestCase):
         self.assertAlmostEqual(credible_intervals[variant_test.key][1], 0.2141, places=3)
 
     def test_calculate_results_small_numbers(self):
-        variant_control = ExperimentVariantTrendResult(key="A", count=2, exposure=1, absolute_exposure=200)
-        variant_test = ExperimentVariantTrendResult(key="B", count=1, exposure=1, absolute_exposure=200)
+        variant_control = ExperimentVariantTrendsBaseStats(key="A", count=2, exposure=1, absolute_exposure=200)
+        variant_test = ExperimentVariantTrendsBaseStats(key="B", count=1, exposure=1, absolute_exposure=200)
 
         probabilities = calculate_probabilities(variant_control, [variant_test])
         self.assertAlmostEqual(probabilities[1], 0.31, places=1)
@@ -146,9 +145,9 @@ class TestTrendExperimentCalculator(unittest.TestCase):
         self.assertAlmostEqual(probability, probability2)
 
     def test_calculate_results_with_three_variants(self):
-        variant_control = ExperimentVariantTrendResult(key="A", count=20, exposure=1, absolute_exposure=200)
-        variant_test_1 = ExperimentVariantTrendResult(key="B", count=26, exposure=1, absolute_exposure=200)
-        variant_test_2 = ExperimentVariantTrendResult(key="C", count=19, exposure=1, absolute_exposure=200)
+        variant_control = ExperimentVariantTrendsBaseStats(key="A", count=20, exposure=1, absolute_exposure=200)
+        variant_test_1 = ExperimentVariantTrendsBaseStats(key="B", count=26, exposure=1, absolute_exposure=200)
+        variant_test_2 = ExperimentVariantTrendsBaseStats(key="C", count=19, exposure=1, absolute_exposure=200)
 
         probabilities = calculate_probabilities(variant_control, [variant_test_1, variant_test_2])
         self.assertAlmostEqual(probabilities[0], 0.16, places=1)
@@ -172,9 +171,9 @@ class TestTrendExperimentCalculator(unittest.TestCase):
         self.assertAlmostEqual(credible_intervals[variant_test_2.key][1], 0.1484, places=3)
 
     def test_calculate_significance_when_target_variants_underperform(self):
-        variant_control = ExperimentVariantTrendResult(key="A", count=250, exposure=1, absolute_exposure=200)
-        variant_test_1 = ExperimentVariantTrendResult(key="B", count=180, exposure=1, absolute_exposure=200)
-        variant_test_2 = ExperimentVariantTrendResult(key="C", count=50, exposure=1, absolute_exposure=200)
+        variant_control = ExperimentVariantTrendsBaseStats(key="A", count=250, exposure=1, absolute_exposure=200)
+        variant_test_1 = ExperimentVariantTrendsBaseStats(key="B", count=180, exposure=1, absolute_exposure=200)
+        variant_test_2 = ExperimentVariantTrendsBaseStats(key="C", count=50, exposure=1, absolute_exposure=200)
 
         # in this case, should choose B as best test variant
         p_value = calculate_p_value(variant_control, [variant_test_1, variant_test_2])
@@ -188,7 +187,7 @@ class TestTrendExperimentCalculator(unittest.TestCase):
         self.assertEqual(significant, ExperimentSignificanceCode.LOW_WIN_PROBABILITY)
 
         # new B variant is worse, such that control probability ought to be high enough
-        variant_test_1 = ExperimentVariantTrendResult(key="B", count=100, exposure=1, absolute_exposure=200)
+        variant_test_1 = ExperimentVariantTrendsBaseStats(key="B", count=100, exposure=1, absolute_exposure=200)
 
         significant, p_value = are_results_significant(
             variant_control, [variant_test_1, variant_test_2], [0.95, 0.03, 0.02]
@@ -205,9 +204,9 @@ class TestTrendExperimentCalculator(unittest.TestCase):
         self.assertAlmostEqual(credible_intervals[variant_test_2.key][1], 0.3295, places=3)
 
     def test_results_with_different_exposures(self):
-        variant_control = ExperimentVariantTrendResult(key="A", count=50, exposure=1.3, absolute_exposure=260)
-        variant_test_1 = ExperimentVariantTrendResult(key="B", count=30, exposure=1.8, absolute_exposure=360)
-        variant_test_2 = ExperimentVariantTrendResult(key="C", count=20, exposure=0.7, absolute_exposure=140)
+        variant_control = ExperimentVariantTrendsBaseStats(key="A", count=50, exposure=1.3, absolute_exposure=260)
+        variant_test_1 = ExperimentVariantTrendsBaseStats(key="B", count=30, exposure=1.8, absolute_exposure=360)
+        variant_test_2 = ExperimentVariantTrendsBaseStats(key="C", count=20, exposure=0.7, absolute_exposure=140)
 
         probabilities = calculate_probabilities(variant_control, [variant_test_1, variant_test_2])  # a is control
         self.assertAlmostEqual(probabilities[0], 0.86, places=1)

@@ -103,6 +103,7 @@ class CachingTeamSerializer(serializers.ModelSerializer):
             "session_recording_minimum_duration_milliseconds",
             "session_recording_linked_flag",
             "session_recording_network_payload_capture_config",
+            "session_recording_url_trigger_config",
             "session_replay_config",
             "survey_config",
             "recording_domains",
@@ -156,6 +157,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "session_recording_minimum_duration_milliseconds",
             "session_recording_linked_flag",
             "session_recording_network_payload_capture_config",
+            "session_recording_url_trigger_config",
             "session_replay_config",
             "survey_config",
             "effective_membership_level",
@@ -357,7 +359,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                     item_id="",
                     activity="updated",
                     detail=Detail(
-                        name="Team Survey Config",
+                        name="global survey appearance",
                         changes=survey_config_changes_between,
                     ),
                 )
