@@ -1,8 +1,8 @@
 import { useValues } from 'kea'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 
-import { editorSizingLogic } from './editorSizingLogic'
 import { DatabaseTableTreeWithItems } from '../external/DataWarehouseTables'
+import { editorSizingLogic } from './editorSizingLogic'
 import { SchemaSearch } from './SchemaSearch'
 
 export function SourceNavigator(): JSX.Element {
@@ -11,7 +11,7 @@ export function SourceNavigator(): JSX.Element {
     return (
         <div
             ref={sourceNavigatorResizerProps.containerRef}
-            className='relative flex flex-col bg-bg-3000 h-full overflow-hidden'
+            className="relative flex flex-col bg-bg-3000 h-full overflow-hidden"
             // eslint-disable-next-line react/forbid-dom-props
             style={{
                 width: `${sourceNavigatorWidth}px`,

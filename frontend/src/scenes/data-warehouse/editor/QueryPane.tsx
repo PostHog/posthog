@@ -1,10 +1,9 @@
 import { useValues } from 'kea'
 import { Resizer } from 'lib/components/Resizer/Resizer'
-
-import { editorSizingLogic } from './editorSizingLogic'
+import { CodeEditor } from 'lib/monaco/CodeEditor'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 
-import { CodeEditor } from 'lib/monaco/CodeEditor'
+import { editorSizingLogic } from './editorSizingLogic'
 
 export function QueryPane(): JSX.Element {
     const { queryPaneHeight, queryPaneResizerProps } = useValues(editorSizingLogic)
@@ -18,19 +17,12 @@ export function QueryPane(): JSX.Element {
             ref={queryPaneResizerProps.containerRef}
         >
             <div className="flex-1">
-                    <AutoSizer>
-                        {({ height, width }) => (
-                            <CodeEditor
-                                className="border"
-                                language="json"
-                                value={"Hello"}
-                                onChange={(v) => {}}
-                                height={height}
-                                width={width}
-                            />
-                        )}
-                    </AutoSizer>
-                </div>
+                <AutoSizer>
+                    {({ height, width }) => (
+                        <CodeEditor className="border" language="json" value="Hello" height={height} width={width} />
+                    )}
+                </AutoSizer>
+            </div>
             <Resizer {...queryPaneResizerProps} />
         </div>
     )

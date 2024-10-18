@@ -1,8 +1,8 @@
 import { IconPlus, IconX } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
-import { Tab } from './queryWindowLogic'
 
+import { Tab } from './queryWindowLogic'
 
 interface QueryTabsProps {
     tabs: Tab[]
@@ -17,16 +17,14 @@ export function QueryTabs({ tabs, onTabClear, onTabClick, onAdd, activeKey }: Qu
         <div className="flex flex-row overflow-scroll hide-scrollbar">
             {tabs.map((tab: Tab) => (
                 <QueryTab
+                    key={tab.key}
                     tab={tab}
                     onClear={onTabClear}
                     onClick={onTabClick}
                     active={activeKey == tab.key}
                 />
             ))}
-            <LemonButton
-                onClick={onAdd}
-                icon={<IconPlus fontSize={14} />}
-            />
+            <LemonButton onClick={onAdd} icon={<IconPlus fontSize={14} />} />
         </div>
     )
 }
@@ -48,7 +46,7 @@ function QueryTab({ tab, active, onClear, onClick }: QueryTabProps): JSX.Element
                 'pl-3 pr-2'
             )}
         >
-            {'Untitled' }
+            Untitled
             {onClear && (
                 <LemonButton
                     onClick={(e) => {
