@@ -153,6 +153,7 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
             "prefix",
             "last_run_at",
             "schemas",
+            "job_inputs",
         ]
         read_only_fields = [
             "id",
