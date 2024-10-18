@@ -47,22 +47,7 @@ export function Modifiers<Q extends { response?: Record<string, any>; modifiers?
                     value={query.modifiers?.personsOnEventsMode ?? response?.modifiers?.personsOnEventsMode}
                 />
             </LemonLabel>
-            <LemonLabel className={labelClassName}>
-                <div>Persons ArgMax:</div>
-                <LemonSelect
-                    options={[
-                        { value: 'v1', label: 'V1' },
-                        { value: 'v2', label: 'V2' },
-                    ]}
-                    onChange={(value) =>
-                        setQuery({
-                            ...query,
-                            modifiers: { ...query.modifiers, personsArgMaxVersion: value },
-                        })
-                    }
-                    value={query.modifiers?.personsArgMaxVersion ?? response?.modifiers?.personsArgMaxVersion}
-                />
-            </LemonLabel>
+
             <LemonLabel className={labelClassName}>
                 <div>In Cohort Via:</div>
                 <LemonSelect
@@ -97,22 +82,6 @@ export function Modifiers<Q extends { response?: Record<string, any>; modifiers?
                         })
                     }
                     value={query.modifiers?.materializationMode ?? response?.modifiers?.materializationMode}
-                />
-            </LemonLabel>
-            <LemonLabel className={labelClassName}>
-                <div>Optimize joined filters:</div>
-                <LemonSelect
-                    options={[
-                        { value: true, label: 'true' },
-                        { value: false, label: 'false' },
-                    ]}
-                    onChange={(value) =>
-                        setQuery({
-                            ...query,
-                            modifiers: { ...query.modifiers, optimizeJoinedFilters: value },
-                        })
-                    }
-                    value={query.modifiers?.optimizeJoinedFilters ?? response?.modifiers?.optimizeJoinedFilters}
                 />
             </LemonLabel>
             <LemonLabel className={labelClassName}>
