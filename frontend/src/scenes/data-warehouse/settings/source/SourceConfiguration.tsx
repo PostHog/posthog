@@ -10,13 +10,13 @@ interface SourceConfigurationProps {
 }
 
 export const SourceConfiguration = ({ id }: SourceConfigurationProps): JSX.Element => {
-    const { sourceFieldConfig, sourceLoading } = useValues(dataWarehouseSourceSettingsLogic({ id }))
+    const { sourceFieldConfig } = useValues(dataWarehouseSourceSettingsLogic({ id }))
     return (
         <BindLogic logic={dataWarehouseSourceSettingsLogic} props={{ id }}>
-            {sourceLoading && sourceFieldConfig === null ? (
-                <LemonSkeleton />
-            ) : (
+            {sourceFieldConfig ? (
                 <UpdateSourceConnectionFormContainer id={id} sourceConfig={sourceFieldConfig} showPrefix={false} />
+            ) : (
+                <LemonSkeleton />
             )}
         </BindLogic>
     )
