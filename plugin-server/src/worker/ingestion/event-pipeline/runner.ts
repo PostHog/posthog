@@ -193,6 +193,12 @@ export class EventPipelineRunner {
             }
         }
 
+        // if the event is a groupidentify event, we should always skip person processing entirely. We
+        // don't allow use of $set and friends on groupidentify events
+        if (event.event === '$groupidentify') {
+            processPerson = false
+        }
+
         if (event.event === '$$client_ingestion_warning') {
             await captureIngestionWarning(
                 this.hub.db.kafkaProducer,
