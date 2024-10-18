@@ -28,15 +28,15 @@ from posthog.test.base import BaseTest, _create_event, cleanup_materialized_colu
 
 
 @contextmanager
-def materialized(table, property):
+def materialized(table, property, is_nullable: bool = False):
     """Materialize a property within the managed block, removing it on exit."""
     try:
-        from ee.clickhouse.materialized_columns.analyze import materialize
+        from ee.clickhouse.materialized_columns.columns import materialize
     except ModuleNotFoundError as e:
         pytest.xfail(str(e))
 
     try:
-        materialize(table, property)
+        materialize(table, property, is_nullable=is_nullable)
         yield
     finally:
         cleanup_materialized_columns()
@@ -347,6 +347,12 @@ class TestPrinter(BaseTest):
             self._expr("properties['$browser%%%#@!@']"),
             "nullIf(nullIf(events.`mat_$browser_______`, ''), 'null')",
         )
+
+        with materialized("events", "nullable", is_nullable=True):
+            self.assertEqual(
+                self._expr("properties['nullable']"),
+                "events.mat_nullable",
+            )
 
     def test_property_groups(self):
         context = HogQLContext(

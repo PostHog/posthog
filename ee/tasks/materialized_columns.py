@@ -1,7 +1,6 @@
 from celery.utils.log import get_task_logger
 
 from ee.clickhouse.materialized_columns.columns import (
-    TRIM_AND_EXTRACT_PROPERTY,
     ColumnName,
     get_materialized_columns,
 )
@@ -20,30 +19,31 @@ def mark_all_materialized() -> None:
         table,
         property_name,
         table_column,
-        column_name,
+        column_info,
     ) in get_materialized_columns_with_default_expression():
         updated_table = "sharded_events" if table == "events" else table
 
         # :TRICKY: On cloud, we ON CLUSTER updates to events/sharded_events but not to persons. Why? ¯\_(ツ)_/¯
         execute_on_cluster = f"ON CLUSTER '{CLICKHOUSE_CLUSTER}'" if table == "events" else ""
 
+        expr, parameters = column_info.get_expression_template(table_column, property_name)
         sync_execute(
             f"""
             ALTER TABLE {updated_table}
             {execute_on_cluster}
             MODIFY COLUMN
-            {column_name} VARCHAR MATERIALIZED {TRIM_AND_EXTRACT_PROPERTY.format(table_column=table_column)}
+            {column_info.column_name} {column_info.column_type} MATERIALIZED {expr}
             """,
-            {"property": property_name},
+            parameters,
         )
 
 
 def get_materialized_columns_with_default_expression():
     for table in ["events", "person"]:
         materialized_columns = get_materialized_columns(table, use_cache=False)
-        for (property_name, table_column), column_name in materialized_columns.items():
-            if is_default_expression(table, column_name):
-                yield table, property_name, table_column, column_name
+        for (property_name, table_column), column_info in materialized_columns.items():
+            if is_default_expression(table, column_info.column_name):
+                yield table, property_name, table_column, column_info
 
 
 def any_ongoing_mutations() -> bool:
