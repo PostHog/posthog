@@ -3,26 +3,26 @@ from typing import cast, Optional
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select, parse_expr
 from posthog.hogql_queries.insights.funnels.base import FunnelBase
-from posthog.schema import BreakdownType, BreakdownAttributionType, StepOrderValue
+from posthog.schema import BreakdownType, BreakdownAttributionType
 from posthog.utils import DATERANGE_MAP
 
 TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
 HUMAN_READABLE_TIMESTAMP_FORMAT = "%-d-%b-%Y"
 
 
-# This is used to reduce the number of events we look at in strict funnels
-# We remove a non-matching event if there was already one before it (that don't have the same timestamp)
+# This is a simple heuristic to reduce the number of events we look at in UDF funnels (thus are serialized and sent over)
+# We remove an event if it matches one or zero steps and there was already the same type of event before and after it (that don't have the same timestamp)
 # arrayRotateRight turns [1,2,3] into [3,1,2]
-# For some reason, this uses much less memory than using indexing in clickhouse to check the previous element
-def udf_event_array_filter(funnelOrderType: StepOrderValue | None):
-    if funnelOrderType == "strict":
-        return f"""
-                arrayFilter(
-                    (x, x2) -> not (empty(x.4) and empty(x2.4) and x.3 == x2.3 and x.1 > x2.1),
-                    events_array,
-                    arrayRotateRight(events_array, 1))
-            """
-    return "events_array"
+# arrayRotateRight turns [1,2,3] into [2,3,1]
+# For some reason, using these uses much less memory than using indexing in clickhouse to check the previous and next element
+def udf_event_array_filter():
+    return """
+            arrayFilter(
+                (x, x_before, x_after) -> not (length(x.4) <= 1 and x.4 == x_before.4 and x.4 == x_after.4 and x.3 == x_before.3 and x.3 == x_after.3 and x.1 > x_before.1 and x.1 < x_after.1),
+                events_array,
+                arrayRotateRight(events_array, 1),
+                arrayRotateLeft(events_array, 1))
+    """
 
 
 class FunnelUDF(FunnelBase):
@@ -115,7 +115,7 @@ class FunnelUDF(FunnelBase):
                     '{breakdown_attribution_string}',
                     '{self.context.funnelsFilter.funnelOrderType}',
                     {prop_vals},
-                    {udf_event_array_filter(self.context.funnelsFilter.funnelOrderType)}
+                    {udf_event_array_filter()}
                 )) as af_tuple,
                 af_tuple.1 as step_reached,
                 af_tuple.1 + 1 as steps, -- Backward compatibility

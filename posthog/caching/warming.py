@@ -14,6 +14,7 @@ from posthog.api.services.query import process_query_dict
 from posthog.caching.utils import largest_teams
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
+from posthog.hogql.constants import LimitContext
 from posthog.hogql_queries.query_cache import QueryCacheManager
 from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager import conversion_to_query_based
 from posthog.hogql_queries.query_runner import ExecutionMode
@@ -145,6 +146,7 @@ def warm_insight_cache_task(insight_id: int, dashboard_id: Optional[int]):
                 # We need an execution mode with recent cache:
                 # - in case someone refreshed after this task was triggered
                 # - if insight + dashboard combinations have the same cache key, we prevent needless recalculations
+                limit_context=LimitContext.QUERY_ASYNC,
                 execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
                 insight_id=insight_id,
                 dashboard_id=dashboard_id,
