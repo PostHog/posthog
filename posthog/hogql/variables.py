@@ -44,7 +44,11 @@ class ReplaceVariables(CloningVisitor):
             if not matching_insight_variable:
                 raise QueryError(f"Variable {variable_code_name} does not exist")
 
-            value = matching_variable.value or matching_insight_variable[0].default_value
+            value = (
+                matching_variable.value
+                if matching_variable.value is not None
+                else matching_insight_variable[0].default_value
+            )
 
             return ast.Constant(value=value)
 

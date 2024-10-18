@@ -31,12 +31,13 @@ from .google_cloud_storage.template_google_cloud_storage import (
     template as google_cloud_storage,
     TemplateGoogleCloudStorageMigrator,
 )
-
+from .airtable.template_airtable import template as airtable
 
 HOG_FUNCTION_TEMPLATES = [
     slack,
     webhook,
     activecampaign,
+    airtable,
     attio,
     avo,
     aws_kinesis,

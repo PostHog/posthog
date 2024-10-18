@@ -24,7 +24,7 @@ const useMockedVersions = (
             ],
         },
         post: {
-            '/api/projects/:team/query': () => [
+            '/api/environments/:team_id/query': () => [
                 200,
                 {
                     results: usedVersions.map((x) => [x.version, x.timestamp]),

@@ -37,7 +37,7 @@ let res := fetch(f'https://api.gleap.io/admin/identify', {
 })
 
 if (res.status >= 400) {
-    print('Error from gleap.io api:', res.status, res.body)
+    throw Error(f'Error from gleap.io (status {res.status}): {res.body}')
 }
 
 """.strip(),

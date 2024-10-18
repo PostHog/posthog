@@ -27,7 +27,7 @@ describe('sessionRecordingPlayerLogic', () => {
         useMocks({
             get: {
                 '/api/projects/:team_id/session_recordings/:id/comments/': { results: [] },
-                '/api/projects/:team/session_recordings/:id/snapshots/': (req, res, ctx) => {
+                '/api/environments/:team_id/session_recordings/:id/snapshots/': (req, res, ctx) => {
                     // with no sources, returns sources...
                     if (req.url.searchParams.get('source') === 'blob') {
                         return res(ctx.text(snapshotsAsJSONLines()))
@@ -47,13 +47,13 @@ describe('sessionRecordingPlayerLogic', () => {
                         },
                     ]
                 },
-                '/api/projects/:team/session_recordings/:id': recordingMetaJson,
+                '/api/environments/:team_id/session_recordings/:id': recordingMetaJson,
             },
             delete: {
-                '/api/projects/:team/session_recordings/:id': { success: true },
+                '/api/environments/:team_id/session_recordings/:id': { success: true },
             },
             post: {
-                '/api/projects/:team/query': recordingEventsJson,
+                '/api/environments/:team_id/query': recordingEventsJson,
             },
         })
         initKeaTests()
@@ -128,7 +128,7 @@ describe('sessionRecordingPlayerLogic', () => {
 
             useMocks({
                 get: {
-                    '/api/projects/:team/session_recordings/:id/snapshots': () => [500, { status: 0 }],
+                    '/api/environments/:team_id/session_recordings/:id/snapshots': () => [500, { status: 0 }],
                 },
             })
             logic.mount()
@@ -194,7 +194,7 @@ describe('sessionRecordingPlayerLogic', () => {
                     sessionRecordingsPlaylistLogic({ updateSearchParams: true }).actionTypes.loadAllRecordings,
                 ])
 
-            expect(api.delete).toHaveBeenCalledWith(`api/projects/${MOCK_TEAM_ID}/session_recordings/3`)
+            expect(api.delete).toHaveBeenCalledWith(`api/environments/${MOCK_TEAM_ID}/session_recordings/3`)
             resumeKeaLoadersErrors()
         })
 
@@ -218,7 +218,7 @@ describe('sessionRecordingPlayerLogic', () => {
                 listLogic.actionCreators.setSelectedRecordingId(null),
             ])
 
-            expect(api.delete).toHaveBeenCalledWith(`api/projects/${MOCK_TEAM_ID}/session_recordings/3`)
+            expect(api.delete).toHaveBeenCalledWith(`api/environments/${MOCK_TEAM_ID}/session_recordings/3`)
             resumeKeaLoadersErrors()
         })
 
@@ -240,7 +240,7 @@ describe('sessionRecordingPlayerLogic', () => {
 
             expect(router.values.location.pathname).toEqual(urls.replay())
 
-            expect(api.delete).toHaveBeenCalledWith(`api/projects/${MOCK_TEAM_ID}/session_recordings/3`)
+            expect(api.delete).toHaveBeenCalledWith(`api/environments/${MOCK_TEAM_ID}/session_recordings/3`)
             resumeKeaLoadersErrors()
         })
 
@@ -261,7 +261,7 @@ describe('sessionRecordingPlayerLogic', () => {
 
             expect(router.values.location.pathname).toEqual('/')
 
-            expect(api.delete).toHaveBeenCalledWith(`api/projects/${MOCK_TEAM_ID}/session_recordings/3`)
+            expect(api.delete).toHaveBeenCalledWith(`api/environments/${MOCK_TEAM_ID}/session_recordings/3`)
             resumeKeaLoadersErrors()
         })
     })
