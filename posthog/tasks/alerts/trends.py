@@ -62,7 +62,7 @@ def check_trends_alert(alert: AlertConfiguration, insight: Insight, query: Trend
             # want value for current interval (last hour, last day, last week, last month)
             # depending on the alert calculation interval
             if _is_non_time_series_trend(query):
-                filters_override = _date_range_override_for_intervals(query)
+                filters_override = _date_range_override_for_intervals(query, last_x_intervals=2)
             else:
                 # for non time series, it's an aggregated value for full interval
                 # so we need to compute full insight
@@ -79,10 +79,12 @@ def check_trends_alert(alert: AlertConfiguration, insight: Insight, query: Trend
             if not calculation_result.result:
                 raise RuntimeError(f"No results found for insight with alert id = {alert.id}")
 
-            current_interval_value = _pick_interval_value_from_trend_result(config, query, calculation_result)
-            breaches = _validate_bounds(threshold.bounds, current_interval_value)
+            prev_interval_value = _pick_interval_value_from_trend_result(config, query, calculation_result, -1)
+            breaches = _validate_bounds(
+                threshold.bounds, prev_interval_value, threshold.type, condition.type, query.interval
+            )
 
-            return AlertEvaluationResult(value=current_interval_value, breaches=breaches)
+            return AlertEvaluationResult(value=prev_interval_value, breaches=breaches)
 
         case AlertConditionType.RELATIVE_INCREASE:
             if _is_non_time_series_trend(query):
@@ -107,10 +109,10 @@ def check_trends_alert(alert: AlertConfiguration, insight: Insight, query: Trend
 
             if threshold.type == InsightThresholdType.ABSOLUTE:
                 increase = prev_interval_value - prev_prev_interval_value
-                breaches = _validate_bounds(threshold.bounds, increase)
+                breaches = _validate_bounds(threshold.bounds, increase, threshold.type, condition.type, query.interval)
             elif threshold.type == InsightThresholdType.PERCENTAGE:
                 increase = (prev_interval_value - prev_prev_interval_value) / prev_prev_interval_value
-                breaches = _validate_bounds(threshold.bounds, increase, is_percentage=True)
+                breaches = _validate_bounds(threshold.bounds, increase, threshold.type, condition.type, query.interval)
             else:
                 raise ValueError(
                     f"Neither relative nor absolute threshold configured for alert condition RELATIVE_INCREASE"
@@ -141,10 +143,10 @@ def check_trends_alert(alert: AlertConfiguration, insight: Insight, query: Trend
 
             if threshold.type == InsightThresholdType.ABSOLUTE:
                 decrease = prev_prev_interval_value - prev_interval_value
-                breaches = _validate_bounds(threshold.bounds, decrease)
+                breaches = _validate_bounds(threshold.bounds, decrease, threshold.type, condition.type, query.interval)
             elif threshold.type == InsightThresholdType.PERCENTAGE:
                 decrease = (prev_prev_interval_value - prev_interval_value) / prev_prev_interval_value
-                breaches = _validate_bounds(threshold.bounds, decrease, is_percentage=True)
+                breaches = _validate_bounds(threshold.bounds, decrease, threshold.type, condition.type, query.interval)
             else:
                 raise ValueError(
                     f"Neither relative nor absolute threshold configured for alert condition RELATIVE_INCREASE"
@@ -202,18 +204,36 @@ def _pick_interval_value_from_trend_result(
 
 
 def _validate_bounds(
-    bounds: InsightsThresholdBounds | None, calculated_value: float, is_percentage: bool = False
+    bounds: InsightsThresholdBounds | None,
+    calculated_value: float,
+    threshold_type: InsightThresholdType,
+    condition_type: AlertConditionType,
+    interval_type: IntervalType | None,
 ) -> list[str]:
     if not bounds:
         return []
 
+    is_percentage = threshold_type == InsightThresholdType.PERCENTAGE
+
     formatted_value = f"{calculated_value:.2%}" if is_percentage else calculated_value
+
+    match condition_type:
+        case AlertConditionType.ABSOLUTE_VALUE:
+            condition_text = "is"
+        case AlertConditionType.RELATIVE_INCREASE:
+            condition_text = "increased"
+        case AlertConditionType.RELATIVE_DECREASE:
+            condition_text = "decreased"
 
     if bounds.lower is not None and calculated_value < bounds.lower:
         lower_value = f"{bounds.lower:.2%}" if is_percentage else bounds.lower
-        return [f"The trend value ({formatted_value}) is below the lower threshold ({lower_value})"]
+        return [
+            f"The insight value for previous {interval_type or 'interval'} {condition_text} ({formatted_value}) less than lower threshold ({lower_value})"
+        ]
     if bounds.upper is not None and calculated_value > bounds.upper:
         upper_value = f"{bounds.upper:.2%}" if is_percentage else bounds.upper
-        return [f"The trend value ({formatted_value}) is above the upper threshold ({upper_value})"]
+        return [
+            f"The insight value for previous {interval_type or 'interval'} {condition_text} ({formatted_value}) more than upper threshold ({upper_value})"
+        ]
 
     return []
