@@ -10,21 +10,6 @@ TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
 HUMAN_READABLE_TIMESTAMP_FORMAT = "%-d-%b-%Y"
 
 
-# This is a simple heuristic to reduce the number of events we look at in UDF funnels (thus are serialized and sent over)
-# We remove an event if it matches one or zero steps and there was already the same type of event before and after it (that don't have the same timestamp)
-# arrayRotateRight turns [1,2,3] into [3,1,2]
-# arrayRotateRight turns [1,2,3] into [2,3,1]
-# For some reason, using these uses much less memory than using indexing in clickhouse to check the previous and next element
-def udf_event_array_filter():
-    return """
-            arrayFilter(
-                (x, x_before, x_after) -> not (length(x.4) <= 1 and x.4 == x_before.4 and x.4 == x_after.4 and x.3 == x_before.3 and x.3 == x_after.3 and x.1 > x_before.1 and x.1 < x_after.1),
-                events_array,
-                arrayRotateRight(events_array, 1),
-                arrayRotateLeft(events_array, 1))
-    """
-
-
 class FunnelUDF(FunnelBase):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -92,14 +77,19 @@ class FunnelUDF(FunnelBase):
         inner_select = parse_select(
             f"""
             SELECT
-                arraySort(t -> t.1, groupArray(tuple(toFloat(timestamp), uuid, {prop_selector}, arrayFilter((x) -> x != 0, [{steps}{exclusions}])))) as events_array,
+                arraySort(t -> t.1, groupArray(tuple(
+                    toFloat(timestamp),
+                    uuid,
+                    {prop_selector},
+                    arrayFilter((x) -> x != 0, [{steps}{exclusions}])
+                ))) as events_array,
                 arrayJoin({fn}(
                     {self.context.max_steps},
                     {self.conversion_window_limit()},
                     '{breakdown_attribution_string}',
                     '{self.context.funnelsFilter.funnelOrderType}',
                     {prop_vals},
-                    {udf_event_array_filter()}
+                    {self.udf_event_array_filter(1, 3, 4)}
                 )) as af_tuple,
                 af_tuple.1 as step_reached,
                 af_tuple.1 + 1 as steps, -- Backward compatibility
