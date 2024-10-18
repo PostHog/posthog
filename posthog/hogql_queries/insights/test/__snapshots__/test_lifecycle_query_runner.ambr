@@ -70,8 +70,8 @@
               GROUP BY person_distinct_id_overrides.distinct_id
               HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
            LEFT JOIN
-             (SELECT argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
-                     person.id AS id
+             (SELECT person.id AS id,
+                     argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at
               FROM person
               WHERE equals(person.team_id, 2)
               GROUP BY person.id
@@ -148,8 +148,8 @@
               GROUP BY person_distinct_id_overrides.distinct_id
               HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
            LEFT JOIN
-             (SELECT argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
-                     person.id AS id
+             (SELECT person.id AS id,
+                     argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at
               FROM person
               WHERE equals(person.team_id, 2)
               GROUP BY person.id
@@ -223,8 +223,8 @@
               GROUP BY person_distinct_id_overrides.distinct_id
               HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
            LEFT JOIN
-             (SELECT argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
-                     person.id AS id
+             (SELECT person.id AS id,
+                     argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at
               FROM person
               WHERE equals(person.team_id, 2)
               GROUP BY person.id
@@ -298,8 +298,8 @@
               GROUP BY person_distinct_id_overrides.distinct_id
               HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
            LEFT JOIN
-             (SELECT argMax(toTimeZone(person.created_at, 'US/Pacific'), person.version) AS created_at,
-                     person.id AS id
+             (SELECT person.id AS id,
+                     argMax(toTimeZone(person.created_at, 'US/Pacific'), person.version) AS created_at
               FROM person
               WHERE equals(person.team_id, 2)
               GROUP BY person.id
