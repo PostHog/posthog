@@ -92,7 +92,7 @@ class FunnelBase(ABC):
     # This is a simple heuristic to reduce the number of events we look at in UDF funnels (thus are serialized and sent over)
     # We remove an event if it matches one or zero steps and there was already the same type of event before and after it (that don't have the same timestamp)
     # arrayRotateRight turns [1,2,3] into [3,1,2]
-    # arrayRotateRight turns [1,2,3] into [2,3,1]
+    # arrayRotateLeft turns [1,2,3] into [2,3,1]
     # For some reason, using these uses much less memory than using indexing in clickhouse to check the previous and next element
     def _udf_event_array_filter(self, timestamp_index: int, prop_val_index: int, steps_index: int):
         return f"""arrayFilter(
