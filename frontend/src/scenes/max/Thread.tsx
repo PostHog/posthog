@@ -76,38 +76,6 @@ function Answer({
     message: ThreadMessage & { content: TrendGenerationResult }
     previousMessage: ThreadMessage
 }): JSX.Element {
-    const [rating, setRating] = useState<'good' | 'bad' | null>(null)
-    const [feedback, setFeedback] = useState<string>('')
-    const [feedbackInputStatus, setFeedbackInputStatus] = useState<'hidden' | 'pending' | 'submitted'>('hidden')
-    const hasScrolledFeedbackInputIntoView = useRef<boolean>(false)
-
-    function submitRating(newRating: 'good' | 'bad'): void {
-        if (rating) {
-            return // Already rated
-        }
-        setRating(newRating)
-        posthog.capture('chat rating', {
-            question: previousMessage.content,
-            answer: message.content,
-            answer_rating: rating,
-        })
-        if (newRating === 'bad') {
-            setFeedbackInputStatus('pending')
-        }
-    }
-
-    function submitFeedback(): void {
-        if (!feedback) {
-            return // Input is empty
-        }
-        posthog.capture('chat feedback', {
-            question: previousMessage.content,
-            answer: message.content,
-            feedback,
-        })
-        setFeedbackInputStatus('submitted')
-    }
-
     const query = {
         kind: NodeKind.InsightVizNode,
         source: message.content?.answer,
@@ -143,71 +111,118 @@ function Answer({
                             Open as new insight
                         </LemonButton>
                     </Message>
-                    <div className="flex items-center">
-                        {rating !== 'bad' && (
-                            <LemonButton
-                                icon={rating === 'good' ? <IconThumbsUpFilled /> : <IconThumbsUp />}
-                                type="tertiary"
-                                size="small"
-                                tooltip="Good answer"
-                                onClick={() => submitRating('good')}
-                            />
-                        )}
-                        {rating !== 'good' && (
-                            <LemonButton
-                                icon={rating === 'bad' ? <IconThumbsDownFilled /> : <IconThumbsDown />}
-                                type="tertiary"
-                                size="small"
-                                tooltip="Bad answer"
-                                onClick={() => submitRating('bad')}
-                            />
-                        )}
-                    </div>
-                    {feedbackInputStatus !== 'hidden' && (
-                        <Message
-                            role="assistant"
-                            ref={(el) => {
-                                if (el && !hasScrolledFeedbackInputIntoView.current) {
-                                    // When the feedback input is first rendered, scroll it into view
-                                    el.scrollIntoView({ behavior: 'smooth' })
-                                    hasScrolledFeedbackInputIntoView.current = true
-                                }
-                            }}
-                        >
-                            <div className="flex items-center">
-                                <h4 className="m-0 text-sm grow">
-                                    {feedbackInputStatus === 'pending'
-                                        ? 'What disappointed you about the answer?'
-                                        : 'Thank you for your feedback!'}
-                                </h4>
-                                <LemonButton
-                                    icon={<IconX />}
-                                    type="tertiary"
-                                    size="xsmall"
-                                    onClick={() => setFeedbackInputStatus('hidden')}
-                                />
-                            </div>
-                            {feedbackInputStatus === 'pending' && (
-                                <div className="flex w-full gap-2 items-center mt-1.5">
-                                    <LemonInput
-                                        placeholder="Help us improve Max…"
-                                        fullWidth
-                                        value={feedback}
-                                        onChange={(newValue) => setFeedback(newValue)}
-                                        onPressEnter={() => submitFeedback()}
-                                    />
-                                    <LemonButton
-                                        type="primary"
-                                        onClick={() => submitFeedback()}
-                                        disabledReason={!feedback ? 'Please type a few words!' : undefined}
-                                    >
-                                        Submit
-                                    </LemonButton>
-                                </div>
-                            )}
-                        </Message>
-                    )}
+                    <AnswerActions message={message} previousMessage={previousMessage} />
                 </>
+            )}
+        </>
+    )
+}
+
+function AnswerActions({
+    message,
+    previousMessage,
+}: {
+    message: ThreadMessage & { content: TrendGenerationResult }
+    previousMessage: ThreadMessage
+}): JSX.Element {
+    const [rating, setRating] = useState<'good' | 'bad' | null>(null)
+    const [feedback, setFeedback] = useState<string>('')
+    const [feedbackInputStatus, setFeedbackInputStatus] = useState<'hidden' | 'pending' | 'submitted'>('hidden')
+    const hasScrolledFeedbackInputIntoView = useRef<boolean>(false)
+
+    function submitRating(newRating: 'good' | 'bad'): void {
+        if (rating) {
+            return // Already rated
+        }
+        setRating(newRating)
+        posthog.capture('chat rating', {
+            question: previousMessage.content,
+            answer: message.content,
+            answer_rating: rating,
+        })
+        if (newRating === 'bad') {
+            setFeedbackInputStatus('pending')
+        }
+    }
+
+    function submitFeedback(): void {
+        if (!feedback) {
+            return // Input is empty
+        }
+        posthog.capture('chat feedback', {
+            question: previousMessage.content,
+            answer: message.content,
+            feedback,
+        })
+        setFeedbackInputStatus('submitted')
+    }
+
+    return (
+        <>
+            <div className="flex items-center">
+                {rating !== 'bad' && (
+                    <LemonButton
+                        icon={rating === 'good' ? <IconThumbsUpFilled /> : <IconThumbsUp />}
+                        type="tertiary"
+                        size="small"
+                        tooltip="Good answer"
+                        onClick={() => submitRating('good')}
+                    />
+                )}
+                {rating !== 'good' && (
+                    <LemonButton
+                        icon={rating === 'bad' ? <IconThumbsDownFilled /> : <IconThumbsDown />}
+                        type="tertiary"
+                        size="small"
+                        tooltip="Bad answer"
+                        onClick={() => submitRating('bad')}
+                    />
+                )}
+            </div>
+            {feedbackInputStatus !== 'hidden' && (
+                <Message
+                    role="assistant"
+                    ref={(el) => {
+                        if (el && !hasScrolledFeedbackInputIntoView.current) {
+                            // When the feedback input is first rendered, scroll it into view
+                            el.scrollIntoView({ behavior: 'smooth' })
+                            hasScrolledFeedbackInputIntoView.current = true
+                        }
+                    }}
+                >
+                    <div className="flex items-center">
+                        <h4 className="m-0 text-sm grow">
+                            {feedbackInputStatus === 'pending'
+                                ? 'What disappointed you about the answer?'
+                                : 'Thank you for your feedback!'}
+                        </h4>
+                        <LemonButton
+                            icon={<IconX />}
+                            type="tertiary"
+                            size="xsmall"
+                            onClick={() => setFeedbackInputStatus('hidden')}
+                        />
+                    </div>
+                    {feedbackInputStatus === 'pending' && (
+                        <div className="flex w-full gap-2 items-center mt-1.5">
+                            <LemonInput
+                                placeholder="Help us improve Max…"
+                                fullWidth
+                                value={feedback}
+                                onChange={(newValue) => setFeedback(newValue)}
+                                onPressEnter={() => submitFeedback()}
+                                autoFocus
+                            />
+                            <LemonButton
+                                type="primary"
+                                onClick={() => submitFeedback()}
+                                disabledReason={!feedback ? 'Please type a few words!' : undefined}
+                            >
+                                Submit
+                            </LemonButton>
+                        </div>
+                    )}
+                </Message>
             )}
         </>
     )
