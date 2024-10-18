@@ -156,7 +156,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
         job_id, incremental = await workflow.execute_activity(
             create_external_data_job_model_activity,
             create_external_data_job_inputs,
-            start_to_close_timeout=dt.timedelta(minutes=1),
+            start_to_close_timeout=dt.timedelta(minutes=5),
             retry_policy=RetryPolicy(
                 initial_interval=dt.timedelta(seconds=10),
                 maximum_interval=dt.timedelta(seconds=60),
