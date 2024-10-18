@@ -138,7 +138,7 @@ def warm_insight_cache_task(insight_id: int, dashboard_id: Optional[int]):
     tag_queries(team_id=insight.team_id, insight_id=insight.pk, trigger="warmingV2")
     if dashboard_id:
         tag_queries(dashboard_id=dashboard_id)
-        dashboard = insight.dashboards.get(pk=dashboard_id)
+        dashboard = insight.dashboards.filter(pk=dashboard_id).first()
 
     with conversion_to_query_based(insight):
         logger.info(f"Warming insight cache: {insight.pk} for team {insight.team_id} and dashboard {dashboard_id}")
