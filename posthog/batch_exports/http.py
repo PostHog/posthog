@@ -5,6 +5,7 @@ import posthoganalytics
 import structlog
 from django.db import transaction
 from django.utils.timezone import now
+from loginas.utils import is_impersonated_session
 from rest_framework import filters, request, response, serializers, viewsets
 from rest_framework.exceptions import (
     NotAuthenticated,
@@ -13,7 +14,6 @@ from rest_framework.exceptions import (
     ValidationError,
 )
 from rest_framework.pagination import CursorPagination
-
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
@@ -43,6 +43,8 @@ from posthog.models import (
     Team,
     User,
 )
+from posthog.models.activity_logging.activity_log import log_activity
+from posthog.models.utils import UUIDT
 from posthog.temporal.common.client import sync_connect
 from posthog.utils import relative_date_parse
 
@@ -145,6 +147,17 @@ class BatchExportRunViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.Read
             self.team_id,
             batch_export_run.data_interval_start,
             batch_export_run.data_interval_end,
+        )
+
+        log_activity(
+            organization_id=cast(UUIDT, self.organization_id),
+            team_id=self.team_id,
+            user=request.user,
+            was_impersonated=is_impersonated_session(request),
+            scope="BatchExportRun",
+            item_id=str(batch_export_run.id),
+            activity="retry",
+            # detail=Detail(changes=None),
         )
 
         return response.Response({"backfill_id": backfill_id})
