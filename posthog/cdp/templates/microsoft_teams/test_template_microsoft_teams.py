@@ -1,3 +1,4 @@
+import pytest
 from inline_snapshot import snapshot
 from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
 from posthog.cdp.templates.microsoft_teams.template_microsoft_teams import template as template_microsoft_teams
@@ -30,4 +31,15 @@ class TestTemplateMicrosoftTeams(BaseHogFunctionTemplateTest):
                     },
                 },
             )
+        )
+
+    def test_only_run_for_valid_url(self):
+        with pytest.raises(Exception) as e:
+            self.run_function(
+                inputs=self._inputs(
+                    webhookUrl="https://max.webhook.site.com/webhookb2/abcdefg@abcdefg/IncomingWebhook/abcdefg/abcdefg"
+                )
+            )
+        assert (
+            e.value.message == "Invalid url"  # type: ignore[attr-defined]
         )

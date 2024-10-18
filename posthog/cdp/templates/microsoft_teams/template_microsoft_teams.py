@@ -1,13 +1,18 @@
 from posthog.cdp.templates.hog_function_template import HogFunctionTemplate, HogFunctionSubTemplate, SUB_TEMPLATE_COMMON
 
 template: HogFunctionTemplate = HogFunctionTemplate(
-    status="beta",
+    status="free",
     id="template-microsoft-teams",
     name="Microsoft Teams",
     description="Sends a message to a Microsoft Teams channel",
     icon_url="/static/services/microsoft-teams.png",
     category=["Customer Success"],
     hog="""
+// We'll need to check if the url starts with this string instead
+if (not inputs.webhookUrl like 'https://%.webhook.office.com/webhookb2/') {
+    throw Error('Invalid url');
+}
+
 let res := fetch(inputs.webhookUrl, {
     'body': {
         'text': inputs.content
