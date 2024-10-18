@@ -69,7 +69,7 @@ class TestTemplateKlaviyoUser(BaseHogFunctionTemplateTest):
         )
 
     def test_patch_existing_profile(self):
-        self.mock_fetch_response = lambda *args: {
+        self.mock_fetch_response = lambda *args: {  # type: ignore
             "status": 409,
             "body": {
                 "errors": [
@@ -85,7 +85,7 @@ class TestTemplateKlaviyoUser(BaseHogFunctionTemplateTest):
                     }
                 ]
             },
-        }  # type: ignore
+        }
 
         # both requests will fail with error code 409
         with pytest.raises(UncaughtHogVMException):
