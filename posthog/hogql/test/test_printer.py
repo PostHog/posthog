@@ -1387,11 +1387,11 @@ class TestPrinter(BaseTest):
             f"ifNull(equals(session_replay_events.start_time, toStartOfMonth(now64(6, %(hogql_val_1)s))), "
             f"isNull(session_replay_events.start_time) and isNull(toStartOfMonth(now64(6, %(hogql_val_1)s)))), "
             # now() = now() (also two nullable fields)
-            f"ifNull(equals(now64(6, %(hogql_val_2)s), now64(6, %(hogql_val_3)s)), isNull(now64(6, %(hogql_val_2)s)) and isNull(now64(6, %(hogql_val_3)s))), "
+            f"equals(now64(6, %(hogql_val_2)s), now64(6, %(hogql_val_3)s)), "
             # 1 = now()
-            f"ifNull(equals(1, now64(6, %(hogql_val_4)s)), 0), "
+            f"equals(1, now64(6, %(hogql_val_4)s)), "
             # now() = 1
-            f"ifNull(equals(now64(6, %(hogql_val_5)s), 1), 0), "
+            f"equals(now64(6, %(hogql_val_5)s), 1), "
             # 1 = 1
             f"1, "
             # click_count = 1
@@ -1427,11 +1427,11 @@ class TestPrinter(BaseTest):
             f"ifNull(notEquals(session_replay_events.start_time, toStartOfMonth(now64(6, %(hogql_val_1)s))), "
             f"isNotNull(session_replay_events.start_time) or isNotNull(toStartOfMonth(now64(6, %(hogql_val_1)s)))), "
             # now() = now() (also two nullable fields)
-            f"ifNull(notEquals(now64(6, %(hogql_val_2)s), now64(6, %(hogql_val_3)s)), isNotNull(now64(6, %(hogql_val_2)s)) or isNotNull(now64(6, %(hogql_val_3)s))), "
+            f"notEquals(now64(6, %(hogql_val_2)s), now64(6, %(hogql_val_3)s)), "
             # 1 = now()
-            f"ifNull(notEquals(1, now64(6, %(hogql_val_4)s)), 1), "
+            f"notEquals(1, now64(6, %(hogql_val_4)s)), "
             # now() = 1
-            f"ifNull(notEquals(now64(6, %(hogql_val_5)s), 1), 1), "
+            f"notEquals(now64(6, %(hogql_val_5)s), 1), "
             # 1 = 1
             f"0, "
             # click_count = 1

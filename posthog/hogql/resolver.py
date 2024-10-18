@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any, Literal, Optional, cast
 from uuid import UUID
 
@@ -53,6 +53,8 @@ def resolve_constant_data_type(constant: Any) -> ConstantType:
         return ast.DateTimeType(nullable=False)
     if isinstance(constant, date) or type(constant).__name__ == "FakeDate":
         return ast.DateType(nullable=False)
+    if isinstance(constant, timedelta):
+        return ast.IntervalType(nullable=False)
     if isinstance(constant, UUID) or isinstance(constant, UUIDT):
         return ast.UUIDType(nullable=False)
     raise ImpossibleASTError(f"Unsupported constant type: {type(constant)}")
