@@ -6,9 +6,10 @@ import React from 'react'
 import { urls } from 'scenes/urls'
 
 import { Query } from '~/queries/Query/Query'
-import { InsightQueryNode, InsightVizNode, NodeKind } from '~/queries/schema'
+import { AssistantMessage, InsightQueryNode, InsightVizNode, NodeKind } from '~/queries/schema'
 
 import { maxLogic } from './maxLogic'
+import { isVisualizationMessage, parseVisualizationMessageContent } from './utils'
 
 export function Thread(): JSX.Element | null {
     const { thread, threadLoading } = useValues(maxLogic)
@@ -16,11 +17,11 @@ export function Thread(): JSX.Element | null {
     return (
         <div className="flex flex-col items-stretch w-full max-w-200 self-center gap-2 grow m-4">
             {thread.map((message, index) => {
-                if (message.role === 'user' || typeof message.content === 'string') {
+                if (message.type === 'human') {
                     return (
                         <Message
                             key={index}
-                            role={message.role}
+                            type={message.type}
                             className={message.status === 'error' ? 'border-danger' : undefined}
                         >
                             {message.content || <i>No text</i>}
@@ -28,46 +29,51 @@ export function Thread(): JSX.Element | null {
                     )
                 }
 
-                const query = {
-                    kind: NodeKind.InsightVizNode,
-                    source: message.content?.answer,
+                if (message.type === 'ai' && isVisualizationMessage(message.payload)) {
+                    const { reasoning_steps, answer } = parseVisualizationMessageContent(message.content)
+                    const query = {
+                        kind: NodeKind.InsightVizNode,
+                        source: answer,
+                    }
+
+                    return (
+                        <React.Fragment key={index}>
+                            {reasoning_steps && (
+                                <Message type={message.type}>
+                                    <ul className="list-disc ml-4">
+                                        {reasoning_steps.map((step, index) => (
+                                            <li key={index}>{step}</li>
+                                        ))}
+                                    </ul>
+                                </Message>
+                            )}
+                            {message.status === 'completed' && answer && (
+                                <Message type={message.type}>
+                                    <div className="h-96 flex">
+                                        <Query query={query} readOnly embedded />
+                                    </div>
+                                    <LemonButton
+                                        className="mt-4 w-fit"
+                                        type="primary"
+                                        to={urls.insightNew(undefined, undefined, {
+                                            kind: NodeKind.InsightVizNode,
+                                            source: answer as InsightQueryNode,
+                                        } as InsightVizNode)}
+                                        sideIcon={<IconOpenInNew />}
+                                        targetBlank
+                                    >
+                                        Open as new insight
+                                    </LemonButton>
+                                </Message>
+                            )}
+                        </React.Fragment>
+                    )
                 }
 
-                return (
-                    <React.Fragment key={index}>
-                        {message.content?.reasoning_steps && (
-                            <Message role={message.role}>
-                                <ul className="list-disc ml-4">
-                                    {message.content.reasoning_steps.map((step, index) => (
-                                        <li key={index}>{step}</li>
-                                    ))}
-                                </ul>
-                            </Message>
-                        )}
-                        {message.status === 'completed' && message.content?.answer && (
-                            <Message role={message.role}>
-                                <div className="h-96 flex">
-                                    <Query query={query} readOnly embedded />
-                                </div>
-                                <LemonButton
-                                    className="mt-4 w-fit"
-                                    type="primary"
-                                    to={urls.insightNew(undefined, undefined, {
-                                        kind: NodeKind.InsightVizNode,
-                                        source: message.content.answer as InsightQueryNode,
-                                    } as InsightVizNode)}
-                                    sideIcon={<IconOpenInNew />}
-                                    targetBlank
-                                >
-                                    Open as new insight
-                                </LemonButton>
-                            </Message>
-                        )}
-                    </React.Fragment>
-                )
+                return null
             })}
             {threadLoading && (
-                <Message role="assistant" className="w-fit select-none">
+                <Message type="ai" className="w-fit select-none">
                     <div className="flex items-center gap-2">
                         Let me think…
                         <Spinner className="text-xl" />
@@ -79,11 +85,11 @@ export function Thread(): JSX.Element | null {
 }
 
 function Message({
-    role,
+    type,
     children,
     className,
-}: React.PropsWithChildren<{ role: 'user' | 'assistant'; className?: string }>): JSX.Element {
-    if (role === 'user') {
+}: React.PropsWithChildren<{ type: AssistantMessage['type']; className?: string }>): JSX.Element {
+    if (type === 'human') {
         return <h2 className={clsx('mt-1 mb-3 text-2xl font-medium', className)}>{children}</h2>
     }
 
