@@ -35,22 +35,21 @@ class FunnelUDF(FunnelBase):
             if property not in self._extra_event_properties:
                 self._extra_event_properties.append(property)
 
-    # I think I can delete this
-    def get_step_counts_query(self):
-        max_steps = self.context.max_steps
-        return self._get_step_counts_query(
-            outer_select=[
-                *self._get_matching_event_arrays(max_steps),
-            ],
-            inner_select=[
-                *self._get_matching_events(max_steps),
-            ],
-        )
-
     def conversion_window_limit(self) -> int:
         return int(
             self.context.funnelWindowInterval * DATERANGE_MAP[self.context.funnelWindowIntervalUnit].total_seconds()
         )
+
+    def matched_event_arrays_selects(self):
+        # We use matched events to get timestamps for the funnel as well as recordings
+        if self._include_matched_events() or self.context.includePrecedingTimestamp or self.context.includeTimestamp:
+            return """
+            af_tuple.4 as matched_event_uuids_array_array,
+            groupArray(tuple(timestamp, uuid, $session_id, $window_id)) as user_events,
+            mapFromArrays(arrayMap(x -> x.2, user_events), user_events) as user_events_map,
+            arrayMap(matched_event_uuids_array -> arrayMap(event_uuid -> user_events_map[event_uuid], arrayDistinct(matched_event_uuids_array)), matched_event_uuids_array_array) as matched_events_array,
+            """
+        return ""
 
     # This is the function that calls the UDF
     # This is used by both the query itself and the actors query
@@ -90,21 +89,6 @@ class FunnelUDF(FunnelBase):
 
         breakdown_attribution_string = f"{self.context.breakdownAttributionType}{f'_{self.context.funnelsFilter.breakdownAttributionValue}' if self.context.breakdownAttributionType == BreakdownAttributionType.STEP else ''}"
 
-        def matched_event_arrays_selects():
-            # We use matched events to get timestamps for the funnel as well as recordings
-            if (
-                self._include_matched_events()
-                or self.context.includePrecedingTimestamp
-                or self.context.includeTimestamp
-            ):
-                return """
-                af_tuple.4 as matched_event_uuids_array_array,
-                groupArray(tuple(timestamp, uuid, $session_id, $window_id)) as user_events,
-                mapFromArrays(arrayMap(x -> x.2, user_events), user_events) as user_events_map,
-                arrayMap(matched_event_uuids_array -> arrayMap(event_uuid -> user_events_map[event_uuid], arrayDistinct(matched_event_uuids_array)), matched_event_uuids_array_array) as matched_events_array,
-                """
-            return ""
-
         inner_select = parse_select(
             f"""
             SELECT
@@ -121,7 +105,7 @@ class FunnelUDF(FunnelBase):
                 af_tuple.1 + 1 as steps, -- Backward compatibility
                 af_tuple.2 as breakdown,
                 af_tuple.3 as timings,
-                {matched_event_arrays_selects()}
+                {self.matched_event_arrays_selects()}
                 aggregation_target
             FROM {{inner_event_query}}
             GROUP BY aggregation_target{breakdown_prop}
