@@ -208,7 +208,7 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
                 /*Only show the add button if all of these conditions are met:
                 1. Its a new Experiment
                 2. The experiment is still in draft form*/
-                return selectedExperimentId === 'new' && experimentForm.start_date == null
+                return selectedExperimentId === 'new' || experimentForm.start_date == null
             },
         ],
         selectedExperiment: [
