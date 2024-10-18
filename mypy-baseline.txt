@@ -756,8 +756,6 @@ posthog/admin/inlines/plugin_attachment_inline.py:0: note: Superclass:
 posthog/admin/inlines/plugin_attachment_inline.py:0: note: def has_delete_permission(self, request: HttpRequest, obj: Any | None = ...) -> bool
 posthog/admin/inlines/plugin_attachment_inline.py:0: note: Subclass:
 posthog/admin/inlines/plugin_attachment_inline.py:0: note: def has_delete_permission(self, request: Any, obj: Any) -> Any
-posthog/admin/admins/team_admin.py:0: error: Item "None" of "Project | None" has no attribute "pk"  [union-attr]
-posthog/admin/admins/team_admin.py:0: error: Item "None" of "Project | None" has no attribute "name"  [union-attr]
 posthog/admin/admins/plugin_admin.py:0: error: Item "None" of "Organization | None" has no attribute "pk"  [union-attr]
 posthog/admin/admins/plugin_admin.py:0: error: Item "None" of "Organization | None" has no attribute "name"  [union-attr]
 posthog/temporal/tests/batch_exports/test_run_updates.py:0: error: Unused "type: ignore" comment  [unused-ignore]
