@@ -20,7 +20,7 @@
             breakdown AS final_prop
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))) AS events_array,
-               arrayJoin(aggregate_funnel_array_v1(3, 15, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
+               arrayJoin(aggregate_funnel_array_v2(3, 15, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
                af_tuple.1 AS step_reached,
                plus(af_tuple.1, 1) AS steps,
                af_tuple.2 AS breakdown,
@@ -69,7 +69,7 @@
     (SELECT aggregation_target AS actor_id
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))) AS events_array,
-               arrayJoin(aggregate_funnel_array_v1(3, 15, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
+               arrayJoin(aggregate_funnel_array_v2(3, 15, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
                af_tuple.1 AS step_reached,
                plus(af_tuple.1, 1) AS steps,
                af_tuple.2 AS breakdown,
@@ -146,7 +146,7 @@
             breakdown AS final_prop
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))) AS events_array,
-               arrayJoin(aggregate_funnel_array_v1(3, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
+               arrayJoin(aggregate_funnel_array_v2(3, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
                af_tuple.1 AS step_reached,
                plus(af_tuple.1, 1) AS steps,
                af_tuple.2 AS breakdown,
@@ -221,7 +221,7 @@
             breakdown AS final_prop
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
-               arrayJoin(aggregate_funnel_array_v1(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
+               arrayJoin(aggregate_funnel_array_v2(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
                af_tuple.1 AS step_reached,
                plus(af_tuple.1, 1) AS steps,
                af_tuple.2 AS breakdown,
@@ -283,7 +283,7 @@
             breakdown AS final_prop
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))) AS events_array,
-               arrayJoin(aggregate_funnel_array_v1(3, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
+               arrayJoin(aggregate_funnel_array_v2(3, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
                af_tuple.1 AS step_reached,
                plus(af_tuple.1, 1) AS steps,
                af_tuple.2 AS breakdown,
@@ -343,7 +343,7 @@
     (SELECT aggregation_target AS actor_id
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))) AS events_array,
-               arrayJoin(aggregate_funnel_array_v1(3, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
+               arrayJoin(aggregate_funnel_array_v2(3, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
                af_tuple.1 AS step_reached,
                plus(af_tuple.1, 1) AS steps,
                af_tuple.2 AS breakdown,
@@ -411,7 +411,7 @@
     (SELECT aggregation_target AS actor_id
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))) AS events_array,
-               arrayJoin(aggregate_funnel_array_v1(3, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
+               arrayJoin(aggregate_funnel_array_v2(3, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
                af_tuple.1 AS step_reached,
                plus(af_tuple.1, 1) AS steps,
                af_tuple.2 AS breakdown,
@@ -479,7 +479,7 @@
     (SELECT aggregation_target AS actor_id
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))) AS events_array,
-               arrayJoin(aggregate_funnel_array_v1(3, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
+               arrayJoin(aggregate_funnel_array_v2(3, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
                af_tuple.1 AS step_reached,
                plus(af_tuple.1, 1) AS steps,
                af_tuple.2 AS breakdown,
@@ -562,7 +562,7 @@
             breakdown AS final_prop
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
-               arrayJoin(aggregate_funnel_array_v1(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
+               arrayJoin(aggregate_funnel_array_v2(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
                af_tuple.1 AS step_reached,
                plus(af_tuple.1, 1) AS steps,
                af_tuple.2 AS breakdown,
@@ -619,7 +619,7 @@
             breakdown AS final_prop
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
-               arrayJoin(aggregate_funnel_array_v1(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
+               arrayJoin(aggregate_funnel_array_v2(2, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
                af_tuple.1 AS step_reached,
                plus(af_tuple.1, 1) AS steps,
                af_tuple.2 AS breakdown,
@@ -673,7 +673,7 @@
             if(ifNull(less(row_number, 25), 0), breakdown, ['Other']) AS final_prop
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, prop, arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
-               arrayJoin(aggregate_funnel_array_v1(2, 1209600, 'first_touch', 'ordered', groupUniqArray(prop), events_array)) AS af_tuple,
+               arrayJoin(aggregate_funnel_array_v2(2, 1209600, 'first_touch', 'ordered', groupUniqArray(prop), events_array)) AS af_tuple,
                af_tuple.1 AS step_reached,
                plus(af_tuple.1, 1) AS steps,
                af_tuple.2 AS breakdown,
@@ -742,7 +742,7 @@
             if(ifNull(less(row_number, 25), 0), breakdown, ['Other']) AS final_prop
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, prop, arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
-               arrayJoin(aggregate_funnel_array_v1(2, 1209600, 'step_1', 'ordered', groupUniqArray(prop), events_array)) AS af_tuple,
+               arrayJoin(aggregate_funnel_array_v2(2, 1209600, 'step_1', 'ordered', groupUniqArray(prop), events_array)) AS af_tuple,
                af_tuple.1 AS step_reached,
                plus(af_tuple.1, 1) AS steps,
                af_tuple.2 AS breakdown,
@@ -818,7 +818,7 @@
             if(ifNull(less(row_number, 25), 0), breakdown, ['Other']) AS final_prop
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, prop, arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
-               arrayJoin(aggregate_funnel_array_v1(2, 1209600, 'first_touch', 'ordered', groupUniqArray(prop), events_array)) AS af_tuple,
+               arrayJoin(aggregate_funnel_array_v2(2, 1209600, 'first_touch', 'ordered', groupUniqArray(prop), events_array)) AS af_tuple,
                af_tuple.1 AS step_reached,
                plus(af_tuple.1, 1) AS steps,
                af_tuple.2 AS breakdown,
@@ -892,7 +892,7 @@
             if(ifNull(less(row_number, 25), 0), breakdown, 'Other') AS final_prop
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, prop, arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))) AS events_array,
-               arrayJoin(aggregate_funnel_v1(3, 1209600, 'first_touch', 'ordered', groupUniqArray(prop), events_array)) AS af_tuple,
+               arrayJoin(aggregate_funnel_v2(3, 1209600, 'first_touch', 'ordered', groupUniqArray(prop), events_array)) AS af_tuple,
                af_tuple.1 AS step_reached,
                plus(af_tuple.1, 1) AS steps,
                af_tuple.2 AS breakdown,
@@ -969,7 +969,7 @@
             if(ifNull(less(row_number, 25), 0), breakdown, 'Other') AS final_prop
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, prop, arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))) AS events_array,
-               arrayJoin(aggregate_funnel_v1(3, 1209600, 'first_touch', 'ordered', groupUniqArray(prop), events_array)) AS af_tuple,
+               arrayJoin(aggregate_funnel_v2(3, 1209600, 'first_touch', 'ordered', groupUniqArray(prop), events_array)) AS af_tuple,
                af_tuple.1 AS step_reached,
                plus(af_tuple.1, 1) AS steps,
                af_tuple.2 AS breakdown,
@@ -1046,7 +1046,7 @@
             if(ifNull(less(row_number, 25), 0), breakdown, 'Other') AS final_prop
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, prop, arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))) AS events_array,
-               arrayJoin(aggregate_funnel_v1(3, 1209600, 'first_touch', 'ordered', groupUniqArray(prop), events_array)) AS af_tuple,
+               arrayJoin(aggregate_funnel_v2(3, 1209600, 'first_touch', 'ordered', groupUniqArray(prop), events_array)) AS af_tuple,
                af_tuple.1 AS step_reached,
                plus(af_tuple.1, 1) AS steps,
                af_tuple.2 AS breakdown,
