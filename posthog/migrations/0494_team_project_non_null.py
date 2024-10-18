@@ -7,7 +7,7 @@ from django.contrib.postgres.operations import ValidateConstraint
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0492_team_session_recording_url_trigger_config"),
+        ("posthog", "0493_insightvariable_values"),
     ]
 
     operations = [
