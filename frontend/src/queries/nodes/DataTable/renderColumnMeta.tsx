@@ -4,9 +4,9 @@ import { SortingIndicator } from 'lib/lemon-ui/LemonTable/sorting'
 
 import { getQueryFeatures, QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
 import { extractExpressionComment } from '~/queries/nodes/DataTable/utils'
-import { DataTableNode, EventsQuery } from '~/queries/schema'
+import { DataTableNode, DataVisualizationNode, EventsQuery } from '~/queries/schema'
 import { QueryContext } from '~/queries/types'
-import { isHogQLQuery, trimQuotes } from '~/queries/utils'
+import { isDataTableNode, isHogQLQuery, trimQuotes } from '~/queries/utils'
 
 export interface ColumnMeta {
     title?: JSX.Element | string
@@ -14,7 +14,11 @@ export interface ColumnMeta {
     align?: 'left' | 'right' | 'center'
 }
 
-export function renderColumnMeta(key: string, query: DataTableNode, context?: QueryContext<DataTableNode>): ColumnMeta {
+export function renderColumnMeta<T extends DataVisualizationNode | DataTableNode>(
+    key: string,
+    query: T,
+    context?: QueryContext<T>
+): ColumnMeta {
     let width: string | number | undefined
     let title: JSX.Element | string | undefined
     const queryFeatures = getQueryFeatures(query.source)
@@ -34,7 +38,8 @@ export function renderColumnMeta(key: string, query: DataTableNode, context?: Qu
         }
         if (title.startsWith("tuple('__hx_tag', '")) {
             const tagName = title.substring(19, title.indexOf("'", 19))
-            title = tagName === '__hx_obj' ? 'Object' : '<' + tagName + ' />'
+            title =
+                tagName === '__hx_obj' ? 'Object' : tagName === 'RecordingButton' ? 'Recording' : '<' + tagName + ' />'
         }
     } else if (key === 'timestamp') {
         title = 'Time'
@@ -87,7 +92,8 @@ export function renderColumnMeta(key: string, query: DataTableNode, context?: Qu
         title = Component ? <Component columnName={key} query={query} /> : context?.columns?.[key]?.title
     }
 
-    if (queryFeatures.has(QueryFeature.selectAndOrderByColumns) && !query.allowSorting) {
+    if (queryFeatures.has(QueryFeature.selectAndOrderByColumns) && isDataTableNode(query) && !query.allowSorting) {
+        query
         const sortKey = queryFeatures.has(QueryFeature.selectAndOrderByColumns)
             ? (query.source as EventsQuery)?.orderBy?.[0]
             : null
