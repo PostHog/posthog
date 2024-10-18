@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
-import { GoalLine, InsightThresholdType } from '~/queries/schema'
+import { AlertConditionType, GoalLine, InsightThresholdType } from '~/queries/schema'
 import { getBreakdown, isInsightVizNode, isTrendsQuery } from '~/queries/utils'
 import { InsightLogicProps } from '~/types'
 
@@ -67,6 +67,7 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
                 alerts.flatMap((alert) => {
                     if (
                         alert.threshold.configuration.type !== InsightThresholdType.ABSOLUTE ||
+                        alert.condition.type !== AlertConditionType.ABSOLUTE_VALUE ||
                         !alert.threshold.configuration.bounds
                     ) {
                         return []
