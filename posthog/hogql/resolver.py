@@ -21,6 +21,7 @@ from posthog.hogql.functions.cohort import cohort_query_node
 from posthog.hogql.functions.mapping import HOGQL_CLICKHOUSE_FUNCTIONS, compare_types, validate_function_args
 from posthog.hogql.functions.recording_button import recording_button
 from posthog.hogql.functions.sparkline import sparkline
+from posthog.hogql.functions.string_or import string_or
 from posthog.hogql.hogqlx import HOGQLX_COMPONENTS, convert_to_hx
 from posthog.hogql.parser import parse_select
 from posthog.hogql.resolver_utils import expand_hogqlx_query, lookup_cte_by_name, lookup_field_by_name
@@ -461,6 +462,8 @@ class Resolver(CloningVisitor):
             validate_function_args(node.args, func_meta.min_args, func_meta.max_args, node.name)
             if node.name == "sparkline":
                 return self.visit(sparkline(node=node, args=node.args))
+            if node.name == "stringOr":
+                return self.visit(string_or(node=node, args=node.args))
             if node.name == "recording_button":
                 return self.visit(recording_button(node=node, args=node.args))
             if node.name == "matchesAction":
