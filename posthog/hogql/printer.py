@@ -8,7 +8,7 @@ from uuid import UUID
 
 from posthog.clickhouse.property_groups import property_groups
 from posthog.hogql import ast
-from posthog.hogql.base import AST
+from posthog.hogql.base import AST, _T_AST
 from posthog.hogql.constants import (
     MAX_SELECT_RETURNED_ROWS,
     HogQLGlobalSettings,
@@ -78,7 +78,7 @@ def to_printed_hogql(query: ast.Expr, team: Team, modifiers: Optional[HogQLQuery
 
 
 def print_ast(
-    node: ast.Expr,
+    node: _T_AST,
     context: HogQLContext,
     dialect: Literal["hogql", "clickhouse"],
     stack: Optional[list[ast.SelectQuery]] = None,
@@ -99,12 +99,12 @@ def print_ast(
 
 
 def prepare_ast_for_printing(
-    node: ast.Expr,
+    node: _T_AST,
     context: HogQLContext,
     dialect: Literal["hogql", "clickhouse"],
     stack: Optional[list[ast.SelectQuery]] = None,
     settings: Optional[HogQLGlobalSettings] = None,
-) -> ast.Expr | None:
+) -> _T_AST | None:
     with context.timings.measure("create_hogql_database"):
         context.database = context.database or create_hogql_database(context.team_id, context.modifiers, context.team)
 
@@ -166,7 +166,7 @@ def prepare_ast_for_printing(
 
 
 def print_prepared_ast(
-    node: ast.Expr,
+    node: _T_AST,
     context: HogQLContext,
     dialect: Literal["hogql", "clickhouse"],
     stack: Optional[list[ast.SelectQuery]] = None,
@@ -523,6 +523,10 @@ class _Printer(Visitor):
                 join_strings.append(self._print_identifier(node.type.table.to_printed_hogql()))
             else:
                 raise ImpossibleASTError(f"Unexpected LazyTableType for: {node.type.table.to_printed_hogql()}")
+
+        elif self.dialect == "hogql":
+            join_strings.append(self.visit(node.table))
+
         else:
             raise QueryError(
                 f"Only selecting from a table or a subquery is supported. Unexpected type: {node.type.__class__.__name__}"
@@ -921,7 +925,7 @@ class _Printer(Visitor):
             return self.context.add_value(node.value)
 
     def visit_field(self, node: ast.Field):
-        if node.type is None:
+        if node.type is None and self.dialect != "hogql":
             field = ".".join([self._print_hogql_identifier_or_index(identifier) for identifier in node.chain])
             raise ImpossibleASTError(f"Field {field} has no type")
 
