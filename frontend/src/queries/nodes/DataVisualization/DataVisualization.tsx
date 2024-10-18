@@ -48,7 +48,7 @@ import { displayLogic } from './displayLogic'
 interface DataTableVisualizationProps {
     uniqueKey?: string | number
     query: DataVisualizationNode
-    setQuery?: (query: DataVisualizationNode) => void
+    setQuery: (query: DataVisualizationNode) => void
     context?: QueryContext<DataVisualizationNode>
     /* Cached Results are provided when shared or exported,
     the data node logic becomes read only implicitly */

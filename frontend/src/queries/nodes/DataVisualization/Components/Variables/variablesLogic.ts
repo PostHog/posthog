@@ -170,12 +170,11 @@ export const variablesLogic = kea<variablesLogicType>([
                 return
             }
 
+            actions.setQuery(query)
+
             if (props.readOnly) {
                 // Refresh the data manaully via dataNodeLogic when in insight view mode
                 actions.loadData(true, undefined, query.source)
-            } else {
-                // Update the query source when in edit mode
-                actions.setQuery(query)
             }
         },
     })),
