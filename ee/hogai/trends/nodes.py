@@ -4,7 +4,6 @@ import xml.etree.ElementTree as ET
 from functools import cached_property
 from typing import Union, cast
 
-from django.utils.functional import classproperty
 from langchain.agents.format_scratchpad import format_log_to_str
 from langchain.agents.output_parsers import ReActJsonSingleInputOutputParser
 from langchain_core.agents import AgentAction, AgentFinish
@@ -319,9 +318,12 @@ class GenerateTrendsNode(AssistantNode):
 
         return conversation
 
-    @classproperty
-    def output_parser(cls):
-        return PydanticOutputParser[GenerateTrendOutputModel](pydantic_object=GenerateTrendOutputModel)
+    @classmethod
+    def parse_output(cls, output: dict):
+        try:
+            return GenerateTrendOutputModel.model_validate(output)
+        except ValidationError:
+            return None
 
     def run(self, state: AssistantState, config: RunnableConfig):
         generated_plan = state.get("plan", "")
@@ -347,17 +349,29 @@ class GenerateTrendsNode(AssistantNode):
             # Result from structured output is a parsed dict. Convert to a string since the output parser expects it.
             | RunnableLambda(lambda x: json.dumps(x))
             # Validate a string input.
-            | self.output_parser
+            | PydanticOutputParser[GenerateTrendOutputModel](pydantic_object=GenerateTrendOutputModel)
         )
 
         try:
             message = chain.invoke({}, config)
-        except OutputParserException as e:
-            if e.send_to_llm:
-                observation = str(e.observation)
-            else:
-                observation = "Invalid or incomplete response. You must use the provided tools and output JSON to answer the user's question."
-            return {"tool_argument": observation}
+        except OutputParserException:
+            # if e.send_to_llm:
+            #     observation = str(e.observation)
+            # else:
+            #     observation = "Invalid or incomplete response. You must use the provided tools and output JSON to answer the user's question."
+            # return {"tool_argument": observation}
+
+            return {
+                "messages": [
+                    AssistantMessage(
+                        type="ai",
+                        content=GenerateTrendOutputModel(
+                            reasoning_steps=["Schema validation failed"]
+                        ).model_dump_json(),
+                        payload=VisualizationMessagePayload(plan=generated_plan),
+                    )
+                ]
+            }
 
         return {
             "messages": [

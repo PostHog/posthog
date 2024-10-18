@@ -1,12 +1,13 @@
+from collections.abc import Generator
 from typing import cast
 
 from langchain_core.messages import AIMessageChunk, BaseMessage
-from langchain_core.outputs import Generation
 from langgraph.graph.state import StateGraph
 
 from ee.hogai.trends.nodes import CreateTrendsPlanNode, CreateTrendsPlanToolsNode, GenerateTrendsNode
 from ee.hogai.utils import AssistantMessage, AssistantNodeName, AssistantState
 from posthog.models.team.team import Team
+from posthog.schema import VisualizationMessagePayload
 
 
 class Assistant:
@@ -36,7 +37,7 @@ class Assistant:
 
         return builder.compile()
 
-    def stream(self, messages: list[BaseMessage]):
+    def stream(self, messages: list[BaseMessage]) -> Generator[str, None, None]:
         assistant_graph = self._compile_graph()
         generator = assistant_graph.stream(
             {"messages": messages},
@@ -45,13 +46,18 @@ class Assistant:
         )
 
         chunks = AIMessageChunk("")
-        parser = GenerateTrendsNode.output_parser
 
         for message, state in generator:
             if state["langgraph_node"] == AssistantNodeName.GENERATE_TRENDS:
                 if isinstance(message, AssistantMessage):
-                    yield message
-                else:
+                    yield message.model_dump_json()
+                elif isinstance(message, AIMessageChunk):
                     message = cast(AIMessageChunk, message)
                     chunks += message
-                    yield parser.parse_result([Generation(text=chunks.content)], partial=True)
+                    parsed_message = GenerateTrendsNode.parse_output(chunks.tool_calls[0]["args"])
+                    if parsed_message:
+                        yield AssistantMessage(
+                            type="ai",
+                            content=parsed_message.model_dump_json(),
+                            payload=VisualizationMessagePayload(plan=""),
+                        ).model_dump_json()

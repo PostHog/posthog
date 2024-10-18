@@ -3,7 +3,7 @@ import { actions, kea, key, listeners, path, props, reducers, selectors } from '
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 
-import { ExperimentalAITrendsQuery, NodeKind, SuggestedQuestionsQuery } from '~/queries/schema'
+import { AssistantMessage, NodeKind, SuggestedQuestionsQuery } from '~/queries/schema'
 
 import type { maxLogicType } from './maxLogicType'
 
@@ -11,14 +11,7 @@ export interface MaxLogicProps {
     sessionId: string
 }
 
-interface TrendGenerationResult {
-    reasoning_steps?: string[]
-    answer?: ExperimentalAITrendsQuery
-}
-
-export interface ThreadMessage {
-    role: 'user' | 'assistant'
-    content?: string | TrendGenerationResult
+export interface ThreadMessage extends AssistantMessage {
     status?: 'loading' | 'completed' | 'error'
 }
 
@@ -114,14 +107,14 @@ export const maxLogic = kea<maxLogicType>([
             actions.setVisibleSuggestions(allSuggestionsWithoutCurrentlyVisible.slice(0, 3))
         },
         askMax: async ({ prompt }) => {
-            actions.addMessage({ role: 'user', content: prompt })
+            actions.addMessage({ type: 'human', content: prompt })
             const newIndex = values.thread.length
 
             try {
                 const response = await api.chat({
                     session_id: props.sessionId,
-                    messages: values.thread.map(({ role, content }) => ({
-                        role,
+                    messages: values.thread.map(({ type, content }) => ({
+                        type,
                         content: typeof content === 'string' ? content : JSON.stringify(content),
                     })),
                 })
@@ -145,12 +138,11 @@ export const maxLogic = kea<maxLogicType>([
                             firstChunk = false
 
                             if (parsedResponse) {
-                                actions.addMessage({ role: 'assistant', content: parsedResponse, status: 'loading' })
+                                actions.addMessage({ ...parsedResponse, status: 'loading' })
                             }
                         } else if (parsedResponse) {
                             actions.replaceMessage(newIndex, {
-                                role: 'assistant',
-                                content: parsedResponse,
+                                ...parsedResponse,
                                 status: 'loading',
                             })
                         }
@@ -172,10 +164,10 @@ export const maxLogic = kea<maxLogicType>([
  * Parses the generation result from the API. Some generation chunks might be sent in batches.
  * @param response
  */
-function parseResponse(response: string, recursive = true): TrendGenerationResult | null {
+function parseResponse(response: string, recursive = true): AssistantMessage | null {
     try {
         const parsed = JSON.parse(response)
-        return parsed as TrendGenerationResult
+        return parsed as AssistantMessage
     } catch {
         if (!recursive) {
             return null

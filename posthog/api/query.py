@@ -1,4 +1,3 @@
-import json
 import re
 import uuid
 
@@ -174,12 +173,8 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         def generate():
             last_message = None
             for message in assistant.stream({"messages": validated_body.messages}):
-                if message:
-                    last_message = message[0].model_dump_json()
-                    yield last_message
-
-            if not last_message:
-                yield json.dumps({"reasoning_steps": ["Schema validation failed"]})
+                last_message = message
+                yield last_message
 
             report_user_action(
                 request.user,  # type: ignore

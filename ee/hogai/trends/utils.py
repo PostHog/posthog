@@ -6,5 +6,5 @@ from posthog.schema import ExperimentalAITrendsQuery
 
 
 class GenerateTrendOutputModel(BaseModel):
-    reasoning_steps: Optional[list[str]]
-    answer: ExperimentalAITrendsQuery
+    reasoning_steps: Optional[list[str]] = None
+    answer: Optional[ExperimentalAITrendsQuery] = None
