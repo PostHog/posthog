@@ -46,12 +46,12 @@ class TestMaterializedColumnsAnalyze(ClickhouseTestMixin, BaseTest):
             )
             """.format(query=query, log_comment='{"team_id": 2}')
             )
-        materialize_properties_task()
+        materialize_properties_task(is_nullable=True)
         patch_materialize.assert_has_calls(
             [
-                call("events", "materialize_me", table_column="properties"),
-                call("events", "materialize_me2", table_column="properties"),
-                call("events", "materialize_person_prop", table_column="person_properties"),
-                call("events", "materialize_me3", table_column="properties"),
+                call("events", "materialize_me", table_column="properties", is_nullable=True),
+                call("events", "materialize_me2", table_column="properties", is_nullable=True),
+                call("events", "materialize_person_prop", table_column="person_properties", is_nullable=True),
+                call("events", "materialize_me3", table_column="properties", is_nullable=True),
             ]
         )

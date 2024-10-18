@@ -278,7 +278,9 @@ class PropertySwapper(CloningVisitor):
                 get_materialized_columns,
             )
 
-            materialized_columns = get_materialized_columns(cast(TablesWithMaterializedColumns, table_name))
-            return materialized_columns.get((property_name, field_name), None)
+            column_info = get_materialized_columns(cast(TablesWithMaterializedColumns, table_name)).get(
+                (property_name, field_name), None
+            )
+            return column_info.column_name if column_info is not None else None
         except ModuleNotFoundError:
             return None

@@ -1,3 +1,4 @@
+import argparse
 import logging
 
 from django.core.management.base import BaseCommand
@@ -69,6 +70,13 @@ class Command(BaseCommand):
             default=MATERIALIZE_COLUMNS_MAX_AT_ONCE,
             help="Max number of columns to materialize via single invocation. Same as MATERIALIZE_COLUMNS_MAX_AT_ONCE env variable.",
         )
+        parser.add_argument(
+            "--nullable",
+            action=argparse.BooleanOptionalAction,
+            default=True,
+            dest="is_nullable",
+            help="Identifies if the column should be nullable or not.",
+        )
 
     def handle(self, *args, **options):
         logger.setLevel(logging.INFO)
@@ -90,6 +98,7 @@ class Command(BaseCommand):
                 ],
                 backfill_period_days=options["backfill_period"],
                 dry_run=options["dry_run"],
+                is_nullable=options["is_nullable"],
             )
         else:
             materialize_properties_task(
@@ -99,4 +108,5 @@ class Command(BaseCommand):
                 backfill_period_days=options["backfill_period"],
                 dry_run=options["dry_run"],
                 team_id_to_analyze=options["analyze_team_id"],
+                is_nullable=options["is_nullable"],
             )

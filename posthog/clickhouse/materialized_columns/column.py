@@ -1,18 +1,17 @@
 from datetime import timedelta
-from typing import Union
 
 from posthog.cache_utils import cache_for
+from posthog.clickhouse.materialized_columns import MaterializedColumnInfo, TablesWithMaterializedColumns
 from posthog.models.property import PropertyName, TableColumn, TableWithProperties
 
 ColumnName = str
-
-TablesWithMaterializedColumns = Union[TableWithProperties]
 
 
 @cache_for(timedelta(minutes=15))
 def get_materialized_columns(
     table: TablesWithMaterializedColumns,
-) -> dict[tuple[PropertyName, TableColumn], ColumnName]:
+    exclude_nullable_columns: bool = False,
+) -> dict[tuple[PropertyName, TableColumn], MaterializedColumnInfo]:
     return {}
 
 
@@ -22,6 +21,7 @@ def materialize(
     column_name=None,
     table_column: TableColumn = "properties",
     create_minmax_index=False,
+    is_nullable: bool = False,
 ) -> None:
     pass
 
