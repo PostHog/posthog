@@ -8,6 +8,10 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     icon_url="/static/services/discord.png",
     category=["Customer Success"],
     hog="""
+if (not match(inputs.webhookUrl, '^https://discord.com/api/webhooks/.*')) {
+    throw Error('Invalid url');
+}
+
 let res := fetch(inputs.webhookUrl, {
     'body': {
         'content': inputs.content
