@@ -345,9 +345,6 @@ class Team(UUIDClassicModel):
         if self._person_on_events_person_id_no_override_properties_on_events:
             return PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
 
-        if self.organization.created_at >= "2024-06-14":
-            return PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
-
         return PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED
 
     # KLUDGE: DO NOT REFERENCE IN THE BACKEND!
