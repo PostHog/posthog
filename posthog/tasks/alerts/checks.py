@@ -1,10 +1,14 @@
+import math
+import time
+import traceback
+
 from datetime import datetime, timedelta, UTC
 from typing import cast
 from dateutil.relativedelta import relativedelta
-import traceback
 
 from celery import shared_task
 from celery.canvas import chain
+from django.conf import settings
 from django.db import transaction
 import structlog
 from sentry_sdk import capture_exception
@@ -39,7 +43,15 @@ from posthog.tasks.alerts.trends import check_trends_alert
 logger = structlog.get_logger(__name__)
 
 
-class AlertCheckException(Exception): ...
+class AlertCheckException(Exception):
+    """
+    Required for custom exceptions to pass stack trace to sentry.
+    Subclassing through other ways doesn't transfer the traceback.
+    https://stackoverflow.com/a/69963663/5540417
+    """
+
+    def __init__(self, err: Exception):
+        self.__traceback__ = err.__traceback__
 
 
 HOURLY_ALERTS_BACKLOG_GAUGE = Gauge(
@@ -102,6 +114,9 @@ def alerts_backlog_task() -> None:
 
     DAILY_ALERTS_BACKLOG_GAUGE.set(daily_alerts_breaching_sla)
 
+    # sleeping 30s for prometheus to pick up the metrics sent during task
+    time.sleep(30)
+
 
 @shared_task(
     ignore_result=True,
@@ -158,6 +173,8 @@ def check_alert_task(alert_id: str) -> None:
 
 
 def check_alert(alert_id: str) -> None:
+    task_start_time = time.time()
+
     try:
         alert = AlertConfiguration.objects.get(id=alert_id, enabled=True)
     except AlertConfiguration.DoesNotExist:
@@ -199,8 +216,15 @@ def check_alert(alert_id: str) -> None:
         check_alert_and_notify_atomically(alert)
     except Exception as err:
         ALERT_CHECK_ERROR_COUNTER.inc()
+
         logger.exception(AlertCheckException(err))
-        capture_exception(AlertCheckException(err))
+        capture_exception(
+            AlertCheckException(err),
+            tags={
+                "alert_configuration_id": alert_id,
+            },
+        )
+
         # raise again so alert check is retried depending on error type
         raise
     finally:
@@ -208,6 +232,15 @@ def check_alert(alert_id: str) -> None:
         alert.refresh_from_db()
         alert.is_calculating = False
         alert.save()
+
+        # only in PROD
+        if not settings.DEBUG and not settings.TEST:
+            task_duration = time.time() - task_start_time
+
+            # Ensure task runs at least 40s
+            # for prometheus to pick up the metrics sent during task
+            time_left_to_run = 40 - math.floor(task_duration)
+            time.sleep(time_left_to_run)
 
 
 @transaction.atomic
