@@ -896,7 +896,7 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
         1,
         1,
         signatures=[
-            ((DateTimeType(),), DateTimeType(nullable=False)),
+            ((DateTimeType(),), DateTimeType()),
         ],
     ),
     "toNullable": HogQLFunctionMeta("toNullable", 1, 1),
