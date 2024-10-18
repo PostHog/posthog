@@ -8,8 +8,7 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     icon_url="/static/services/microsoft-teams.png",
     category=["Customer Success"],
     hog="""
-// We'll need to check if the url starts with this string instead
-if (not inputs.webhookUrl like 'https://%.webhook.office.com/webhookb2/') {
+if (not match(inputs.webhookUrl, '^https://[^/]+.webhook.office.com/webhookb2/.*')) {
     throw Error('Invalid url');
 }
 
