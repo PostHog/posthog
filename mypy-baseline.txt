@@ -610,14 +610,13 @@ posthog/warehouse/api/external_data_schema.py:0: note: def [_T] get(self, Type, 
 posthog/warehouse/api/table.py:0: error: Unused "type: ignore" comment  [unused-ignore]
 posthog/warehouse/api/table.py:0: error: Unused "type: ignore" comment  [unused-ignore]
 posthog/warehouse/api/table.py:0: error: Unused "type: ignore" comment  [unused-ignore]
-posthog/temporal/data_imports/workflow_activities/create_job_model.py:0: error: Argument 1 has incompatible type "str"; expected "Type"  [arg-type]
-posthog/temporal/data_imports/workflow_activities/create_job_model.py:0: error: Incompatible types in assignment (expression has type "list[Any]", variable has type "dict[str, list[tuple[str, str]]]")  [assignment]
-posthog/temporal/data_imports/workflow_activities/create_job_model.py:0: error: No overload variant of "get" of "dict" matches argument types "str", "tuple[()]"  [call-overload]
-posthog/temporal/data_imports/workflow_activities/create_job_model.py:0: note: Possible overload variants:
-posthog/temporal/data_imports/workflow_activities/create_job_model.py:0: note: def get(self, Type, /) -> Sequence[str] | None
-posthog/temporal/data_imports/workflow_activities/create_job_model.py:0: note: def get(self, Type, Sequence[str], /) -> Sequence[str]
-posthog/temporal/data_imports/workflow_activities/create_job_model.py:0: note: def [_T] get(self, Type, _T, /) -> Sequence[str] | _T
-posthog/temporal/data_imports/workflow_activities/create_job_model.py:0: error: Argument 1 has incompatible type "dict[str, list[tuple[str, str]]]"; expected "list[Any]"  [arg-type]
+posthog/temporal/data_imports/workflow_activities/sync_new_schemas.py:0: error: Argument 1 has incompatible type "str"; expected "Type"  [arg-type]
+posthog/temporal/data_imports/workflow_activities/sync_new_schemas.py:0: error: No overload variant of "get" of "dict" matches argument types "str", "tuple[()]"  [call-overload]
+posthog/temporal/data_imports/workflow_activities/sync_new_schemas.py:0: note: Possible overload variants:
+posthog/temporal/data_imports/workflow_activities/sync_new_schemas.py:0: note: def get(self, Type, /) -> Sequence[str] | None
+posthog/temporal/data_imports/workflow_activities/sync_new_schemas.py:0: note: def get(self, Type, Sequence[str], /) -> Sequence[str]
+posthog/temporal/data_imports/workflow_activities/sync_new_schemas.py:0: note: def [_T] get(self, Type, _T, /) -> Sequence[str] | _T
+posthog/temporal/data_imports/workflow_activities/sync_new_schemas.py:0: error: Argument "source_id" has incompatible type "str"; expected "UUID"  [arg-type]
 posthog/tasks/exports/test/test_csv_exporter.py:0: error: Function is missing a return type annotation  [no-untyped-def]
 posthog/tasks/exports/test/test_csv_exporter.py:0: error: Function is missing a type annotation  [no-untyped-def]
 posthog/tasks/exports/test/test_csv_exporter.py:0: error: Function is missing a type annotation for one or more arguments  [no-untyped-def]
@@ -758,6 +757,10 @@ posthog/admin/inlines/plugin_attachment_inline.py:0: note: Subclass:
 posthog/admin/inlines/plugin_attachment_inline.py:0: note: def has_delete_permission(self, request: Any, obj: Any) -> Any
 posthog/admin/admins/plugin_admin.py:0: error: Item "None" of "Organization | None" has no attribute "pk"  [union-attr]
 posthog/admin/admins/plugin_admin.py:0: error: Item "None" of "Organization | None" has no attribute "name"  [union-attr]
+ee/clickhouse/views/experiments.py:0: error: Argument 4 to "ClickhouseTrendExperimentResult" has incompatible type "datetime | None"; expected "datetime"  [arg-type]
+ee/clickhouse/views/experiments.py:0: error: Argument 4 to "ClickhouseFunnelExperimentResult" has incompatible type "datetime | None"; expected "datetime"  [arg-type]
+ee/clickhouse/views/experiments.py:0: error: Argument 4 to "ClickhouseSecondaryExperimentResult" has incompatible type "datetime | None"; expected "datetime"  [arg-type]
+ee/clickhouse/views/experiments.py:0: error: Item "None" of "User | None" has no attribute "email"  [union-attr]
 posthog/temporal/tests/batch_exports/test_run_updates.py:0: error: Unused "type: ignore" comment  [unused-ignore]
 posthog/temporal/tests/batch_exports/test_run_updates.py:0: error: Unused "type: ignore" comment  [unused-ignore]
 posthog/temporal/tests/batch_exports/test_run_updates.py:0: error: Unused "type: ignore" comment  [unused-ignore]
@@ -787,10 +790,6 @@ posthog/api/plugin.py:0: error: Item "None" of "IO[Any] | None" has no attribute
 posthog/api/plugin.py:0: error: Item "None" of "Team | None" has no attribute "organization"  [union-attr]
 posthog/api/plugin.py:0: error: Item "None" of "Team | None" has no attribute "id"  [union-attr]
 posthog/admin/admins/plugin_config_admin.py:0: error: Item "None" of "Team | None" has no attribute "name"  [union-attr]
-ee/clickhouse/views/experiments.py:0: error: Argument 4 to "ClickhouseTrendExperimentResult" has incompatible type "datetime | None"; expected "datetime"  [arg-type]
-ee/clickhouse/views/experiments.py:0: error: Argument 4 to "ClickhouseFunnelExperimentResult" has incompatible type "datetime | None"; expected "datetime"  [arg-type]
-ee/clickhouse/views/experiments.py:0: error: Argument 4 to "ClickhouseSecondaryExperimentResult" has incompatible type "datetime | None"; expected "datetime"  [arg-type]
-ee/clickhouse/views/experiments.py:0: error: Item "None" of "User | None" has no attribute "email"  [union-attr]
 posthog/temporal/tests/batch_exports/test_snowflake_batch_export_workflow.py:0: error: Need type annotation for "_execute_calls" (hint: "_execute_calls: list[<type>] = ...")  [var-annotated]
 posthog/temporal/tests/batch_exports/test_snowflake_batch_export_workflow.py:0: error: Need type annotation for "_execute_async_calls" (hint: "_execute_async_calls: list[<type>] = ...")  [var-annotated]
 posthog/temporal/tests/batch_exports/test_snowflake_batch_export_workflow.py:0: error: Need type annotation for "_cursors" (hint: "_cursors: list[<type>] = ...")  [var-annotated]
