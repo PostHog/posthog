@@ -183,7 +183,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
 
         def generate():
             last_message = None
-            for message in assistant.stream({"messages": validated_body.messages}):
+            for message in assistant.stream(validated_body.messages):
                 last_message = message
                 yield last_message
 

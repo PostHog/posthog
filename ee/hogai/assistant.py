@@ -1,7 +1,7 @@
 from collections.abc import Generator
 from typing import cast
 
-from langchain_core.messages import AIMessageChunk, BaseMessage
+from langchain_core.messages import AIMessageChunk
 from langgraph.graph.state import StateGraph
 
 from ee.hogai.trends.nodes import CreateTrendsPlanNode, CreateTrendsPlanToolsNode, GenerateTrendsNode
@@ -37,7 +37,7 @@ class Assistant:
 
         return builder.compile()
 
-    def stream(self, messages: list[BaseMessage]) -> Generator[str, None, None]:
+    def stream(self, messages: list[AssistantMessage]) -> Generator[str, None, None]:
         assistant_graph = self._compile_graph()
         generator = assistant_graph.stream(
             {"messages": messages},
@@ -45,7 +45,7 @@ class Assistant:
             stream_mode="messages",
         )
 
-        chunks = AIMessageChunk("")
+        chunks = AIMessageChunk(content="")
 
         for message, state in generator:
             if state["langgraph_node"] == AssistantNodeName.GENERATE_TRENDS:
@@ -53,7 +53,7 @@ class Assistant:
                     yield message.model_dump_json()
                 elif isinstance(message, AIMessageChunk):
                     message = cast(AIMessageChunk, message)
-                    chunks += message
+                    chunks += message  # type: ignore
                     parsed_message = GenerateTrendsNode.parse_output(chunks.tool_calls[0]["args"])
                     if parsed_message:
                         yield AssistantMessage(

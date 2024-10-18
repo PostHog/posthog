@@ -12,6 +12,7 @@ from langchain_core.messages import AIMessage, BaseMessage, merge_message_runs
 from langchain_core.output_parsers import PydanticOutputParser
 from langchain_core.prompts import ChatPromptTemplate, HumanMessagePromptTemplate
 from langchain_core.runnables import RunnableConfig, RunnableLambda, RunnablePassthrough
+from langchain_openai import ChatOpenAI
 from pydantic import ValidationError
 
 from ee.hogai.hardcoded_definitions import hardcoded_prop_defs
@@ -38,7 +39,6 @@ from ee.hogai.utils import (
     AssistantNode,
     AssistantNodeName,
     AssistantState,
-    llm_gpt_4o,
     remove_line_breaks,
 )
 from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
@@ -166,7 +166,7 @@ class CreateTrendsPlanNode(AssistantNode):
             )
             | prompt
             | merger
-            | llm_gpt_4o
+            | ChatOpenAI(model="gpt-4o", temperature=0.7, streaming=True)
             | output_parser
         )
 
@@ -268,7 +268,7 @@ class GenerateTrendsNode(AssistantNode):
         """
         Reconstruct the conversation for the generation. Take all previously generated questions, plans, and schemas, and return the history.
         """
-        messages: list[AssistantMessage] = merge_message_runs(state.get("messages", []))
+        messages = state.get("messages", [])
         generated_plan = state.get("plan", "")
 
         if len(messages) == 0:
@@ -280,12 +280,21 @@ class GenerateTrendsNode(AssistantNode):
             )
         ]
 
-        human_messages = [message for message in messages if message.type == "human"]
-        visualization_messages = [
-            message
-            for message in messages
-            if message.type == "ai" and isinstance(message.payload, VisualizationMessagePayload)
-        ]
+        stack: list[AssistantMessage] = []
+        human_messages: list[AssistantMessage] = []
+        visualization_messages: list[AssistantMessage] = []
+
+        for message in messages:
+            if message.type == "human":
+                stack.append(message)
+            else:
+                if stack:
+                    human_messages += merge_message_runs(stack)
+                    stack = []
+                visualization_messages.append(message)
+
+        if stack:
+            human_messages += merge_message_runs(stack)
 
         first_ai_message = True
 
@@ -328,7 +337,7 @@ class GenerateTrendsNode(AssistantNode):
     def run(self, state: AssistantState, config: RunnableConfig):
         generated_plan = state.get("plan", "")
 
-        llm = llm_gpt_4o.with_structured_output(
+        llm = ChatOpenAI(model="gpt-4o", temperature=0.7, streaming=True).with_structured_output(
             GenerateTrendTool().schema,
             method="function_calling",
             include_raw=False,

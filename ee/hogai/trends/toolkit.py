@@ -114,7 +114,11 @@ class TrendsAgentToolkit:
         stringified_entities = ", ".join([f"'{entity}'" for entity in self._entity_names])
 
         tools: list[ToolkitTool] = [
-            {**tool, "description": dedent(tool["description"])}
+            {
+                "name": tool["name"],
+                "signature": tool["signature"],
+                "description": dedent(tool["description"]),
+            }
             for tool in [
                 {
                     "name": "retrieve_event_properties",
