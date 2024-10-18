@@ -3,7 +3,7 @@ import { resizerLogic, ResizerLogicProps } from 'lib/components/Resizer/resizerL
 
 import type { editorSizingLogicType } from './editorSizingLogicType'
 
-interface EditorSizingLogicProps {
+export interface EditorSizingLogicProps {
     editorSceneRef: React.RefObject<HTMLDivElement>
     navigatorRef: React.RefObject<HTMLDivElement>
     sourceNavigatorResizerProps: ResizerLogicProps
