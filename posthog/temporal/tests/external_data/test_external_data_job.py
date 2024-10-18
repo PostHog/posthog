@@ -21,6 +21,7 @@ from posthog.temporal.data_imports.workflow_activities.create_job_model import (
     create_external_data_job_model_activity,
 )
 from posthog.temporal.data_imports.workflow_activities.import_data import ImportDataActivityInputs, import_data_activity
+from posthog.temporal.data_imports.workflow_activities.sync_new_schemas import sync_new_schemas_activity
 from posthog.warehouse.external_data_source.jobs import create_external_data_job
 from posthog.warehouse.models import (
     get_latest_run_if_exists,
@@ -698,6 +699,7 @@ async def test_external_data_job_workflow_with_schema(team, **kwargs):
                         import_data_activity,
                         create_source_templates,
                         check_billing_limits_activity,
+                        sync_new_schemas_activity,
                     ],
                     workflow_runner=UnsandboxedWorkflowRunner(),
                 ):
