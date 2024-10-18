@@ -58,3 +58,15 @@ class ErrorTrackingGroup(UUIDModel):
         # converting back to list of lists before saving
         self.merged_fingerprints = [list(f) for f in merged_fingerprints]
         self.save()
+
+
+class ErrorTrackingIssueFingerprint(models.Model):
+    team = models.ForeignKey("Team", on_delete=models.CASCADE, db_index=False)
+    issue = models.ForeignKey(ErrorTrackingGroup, on_delete=models.CASCADE)
+    fingerprint = models.CharField(max_length=400)
+
+    # current version of the id, used to sync with ClickHouse and collapse rows correctly for overrides ClickHouse table
+    version = models.BigIntegerField(null=True, blank=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["team", "fingerprint"], name="unique fingerprint for team")]
