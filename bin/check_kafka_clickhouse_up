@@ -9,5 +9,5 @@ done
 
 # Check ClickHouse
 while true; do
-curl -s -o /dev/null -I 'http://localhost:8123/' && break || echo 'Checking ClickHouse status...' && sleep 1
+nc -z localhost 9000 && break || echo 'Checking ClickHouse status...' && sleep 1
 done
