@@ -228,12 +228,12 @@ def _validate_bounds(
     if bounds.lower is not None and calculated_value < bounds.lower:
         lower_value = f"{bounds.lower:.2%}" if is_percentage else bounds.lower
         return [
-            f"The insight value for previous {interval_type} {condition_text} ({formatted_value}) less than lower threshold ({lower_value})"
+            f"The insight value for previous {interval_type or 'interval'} {condition_text} ({formatted_value}) less than lower threshold ({lower_value})"
         ]
     if bounds.upper is not None and calculated_value > bounds.upper:
         upper_value = f"{bounds.upper:.2%}" if is_percentage else bounds.upper
         return [
-            f"The insight value for previous {interval_type} {condition_text} ({formatted_value}) more than upper threshold ({upper_value})"
+            f"The insight value for previous {interval_type or 'interval'} {condition_text} ({formatted_value}) more than upper threshold ({upper_value})"
         ]
 
     return []
