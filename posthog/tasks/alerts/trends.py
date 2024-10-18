@@ -208,7 +208,7 @@ def _validate_bounds(
     calculated_value: float,
     threshold_type: InsightThresholdType,
     condition_type: AlertConditionType,
-    interval_type: IntervalType,
+    interval_type: IntervalType | None,
 ) -> list[str]:
     if not bounds:
         return []
