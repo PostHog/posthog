@@ -139,6 +139,8 @@ class WhereClauseExtractor(CloningVisitor):
         return ast.Constant(value=True)
 
     def visit_not(self, node: ast.Not) -> ast.Expr:
+        if self.is_join:
+            return ast.Constant(value=True)
         response = self.visit(node.expr)
         if has_tombstone(response, self.tombstone_string):
             return ast.Constant(value=self.tombstone_string)
@@ -149,6 +151,9 @@ class WhereClauseExtractor(CloningVisitor):
             return self.visit_and(ast.And(exprs=node.args))
         elif node.name == "or":
             return self.visit_or(ast.Or(exprs=node.args))
+        elif node.name == "not":
+            if self.is_join:
+                return ast.Constant(value=True)
         elif node.name == "greaterOrEquals":
             return self.visit_compare_operation(
                 ast.CompareOperation(op=CompareOperationOp.GtEq, left=node.args[0], right=node.args[1])

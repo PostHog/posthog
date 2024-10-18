@@ -236,7 +236,7 @@ class TestInsightActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             )
 
         self.assertEqual([("p2",)], response.results)
-        assert "in(id," in queries[0]
+        assert "in(person.id," in queries[0]
         self.assertEqual(2, queries[0].count("toTimeZone(e.timestamp, 'US/Pacific') AS timestamp"))
 
     @snapshot_clickhouse_queries

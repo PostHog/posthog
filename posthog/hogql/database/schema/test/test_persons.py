@@ -163,6 +163,22 @@ class TestPersonOptimization(ClickhouseTestMixin, APIBaseTest):
         )
         assert len(response.results) == 1
 
+        response = execute_hogql_query(
+            parse_select(
+                "select id, persons.properties.$some_prop from events left join persons ON (events.person_id=persons.id) where not (persons.properties.$some_prop = 'something')"
+            ),
+            self.team,
+        )
+        assert len(response.results) == 1
+
+        response = execute_hogql_query(
+            parse_select(
+                "select id, persons.properties.$some_prop from events left join persons ON (events.person_id=persons.id) where not persons.properties.$some_prop = 'something'"
+            ),
+            self.team,
+        )
+        assert len(response.results) == 1
+
     @snapshot_clickhouse_queries
     def test_limit_and_order_by(self):
         response = execute_hogql_query(
