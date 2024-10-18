@@ -14,13 +14,13 @@ if (empty(inputs.externalId) and empty(inputs.email)) {
 }
 
 let body := {
-	'data': {
-		'type': 'profile',
-		'attributes': {
-			'location': {},
-			'properties': {},
-		}
-	}
+    'data': {
+        'type': 'profile',
+        'attributes': {
+            'location': {},
+            'properties': {},
+        }
+    }
 }
 
 if (not empty(person.properties.$geoip_latitude)) body.data.attributes.location.latitude := person.properties.$geoip_latitude
@@ -155,26 +155,26 @@ if (empty(inputs.externalId) and empty(inputs.email)) {
 }
 
 let body := {
-	'data': {
-		'type': 'event',
-		'attributes': {
-			'properties': {},
-			'metric': {
-				'data': {
-					'type': 'metric',
-					'attributes': {
-						'name': event.event
-					}
-				}
-			},
-			'profile': {
-				'data': {
-					'type': 'profile',
-					'attributes': {}
-				}
-			}
-		}
-	}
+    'data': {
+        'type': 'event',
+        'attributes': {
+            'properties': {},
+            'metric': {
+                'data': {
+                    'type': 'metric',
+                    'attributes': {
+                        'name': event.event
+                    }
+                }
+            },
+            'profile': {
+                'data': {
+                    'type': 'profile',
+                    'attributes': {}
+                }
+            }
+        }
+    }
 }
 
 if (not empty(inputs.email)) body.data.attributes.profile.data.attributes.email := inputs.email
