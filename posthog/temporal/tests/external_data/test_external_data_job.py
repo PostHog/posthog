@@ -21,6 +21,10 @@ from posthog.temporal.data_imports.workflow_activities.create_job_model import (
     create_external_data_job_model_activity,
 )
 from posthog.temporal.data_imports.workflow_activities.import_data import ImportDataActivityInputs, import_data_activity
+from posthog.temporal.data_imports.workflow_activities.sync_new_schemas import (
+    SyncNewSchemasActivityInputs,
+    sync_new_schemas_activity,
+)
 from posthog.warehouse.external_data_source.jobs import create_external_data_job
 from posthog.warehouse.models import (
     get_latest_run_if_exists,
@@ -196,19 +200,16 @@ async def test_create_external_job_activity_update_schemas(activity_environment,
         source_type="Stripe",
     )
 
-    schema = await sync_to_async(ExternalDataSchema.objects.create)(
+    await sync_to_async(ExternalDataSchema.objects.create)(
         name=PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[new_source.source_type][0],
         team_id=team.id,
         source_id=new_source.pk,
         should_sync=True,
     )
 
-    inputs = CreateExternalDataJobModelActivityInputs(team_id=team.id, source_id=new_source.pk, schema_id=schema.id)
+    inputs = SyncNewSchemasActivityInputs(source_id=str(new_source.pk), team_id=team.id)
 
-    run_id, _ = await activity_environment.run(create_external_data_job_model_activity, inputs)
-
-    runs = ExternalDataJob.objects.filter(id=run_id)
-    assert await sync_to_async(runs.exists)()
+    await activity_environment.run(sync_new_schemas_activity, inputs)
 
     all_schemas = await sync_to_async(get_all_schemas_for_source_id)(new_source.pk, team.id)
 
@@ -698,6 +699,7 @@ async def test_external_data_job_workflow_with_schema(team, **kwargs):
                         import_data_activity,
                         create_source_templates,
                         check_billing_limits_activity,
+                        sync_new_schemas_activity,
                     ],
                     workflow_runner=UnsandboxedWorkflowRunner(),
                 ):

@@ -168,7 +168,9 @@ class AlertSerializer(serializers.ModelSerializer):
             else:
                 # always store snoozed_until as UTC time
                 # as we look at current UTC time to check when to run alerts
-                snoozed_until = relative_date_parse(snoozed_until_param, ZoneInfo("UTC"), increase=True)
+                snoozed_until = relative_date_parse(
+                    snoozed_until_param, ZoneInfo("UTC"), increase=True, always_truncate=True
+                )
                 instance.state = AlertState.SNOOZED
                 instance.snoozed_until = snoozed_until
 
