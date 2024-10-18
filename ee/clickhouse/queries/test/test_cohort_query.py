@@ -4,11 +4,14 @@ from datetime import datetime, timedelta
 from ee.clickhouse.queries.enterprise_cohort_query import check_negation_clause
 from posthog.client import sync_execute
 from posthog.constants import PropertyOperatorType
+from posthog.hogql_queries.hogql_cohort_query import TestWrapperCohortQuery as CohortQuery
 from posthog.models.action import Action
 from posthog.models.cohort import Cohort
 from posthog.models.filters.filter import Filter
 from posthog.models.property import Property, PropertyGroup
-from posthog.queries.cohort_query import CohortQuery
+
+# from posthog.queries.cohort_query import CohortQuery
+
 from posthog.test.base import (
     BaseTest,
     ClickhouseTestMixin,
