@@ -8,6 +8,7 @@ from dateutil.relativedelta import relativedelta
 
 from celery import shared_task
 from celery.canvas import chain
+from django.conf import settings
 from django.db import transaction
 import structlog
 from sentry_sdk import capture_exception
@@ -232,12 +233,14 @@ def check_alert(alert_id: str) -> None:
         alert.is_calculating = False
         alert.save()
 
-        task_duration = time.time() - task_start_time
+        # only in PROD
+        if not settings.DEBUG and not settings.TEST:
+            task_duration = time.time() - task_start_time
 
-        # Ensure task runs at least 40s
-        # for prometheus to pick up the metrics sent during task
-        time_left_to_run = 40 - math.floor(task_duration)
-        time.sleep(time_left_to_run)
+            # Ensure task runs at least 40s
+            # for prometheus to pick up the metrics sent during task
+            time_left_to_run = 40 - math.floor(task_duration)
+            time.sleep(time_left_to_run)
 
 
 @transaction.atomic
