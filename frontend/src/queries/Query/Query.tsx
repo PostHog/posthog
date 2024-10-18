@@ -102,6 +102,7 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
                 context={queryContext}
                 cachedResults={props.cachedResults}
                 uniqueKey={uniqueKey}
+                readOnly={readOnly}
             />
         )
     } else if (isDataVisualizationNode(query)) {
@@ -135,13 +136,7 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
     } else if (isWebOverviewQuery(query)) {
         component = <WebOverview query={query} cachedResults={props.cachedResults} context={queryContext} />
     } else if (isHogQuery(query)) {
-        component = (
-            <HogDebug
-                query={query}
-                setQuery={setQuery as undefined | ((query: any) => void)}
-                queryKey={String(uniqueKey)}
-            />
-        )
+        component = <HogDebug query={query} setQuery={setQuery as (query: any) => void} queryKey={String(uniqueKey)} />
     } else {
         component = <DataNode query={query} cachedResults={props.cachedResults} />
     }
