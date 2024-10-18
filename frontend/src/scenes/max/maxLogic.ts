@@ -113,10 +113,7 @@ export const maxLogic = kea<maxLogicType>([
             try {
                 const response = await api.chat({
                     session_id: props.sessionId,
-                    messages: values.thread.map(({ type, content }) => ({
-                        type,
-                        content: typeof content === 'string' ? content : JSON.stringify(content),
-                    })),
+                    messages: values.thread.map(({ status, ...message }) => message),
                 })
                 const reader = response.body?.getReader()
                 const decoder = new TextDecoder()

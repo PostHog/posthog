@@ -7,6 +7,7 @@ from langgraph.graph.state import StateGraph
 from ee.hogai.trends.nodes import CreateTrendsPlanNode, CreateTrendsPlanToolsNode, GenerateTrendsNode
 from ee.hogai.utils import AssistantMessage, AssistantNodeName, AssistantState
 from posthog.models.team.team import Team
+from posthog.schema import AssistantMessage as FrontendAssistantMessage
 from posthog.schema import VisualizationMessagePayload
 
 
@@ -50,13 +51,15 @@ class Assistant:
         for message, state in generator:
             if state["langgraph_node"] == AssistantNodeName.GENERATE_TRENDS:
                 if isinstance(message, AssistantMessage):
-                    yield message.model_dump_json()
+                    yield FrontendAssistantMessage(
+                        type=message.type, content=message.content, payload=message.payload
+                    ).model_dump_json()
                 elif isinstance(message, AIMessageChunk):
                     message = cast(AIMessageChunk, message)
                     chunks += message  # type: ignore
                     parsed_message = GenerateTrendsNode.parse_output(chunks.tool_calls[0]["args"])
                     if parsed_message:
-                        yield AssistantMessage(
+                        yield FrontendAssistantMessage(
                             type="ai",
                             content=parsed_message.model_dump_json(),
                             payload=VisualizationMessagePayload(plan=""),
