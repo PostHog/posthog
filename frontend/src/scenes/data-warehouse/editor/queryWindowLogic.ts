@@ -1,16 +1,12 @@
 import { actions, events, kea, listeners, path, reducers } from 'kea'
 import { uuid } from 'lib/utils'
+
 import type { queryWindowLogicType } from './queryWindowLogicType'
 
 export interface Tab {
     key: string
     label: string
 }
-
-const generateTabKey = () => {
-    return uuid()
-}
-
 
 export const queryWindowLogic = kea<queryWindowLogicType>([
     path(['scenes', 'data-warehouse', 'editor', 'queryWindowLogic']),
@@ -19,21 +15,27 @@ export const queryWindowLogic = kea<queryWindowLogicType>([
         addTab: true,
         _addTab: (tab: Tab) => ({ tab }),
         deleteTab: (tab: Tab) => ({ tab }),
-        _deleteTab: (tab: Tab) => ({ tab })
+        _deleteTab: (tab: Tab) => ({ tab }),
     }),
     reducers({
-        tabs: [[] as Tab[], {
-            _addTab: (state, { tab }) => [...state, tab],
-            _deleteTab: (state, { tab }) => state.filter((t) => t.key !== tab.key)
-        }],
-        activeTabKey: ['none', {
-            selectTab: (_, { tab }) => tab.key,
-        }]
+        tabs: [
+            [] as Tab[],
+            {
+                _addTab: (state, { tab }) => [...state, tab],
+                _deleteTab: (state, { tab }) => state.filter((t) => t.key !== tab.key),
+            },
+        ],
+        activeTabKey: [
+            'none',
+            {
+                selectTab: (_, { tab }) => tab.key,
+            },
+        ],
     }),
     listeners(({ values, actions }) => ({
         addTab: () => {
             const tab = {
-                key: generateTabKey(),
+                key: uuid(),
                 label: 'Untitled',
             }
             actions._addTab(tab)
@@ -46,11 +48,11 @@ export const queryWindowLogic = kea<queryWindowLogicType>([
                 actions.selectTab(nextTab)
             }
             actions._deleteTab(tab)
-        }
+        },
     })),
     events(({ actions }) => ({
         afterMount: () => {
             actions.addTab()
         },
-    }))
+    })),
 ])

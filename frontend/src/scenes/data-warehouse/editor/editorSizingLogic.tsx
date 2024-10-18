@@ -34,7 +34,8 @@ export const editorSizingLogic = kea<editorSizingLogicType>([
         ],
         queryPaneHeight: [
             (s) => [s.queryPaneDesiredSize],
-            (queryPaneDesiredSize) => Math.max(queryPaneDesiredSize || DEFAULT_QUERY_PANE_HEIGHT, MINIMUM_QUERY_PANE_HEIGHT),
+            (queryPaneDesiredSize) =>
+                Math.max(queryPaneDesiredSize || DEFAULT_QUERY_PANE_HEIGHT, MINIMUM_QUERY_PANE_HEIGHT),
         ],
         queryTabsWidth: [(s) => [s.queryPaneDesiredSize], (desiredSize) => desiredSize || NAVIGATOR_DEFAULT_WIDTH],
         sourceNavigatorResizerProps: [

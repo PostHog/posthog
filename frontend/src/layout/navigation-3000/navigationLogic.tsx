@@ -510,6 +510,14 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             icon: <IconServer />,
                             to: isUsingSidebar ? undefined : urls.dataWarehouse(),
                         },
+                        featureFlags[FEATURE_FLAGS.SQL_EDITOR]
+                            ? {
+                                  identifier: Scene.SQLEditor,
+                                  label: 'SQL editor',
+                                  icon: <IconServer />,
+                                  to: isUsingSidebar ? undefined : urls.sqlEditor(),
+                              }
+                            : null,
                         featureFlags[FEATURE_FLAGS.DATA_MODELING] && hasOnboardedAnyProduct
                             ? {
                                   identifier: Scene.DataModel,
