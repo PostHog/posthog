@@ -37,6 +37,7 @@ import type {
     DatabaseSchemaField,
     HogQLQuery,
     HogQLQueryModifiers,
+    HogQLVariable,
     InsightVizNode,
     Node,
     QueryStatus,
@@ -512,6 +513,7 @@ export interface TeamType extends TeamBasicType {
     autocapture_exceptions_opt_in: boolean
     autocapture_web_vitals_opt_in?: boolean
     autocapture_web_vitals_allowed_metrics?: SupportedWebVitalsMetrics[]
+    session_recording_url_trigger_config?: SessionReplayUrlTriggerConfig[]
     surveys_opt_in?: boolean
     heatmaps_opt_in?: boolean
     autocapture_exceptions_errors_to_ignore: string[]
@@ -1823,6 +1825,7 @@ export type DashboardTemplateScope = 'team' | 'global' | 'feature_flag'
 export interface DashboardType<T = InsightModel> extends DashboardBasicType {
     tiles: DashboardTile<T>[]
     filters: DashboardFilter
+    variables?: Record<string, HogQLVariable>
 }
 
 export enum TemplateAvailabilityContext {
@@ -2661,6 +2664,8 @@ export interface InsightLogicProps<T = InsightVizNode> {
 
     /** Dashboard filters to override the ones in the query */
     filtersOverride?: DashboardFilter | null
+    /** Dashboard variables to override the ones in the query */
+    variablesOverride?: Record<string, HogQLVariable> | null
 }
 
 export interface SetInsightOptions {
@@ -4603,4 +4608,9 @@ export type AppMetricsV2RequestParams = {
     kind?: string
     interval?: 'hour' | 'day' | 'week'
     breakdown_by?: 'name' | 'kind'
+}
+
+export type SessionReplayUrlTriggerConfig = {
+    url: string
+    matching: 'regex'
 }

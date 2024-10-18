@@ -130,6 +130,7 @@ def calculate_for_query_based_insight(
     execution_mode: ExecutionMode,
     user: Optional[User],
     filters_override: Optional[dict] = None,
+    variables_override: Optional[dict] = None,
 ) -> "InsightResult":
     from posthog.caching.fetch_from_cache import InsightResult, NothingInCacheResult
     from posthog.caching.insight_cache import update_cached_state
@@ -143,6 +144,13 @@ def calculate_for_query_based_insight(
         insight.query,
         dashboard_filters_json=(
             filters_override if filters_override is not None else dashboard.filters if dashboard is not None else None
+        ),
+        variables_override_json=(
+            variables_override
+            if variables_override is not None
+            else dashboard.variables
+            if dashboard is not None
+            else None
         ),
         execution_mode=execution_mode,
         user=user,
