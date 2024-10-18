@@ -1,6 +1,7 @@
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useValues } from 'kea'
+import { BreakdownSummary, PropertiesSummary, SeriesSummary } from 'lib/components/Cards/InsightCard/InsightDetails'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import React from 'react'
 import { urls } from 'scenes/urls'
@@ -49,18 +50,25 @@ export function Thread(): JSX.Element | null {
                                 <div className="h-96 flex">
                                     <Query query={query} readOnly embedded />
                                 </div>
-                                <LemonButton
-                                    className="mt-4 w-fit"
-                                    type="primary"
-                                    to={urls.insightNew(undefined, undefined, {
-                                        kind: NodeKind.InsightVizNode,
-                                        source: message.content.answer as InsightQueryNode,
-                                    } as InsightVizNode)}
-                                    sideIcon={<IconOpenInNew />}
-                                    targetBlank
-                                >
-                                    Open as new insight
-                                </LemonButton>
+                                <div className="relative mb-1">
+                                    <LemonButton
+                                        to={urls.insightNew(undefined, undefined, {
+                                            kind: NodeKind.InsightVizNode,
+                                            source: message.content.answer as InsightQueryNode,
+                                        } as InsightVizNode)}
+                                        sideIcon={<IconOpenInNew />}
+                                        size="xsmall"
+                                        targetBlank
+                                        className="absolute right-0 -top-px"
+                                    >
+                                        Open as new insight
+                                    </LemonButton>
+                                    <SeriesSummary query={query.source!} />
+                                    <div className="flex flex-wrap gap-4 mt-1 *:grow">
+                                        <PropertiesSummary properties={query.source!.properties} />
+                                        <BreakdownSummary query={query.source!} />
+                                    </div>
+                                </div>
                             </Message>
                         )}
                     </React.Fragment>

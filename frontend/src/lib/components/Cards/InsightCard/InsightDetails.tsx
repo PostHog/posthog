@@ -41,13 +41,7 @@ import {
     isTrendsQuery,
     isValidBreakdown,
 } from '~/queries/utils'
-import {
-    AnyPropertyFilter,
-    FilterLogicalOperator,
-    FilterType,
-    PropertyGroupFilter,
-    QueryBasedInsightModel,
-} from '~/types'
+import { AnyPropertyFilter, FilterLogicalOperator, PropertyGroupFilter, QueryBasedInsightModel } from '~/types'
 
 import { PropertyKeyInfo } from '../../PropertyKeyInfo'
 import { TZLabel } from '../../TZLabel'
@@ -253,9 +247,9 @@ function PathsSummary({ query }: { query: PathsQuery }): JSX.Element {
 
 export function SeriesSummary({ query }: { query: InsightQueryNode }): JSX.Element {
     return (
-        <>
+        <section>
             <h5>Query summary</h5>
-            <section className="InsightDetails__query">
+            <div className="InsightDetails__query">
                 {isTrendsQuery(query) && query.trendsFilter?.formula && (
                     <>
                         <LemonRow className="InsightDetails__formula" icon={<IconCalculate />} fullWidth>
@@ -283,8 +277,8 @@ export function SeriesSummary({ query }: { query: InsightQueryNode }): JSX.Eleme
                         <i>Unavailable for this insight type.</i>
                     )}
                 </div>
-            </section>
-        </>
+            </div>
+        </section>
     )
 }
 
@@ -306,31 +300,12 @@ export function PropertiesSummary({
         : properties || null
 
     return (
-        <>
+        <section>
             <h5>Filters</h5>
-            <section>
+            <div>
                 <CompactPropertyFiltersDisplay groupFilter={groupFilter} />
-            </section>
-        </>
-    )
-}
-
-export function LEGACY_FilterBasedBreakdownSummary({ filters }: { filters: Partial<FilterType> }): JSX.Element | null {
-    if (filters.breakdown_type == null || filters.breakdown == null) {
-        return null
-    }
-
-    const breakdownArray = Array.isArray(filters.breakdown) ? filters.breakdown : [filters.breakdown]
-
-    return (
-        <>
-            <h5>Breakdown by</h5>
-            <section className="InsightDetails__breakdown">
-                {breakdownArray.map((breakdown) => (
-                    <BreakdownTag key={breakdown} breakdown={breakdown} breakdownType={filters.breakdown_type} />
-                ))}
-            </section>
-        </>
+            </div>
+        </section>
     )
 }
 
@@ -342,9 +317,9 @@ export function BreakdownSummary({ query }: { query: InsightQueryNode }): JSX.El
     const { breakdown_type, breakdown, breakdowns } = query.breakdownFilter
 
     return (
-        <>
+        <section>
             <h5>Breakdown by</h5>
-            <section className="InsightDetails__breakdown">
+            <div>
                 {Array.isArray(breakdowns)
                     ? breakdowns.map((b) => (
                           <BreakdownTag key={`${b.type}-${b.property}`} breakdown={b.property} breakdownType={b.type} />
@@ -355,8 +330,8 @@ export function BreakdownSummary({ query }: { query: InsightQueryNode }): JSX.El
                           : [breakdown].map((b) => (
                                 <BreakdownTag key={b} breakdown={b} breakdownType={breakdown_type} />
                             )))}
-            </section>
-        </>
+            </div>
+        </section>
     )
 }
 
