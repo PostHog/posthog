@@ -2173,6 +2173,124 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
 
     @snapshot_clickhouse_queries
     @also_test_with_materialized_columns(person_properties=["$some_prop"])
+    def test_filter_with_static_and_dynamic_cohort_properties(self):
+        with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
+            with freeze_time("2021-08-21T20:00:00.000Z"):
+                user_one = "test_filter_with_cohort_properties-user-in-static-cohort"
+                user_two = "test_filter_with_cohort_properties-user2-in-dynamic-cohort"
+                user_three = "test_filter_with_cohort_properties-user3-in-both-cohort"
+
+                session_id_one = f"test_filter_with_static_and_dynamic_cohort_properties-1-{str(uuid4())}"
+                session_id_two = f"test_filter_with_static_and_dynamic_cohort_properties-2-{str(uuid4())}"
+                session_id_three = f"test_filter_with_static_and_dynamic_cohort_properties-3-{str(uuid4())}"
+
+                Person.objects.create(team=self.team, distinct_ids=[user_one], properties={"email": "in@static.cohort"})
+                Person.objects.create(
+                    team=self.team,
+                    distinct_ids=[user_two],
+                    properties={"email": "in@dynamic.cohort", "$some_prop": "some_val"},
+                )
+                Person.objects.create(
+                    team=self.team,
+                    distinct_ids=[user_three],
+                    properties={"email": "in@both.cohorts", "$some_prop": "some_val"},
+                )
+
+                dynamic_cohort = Cohort.objects.create(
+                    team=self.team,
+                    name="cohort1",
+                    groups=[
+                        {
+                            "properties": [
+                                {
+                                    "key": "$some_prop",
+                                    "value": "some_val",
+                                    "type": "person",
+                                }
+                            ]
+                        }
+                    ],
+                )
+                dynamic_cohort.calculate_people_ch(pending_version=0)
+
+                static_cohort = Cohort.objects.create(team=self.team, name="a static cohort", groups=[], is_static=True)
+                static_cohort.insert_users_by_list([user_one, user_three])
+
+                replay_summaries = [
+                    (user_one, session_id_one),
+                    (user_two, session_id_two),
+                    (user_three, session_id_three),
+                ]
+                for distinct_id, session_id in replay_summaries:
+                    produce_replay_summary(
+                        distinct_id=distinct_id,
+                        session_id=session_id,
+                        first_timestamp=self.an_hour_ago,
+                        team_id=self.team.id,
+                    )
+                    produce_replay_summary(
+                        distinct_id=distinct_id,
+                        session_id=session_id,
+                        first_timestamp=self.an_hour_ago + relativedelta(seconds=30),
+                        team_id=self.team.id,
+                    )
+
+                (session_recordings, _, _) = self._filter_recordings_by(
+                    {
+                        "properties": [
+                            {
+                                "key": "id",
+                                "value": static_cohort.pk,
+                                "operator": None,
+                                "type": "precalculated-cohort",
+                            },
+                        ]
+                    }
+                )
+
+                assert len(session_recordings) == 2
+                assert [x["session_id"] for x in session_recordings] == [session_id_one, session_id_three]
+
+                (session_recordings, _, _) = self._filter_recordings_by(
+                    {
+                        "properties": [
+                            {
+                                "key": "id",
+                                "value": dynamic_cohort.pk,
+                                "operator": None,
+                                "type": "cohort",
+                            },
+                        ]
+                    }
+                )
+
+                assert len(session_recordings) == 1
+                assert session_recordings[0]["session_id"] == session_id_two
+
+                (session_recordings, _, _) = self._filter_recordings_by(
+                    {
+                        "properties": [
+                            {
+                                "key": "id",
+                                "value": dynamic_cohort.pk,
+                                "operator": None,
+                                "type": "cohort",
+                            },
+                            {
+                                "key": "id",
+                                "value": static_cohort.pk,
+                                "operator": None,
+                                "type": "precalculated-cohort",
+                            },
+                        ]
+                    }
+                )
+
+                assert len(session_recordings) == 1
+                assert session_recordings[0]["session_id"] == session_id_three
+
+    @snapshot_clickhouse_queries
+    @also_test_with_materialized_columns(person_properties=["$some_prop"])
     def test_filter_with_events_and_cohorts(self):
         with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
             with freeze_time("2021-08-21T20:00:00.000Z"):
