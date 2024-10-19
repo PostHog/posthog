@@ -11468,6 +11468,10 @@
                     },
                     "type": "array"
                 },
+                "showAlertThresholdLines": {
+                    "default": false,
+                    "type": "boolean"
+                },
                 "showLabelsOnSeries": {
                     "type": "boolean"
                 },
@@ -11537,6 +11541,9 @@
                         ]
                     },
                     "type": "object"
+                },
+                "show_alert_threshold_lines": {
+                    "type": "boolean"
                 },
                 "show_labels_on_series": {
                     "type": "boolean"
