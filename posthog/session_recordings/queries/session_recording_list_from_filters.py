@@ -2,6 +2,8 @@ import re
 from typing import Any, NamedTuple, cast, Optional, Union
 from datetime import datetime, timedelta
 
+import posthoganalytics
+
 from posthog.hogql import ast
 from posthog.hogql.ast import CompareOperation
 from posthog.hogql.parser import parse_select
@@ -45,6 +47,10 @@ class SessionRecordingQueryResult(NamedTuple):
     results: list
     has_more_recording: bool
     timings: list[QueryTiming] | None = None
+
+
+class UnexpectedQueryProperties(Exception):
+    pass
 
 
 class SessionRecordingListFromFilters:
@@ -244,9 +250,7 @@ class SessionRecordingListFromFilters:
 
         remaining_properties = self._strip_person_and_event_and_cohort_properties(self._filter.property_groups)
         if remaining_properties:
-            logger.info(
-                "session_replay_query_builder has unhandled properties", unhandled_properties=remaining_properties
-            )
+            posthoganalytics.capture_exception(UnexpectedQueryProperties(remaining_properties))
             optional_exprs.append(property_to_expr(remaining_properties, team=self._team, scope="replay"))
 
         if self._filter.console_log_filters.values:
