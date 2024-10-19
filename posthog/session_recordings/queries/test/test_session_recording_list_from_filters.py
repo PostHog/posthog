@@ -2180,9 +2180,15 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
                 user_two = "test_filter_with_cohort_properties-user2-in-dynamic-cohort"
                 user_three = "test_filter_with_cohort_properties-user3-in-both-cohort"
 
-                session_id_one = f"test_filter_with_static_and_dynamic_cohort_properties-1-{str(uuid4())}"
-                session_id_two = f"test_filter_with_static_and_dynamic_cohort_properties-2-{str(uuid4())}"
-                session_id_three = f"test_filter_with_static_and_dynamic_cohort_properties-3-{str(uuid4())}"
+                session_id_one = (
+                    f"in-static-cohort-test_filter_with_static_and_dynamic_cohort_properties-1-{str(uuid4())}"
+                )
+                session_id_two = (
+                    f"in-dynamic-cohort-test_filter_with_static_and_dynamic_cohort_properties-2-{str(uuid4())}"
+                )
+                session_id_three = (
+                    f"in-both-cohort-test_filter_with_static_and_dynamic_cohort_properties-3-{str(uuid4())}"
+                )
 
                 Person.objects.create(team=self.team, distinct_ids=[user_one], properties={"email": "in@static.cohort"})
                 Person.objects.create(
@@ -2211,10 +2217,12 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
                         }
                     ],
                 )
-                dynamic_cohort.calculate_people_ch(pending_version=0)
 
                 static_cohort = Cohort.objects.create(team=self.team, name="a static cohort", groups=[], is_static=True)
                 static_cohort.insert_users_by_list([user_one, user_three])
+
+                dynamic_cohort.calculate_people_ch(pending_version=0)
+                static_cohort.calculate_people_ch(pending_version=0)
 
                 replay_summaries = [
                     (user_one, session_id_one),
@@ -2248,8 +2256,9 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
                     }
                 )
 
-                assert len(session_recordings) == 2
-                assert [x["session_id"] for x in session_recordings] == [session_id_one, session_id_three]
+                assert sorted([x["session_id"] for x in session_recordings]) == sorted(
+                    [session_id_one, session_id_three]
+                )
 
                 (session_recordings, _, _) = self._filter_recordings_by(
                     {
@@ -2264,8 +2273,9 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
                     }
                 )
 
-                assert len(session_recordings) == 1
-                assert session_recordings[0]["session_id"] == session_id_two
+                assert sorted([x["session_id"] for x in session_recordings]) == sorted(
+                    [session_id_two, session_id_three]
+                )
 
                 (session_recordings, _, _) = self._filter_recordings_by(
                     {
@@ -2286,8 +2296,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
                     }
                 )
 
-                assert len(session_recordings) == 1
-                assert session_recordings[0]["session_id"] == session_id_three
+                assert sorted([x["session_id"] for x in session_recordings]) == [session_id_three]
 
     @snapshot_clickhouse_queries
     @also_test_with_materialized_columns(person_properties=["$some_prop"])

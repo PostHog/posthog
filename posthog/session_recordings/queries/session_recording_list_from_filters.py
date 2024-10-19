@@ -238,13 +238,27 @@ class SessionRecordingListFromFilters:
                 )
             )
 
-        cohort_subquery = CohortPropertyGroupsSubQuery(self._team, self._filter, self.ttl_days).get_queries()
-        if cohort_subquery:
+        dynamic_cohort_subquery = DynamicCohortPropertyGroupsSubQuery(
+            self._team, self._filter, self.ttl_days
+        ).get_queries()
+        if dynamic_cohort_subquery:
             optional_exprs.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.In,
                     left=ast.Field(chain=["s", "distinct_id"]),
-                    right=cohort_subquery,
+                    right=dynamic_cohort_subquery,
+                )
+            )
+
+        static_cohort_subquery = StaticCohortPropertyGroupsSubQuery(
+            self._team, self._filter, self.ttl_days
+        ).get_queries()
+        if static_cohort_subquery:
+            optional_exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.In,
+                    left=ast.Field(chain=["s", "distinct_id"]),
+                    right=static_cohort_subquery,
                 )
             )
 
@@ -360,7 +374,50 @@ class PersonsPropertiesSubQuery:
         )
 
 
-class CohortPropertyGroupsSubQuery:
+class StaticCohortPropertyGroupsSubQuery:
+    _team: Team
+    _filter: SessionRecordingsFilter
+    _ttl_days: int
+
+    raw_cohort_to_distinct_id = """
+    select distinct_id
+    from person_distinct_ids
+    where person_id IN (
+        SELECT person_id
+        FROM static_cohort_people
+        WHERE
+        {where_predicates}
+    )
+    """
+
+    def __init__(self, team: Team, filter: SessionRecordingsFilter, ttl_days: int):
+        self._team = team
+        self._filter = filter
+        self._ttl_days = ttl_days
+
+    def get_queries(self) -> ast.SelectQuery | ast.SelectUnionQuery | None:
+        if self.cohort_properties:
+            return parse_select(
+                self.raw_cohort_to_distinct_id,
+                {"where_predicates": property_to_expr(self.cohort_properties, team=self._team, scope="replay")},
+            )
+
+        return None
+
+    @cached_property
+    def cohort_properties(self) -> PropertyGroup | None:
+        cohort_property_groups = [g for g in self._filter.property_groups.flat if is_static_cohort_property(g)]
+        return (
+            PropertyGroup(
+                type=self._filter.property_operand,
+                values=cohort_property_groups,
+            )
+            if cohort_property_groups
+            else None
+        )
+
+
+class DynamicCohortPropertyGroupsSubQuery:
     _team: Team
     _filter: SessionRecordingsFilter
     _ttl_days: int
@@ -392,11 +449,7 @@ class CohortPropertyGroupsSubQuery:
 
     @cached_property
     def cohort_properties(self) -> PropertyGroup | None:
-        cohort_property_groups = [
-            g
-            for g in self._filter.property_groups.flat
-            if is_dynamic_cohort_property(g) or is_static_cohort_property(g)
-        ]
+        cohort_property_groups = [g for g in self._filter.property_groups.flat if is_dynamic_cohort_property(g)]
         return (
             PropertyGroup(
                 type=self._filter.property_operand,
