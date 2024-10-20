@@ -14,7 +14,6 @@ import { cohortsModel } from '~/models/cohortsModel'
 import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
 import { RecordingUniversalFilters } from '~/types'
 
-import { sessionRecordingsPlaylistLogic } from '../playlist/sessionRecordingsPlaylistLogic'
 import { DurationFilter } from './DurationFilter'
 
 export const RecordingsUniversalFilters = ({
@@ -28,9 +27,6 @@ export const RecordingsUniversalFilters = ({
 }): JSX.Element => {
     useMountedLogic(cohortsModel)
     useMountedLogic(actionsModel)
-
-    const { orderBy } = useValues(sessionRecordingsPlaylistLogic)
-    const { setOrderBy } = useActions(sessionRecordingsPlaylistLogic)
 
     const durationFilter = filters.duration[0]
 
@@ -139,8 +135,8 @@ export const RecordingsUniversalFilters = ({
                             },
                         ]}
                         size="small"
-                        value={orderBy}
-                        onChange={setOrderBy}
+                        value={filters.order}
+                        onChange={(order) => setFilters({ order })}
                     />
                 </div>
                 <div>

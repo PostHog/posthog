@@ -41,6 +41,7 @@ import type {
     InsightVizNode,
     Node,
     QueryStatus,
+    RecordingsQuery,
 } from './queries/schema'
 import { NodeKind } from './queries/schema'
 
@@ -1057,6 +1058,7 @@ export interface RecordingUniversalFilters {
     duration: RecordingDurationFilter[]
     filter_test_accounts?: boolean
     filter_group: UniversalFiltersGroup
+    order?: RecordingsQuery['order']
 }
 
 export type ErrorCluster = {

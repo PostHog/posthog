@@ -1,6 +1,5 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -194,13 +193,13 @@ describe('sessionRecordingsPlaylistLogic', () => {
 
         describe('ordering', () => {
             afterEach(() => {
-                logic.actions.setOrderBy('start_time')
+                logic.actions.setFilters({ order: 'start_time' })
                 logic.actions.loadSessionRecordings()
             })
 
             it('is set by setOrderBy, loads filtered results and orders the non pinned recordings', async () => {
                 await expectLogic(logic, () => {
-                    logic.actions.setOrderBy('console_error_count')
+                    logic.actions.setFilters({ order: 'console_error_count' })
                 })
                     .toDispatchActions(['setOrderBy', 'loadSessionRecordings', 'loadSessionRecordingsSuccess'])
                     .toMatchValues({
@@ -227,32 +226,6 @@ describe('sessionRecordingsPlaylistLogic', () => {
                         // reorganises recordings based on start_time
                         sessionRecordings: [aRecording, offsetRecording, bRecording],
                     })
-            })
-
-            it('uses the orderByExperiment feature flag to set the default orderBy', async () => {
-                featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.REPLAY_DEFAULT_SORT_ORDER_EXPERIMENT], {
-                    [FEATURE_FLAGS.REPLAY_DEFAULT_SORT_ORDER_EXPERIMENT]: 'click_count',
-                })
-
-                const logic = sessionRecordingsPlaylistLogic({
-                    key: 'tests',
-                    updateSearchParams: true,
-                })
-
-                logic.mount()
-
-                expect(logic.values.orderBy).toStrictEqual('click_count')
-            })
-
-            it('falls back to the default orderBy if the feature flag is not set', async () => {
-                logic = sessionRecordingsPlaylistLogic({
-                    key: 'tests',
-                    updateSearchParams: true,
-                })
-
-                logic.mount()
-
-                expect(logic.values.orderBy).toStrictEqual('start_time')
             })
         })
 
