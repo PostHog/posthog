@@ -236,7 +236,7 @@ class SessionRecordingListFromFilters:
                 )
             )
 
-        cohort_subquery = CohortPropertyGroupsSubQuery(self._team, self._filter, self.ttl_days).get_queries()
+        cohort_subquery = CohortPropertyGroupsSubQuery(self._team, self._filter, self.ttl_days).get_query()
         if cohort_subquery:
             optional_exprs.append(
                 ast.CompareOperation(
@@ -373,7 +373,7 @@ class CohortPropertyGroupsSubQuery:
         self._filter = filter
         self._ttl_days = ttl_days
 
-    def get_queries(self) -> ast.SelectQuery | ast.SelectUnionQuery | None:
+    def get_query(self) -> ast.SelectQuery | ast.SelectUnionQuery | None:
         if self.cohort_properties:
             return parse_select(
                 self.raw_cohort_to_distinct_id,
