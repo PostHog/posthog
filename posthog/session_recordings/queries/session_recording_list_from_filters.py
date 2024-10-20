@@ -35,16 +35,8 @@ def is_group_property(p: Property) -> bool:
     return p.type == "group"
 
 
-def is_dynamic_cohort_property(p: Property) -> bool:
-    return p.type == "cohort"
-
-
-def is_static_cohort_property(p: Property) -> bool:
-    return p.type == "precalculated-cohort"
-
-
 def is_cohort_property(p: Property) -> bool:
-    return is_dynamic_cohort_property(p) or is_static_cohort_property(p)
+    return "cohort" in p.type
 
 
 class SessionRecordingQueryResult(NamedTuple):
@@ -54,7 +46,9 @@ class SessionRecordingQueryResult(NamedTuple):
 
 
 class UnexpectedQueryProperties(Exception):
-    pass
+    def __init__(self, remaining_properties: PropertyGroup | None):
+        self.remaining_properties = remaining_properties
+        super().__init__(f"Unexpected properties in query: {remaining_properties}")
 
 
 class SessionRecordingListFromFilters:
@@ -300,8 +294,7 @@ class SessionRecordingListFromFilters:
             if not is_event_property(g)
             and not is_person_property(g)
             and not is_group_property(g)
-            and not is_dynamic_cohort_property(g)
-            and not is_static_cohort_property(g)
+            and not is_cohort_property(g)
         ]
 
         return (
