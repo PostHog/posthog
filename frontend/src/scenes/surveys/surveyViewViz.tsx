@@ -204,7 +204,7 @@ export function RatingQuestionBarChart({
             ) : (
                 <div className="mb-8">
                     <div className="font-semibold text-muted-alt">{`${
-                        question.scale === 10 ? '0 - 10' : '1 - 5'
+                        question.scale === 10 ? '0 - 10' : question.scale === 7 ? '1 - 7' : '1 - 5'
                     } rating`}</div>
                     <div className="text-xl font-bold mb-2">{question.question}</div>
                     <div className=" h-50 border rounded pt-8">
@@ -238,6 +238,8 @@ export function RatingQuestionBarChart({
                                     labels={
                                         question.scale === 10
                                             ? ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10']
+                                            : question.scale === 7
+                                            ? ['1', '2', '3', '4', '5', '6', '7']
                                             : ['1', '2', '3', '4', '5']
                                     }
                                 />
