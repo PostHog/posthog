@@ -2161,15 +2161,14 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
                             {
                                 "key": "id",
                                 "value": cohort.pk,
-                                "operator": None,
+                                "operator": "in",
                                 "type": "cohort",
                             }
                         ]
                     }
                 )
 
-                assert len(session_recordings) == 1
-                assert session_recordings[0]["session_id"] == session_id_two
+                assert [x["session_id"] for x in session_recordings] == [session_id_two]
 
     @snapshot_clickhouse_queries
     @also_test_with_materialized_columns(person_properties=["$some_prop"])
@@ -2367,7 +2366,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
                             {
                                 "key": "id",
                                 "value": cohort.pk,
-                                "operator": None,
+                                "operator": "in",
                                 "type": "cohort",
                             }
                         ],
@@ -2390,7 +2389,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
                             {
                                 "key": "id",
                                 "value": cohort.pk,
-                                "operator": None,
+                                "operator": "in",
                                 "type": "cohort",
                             }
                         ],
@@ -2405,8 +2404,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
                     }
                 )
 
-                assert len(session_recordings) == 1
-                assert session_recordings[0]["session_id"] == session_id_two
+                assert [x["session_id"] for x in session_recordings] == [session_id_two]
 
     @snapshot_clickhouse_queries
     @also_test_with_materialized_columns(["$current_url"])
