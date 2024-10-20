@@ -1,7 +1,7 @@
 import './Playlist.scss'
 
 import { IconCollapse } from '@posthog/icons'
-import { LemonButton, LemonButtonProps, LemonCollapse, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonButtonProps, LemonCollapse, LemonSelect, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { IconChevronRight } from 'lib/lemon-ui/icons'
@@ -9,6 +9,8 @@ import { LemonTableLoader } from 'lib/lemon-ui/LemonTable/LemonTableLoader'
 import { range } from 'lib/utils'
 import { useEffect, useRef, useState } from 'react'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
+
+import { RecordingUniversalFilters } from '~/types'
 
 import { Resizer } from '../Resizer/Resizer'
 
@@ -44,6 +46,8 @@ export type PlaylistProps<T> = {
     onChangeSections?: (activeKeys: string[]) => void
     'data-attr'?: string
     activeItemId?: string
+    filters?: RecordingUniversalFilters
+    setFilters?: (filters: Partial<RecordingUniversalFilters>) => void
 }
 
 const CounterBadge = ({ children }: { children: React.ReactNode }): JSX.Element => (
@@ -70,6 +74,8 @@ export function Playlist<
     onSelect,
     onChangeSections,
     'data-attr': dataAttr,
+    filters,
+    setFilters,
 }: PlaylistProps<T>): JSX.Element {
     const [controlledActiveItemId, setControlledActiveItemId] = useState<T['id'] | null>(
         selectInitialItem && sections[0].items[0] ? sections[0].items[0].id : null
@@ -115,6 +121,8 @@ export function Playlist<
                         setActiveItemId={onChangeActiveItem}
                         onChangeSections={onChangeSections}
                         emptyState={listEmptyState}
+                        filters={filters}
+                        setFilters={setFilters}
                     />
                 )}
                 <Resizer
@@ -137,6 +145,70 @@ const CollapsedList = ({ onClickOpen }: { onClickOpen: () => void }): JSX.Elemen
     </div>
 )
 
+function SortedBy({
+    filters,
+    setFilters,
+}: {
+    filters?: RecordingUniversalFilters
+    setFilters?: (filters: Partial<RecordingUniversalFilters>) => void
+}): JSX.Element | null {
+    return filters && setFilters ? (
+        <div className="px-2 justify-end flex flex-row gap-2 w-full items-center">
+            <span className="font-medium">sorted by</span>
+            <LemonSelect
+                allowClear={false}
+                options={[
+                    {
+                        value: 'start_time',
+                        label: 'Latest',
+                    },
+                    {
+                        label: 'Longest',
+                        options: [
+                            {
+                                value: 'duration',
+                                label: 'Total duration',
+                            },
+                            {
+                                value: 'active_seconds',
+                                label: 'Active duration',
+                            },
+                            {
+                                value: 'inactive_seconds',
+                                label: 'Inactive duration',
+                            },
+                        ],
+                    },
+                    {
+                        label: 'Most active',
+                        options: [
+                            {
+                                value: 'click_count',
+                                label: 'Clicks',
+                            },
+                            {
+                                value: 'keypress_count',
+                                label: 'Key presses',
+                            },
+                            {
+                                value: 'mouse_activity_count',
+                                label: 'Mouse activity',
+                            },
+                        ],
+                    },
+                    {
+                        value: 'console_error_count',
+                        label: 'Most errors',
+                    },
+                ]}
+                size="small"
+                value={filters.order}
+                onChange={(order) => setFilters({ order })}
+            />
+        </div>
+    ) : null
+}
+
 function List<
     T extends {
         id: string | number
@@ -154,6 +226,8 @@ function List<
     onScrollListEdge,
     loading,
     emptyState,
+    filters,
+    setFilters,
 }: {
     title: PlaylistProps<T>['title']
     notebooksHref: PlaylistProps<T>['notebooksHref']
@@ -166,6 +240,8 @@ function List<
     onScrollListEdge: PlaylistProps<T>['onScrollListEdge']
     loading: PlaylistProps<T>['loading']
     emptyState: PlaylistProps<T>['listEmptyState']
+    filters?: RecordingUniversalFilters
+    setFilters?: (filters: Partial<RecordingUniversalFilters>) => void
 }): JSX.Element {
     const [activeHeaderActionKey, setActiveHeaderActionKey] = useState<string | null>(null)
     const lastScrollPositionRef = useRef(0)
@@ -203,42 +279,49 @@ function List<
     return (
         <div className="flex flex-col w-full bg-bg-light overflow-hidden border-r h-full">
             <DraggableToNotebook href={notebooksHref}>
-                <div className="shrink-0 relative flex justify-between items-center p-1 gap-1 whitespace-nowrap border-b">
-                    <LemonButton size="small" icon={<IconCollapse className="rotate-90" />} onClick={onClickCollapse} />
-                    <span className="py-1 flex flex-1 gap-2">
-                        {title ? (
-                            <span className="font-bold uppercase text-xs my-1 tracking-wide flex gap-1 items-center">
-                                {title}
-                            </span>
-                        ) : null}
-                        <Tooltip
-                            placement="bottom"
-                            title={
-                                <>
-                                    Showing {itemsCount} results.
-                                    <br />
-                                    Scrolling to the bottom or the top of the list will load older or newer results
-                                    respectively.
-                                </>
-                            }
-                        >
-                            <span>
-                                <CounterBadge>{Math.min(999, itemsCount)}+</CounterBadge>
-                            </span>
-                        </Tooltip>
-                    </span>
-                    {headerActions.map(({ key, icon, tooltip, children }) => (
+                <div className="flex flex-col gap-1">
+                    <div className="shrink-0 relative flex justify-between items-center p-1 gap-1 whitespace-nowrap border-b">
                         <LemonButton
-                            key={key}
-                            icon={icon}
-                            tooltip={tooltip}
                             size="small"
-                            active={activeHeaderActionKey === key}
-                            onClick={() => setActiveHeaderActionKey(activeHeaderActionKey === key ? null : key)}
-                        >
-                            {children}
-                        </LemonButton>
-                    ))}
+                            icon={<IconCollapse className="rotate-90" />}
+                            onClick={onClickCollapse}
+                        />
+                        <span className="py-1 flex flex-1 gap-2">
+                            {title ? (
+                                <span className="font-bold uppercase text-xs my-1 tracking-wide flex gap-1 items-center">
+                                    {title}
+                                </span>
+                            ) : null}
+                            <Tooltip
+                                placement="bottom"
+                                title={
+                                    <>
+                                        Showing {itemsCount} results.
+                                        <br />
+                                        Scrolling to the bottom or the top of the list will load older or newer results
+                                        respectively.
+                                    </>
+                                }
+                            >
+                                <span>
+                                    <CounterBadge>{Math.min(999, itemsCount)}+</CounterBadge>
+                                </span>
+                            </Tooltip>
+                        </span>
+                        {headerActions.map(({ key, icon, tooltip, children }) => (
+                            <LemonButton
+                                key={key}
+                                icon={icon}
+                                tooltip={tooltip}
+                                size="small"
+                                active={activeHeaderActionKey === key}
+                                onClick={() => setActiveHeaderActionKey(activeHeaderActionKey === key ? null : key)}
+                            >
+                                {children}
+                            </LemonButton>
+                        ))}
+                    </div>
+                    <SortedBy filters={filters} setFilters={setFilters} />
                     <LemonTableLoader loading={loading} />
                 </div>
             </DraggableToNotebook>

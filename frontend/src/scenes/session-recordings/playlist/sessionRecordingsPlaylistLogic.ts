@@ -77,7 +77,7 @@ export const defaultRecordingDurationFilter: RecordingDurationFilter = {
     operator: PropertyOperator.GreaterThan,
 }
 
-const DEFAULT_ORDER_BY = 'start_time'
+export const DEFAULT_RECORDING_FILTERS_ORDER_BY = 'start_time'
 
 export const DEFAULT_RECORDING_FILTERS: RecordingUniversalFilters = {
     filter_test_accounts: false,
@@ -85,7 +85,7 @@ export const DEFAULT_RECORDING_FILTERS: RecordingUniversalFilters = {
     date_to: null,
     filter_group: { ...DEFAULT_UNIVERSAL_GROUP_FILTER },
     duration: [defaultRecordingDurationFilter],
-    order: DEFAULT_ORDER_BY,
+    order: DEFAULT_RECORDING_FILTERS_ORDER_BY,
 }
 
 const DEFAULT_PERSON_RECORDING_FILTERS: RecordingUniversalFilters = {
@@ -106,7 +106,7 @@ export function convertUniversalFiltersToRecordingsQuery(universalFilters: Recor
     const console_log_filters: RecordingsQuery['console_log_filters'] = []
     const having_predicates: RecordingsQuery['having_predicates'] = []
 
-    const order: RecordingsQuery['order'] = universalFilters.order || DEFAULT_ORDER_BY
+    const order: RecordingsQuery['order'] = universalFilters.order || DEFAULT_RECORDING_FILTERS_ORDER_BY
     const durationFilter = universalFilters.duration[0]
 
     if (durationFilter) {
@@ -330,7 +330,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             {
                 results: [],
                 has_next: false,
-                order: DEFAULT_ORDER_BY,
+                order: DEFAULT_RECORDING_FILTERS_ORDER_BY,
             } as RecordingsQueryResponse & { order: RecordingsQuery['order'] },
             {
                 loadSessionRecordings: async ({ direction, userModifiedFilters }, breakpoint) => {
@@ -392,7 +392,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                         const fetchedRecordings = await api.recordings.list({
                             kind: NodeKind.RecordingsQuery,
                             session_ids: recordingIds,
-                            order: DEFAULT_ORDER_BY,
+                            order: DEFAULT_RECORDING_FILTERS_ORDER_BY,
                         })
 
                         recordings = [...recordings, ...fetchedRecordings.results]
@@ -660,7 +660,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     return true
                 })
 
-                return sortRecordings(filteredRecordings, filters.order || DEFAULT_ORDER_BY)
+                return sortRecordings(filteredRecordings, filters.order || DEFAULT_RECORDING_FILTERS_ORDER_BY)
             },
         ],
 
