@@ -250,7 +250,7 @@ function List<
                             </LemonButton>
                         ))}
                     </div>
-                    <div className="w-full border-b">{controls}</div>
+                    {controls ? <div className="w-full border-b">{controls}</div> : null}
                     <LemonTableLoader loading={loading} />
                 </div>
             </DraggableToNotebook>
