@@ -71,7 +71,7 @@ def select_from_persons_table(
             parse_select(
                 """
             SELECT id
-            FROM raw_persons
+            FROM raw_persons as persons_where_optimization
             WHERE
                 -- Much faster to pre-select out any deleted persons than doing it in aggregation
                 -- This is correct because there are no instances where we'd un-delete a person (ie there are no cases where one version has is_deleted=1 and a later version has is_deleted = 0)
@@ -90,7 +90,6 @@ def select_from_persons_table(
                     ast.CompareOperation(
                         left=ast.Field(chain=["id"]), right=inner_select, op=ast.CompareOperationOp.In
                     ),
-                    where,  # Technically, adding the where clause here is duplicative, because the outer node filters this out _again_. However, if you're trying to debug the results stay consistent throughout the query (otherwise old versions might pop up again in this subquery)
                 ]
             )
     if filter is not None:
@@ -108,7 +107,10 @@ def select_from_persons_table(
             select.select.append(
                 ast.Alias(
                     alias=field_name,
-                    expr=ast.Call(name="argMax", args=[ast.Field(chain=field_chain), ast.Field(chain=["version"])]),
+                    expr=ast.Call(
+                        name="argMax",
+                        args=[ast.Field(chain=["raw_persons", *field_chain]), ast.Field(chain=["version"])],
+                    ),
                 )
             )
 

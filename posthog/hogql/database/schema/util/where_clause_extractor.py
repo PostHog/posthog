@@ -454,6 +454,9 @@ class IsTimeOrIntervalConstantVisitor(Visitor[bool]):
     def visit_tuple(self, node: ast.Tuple) -> bool:
         return all(self.visit(arg) for arg in node.exprs)
 
+    def visit_array(self, node: ast.Tuple) -> bool:
+        return all(self.visit(arg) for arg in node.exprs)
+
 
 def is_simple_timestamp_field_expression(expr: ast.Expr, context: HogQLContext, tombstone_string: str) -> bool:
     result = IsSimpleTimestampFieldExpressionVisitor(context, tombstone_string).visit(expr)

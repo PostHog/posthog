@@ -58,7 +58,15 @@ class TestPersonOptimization(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
     def test_simple_filter(self):
         response = execute_hogql_query(
-            parse_select("select id, properties.$some_prop from persons where properties.$some_prop = 'something'"),
+            parse_select("select id, properties from persons where properties.$some_prop = 'something'"),
+            self.team,
+        )
+        assert len(response.results) == 2
+
+    @snapshot_clickhouse_queries
+    def test_array_filter(self):
+        response = execute_hogql_query(
+            parse_select("select id, properties from persons where properties.$some_prop IN ['something']"),
             self.team,
         )
         assert len(response.results) == 2
