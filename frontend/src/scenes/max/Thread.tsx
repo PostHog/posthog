@@ -2,13 +2,15 @@ import { IconThumbsDown, IconThumbsDownFilled, IconThumbsUp, IconThumbsUpFilled,
 import { LemonButton, LemonInput, Spinner } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useValues } from 'kea'
+import { BreakdownSummary, PropertiesSummary, SeriesSummary } from 'lib/components/Cards/InsightCard/InsightDetails'
+import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import posthog from 'posthog-js'
 import React, { useRef, useState } from 'react'
 import { urls } from 'scenes/urls'
 
 import { Query } from '~/queries/Query/Query'
-import { AssistantMessage, InsightQueryNode, InsightVizNode, NodeKind } from '~/queries/schema'
+import { AssistantMessage, NodeKind } from '~/queries/schema'
 
 import { maxLogic, ThreadMessage } from './maxLogic'
 import { isVisualizationMessage, parseVisualizationMessageContent } from './utils'
@@ -74,6 +76,7 @@ function Answer({ message, previousMessage }: { message: ThreadMessage; previous
     const query = {
         kind: NodeKind.InsightVizNode,
         source: answer,
+        showHeader: true,
     }
 
     return (
@@ -87,24 +90,28 @@ function Answer({ message, previousMessage }: { message: ThreadMessage; previous
                     </ul>
                 </Message>
             )}
-            {message.status === 'completed' && answer && (
+            {message.status === 'completed' && query.source && (
                 <>
                     <Message type={message.type}>
                         <div className="h-96 flex">
                             <Query query={query} readOnly embedded />
                         </div>
-                        <LemonButton
-                            className="mt-4 w-fit"
-                            type="primary"
-                            to={urls.insightNew(undefined, undefined, {
-                                kind: NodeKind.InsightVizNode,
-                                source: answer as InsightQueryNode,
-                            } as InsightVizNode)}
-                            sideIcon={<IconOpenInNew />}
-                            targetBlank
-                        >
-                            Open as new insight
-                        </LemonButton>
+                        <div className="relative mb-1">
+                            <LemonButton
+                                to={urls.insightNew(undefined, undefined, query)}
+                                sideIcon={<IconOpenInNew />}
+                                size="xsmall"
+                                targetBlank
+                                className="absolute right-0 -top-px"
+                            >
+                                Open as new insight
+                            </LemonButton>
+                            <SeriesSummary query={query.source} heading={<TopHeading query={query} />} />
+                            <div className="flex flex-wrap gap-4 mt-1 *:grow">
+                                <PropertiesSummary properties={query.source.properties} />
+                                <BreakdownSummary query={query.source} />
+                            </div>
+                        </div>
                     </Message>
                     <AnswerActions message={message} previousMessage={previousMessage} />
                 </>
