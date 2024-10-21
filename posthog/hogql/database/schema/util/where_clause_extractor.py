@@ -6,7 +6,8 @@ from posthog.hogql import ast
 from posthog.hogql.ast import CompareOperationOp, ArithmeticOperationOp
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import DatabaseField, LazyJoinToAdd, LazyTableToAdd
-from posthog.hogql.errors import NotImplementedError
+from posthog.hogql.errors import NotImplementedError, QueryError
+from posthog.hogql.functions.mapping import HOGQL_COMPARISON_MAPPING
 
 from posthog.hogql.visitor import clone_expr, CloningVisitor, Visitor, TraversingVisitor
 
@@ -154,49 +155,18 @@ class WhereClauseExtractor(CloningVisitor):
         elif node.name == "not":
             if self.is_join:
                 return ast.Constant(value=True)
-        elif node.name == "greaterOrEquals":
+
+        elif node.name in HOGQL_COMPARISON_MAPPING:
+            op = HOGQL_COMPARISON_MAPPING[node.name]
+            if len(node.args) != 2:
+                raise QueryError(f"Comparison '{node.name}' requires exactly two arguments")
+            # We do "cleverer" logic with nullable types in visit_compare_operation
             return self.visit_compare_operation(
-                ast.CompareOperation(op=CompareOperationOp.GtEq, left=node.args[0], right=node.args[1])
-            )
-        elif node.name == "greater":
-            return self.visit_compare_operation(
-                ast.CompareOperation(op=CompareOperationOp.Gt, left=node.args[0], right=node.args[1])
-            )
-        elif node.name == "lessOrEquals":
-            return self.visit_compare_operation(
-                ast.CompareOperation(op=CompareOperationOp.LtEq, left=node.args[0], right=node.args[1])
-            )
-        elif node.name == "less":
-            return self.visit_compare_operation(
-                ast.CompareOperation(op=CompareOperationOp.Lt, left=node.args[0], right=node.args[1])
-            )
-        elif node.name == "equals":
-            return self.visit_compare_operation(
-                ast.CompareOperation(op=CompareOperationOp.Eq, left=node.args[0], right=node.args[1])
-            )
-        elif node.name == "notEquals":
-            return self.visit_compare_operation(
-                ast.CompareOperation(op=CompareOperationOp.NotEq, left=node.args[0], right=node.args[1]),
-            )
-        elif node.name == "like":
-            return self.visit_compare_operation(
-                ast.CompareOperation(op=CompareOperationOp.Like, left=node.args[0], right=node.args[1])
-            )
-        elif node.name == "notLike":
-            return self.visit_compare_operation(
-                ast.CompareOperation(op=CompareOperationOp.NotLike, left=node.args[0], right=node.args[1]),
-            )
-        elif node.name == "ilike":
-            return self.visit_compare_operation(
-                ast.CompareOperation(op=CompareOperationOp.ILike, left=node.args[0], right=node.args[1])
-            )
-        elif node.name == "notIlike":
-            return self.visit_compare_operation(
-                ast.CompareOperation(op=CompareOperationOp.NotILike, left=node.args[0], right=node.args[1]),
-            )
-        elif node.name == "in":
-            return self.visit_compare_operation(
-                ast.CompareOperation(op=CompareOperationOp.NotILike, left=node.args[0], right=node.args[1])
+                ast.CompareOperation(
+                    left=node.args[0],
+                    right=node.args[1],
+                    op=op,
+                )
             )
 
         args = [self.visit(arg) for arg in node.args]
