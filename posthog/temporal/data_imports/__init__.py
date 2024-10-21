@@ -6,6 +6,7 @@ from posthog.temporal.data_imports.external_data_job import (
     update_external_data_job_model,
     check_schedule_activity,
     check_billing_limits_activity,
+    sync_new_schemas_activity,
 )
 
 WORKFLOWS = [ExternalDataJobWorkflow]
@@ -17,4 +18,5 @@ ACTIVITIES = [
     create_source_templates,
     check_schedule_activity,
     check_billing_limits_activity,
+    sync_new_schemas_activity,
 ]
