@@ -1,5 +1,6 @@
 import os
 import time
+from typing import Any, cast
 
 import structlog
 from celery import Celery
@@ -87,7 +88,7 @@ def receiver_setup_logging(loglevel, logfile, format, colorize, **kwargs) -> Non
 
     # following instructions from here https://django-structlog.readthedocs.io/en/latest/celery.html
     # mypy thinks that there is no `logging.config` but there is ¯\_(ツ)_/¯
-    logging.config.dictConfig(logs.LOGGING)  # type: ignore
+    cast(Any, logging.config).dictConfig(logs.LOGGING)
 
 
 @receiver(signals.bind_extra_task_metadata)
