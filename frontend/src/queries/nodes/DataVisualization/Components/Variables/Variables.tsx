@@ -1,7 +1,7 @@
 import './Variables.scss'
 
 import { IconCopy, IconGear, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonInput, Popover } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonInput, LemonSegmentedButton, LemonSelect, Popover } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -15,6 +15,7 @@ import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { dataVisualizationLogic } from '../../dataVisualizationLogic'
 import { Variable } from '../../types'
 import { NewVariableModal } from './NewVariableModal'
+import { variableModalLogic } from './variableModalLogic'
 import { variablesLogic } from './variablesLogic'
 
 export const VariablesForDashboard = (): JSX.Element => {
@@ -49,6 +50,7 @@ export const VariablesForInsight = (): JSX.Element => {
     const { updateVariableValue, removeVariable } = useActions(variablesLogic)
     const { showEditingUI } = useValues(dataVisualizationLogic)
     const { variableOverridesAreSet } = useValues(dataNodeLogic)
+    const { openExistingVariableModal } = useActions(variableModalLogic)
 
     if (!featureFlags[FEATURE_FLAGS.INSIGHT_VARIABLES] || !variablesForInsight.length || !showVariablesBar) {
         return <></>
@@ -65,6 +67,7 @@ export const VariablesForInsight = (): JSX.Element => {
                         onChange={updateVariableValue}
                         onRemove={removeVariable}
                         variableOverridesAreSet={variableOverridesAreSet}
+                        variableSettingsOnClick={() => openExistingVariableModal(n)}
                     />
                 ))}
             </div>
@@ -79,6 +82,7 @@ interface VariableInputProps {
     closePopover: () => void
     onChange: (variableId: string, value: any) => void
     onRemove?: (variableId: string) => void
+    variableSettingsOnClick?: () => void
 }
 
 const VariableInput = ({
@@ -87,8 +91,17 @@ const VariableInput = ({
     closePopover,
     onChange,
     onRemove,
+    variableSettingsOnClick,
 }: VariableInputProps): JSX.Element => {
-    const [localInputValue, setLocalInputValue] = useState(variable.value ?? variable.default_value ?? '')
+    const [localInputValue, setLocalInputValue] = useState(() => {
+        const val = variable.value ?? variable.default_value
+
+        if (variable.type === 'Number' && !val) {
+            return 0
+        }
+
+        return val ?? ''
+    })
 
     const inputRef = useRef<HTMLInputElement>(null)
     const codeRef = useRef<HTMLElement>(null)
@@ -102,17 +115,58 @@ const VariableInput = ({
     return (
         <div>
             <div className="flex gap-1 p-1">
-                <LemonInput
-                    inputRef={inputRef}
-                    placeholder="Value..."
-                    className="flex flex-1"
-                    value={localInputValue.toString()}
-                    onChange={(value) => setLocalInputValue(value)}
-                    onPressEnter={() => {
-                        onChange(variable.id, localInputValue)
-                        closePopover()
-                    }}
-                />
+                {variable.type === 'String' && (
+                    <LemonInput
+                        inputRef={inputRef}
+                        placeholder="Value..."
+                        className="flex flex-1"
+                        value={localInputValue.toString()}
+                        onChange={(value) => setLocalInputValue(value)}
+                        onPressEnter={() => {
+                            onChange(variable.id, localInputValue)
+                            closePopover()
+                        }}
+                    />
+                )}
+                {variable.type === 'Number' && (
+                    <LemonInput
+                        type="number"
+                        inputRef={inputRef}
+                        placeholder="Value..."
+                        className="flex flex-1"
+                        value={Number(localInputValue)}
+                        onChange={(value) => setLocalInputValue(value ?? 0)}
+                        onPressEnter={() => {
+                            onChange(variable.id, localInputValue)
+                            closePopover()
+                        }}
+                    />
+                )}
+                {variable.type === 'Boolean' && (
+                    <LemonSegmentedButton
+                        className="grow"
+                        value={localInputValue ? 'true' : 'false'}
+                        onChange={(value) => setLocalInputValue(value === 'true')}
+                        options={[
+                            {
+                                value: 'true',
+                                label: 'true',
+                            },
+                            {
+                                value: 'false',
+                                label: 'false',
+                            },
+                        ]}
+                    />
+                )}
+                {variable.type === 'List' && (
+                    <LemonSelect
+                        className="grow"
+                        value={localInputValue}
+                        onChange={(value) => setLocalInputValue(value)}
+                        options={variable.values.map((n) => ({ label: n, value: n }))}
+                    />
+                )}
                 <LemonButton
                     type="primary"
                     onClick={() => {
@@ -142,7 +196,7 @@ const VariableInput = ({
                                     }
                                 }
                             }}
-                            className="text-xs flex flex-1 items-center"
+                            className="text-xs flex flex-1 items-center mr-2"
                         >
                             {variableAsHogQL}
                         </code>
@@ -160,7 +214,14 @@ const VariableInput = ({
                                 tooltip="Remove variable from insight"
                             />
                         )}
-                        <LemonButton icon={<IconGear />} size="xsmall" tooltip="Open variable settings" />
+                        {variableSettingsOnClick && (
+                            <LemonButton
+                                onClick={variableSettingsOnClick}
+                                icon={<IconGear />}
+                                size="xsmall"
+                                tooltip="Open variable settings"
+                            />
+                        )}
                     </div>
                 </>
             )}
@@ -174,6 +235,7 @@ interface VariableComponentProps {
     onChange: (variableId: string, value: any) => void
     variableOverridesAreSet: boolean
     onRemove?: (variableId: string) => void
+    variableSettingsOnClick?: () => void
 }
 
 const VariableComponent = ({
@@ -182,6 +244,7 @@ const VariableComponent = ({
     onChange,
     variableOverridesAreSet,
     onRemove,
+    variableSettingsOnClick,
 }: VariableComponentProps): JSX.Element => {
     const [isPopoverOpen, setPopoverOpen] = useState(false)
 
@@ -195,6 +258,12 @@ const VariableComponent = ({
                     onChange={onChange}
                     closePopover={() => setPopoverOpen(false)}
                     onRemove={onRemove}
+                    variableSettingsOnClick={() => {
+                        if (variableSettingsOnClick) {
+                            setPopoverOpen(false)
+                            variableSettingsOnClick()
+                        }
+                    }}
                 />
             }
             visible={isPopoverOpen}
@@ -213,7 +282,7 @@ const VariableComponent = ({
                         onClick={() => setPopoverOpen(!isPopoverOpen)}
                         disabledReason={variableOverridesAreSet && 'Discard dashboard variables to change'}
                     >
-                        {variable.value ?? variable.default_value}
+                        {variable.value?.toString() ?? variable.default_value?.toString()}
                     </LemonButton>
                 </LemonField.Pure>
             </div>
