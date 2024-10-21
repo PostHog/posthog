@@ -620,6 +620,7 @@ export interface RawOrganization {
 /** Usable Team model. */
 export interface Team {
     id: number
+    project_id: number
     uuid: string
     organization_id: string
     name: string
