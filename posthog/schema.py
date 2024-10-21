@@ -3928,6 +3928,9 @@ class SessionRecordingType(BaseModel):
         extra="forbid",
     )
     active_seconds: Optional[float] = None
+    activity_score: Optional[float] = Field(
+        default=None, description="calculated on the backend so that we can sort by it, definition may change over time"
+    )
     click_count: Optional[float] = None
     console_error_count: Optional[float] = None
     console_log_count: Optional[float] = None
