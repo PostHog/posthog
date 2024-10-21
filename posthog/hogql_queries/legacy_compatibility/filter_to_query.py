@@ -400,6 +400,7 @@ def _insight_filter(filter: dict):
             "trendsFilter": TrendsFilter(
                 smoothingIntervals=filter.get("smoothing_intervals"),
                 showLegend=filter.get("show_legend"),
+                showAlertThresholdLines=filter.get("show_alert_threshold_lines"),
                 hiddenLegendIndexes=hidden_legend_keys_to_indexes(filter.get("hidden_legend_keys")),
                 aggregationAxisFormat=filter.get("aggregation_axis_format"),
                 aggregationAxisPrefix=filter.get("aggregation_axis_prefix"),

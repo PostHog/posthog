@@ -14,6 +14,7 @@ import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { axisLabel } from 'scenes/insights/aggregationAxisFormat'
 import { PercentStackViewFilter } from 'scenes/insights/EditorFilters/PercentStackViewFilter'
 import { ScalePicker } from 'scenes/insights/EditorFilters/ScalePicker'
+import { ShowAlertThresholdLinesFilter } from 'scenes/insights/EditorFilters/ShowAlertThresholdLinesFilter'
 import { ShowLegendFilter } from 'scenes/insights/EditorFilters/ShowLegendFilter'
 import { ValueOnSeriesFilter } from 'scenes/insights/EditorFilters/ValueOnSeriesFilter'
 import { InsightDateFilter } from 'scenes/insights/filters/InsightDateFilter'
@@ -77,6 +78,7 @@ export function InsightDisplayConfig(): JSX.Element {
                           ...(supportsValueOnSeries ? [{ label: () => <ValueOnSeriesFilter /> }] : []),
                           ...(supportsPercentStackView ? [{ label: () => <PercentStackViewFilter /> }] : []),
                           ...(hasLegend ? [{ label: () => <ShowLegendFilter /> }] : []),
+                          { label: () => <ShowAlertThresholdLinesFilter /> },
                       ],
                   },
               ]

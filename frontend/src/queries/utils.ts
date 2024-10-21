@@ -301,6 +301,13 @@ export const getShowLegend = (query: InsightQueryNode): boolean | undefined => {
     return undefined
 }
 
+export const getShowAlertThresholdLines = (query: InsightQueryNode): boolean | undefined => {
+    if (isTrendsQuery(query)) {
+        return query.trendsFilter?.showAlertThresholdLines
+    }
+    return undefined
+}
+
 export const getShowLabelsOnSeries = (query: InsightQueryNode): boolean | undefined => {
     if (isTrendsQuery(query)) {
         return query.trendsFilter?.showLabelsOnSeries
