@@ -70,7 +70,10 @@ export const sessionReplaySceneLogic = kea<sessionReplaySceneLogicType>([
             (s) => [s.featureFlags],
             (featureFlags) => {
                 const hasErrorClustering = !!featureFlags[FEATURE_FLAGS.REPLAY_ERROR_CLUSTERING]
-                return Object.values(ReplayTabs).filter((tab) => tab != ReplayTabs.Errors || hasErrorClustering)
+                const hasTemplates = !!featureFlags[FEATURE_FLAGS.REPLAY_TEMPLATES]
+                return Object.values(ReplayTabs).filter((tab) =>
+                    tab == ReplayTabs.Errors ? hasErrorClustering : tab == ReplayTabs.Templates ? hasTemplates : true
+                )
             },
         ],
         breadcrumbs: [
