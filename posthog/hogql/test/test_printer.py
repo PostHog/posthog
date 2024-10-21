@@ -19,7 +19,6 @@ from posthog.models import PropertyDefinition
 from posthog.models.team.team import WeekStartDay
 from posthog.schema import (
     HogQLQueryModifiers,
-    MaterializationMode,
     PersonsArgMaxVersion,
     PersonsOnEventsMode,
     PropertyGroupsMode,
@@ -357,7 +356,6 @@ class TestPrinter(BaseTest):
         context = HogQLContext(
             team_id=self.team.pk,
             modifiers=HogQLQueryModifiers(
-                materializationMode=MaterializationMode.AUTO,
                 propertyGroupsMode=PropertyGroupsMode.ENABLED,
             ),
         )
@@ -387,7 +385,6 @@ class TestPrinter(BaseTest):
             return HogQLContext(
                 team_id=self.team.pk,
                 modifiers=HogQLQueryModifiers(
-                    materializationMode=MaterializationMode.AUTO,
                     propertyGroupsMode=property_groups_mode,
                 ),
             )
@@ -644,7 +641,6 @@ class TestPrinter(BaseTest):
                 team_id=self.team.pk,
                 enable_select_queries=True,
                 modifiers=HogQLQueryModifiers(
-                    materializationMode=MaterializationMode.AUTO,
                     propertyGroupsMode=property_groups_mode,
                 ),
             )
