@@ -66,7 +66,7 @@ class ErrorTrackingIssueFingerprint(models.Model):
     fingerprint = models.CharField(max_length=400)
 
     # current version of the id, used to sync with ClickHouse and collapse rows correctly for overrides ClickHouse table
-    version = models.BigIntegerField(null=True, blank=True)
+    version = models.BigIntegerField(blank=True, default=0)
 
     class Meta:
         constraints = [models.UniqueConstraint(fields=["team", "fingerprint"], name="unique fingerprint for team")]
