@@ -67,9 +67,9 @@ export function WatchNextPanel(): JSX.Element {
             <CompactList
                 title={
                     <Tooltip title="A selection of the most interesting recordings. We use multiple signals to calculate an activity score.">
-                        <div className="flex gap-1">
-                            <IconInfo />
+                        <div className="flex items-center gap-1.5">
                             <span>Watch next</span>
+                            <IconInfo className="text-lg" />
                         </div>
                     </Tooltip>
                 }
