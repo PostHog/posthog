@@ -9,6 +9,7 @@ from ee.clickhouse.materialized_columns.columns import (
     get_materialized_columns,
     materialize,
 )
+from posthog.clickhouse.materialized_columns import MaterializedColumnInfo
 from posthog.client import sync_execute
 from posthog.conftest import create_clickhouse_tables
 from posthog.constants import GROUP_TYPES_LIMIT
@@ -82,16 +83,16 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
 
         self.assertDictContainsSubset(
             {
-                ("$foO();--sqlinject", "properties"): "mat_$foO_____sqlinject",
-                ("$foO();ääsqlinject", "properties"): "mat_$foO_____sqlinject_YYYY",
-                ("$foO_____sqlinject", "properties"): "mat_$foO_____sqlinject_ZZZZ",
+                ("$foO();--sqlinject", "properties"): MaterializedColumnInfo("mat_$foO_____sqlinject", False),
+                ("$foO();ääsqlinject", "properties"): MaterializedColumnInfo("mat_$foO_____sqlinject_YYYY", False),
+                ("$foO_____sqlinject", "properties"): MaterializedColumnInfo("mat_$foO_____sqlinject_ZZZZ", False),
             },
             get_materialized_columns("events"),
         )
 
         self.assertEqual(
             get_materialized_columns("person"),
-            {("SoMePrOp", "properties"): "pmat_SoMePrOp"},
+            {("SoMePrOp", "properties"): MaterializedColumnInfo("pmat_SoMePrOp", False)},
         )
 
     def test_backfilling_data(self):
@@ -187,10 +188,10 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
         materialize("events", "myprop", create_minmax_index=True)
 
         expr = "replaceRegexpAll(JSONExtractRaw(properties, 'myprop'), '^\"|\"$', '')"
-        self.assertEqual(("MATERIALIZED", expr), self._get_column_types("mat_myprop"))
+        self.assertEqual(("String", "MATERIALIZED", expr), self._get_column_types("mat_myprop"))
 
         backfill_materialized_columns("events", [("myprop", "properties")], timedelta(days=50))
-        self.assertEqual(("DEFAULT", expr), self._get_column_types("mat_myprop"))
+        self.assertEqual(("String", "DEFAULT", expr), self._get_column_types("mat_myprop"))
 
         try:
             from ee.tasks.materialized_columns import mark_all_materialized
@@ -198,7 +199,24 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
             pass
         else:
             mark_all_materialized()
-            self.assertEqual(("MATERIALIZED", expr), self._get_column_types("mat_myprop"))
+            self.assertEqual(("String", "MATERIALIZED", expr), self._get_column_types("mat_myprop"))
+
+    def test_column_types_nullable(self):
+        materialize("events", "myprop", create_minmax_index=True, is_nullable=True)
+
+        expr = "JSONExtract(properties, 'myprop', 'Nullable(String)')"
+        self.assertEqual(("Nullable(String)", "MATERIALIZED", expr), self._get_column_types("mat_myprop"))
+
+        backfill_materialized_columns("events", [("myprop", "properties")], timedelta(days=50))
+        self.assertEqual(("Nullable(String)", "DEFAULT", expr), self._get_column_types("mat_myprop"))
+
+        try:
+            from ee.tasks.materialized_columns import mark_all_materialized
+        except ImportError:
+            pass
+        else:
+            mark_all_materialized()
+            self.assertEqual(("Nullable(String)", "MATERIALIZED", expr), self._get_column_types("mat_myprop"))
 
     def _count_materialized_rows(self, column):
         return sync_execute(
@@ -228,7 +246,7 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
     def _get_column_types(self, column: str):
         return sync_execute(
             """
-            SELECT default_kind, default_expression
+            SELECT type, default_kind, default_expression
             FROM system.columns
             WHERE database = %(database)s AND table = %(table)s AND name = %(column)s
             """,

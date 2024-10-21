@@ -156,7 +156,7 @@ class FunnelCorrelation:
         ):
             # When dealing with properties, make sure funnel response comes with properties
             # so we don't have to join on persons/groups to get these properties again
-            mat_event_cols = get_materialized_columns("events")
+            mat_event_cols = get_materialized_columns("events", exclude_nullable_columns=True)
 
             for property_name in cast(list, self._filter.correlation_property_names):
                 if self._filter.aggregation_group_type_index is not None:
@@ -168,7 +168,7 @@ class FunnelCorrelation:
                     possible_mat_col = mat_event_cols.get((property_name, "person_properties"))
 
                     if possible_mat_col is not None:
-                        props_to_include.append(possible_mat_col)
+                        props_to_include.append(possible_mat_col.column_name)
                     else:
                         props_to_include.append(f"person_properties")
 
