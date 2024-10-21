@@ -8,13 +8,14 @@ import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/util
 import { actionsModel } from '~/models/actionsModel'
 import { FilterLogicalOperator, ReplayTemplateCategory, ReplayTemplateType, ReplayTemplateVariableType } from '~/types'
 
-import { replayTemplates, sessionReplayTemplatesLogic } from './sessionRecordingTemplatesLogic'
+import { replayTemplates } from './availableTemplates'
+import { sessionReplayTemplatesLogic } from './sessionRecordingTemplatesLogic'
 
 const allCategories: ReplayTemplateCategory[] = replayTemplates
     .flatMap((template) => template.categories)
     .filter((category, index, self) => self.indexOf(category) === index)
 
-const NestedFilterGroup = ({ rootKey }: { rootKey: string }): JSX.Element => {
+const NestedFilterGroup = ({ rootKey, buttonTitle }: { rootKey: string; buttonTitle?: string }): JSX.Element => {
     const { filterGroup } = useValues(universalFiltersLogic)
     const { replaceGroupValue, removeGroupValue } = useActions(universalFiltersLogic)
 
@@ -35,7 +36,7 @@ const NestedFilterGroup = ({ rootKey }: { rootKey: string }): JSX.Element => {
                     />
                 )
             })}
-            <UniversalFilters.AddFilterButton title="Select event" type="secondary" size="xsmall" />
+            <UniversalFilters.AddFilterButton title={buttonTitle} type="secondary" size="xsmall" />
         </div>
     )
 }
@@ -59,21 +60,34 @@ const SingleTemplateVariable = ({
                 size="small"
             />
         </div>
-    ) : variable.type === 'event' ? (
+    ) : ['event', 'flag', 'person-property'].includes(variable.type) ? (
         <div>
             <LemonLabel info={variable.description}>{variable.name}</LemonLabel>
             <UniversalFilters
-                rootKey="session-recordings"
+                rootKey={`session-recordings-${variable.key}`}
                 group={{
                     type: FilterLogicalOperator.And,
                     values: [],
                 }}
-                taxonomicGroupTypes={[TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]}
+                taxonomicGroupTypes={
+                    variable.type === 'event'
+                        ? [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]
+                        : variable.type === 'flag'
+                        ? [TaxonomicFilterGroupType.FeatureFlags]
+                        : variable.type === 'person-property'
+                        ? [TaxonomicFilterGroupType.PersonProperties]
+                        : []
+                }
                 onChange={(thisFilterGroup) => {
                     setVariable({ ...variable, filterGroup: thisFilterGroup.values[0] })
                 }}
             >
-                <NestedFilterGroup rootKey="session-recordings" />
+                <NestedFilterGroup
+                    rootKey="session-recordings"
+                    buttonTitle={`Select ${
+                        variable.type === 'event' ? 'event' : variable.type === 'flag' ? 'flag' : 'person property'
+                    }`}
+                />
             </UniversalFilters>
         </div>
     ) : null
