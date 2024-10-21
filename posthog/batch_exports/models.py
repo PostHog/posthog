@@ -88,7 +88,7 @@ class BatchExportRun(UUIDModel):
     status = models.CharField(choices=Status.choices, max_length=64, help_text="The status of this run.")
     records_completed = models.IntegerField(null=True, help_text="The number of records that have been exported.")
     latest_error = models.TextField(null=True, help_text="The latest error that occurred during this run.")
-    data_interval_start = models.DateTimeField(help_text="The start of the data interval.")
+    data_interval_start = models.DateTimeField(help_text="The start of the data interval.", null=True)
     data_interval_end = models.DateTimeField(help_text="The end of the data interval.")
     cursor = models.TextField(null=True, help_text="An opaque cursor that may be used to resume.")
     created_at = models.DateTimeField(
@@ -270,7 +270,7 @@ class BatchExportBackfill(UUIDModel):
         on_delete=models.CASCADE,
         help_text="The BatchExport this backfill belongs to.",
     )
-    start_at = models.DateTimeField(help_text="The start of the data interval.")
+    start_at = models.DateTimeField(help_text="The start of the data interval.", null=True)
     end_at = models.DateTimeField(help_text="The end of the data interval.", null=True)
     status = models.CharField(choices=Status.choices, max_length=64, help_text="The status of this backfill.")
     created_at = models.DateTimeField(
@@ -290,4 +290,6 @@ class BatchExportBackfill(UUIDModel):
     def workflow_id(self) -> str:
         """Return the Workflow id that corresponds to this BatchExportBackfill model."""
         end_at = self.end_at and self.end_at.isoformat()
-        return f"{self.batch_export.id}-Backfill-{self.start_at.isoformat()}-{end_at}"
+        start_at = self.start_at and self.start_at.isoformat()
+
+        return f"{self.batch_export.id}-Backfill-{start_at}-{end_at}"

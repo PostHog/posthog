@@ -106,7 +106,7 @@ class BackfillScheduleInputs:
     """Inputs for the backfill_schedule Activity."""
 
     schedule_id: str
-    start_at: str
+    start_at: str | None
     end_at: str | None
     frequency_seconds: float
     start_delay: float = 5.0
@@ -182,7 +182,7 @@ async def backfill_schedule(inputs: BackfillScheduleInputs) -> None:
 
     This activity heartbeats while waiting to allow cancelling an ongoing backfill.
     """
-    start_at = dt.datetime.fromisoformat(inputs.start_at)
+    start_at = dt.datetime.fromisoformat(inputs.start_at) if inputs.start_at else None
     end_at = dt.datetime.fromisoformat(inputs.end_at) if inputs.end_at else None
 
     client = await connect(
@@ -220,11 +220,13 @@ async def backfill_schedule(inputs: BackfillScheduleInputs) -> None:
     description = await schedule_handle.describe()
     frequency = dt.timedelta(seconds=inputs.frequency_seconds)
 
-    start_at = adjust_bound_datetime_to_schedule_time_zone(
-        start_at,
-        schedule_time_zone_name=description.schedule.spec.time_zone_name,
-        frequency=frequency,
-    )
+    if start_at is not None:
+        start_at = adjust_bound_datetime_to_schedule_time_zone(
+            start_at,
+            schedule_time_zone_name=description.schedule.spec.time_zone_name,
+            frequency=frequency,
+        )
+
     if end_at is not None:
         end_at = adjust_bound_datetime_to_schedule_time_zone(
             end_at, schedule_time_zone_name=description.schedule.spec.time_zone_name, frequency=frequency
@@ -321,9 +323,20 @@ async def check_temporal_schedule_exists(client: temporalio.client.Client, sched
 
 
 def backfill_range(
-    start_at: dt.datetime, end_at: dt.datetime | None, step: dt.timedelta
-) -> typing.Generator[tuple[dt.datetime, dt.datetime], None, None]:
+    start_at: dt.datetime | None, end_at: dt.datetime | None, step: dt.timedelta
+) -> typing.Generator[tuple[dt.datetime | None, dt.datetime], None, None]:
     """Generate range of dates between start_at and end_at."""
+    if start_at is None:
+        if end_at is None:
+            now = get_utcnow()
+            latest_end_at = now - dt.timedelta(seconds=now.timestamp() % step.total_seconds())
+            yield None, latest_end_at
+
+        else:
+            yield None, end_at
+
+        return
+
     current = start_at
 
     while end_at is None or current < end_at:
@@ -392,7 +405,7 @@ class BackfillBatchExportWorkflow(PostHogWorkflow):
         )
 
         # Temporal requires that we set a timeout.
-        if inputs.end_at is None:
+        if inputs.end_at is None or inputs.start_at is None:
             # Set timeout to a month for now, as unending backfills are an internal feature we are
             # testing for HTTP-based migrations. We'll need to pick a more realistic timeout
             # if we release this to customers.
