@@ -9,7 +9,7 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     category=["Customer Success"],
     hog="""
 if (not match(inputs.webhookUrl, '^https://[^/]+.webhook.office.com/webhookb2/.*')) {
-    throw Error('Invalid url');
+    throw Error('Invalid URL. The URL should match the format: https://<domain>.webhook.office.com/webhookb2/...')
 }
 
 let res := fetch(inputs.webhookUrl, {
