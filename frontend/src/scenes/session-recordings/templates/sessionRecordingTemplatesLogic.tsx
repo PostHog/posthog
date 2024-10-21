@@ -25,7 +25,7 @@ export const replayTemplates: ReplayTemplateType[] = [
                 name: 'Signup page URL',
                 key: 'signup-page-url',
                 value: '/signup',
-                description: 'The URL (or partial URL!) of the page where users sign up.',
+                description: 'The complete or partial URL of the page where users sign up.',
             },
         ],
         categories: ['B2B'],
@@ -39,7 +39,7 @@ export const replayTemplates: ReplayTemplateType[] = [
                 type: 'pageview',
                 name: 'Pricing page URL',
                 key: 'pricing-page-url',
-                description: 'The URL (or partial URL!) of the page where users view your pricing.',
+                description: 'The complete or partial URL of the page where users view your pricing.',
             },
         ],
         categories: ['B2B'],
@@ -54,7 +54,7 @@ export const replayTemplates: ReplayTemplateType[] = [
                 type: 'pageview',
                 name: 'Upgrade / subscribe page URL',
                 key: 'upgrade-subscribe-page-url',
-                description: 'The URL (or partial URL!) of the page where users upgrade to the paid plan.',
+                description: 'The complete or partial URL of the page where users upgrade to the paid plan.',
             },
             {
                 type: 'event',
@@ -74,7 +74,7 @@ export const replayTemplates: ReplayTemplateType[] = [
                 type: 'pageview',
                 name: 'Onboarding page URL',
                 key: 'onboarding-page-url',
-                description: 'The URL (or partial URL!) of the page where users onboard into your product.',
+                description: 'The complete or partial URL of the page where users onboard into your product.',
             },
         ],
         categories: ['B2B'],
@@ -103,7 +103,7 @@ export const replayTemplates: ReplayTemplateType[] = [
                 type: 'pageview',
                 name: 'Purchase page URL',
                 key: 'purchase-page-url',
-                description: 'The URL (or partial URL!) of the page where users make their purchase.',
+                description: 'The complete or partial URL of the page where users make their purchase.',
             },
         ],
         categories: ['B2C'],
@@ -227,6 +227,7 @@ export const sessionReplayTemplatesLogic = kea<sessionReplayTemplatesLogicType>(
                 return filterGroup
             },
         ],
+        areAnyVariablesTouched: [(s) => [s.variables], (variables) => variables.some((v) => v.touched)],
     }),
     listeners(({ values }) => ({
         navigate: () => {

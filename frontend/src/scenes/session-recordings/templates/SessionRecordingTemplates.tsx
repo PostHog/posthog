@@ -20,22 +20,35 @@ const SingleTemplateVariable = ({
     return ['event', 'pageview'].includes(variable.type) ? (
         <div>
             <LemonLabel info={variable.description}>{variable.name}</LemonLabel>
-            <LemonInput placeholder={variable.value} onChange={(e) => setVariable({ ...variable, value: e })} />
+            <LemonInput
+                placeholder={variable.value}
+                onChange={(e) => setVariable({ ...variable, value: e })}
+                size="small"
+            />
         </div>
     ) : null
 }
 
 const TemplateVariables = ({ template }: { template: ReplayTemplateType }): JSX.Element => {
     const { navigate } = useActions(sessionReplayTemplatesLogic({ template }))
-    const { variables } = useValues(sessionReplayTemplatesLogic({ template }))
+    const { variables, areAnyVariablesTouched } = useValues(sessionReplayTemplatesLogic({ template }))
     return (
-        <div>
+        <div className="flex flex-col gap-2">
             {variables.map((variable) => (
                 <SingleTemplateVariable key={variable.key} variable={variable} template={template} />
             ))}
-            <LemonButton onClick={() => navigate()} type="primary" className="mt-2">
-                Apply filters
-            </LemonButton>
+            <div>
+                <LemonButton
+                    onClick={() => navigate()}
+                    type="primary"
+                    className="mt-2"
+                    disabledReason={
+                        !areAnyVariablesTouched ? 'Please set a value for at least one variable' : undefined
+                    }
+                >
+                    Apply filters
+                </LemonButton>
+            </div>
         </div>
     )
 }
@@ -51,6 +64,7 @@ const RecordingTemplateCard = ({ template }: { template: ReplayTemplateType }): 
             }}
             closeable={variablesVisible}
             // TODO IN THIS PR: For some reason, this gets called with the correct template, but the variables don't hide.
+            // The change in selector value isn't triggering a refresh of the LemonCard component.
             onClose={() => hideVariables()}
         >
             <div className="flex flex-col gap-2">
