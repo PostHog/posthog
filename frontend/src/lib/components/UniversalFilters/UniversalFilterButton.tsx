@@ -11,11 +11,10 @@ import React from 'react'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { ActionFilter, AnyPropertyFilter } from '~/types'
+import { ActionFilter, AnyPropertyFilter, UniversalFilterValue } from '~/types'
 
 import { EntityFilterInfo } from '../EntityFilterInfo'
 import { formatPropertyLabel } from '../PropertyFilters/utils'
-import { UniversalFilterValue } from './UniversalFilters'
 import { isActionFilter, isEditableFilter, isEventFilter } from './utils'
 
 export interface UniversalFilterButtonProps {
