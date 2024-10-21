@@ -32,7 +32,7 @@ from posthog.auth import PersonalAPIKeyAuthentication, SharingAccessTokenAuthent
 from posthog.cloud_utils import is_cloud
 from posthog.constants import SESSION_RECORDINGS_FILTER_IDS
 from posthog.event_usage import report_user_action
-from posthog.models import Team, User
+from posthog.models import User
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.person.person import PersonDistinctId
 from posthog.rate_limit import (
@@ -40,7 +40,7 @@ from posthog.rate_limit import (
     ClickHouseSustainedRateThrottle,
     PersonalApiKeyRateThrottle,
 )
-from posthog.schema import HogQLQueryModifiers, QueryTiming
+from posthog.schema import QueryTiming
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.models.session_recording_event import (
     SessionRecordingViewed,
@@ -347,10 +347,8 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                 "Must specify at least one event or action filter",
             )
 
-        distinct_id = str(cast(User, request.user).distinct_id)
-        modifiers = safely_read_modifiers_overrides(distinct_id, self.team)
         matching_events_query_response = ReplayFiltersEventsSubQuery(
-            filter=filter, team=self.team, hogql_query_modifiers=modifiers
+            filter=filter, team=self.team
         ).get_event_ids_for_session()
 
         response = JsonResponse(data={"results": matching_events_query_response.results})
@@ -907,12 +905,9 @@ def list_recordings(
             filter = filter.shallow_clone({SESSION_RECORDINGS_FILTER_IDS: remaining_session_ids})
 
     if (all_session_ids and filter.session_ids) or not all_session_ids:
-        distinct_id = str(cast(User, request.user).distinct_id)
-        modifiers = safely_read_modifiers_overrides(distinct_id, team)
-
         with timer("load_recordings_from_hogql"):
             (ch_session_recordings, more_recordings_available, hogql_timings) = SessionRecordingListFromFilters(
-                filter=filter, team=team, hogql_query_modifiers=modifiers
+                filter=filter, team=team, hogql_query_modifiers=None
             ).run()
 
         with timer("build_recordings"):
@@ -966,32 +961,6 @@ def list_recordings(
         {"results": results, "has_next": more_recordings_available, "version": 3},
         all_timings,
     )
-
-
-def safely_read_modifiers_overrides(distinct_id: str, team: Team) -> HogQLQueryModifiers:
-    modifiers = HogQLQueryModifiers()
-
-    try:
-        groups = {"organization": str(team.organization.id)}
-        flag_key = "HOG_QL_ORG_QUERY_OVERRIDES"
-        flags_n_bags = posthoganalytics.get_all_flags_and_payloads(
-            distinct_id,
-            groups=groups,
-        )
-        # this loads nothing whereas the payload is available
-        # modifier_overrides = posthoganalytics.get_feature_flag_payload(
-        #     flag_key,
-        #     distinct_id,
-        #     groups=groups,
-        # )
-        modifier_overrides = (flags_n_bags or {}).get("featureFlagPayloads", {}).get(flag_key, None)
-        if modifier_overrides:
-            modifiers.optimizeJoinedFilters = json.loads(modifier_overrides).get("optimizeJoinedFilters", None)
-    except:
-        # be extra safe
-        pass
-
-    return modifiers
 
 
 def _generate_timings(hogql_timings: list[QueryTiming] | None, timer: ServerTimingsGathered) -> dict[str, float]:

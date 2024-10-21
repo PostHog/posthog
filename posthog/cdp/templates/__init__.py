@@ -8,6 +8,7 @@ from .sendgrid.template_sendgrid import template as sendgrid, TemplateSendGridMi
 from .clearbit.template_clearbit import template as clearbit
 from .posthog.template_posthog import template as posthog, TemplatePostHogMigrator
 from .aws_kinesis.template_aws_kinesis import template as aws_kinesis
+from .discord.template_discord import template as discord
 from .salesforce.template_salesforce import template_create as salesforce_create, template_update as salesforce_update
 from .mailjet.template_mailjet import (
     template_create_contact as mailjet_create_contact,
@@ -46,6 +47,7 @@ HOG_FUNCTION_TEMPLATES = [
     braze,
     clearbit,
     customerio,
+    discord,
     engage,
     gleap,
     google_ads,
