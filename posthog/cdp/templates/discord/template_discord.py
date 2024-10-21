@@ -9,7 +9,7 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     category=["Customer Success"],
     hog="""
 if (not match(inputs.webhookUrl, '^https://discord.com/api/webhooks/.*')) {
-    throw Error('Invalid url');
+    throw Error('Invalid URL. The URL should match the format: https://discord.com/api/webhooks/...')
 }
 
 let res := fetch(inputs.webhookUrl, {
