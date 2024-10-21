@@ -200,11 +200,7 @@ class Team(UUIDClassicModel):
         related_query_name="team",
     )
     project = models.ForeignKey(
-        "posthog.Project",
-        on_delete=models.CASCADE,
-        related_name="teams",
-        related_query_name="team",
-        null=True,
+        "posthog.Project", on_delete=models.CASCADE, related_name="teams", related_query_name="team"
     )
     api_token = models.CharField(
         max_length=200,
@@ -286,7 +282,7 @@ class Team(UUIDClassicModel):
     # during feature releases.
     extra_settings = models.JSONField(null=True, blank=True)
 
-    # Project level default HogQL query modifiers
+    # Environment-level default HogQL query modifiers
     modifiers = models.JSONField(null=True, blank=True)
 
     # This is meant to be used as a stopgap until https://github.com/PostHog/meta/pull/39 gets implemented
