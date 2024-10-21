@@ -24,7 +24,7 @@ const getPageviewFilterValue = (pageview: string): UniversalFiltersGroupValue =>
     }
 }
 
-type ReplayTemplateLogicPropsType = {
+export interface ReplayTemplateLogicPropsType {
     template: ReplayTemplateType
 }
 
@@ -41,7 +41,7 @@ export const sessionReplayTemplatesLogic = kea<sessionReplayTemplatesLogicType>(
     }),
     reducers(({ props }) => ({
         variables: [
-            props.template.variables as ReplayTemplateVariableType[],
+            props.template.variables,
             {
                 setVariables: (_, { variables }) => variables,
                 setVariable: (state, { variable }) =>

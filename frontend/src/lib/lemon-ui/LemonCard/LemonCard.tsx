@@ -37,7 +37,8 @@ export function LemonCard({
                 <div className="absolute top-2 right-2">
                     <LemonButton
                         icon={<IconX />}
-                        onClick={() => {
+                        onClick={(e) => {
+                            e.stopPropagation()
                             onClose?.()
                         }}
                         type="tertiary"

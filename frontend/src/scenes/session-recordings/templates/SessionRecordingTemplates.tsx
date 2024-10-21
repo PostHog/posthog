@@ -124,6 +124,7 @@ const TemplateVariables = ({ template }: { template: ReplayTemplateType }): JSX.
 const RecordingTemplateCard = ({ template }: { template: ReplayTemplateType }): JSX.Element => {
     const { showVariables, hideVariables, navigate } = useActions(sessionReplayTemplatesLogic({ template }))
     const { variablesVisible, variables } = useValues(sessionReplayTemplatesLogic({ template }))
+
     return (
         <LemonCard
             className="w-80"
@@ -131,9 +132,7 @@ const RecordingTemplateCard = ({ template }: { template: ReplayTemplateType }): 
                 variables.length > 0 ? showVariables() : navigate()
             }}
             closeable={variablesVisible}
-            // TODO IN THIS PR: For some reason, this gets called with the correct template, but the variables don't hide.
-            // The change in selector value isn't triggering a refresh of the LemonCard component.
-            onClose={() => hideVariables()}
+            onClose={hideVariables}
         >
             <div className="flex flex-col gap-2">
                 <h3>
