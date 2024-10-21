@@ -11,7 +11,7 @@ from langchain_core.exceptions import OutputParserException
 from langchain_core.messages import AIMessage, BaseMessage, merge_message_runs
 from langchain_core.output_parsers import PydanticOutputParser
 from langchain_core.prompts import ChatPromptTemplate, HumanMessagePromptTemplate
-from langchain_core.runnables import RunnableConfig, RunnableLambda, RunnablePassthrough
+from langchain_core.runnables import RunnableConfig, RunnableLambda
 from langchain_openai import ChatOpenAI
 from pydantic import ValidationError
 
@@ -160,15 +160,7 @@ class CreateTrendsPlanNode(AssistantNode):
         output_parser = ReActJsonSingleInputOutputParser()
         merger = merge_message_runs()
 
-        agent = (
-            RunnablePassthrough.assign(
-                agent_scratchpad=lambda x: format_log_to_str(x["intermediate_steps"]),
-            )
-            | prompt
-            | merger
-            | ChatOpenAI(model="gpt-4o", temperature=0.7, streaming=True)
-            | output_parser
-        )
+        agent = prompt | merger | ChatOpenAI(model="gpt-4o", temperature=0.7, streaming=True) | output_parser
 
         try:
             result = cast(
@@ -177,7 +169,7 @@ class CreateTrendsPlanNode(AssistantNode):
                     {
                         "tools": toolkit.render_text_description(),
                         "tool_names": ", ".join([t["name"] for t in toolkit.tools]),
-                        "intermediate_steps": intermediate_steps,
+                        "agent_scratchpad": format_log_to_str(intermediate_steps),
                     },
                     config,
                 ),

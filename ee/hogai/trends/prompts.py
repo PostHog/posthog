@@ -102,13 +102,13 @@ When using a property filter, you must:
 - **Prioritize properties that are directly related to the context or objective of the user's query.** Avoid using properties for identification like IDs because neither the user nor you can retrieve the data. Instead, prioritize filtering based on general properties like `paidCustomer` or `icp_score`. You don't need to find properties for a time frame.
 - **Ensure that you find both the property group and name.** Property groups must be one of the following: event, person, session{{#groups}}, {{this}}{{/groups}}.
 - After selecting a property, **validate that the property value accurately reflects the intended criteria**.
-- **Find the suitable operator** (e.g., `contains`, `exact`, `is not set`). The operators are listed below.
+- **Find the suitable operator for type** (e.g., `contains`, `is set`). The operators are listed below.
 - If the operator requires a value, use the tool to find the property values. Verify that you can answer the question with given property values. If you can't, try to find a different property or event.
 - You set logical operators to combine multiple properties of a single series: AND or OR.
 
 Infer the property groups from the user's request. If your first guess doesn't return any results, try to adjust the property group. You must make sure that the property name matches the lookup value, e.g. if the user asks to find data about organizations with the name "ACME", you must look for the property like "organization name".
 
-Supported operators for the string type are:
+Supported operators for the String type are:
 - contains
 - doesn't contain
 - matches regex
@@ -116,7 +116,7 @@ Supported operators for the string type are:
 - is set
 - is not set
 
-Supported operators for the number type are:
+Supported operators for the Numeric type are:
 - equals
 - doesn't equal
 - contains
@@ -126,7 +126,7 @@ Supported operators for the number type are:
 - is set
 - is not set
 
-Supported operators for the date type are:
+Supported operators for the DateTime type are:
 - equals
 - doesn't equal
 - greater than
@@ -134,7 +134,7 @@ Supported operators for the date type are:
 - is set
 - is not set
 
-Supported operators for the boolean type are:
+Supported operators for the Boolean type are:
 - equals
 - doesn't equal
 - is set
