@@ -90,7 +90,8 @@ export const sessionReplayTemplatesLogic = kea<sessionReplayTemplatesLogicType>(
     }),
     listeners(({ values }) => ({
         navigate: () => {
-            router.actions.push(urls.replay(ReplayTabs.Home, values.filterGroup))
+            const filterGroup = values.variables.length > 0 ? values.filterGroup : undefined
+            router.actions.push(urls.replay(ReplayTabs.Home, filterGroup))
         },
     })),
     events(({ actions, props }) => ({
