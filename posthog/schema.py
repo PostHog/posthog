@@ -683,12 +683,6 @@ class MaterializationMode(StrEnum):
     DISABLED = "disabled"
 
 
-class PersonsArgMaxVersion(StrEnum):
-    AUTO = "auto"
-    V1 = "v1"
-    V2 = "v2"
-
-
 class PersonsJoinMode(StrEnum):
     INNER = "inner"
     LEFT = "left"
@@ -722,8 +716,6 @@ class HogQLQueryModifiers(BaseModel):
     debug: Optional[bool] = None
     inCohortVia: Optional[InCohortVia] = None
     materializationMode: Optional[MaterializationMode] = None
-    optimizeJoinedFilters: Optional[bool] = None
-    personsArgMaxVersion: Optional[PersonsArgMaxVersion] = None
     personsJoinMode: Optional[PersonsJoinMode] = None
     personsOnEventsMode: Optional[PersonsOnEventsMode] = None
     propertyGroupsMode: Optional[PropertyGroupsMode] = None

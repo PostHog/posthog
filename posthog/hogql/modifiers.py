@@ -7,7 +7,6 @@ from posthog.schema import (
     HogQLQueryModifiers,
     InCohortVia,
     MaterializationMode,
-    PersonsArgMaxVersion,
     BounceRatePageViewMode,
     PropertyGroupsMode,
     SessionTableVersion,
@@ -61,17 +60,11 @@ def set_default_modifier_values(modifiers: HogQLQueryModifiers, team: "Team"):
     if modifiers.personsOnEventsMode is None:
         modifiers.personsOnEventsMode = team.person_on_events_mode_flag_based_default
 
-    if modifiers.personsArgMaxVersion is None:
-        modifiers.personsArgMaxVersion = PersonsArgMaxVersion.AUTO
-
     if modifiers.inCohortVia is None:
         modifiers.inCohortVia = InCohortVia.AUTO
 
     if modifiers.materializationMode is None or modifiers.materializationMode == MaterializationMode.AUTO:
         modifiers.materializationMode = MaterializationMode.LEGACY_NULL_AS_NULL
-
-    if modifiers.optimizeJoinedFilters is None:
-        modifiers.optimizeJoinedFilters = False
 
     if modifiers.bounceRatePageViewMode is None:
         modifiers.bounceRatePageViewMode = BounceRatePageViewMode.COUNT_PAGEVIEWS

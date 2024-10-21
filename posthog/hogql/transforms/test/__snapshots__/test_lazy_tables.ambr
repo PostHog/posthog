@@ -23,7 +23,7 @@
   
   SELECT persons__events.event AS event 
   FROM (
-  SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), person.version) AS persons___properties___email, person.id AS id 
+  SELECT person.id AS id, argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), person.version) AS persons___properties___email 
   FROM person 
   WHERE equals(person.team_id, 420) 
   GROUP BY person.id 
@@ -45,7 +45,7 @@
   WHERE and(equals(cohortpeople.team_id, 420), 0)) AS cohort_people LEFT JOIN (
   SELECT persons.id AS id, persons.properties___email AS cohort_people__new_person___properties___email 
   FROM (
-  SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), person.version) AS properties___email, person.id AS id 
+  SELECT person.id AS id, argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), person.version) AS properties___email 
   FROM person 
   WHERE equals(person.team_id, 420) 
   GROUP BY person.id 
@@ -59,7 +59,7 @@
   
   SELECT persons.id AS id, persons.properties___email AS email, persons.`properties___$browser` AS `$browser` 
   FROM (
-  SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), person.version) AS properties___email, argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_1)s), ''), 'null'), '^"|"$', ''), person.version) AS `properties___$browser`, person.id AS id 
+  SELECT person.id AS id, argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), person.version) AS properties___email, argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_1)s), ''), 'null'), '^"|"$', ''), person.version) AS `properties___$browser` 
   FROM person 
   WHERE equals(person.team_id, 420) 
   GROUP BY person.id 
@@ -79,7 +79,7 @@
   GROUP BY person_distinct_id_overrides.distinct_id 
   HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) 
   SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id) LEFT JOIN (
-  SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), person.version) AS properties___email, person.id AS id 
+  SELECT person.id AS id, argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), person.version) AS properties___email 
   FROM person 
   WHERE equals(person.team_id, 420) 
   GROUP BY person.id 
@@ -100,7 +100,7 @@
   GROUP BY person_distinct_id_overrides.distinct_id 
   HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) 
   SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id) LEFT JOIN (
-  SELECT argMax(person.properties, person.version) AS properties, person.id AS id 
+  SELECT person.id AS id, argMax(person.properties, person.version) AS properties 
   FROM person 
   WHERE equals(person.team_id, 420) 
   GROUP BY person.id 
@@ -157,7 +157,7 @@
   GROUP BY person_distinct_id2.distinct_id 
   HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) 
   SETTINGS optimize_aggregation_in_order=1) AS person_distinct_ids LEFT JOIN (
-  SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), person.version) AS `properties___$browser`, person.id AS id 
+  SELECT person.id AS id, argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), person.version) AS `properties___$browser` 
   FROM person 
   WHERE equals(person.team_id, 420) 
   GROUP BY person.id 
@@ -177,7 +177,7 @@
   GROUP BY person_distinct_id2.distinct_id 
   HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) 
   SETTINGS optimize_aggregation_in_order=1) AS person_distinct_ids LEFT JOIN (
-  SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s, %(hogql_val_1)s, %(hogql_val_2)s), ''), 'null'), '^"|"$', ''), person.version) AS `properties___$browser___in___json`, person.id AS id 
+  SELECT person.id AS id, argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s, %(hogql_val_1)s, %(hogql_val_2)s), ''), 'null'), '^"|"$', ''), person.version) AS `properties___$browser___in___json` 
   FROM person 
   WHERE equals(person.team_id, 420) 
   GROUP BY person.id 
@@ -233,7 +233,7 @@
   GROUP BY person_distinct_id2.distinct_id 
   HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) 
   SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id) LEFT JOIN (
-  SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), person.version) AS `properties___$browser`, person.id AS id 
+  SELECT person.id AS id, argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), person.version) AS `properties___$browser` 
   FROM person 
   WHERE equals(person.team_id, 420) 
   GROUP BY person.id 
@@ -254,7 +254,7 @@
   GROUP BY person_distinct_id_overrides.distinct_id 
   HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) 
   SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id) LEFT JOIN (
-  SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), person.version) AS properties___name, argMax(person.properties, person.version) AS properties, person.id AS id 
+  SELECT person.id AS id, argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), person.version) AS properties___name, argMax(person.properties, person.version) AS properties 
   FROM person 
   WHERE equals(person.team_id, 420) 
   GROUP BY person.id 
