@@ -9,7 +9,6 @@ export const KAFKA_EVENTS_JSON = `${prefix}clickhouse_events_json${suffix}`
 export const KAFKA_PERSON = `${prefix}clickhouse_person${suffix}`
 export const KAFKA_PERSON_UNIQUE_ID = `${prefix}clickhouse_person_unique_id${suffix}`
 export const KAFKA_PERSON_DISTINCT_ID = `${prefix}clickhouse_person_distinct_id${suffix}`
-export const KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT = `${prefix}clickhouse_error_tracking_issue_fingerprint${suffix}`
 
 export const KAFKA_EVENTS_PLUGIN_INGESTION = `${prefix}events_plugin_ingestion${suffix}`
 export const KAFKA_EVENTS_PLUGIN_INGESTION_DLQ = `${prefix}events_plugin_ingestion_dlq${suffix}`
@@ -39,8 +38,6 @@ export const KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS = `${prefix}clickhouse_sessi
 export const KAFKA_PERFORMANCE_EVENTS = `${prefix}clickhouse_performance_events${suffix}`
 // write heatmap events to ClickHouse
 export const KAFKA_CLICKHOUSE_HEATMAP_EVENTS = `${prefix}clickhouse_heatmap_events${suffix}`
-// write exception events to ClickHouse
-export const KAFKA_EXCEPTION_SYMBOLIFICATION_EVENTS = `${prefix}exception_symbolification_events${suffix}`
 
 // log entries for ingestion into ClickHouse
 export const KAFKA_LOG_ENTRIES = `${prefix}log_entries${suffix}`
@@ -48,3 +45,7 @@ export const KAFKA_LOG_ENTRIES = `${prefix}log_entries${suffix}`
 // CDP topics
 export const KAFKA_CDP_FUNCTION_CALLBACKS = `${prefix}cdp_function_callbacks${suffix}`
 export const KAFKA_CDP_FUNCTION_OVERFLOW = `${prefix}cdp_function_overflow${suffix}`
+
+// Error tracking topics
+export const KAFKA_EXCEPTION_SYMBOLIFICATION_EVENTS = `${prefix}exception_symbolification_events${suffix}`
+export const KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT = `${prefix}clickhouse_error_tracking_issue_fingerprint${suffix}`

@@ -5,8 +5,8 @@ from posthog.kafka_client.topics import KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
 
 #
-# error_tracking_issue_fingerprint_overrides: This table contains rows for all (team_id,
-# fingerprint) pairs where the $exception_issue_id has changed.
+# error_tracking_issue_fingerprint_overrides: This table contains rows for all (team_id, fingerprint)
+# pairs where the $exception_issue_id has changed.
 #
 
 ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE = "error_tracking_issue_fingerprint_overrides"
