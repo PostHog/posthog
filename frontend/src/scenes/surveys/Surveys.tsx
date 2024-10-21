@@ -22,19 +22,24 @@ import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { More } from 'lib/lemon-ui/LemonButton/More'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import stringWithWBR from 'lib/utils/stringWithWBR'
+import { useState } from 'react'
 import { LinkedHogFunctions } from 'scenes/pipeline/hogfunctions/list/LinkedHogFunctions'
 import { SceneExport } from 'scenes/sceneTypes'
+import { SurveyAppearancePreview } from 'scenes/surveys/SurveyAppearancePreview'
+import { Customization } from 'scenes/surveys/SurveyCustomization'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { ActivityScope, ProductKey, ProgressStatus, Survey } from '~/types'
 
-import { SurveyQuestionLabel } from './constants'
+import { defaultSurveyAppearance, NEW_SURVEY, SurveyQuestionLabel } from './constants'
 import { openSurveysSettingsDialog } from './SurveySettings'
 import { getSurveyStatus, surveysLogic, SurveysTabs } from './surveysLogic'
 
@@ -54,10 +59,23 @@ export function Surveys(): JSX.Element {
         filters,
         showSurveysDisabledBanner,
         tab,
+        globalSurveyAppearanceConfigAvailable,
     } = useValues(surveysLogic)
 
     const { deleteSurvey, updateSurvey, setSearchTerm, setSurveysFilters, setTab } = useActions(surveysLogic)
+
     const { user } = useValues(userLogic)
+    const { updateCurrentTeam } = useActions(teamLogic)
+    const { currentTeam } = useValues(teamLogic)
+    const [editableSurveyConfig, setEditableSurveyConfig] = useState(
+        currentTeam?.survey_config?.appearance || defaultSurveyAppearance
+    )
+
+    const [templatedSurvey, setTemplatedSurvey] = useState(NEW_SURVEY)
+
+    if (templatedSurvey.appearance === defaultSurveyAppearance) {
+        templatedSurvey.appearance = editableSurveyConfig
+    }
     const shouldShowEmptyState = !surveysLoading && surveys.length === 0
     const showLinkedHogFunctions = useFeatureFlag('HOG_FUNCTIONS_LINKED')
 
@@ -111,12 +129,65 @@ export function Surveys(): JSX.Element {
                     { key: SurveysTabs.Archived, label: 'Archived' },
                     showLinkedHogFunctions ? { key: SurveysTabs.Notifications, label: 'Notifications' } : null,
                     { key: SurveysTabs.History, label: 'History' },
+                    globalSurveyAppearanceConfigAvailable ? { key: SurveysTabs.Settings, label: 'Settings' } : null,
                 ]}
             />
+            {tab === SurveysTabs.Settings && (
+                <>
+                    <div className="flex items-center mb-2 gap-2">
+                        <LemonField.Pure className="mt-2" label="Appearance">
+                            <span>These settings apply to new surveys in this organization.</span>
+                        </LemonField.Pure>
 
-            {tab === SurveysTabs.History ? (
-                <ActivityLog scope={ActivityScope.SURVEY} />
-            ) : tab === SurveysTabs.Notifications ? (
+                        <div className="flex-1" />
+                        {globalSurveyAppearanceConfigAvailable && (
+                            <LemonButton
+                                type="primary"
+                                onClick={() => {
+                                    updateCurrentTeam({
+                                        survey_config: {
+                                            ...currentTeam?.survey_config,
+                                            appearance: {
+                                                ...currentTeam?.survey_config?.appearance,
+                                                ...editableSurveyConfig,
+                                            },
+                                        },
+                                    })
+                                }}
+                            >
+                                Save settings
+                            </LemonButton>
+                        )}
+                    </div>
+                    <LemonDivider />
+                    <div className="flex align-top mb-2 gap-2">
+                        <Customization
+                            key="survey-settings-customization"
+                            appearance={editableSurveyConfig}
+                            hasBranchingLogic={false}
+                            customizeRatingButtons={true}
+                            customizePlaceholderText={true}
+                            onAppearanceChange={(appearance) => {
+                                setEditableSurveyConfig({
+                                    ...editableSurveyConfig,
+                                    ...appearance,
+                                })
+                                setTemplatedSurvey({
+                                    ...templatedSurvey,
+                                    ...{ appearance: appearance },
+                                })
+                            }}
+                        />
+                        <div className="flex-1" />
+                        <div className="mt-10 mr-5">
+                            {globalSurveyAppearanceConfigAvailable && (
+                                <SurveyAppearancePreview survey={templatedSurvey} previewPageIndex={0} />
+                            )}
+                        </div>
+                    </div>
+                </>
+            )}
+            {tab === SurveysTabs.Notifications && (
                 <>
                     <p>Get notified whenever a survey result is submitted</p>
                     <LinkedHogFunctions
@@ -132,7 +203,11 @@ export function Surveys(): JSX.Element {
                         }}
                     />
                 </>
-            ) : (
+            )}
+
+            {tab === SurveysTabs.History && <ActivityLog scope={ActivityScope.SURVEY} />}
+
+            {(tab === SurveysTabs.Active || tab === SurveysTabs.Archived) && (
                 <>
                     <div className="space-y-2">
                         <VersionCheckerBanner />

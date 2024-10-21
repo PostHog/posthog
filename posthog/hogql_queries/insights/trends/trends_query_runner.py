@@ -641,7 +641,7 @@ class TrendsQueryRunner(QueryRunner):
             return series.event
         if isinstance(series, ActionsNode):
             # TODO: Can we load the Action in more efficiently?
-            action = Action.objects.get(pk=int(series.id), team=self.team)
+            action = Action.objects.get(pk=int(series.id), team__project_id=self.team.project_id)
             return action.name
 
         if isinstance(series, DataWarehouseNode):

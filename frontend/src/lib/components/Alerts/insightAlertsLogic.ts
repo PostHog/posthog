@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
-import { GoalLine } from '~/queries/schema'
+import { AlertConditionType, GoalLine, InsightThresholdType } from '~/queries/schema'
 import { getBreakdown, isInsightVizNode, isTrendsQuery } from '~/queries/utils'
 import { InsightLogicProps } from '~/types'
 
@@ -65,21 +65,28 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
             (s) => [s.alerts],
             (alerts: AlertType[]): GoalLine[] =>
                 alerts.flatMap((alert) => {
+                    if (
+                        alert.threshold.configuration.type !== InsightThresholdType.ABSOLUTE ||
+                        alert.condition.type !== AlertConditionType.ABSOLUTE_VALUE ||
+                        !alert.threshold.configuration.bounds
+                    ) {
+                        return []
+                    }
+
+                    const bounds = alert.threshold.configuration.bounds
+
                     const thresholds = []
-
-                    const absoluteThreshold = alert.threshold.configuration.absoluteThreshold
-
-                    if (absoluteThreshold?.upper !== undefined) {
+                    if (bounds?.upper !== undefined) {
                         thresholds.push({
                             label: `${alert.name} Upper Threshold`,
-                            value: absoluteThreshold?.upper,
+                            value: bounds?.upper,
                         })
                     }
 
-                    if (absoluteThreshold?.lower !== undefined) {
+                    if (bounds?.lower !== undefined) {
                         thresholds.push({
                             label: `${alert.name} Lower Threshold`,
-                            value: absoluteThreshold?.lower,
+                            value: bounds?.lower,
                         })
                     }
 

@@ -11,6 +11,10 @@ from posthog.temporal.data_imports.workflow_activities.check_billing_limits impo
     CheckBillingLimitsActivityInputs,
     check_billing_limits_activity,
 )
+from posthog.temporal.data_imports.workflow_activities.sync_new_schemas import (
+    SyncNewSchemasActivityInputs,
+    sync_new_schemas_activity,
+)
 from posthog.temporal.utils import ExternalDataWorkflowInputs
 from posthog.temporal.data_imports.workflow_activities.create_job_model import (
     CreateExternalDataJobModelActivityInputs,
@@ -152,7 +156,6 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             source_id=inputs.external_data_source_id,
         )
 
-        # TODO: split out the creation of the external data job model from schema getting to seperate out exception handling
         job_id, incremental = await workflow.execute_activity(
             create_external_data_job_model_activity,
             create_external_data_job_inputs,
@@ -161,7 +164,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 initial_interval=dt.timedelta(seconds=10),
                 maximum_interval=dt.timedelta(seconds=60),
                 maximum_attempts=3,
-                non_retryable_error_types=["NotNullViolation", "IntegrityError", "BaseSSHTunnelForwarderError"],
+                non_retryable_error_types=["NotNullViolation", "IntegrityError"],
             ),
         )
 
@@ -191,6 +194,18 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
         )
 
         try:
+            await workflow.execute_activity(
+                sync_new_schemas_activity,
+                SyncNewSchemasActivityInputs(source_id=str(inputs.external_data_source_id), team_id=inputs.team_id),
+                start_to_close_timeout=dt.timedelta(minutes=10),
+                retry_policy=RetryPolicy(
+                    initial_interval=dt.timedelta(seconds=10),
+                    maximum_interval=dt.timedelta(seconds=60),
+                    maximum_attempts=3,
+                    non_retryable_error_types=["NotNullViolation", "IntegrityError", "BaseSSHTunnelForwarderError"],
+                ),
+            )
+
             job_inputs = ImportDataActivityInputs(
                 team_id=inputs.team_id,
                 run_id=job_id,

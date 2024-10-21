@@ -63,7 +63,7 @@ async def assert_clickhouse_records_in_redshfit(
     data_interval_end: dt.datetime,
     exclude_events: list[str] | None = None,
     include_events: list[str] | None = None,
-    use_super_type: bool = False,
+    properties_data_type: str = "varchar",
     sort_key: str = "event",
     is_backfill: bool = False,
 ):
@@ -90,14 +90,25 @@ async def assert_clickhouse_records_in_redshfit(
         team_id: The ID of the team that we are testing events for.
         batch_export_schema: Custom schema used in the batch export.
     """
-    inserted_records = []
+    super_columns = ["properties", "set", "set_once", "person_properties"]
 
+    inserted_records = []
     async with redshift_connection.cursor() as cursor:
         await cursor.execute(sql.SQL("SELECT * FROM {}").format(sql.Identifier(schema_name, table_name)))
         columns = [column.name for column in cursor.description]
 
         for row in await cursor.fetchall():
             event = dict(zip(columns, row))
+
+            for column in super_columns:
+                # When reading a SUPER type field we read it as a str.
+                # But Redshift will remove all unquoted whitespace, so
+                # '{"prop": 1, "prop": 2}' in CH becomes '{"prop":1,"prop":2}' in Redshift.
+                # To make comparison easier we load them as JSON even if we don't have
+                # properties_data_type set to SUPER, thus they are both dicts.
+                if column in event and event.get(column, None) is not None:
+                    event[column] = json.loads(event[column])
+
             inserted_records.append(event)
 
     schema_column_names = [field["alias"] for field in redshift_default_fields()]
@@ -110,9 +121,15 @@ async def assert_clickhouse_records_in_redshfit(
         if batch_export_schema is not None:
             schema_column_names = [field["alias"] for field in batch_export_schema["fields"]]
         elif isinstance(batch_export_model, BatchExportModel) and batch_export_model.name == "persons":
-            schema_column_names = ["team_id", "distinct_id", "person_id", "properties", "version", "_inserted_at"]
-
-    super_columns = ["properties", "set", "set_once", "person_properties"]
+            schema_column_names = [
+                "team_id",
+                "distinct_id",
+                "person_id",
+                "properties",
+                "person_distinct_id_version",
+                "person_version",
+                "_inserted_at",
+            ]
 
     expected_records = []
     async for record_batch in iter_model_records(
@@ -134,12 +151,10 @@ async def assert_clickhouse_records_in_redshfit(
                     # _inserted_at is not exported, only used for tracking progress.
                     continue
 
-                if k in super_columns and v is not None:
-                    expected_record[k] = json.dumps(
-                        remove_escaped_whitespace_recursive(json.loads(v)), ensure_ascii=False
-                    )
+                elif k in super_columns and v is not None:
+                    expected_record[k] = remove_escaped_whitespace_recursive(json.loads(v))
                 elif isinstance(v, dt.datetime):
-                    expected_record[k] = v.replace(tzinfo=dt.UTC)  # type: ignore
+                    expected_record[k] = v.replace(tzinfo=dt.UTC)
                 else:
                     expected_record[k] = v
 
@@ -214,6 +229,15 @@ async def psycopg_connection(redshift_config, setup_postgres_test_db):
     await connection.close()
 
 
+@pytest.fixture
+def properties_data_type(request) -> str:
+    """A parametrizable fixture to configure the `str` `properties_data_type` setting."""
+    try:
+        return request.param
+    except AttributeError:
+        return "varchar"
+
+
 TEST_MODELS: list[BatchExportModel | BatchExportSchema | None] = [
     BatchExportModel(
         name="a-custom-model",
@@ -241,6 +265,7 @@ TEST_MODELS: list[BatchExportModel | BatchExportSchema | None] = [
 
 
 @pytest.mark.parametrize("exclude_events", [None, ["test-exclude"]], indirect=True)
+@pytest.mark.parametrize("properties_data_type", ["super", "varchar"], indirect=True)
 @pytest.mark.parametrize("model", TEST_MODELS)
 async def test_insert_into_redshift_activity_inserts_data_into_redshift_table(
     clickhouse_client,
@@ -252,6 +277,7 @@ async def test_insert_into_redshift_activity_inserts_data_into_redshift_table(
     generate_test_data,
     data_interval_start,
     data_interval_end,
+    properties_data_type,
     ateam,
 ):
     """Test that the insert_into_redshift_activity function inserts data into a Redshift table.
@@ -272,6 +298,9 @@ async def test_insert_into_redshift_activity_inserts_data_into_redshift_table(
 
     if isinstance(model, BatchExportModel) and model.name == "persons" and MISSING_REQUIRED_ENV_VARS:
         pytest.skip("Persons batch export cannot be tested in PostgreSQL")
+
+    if properties_data_type == "super" and MISSING_REQUIRED_ENV_VARS:
+        pytest.skip("SUPER type is only available in Redshift")
 
     await generate_test_events_in_clickhouse(
         client=clickhouse_client,
@@ -307,6 +336,7 @@ async def test_insert_into_redshift_activity_inserts_data_into_redshift_table(
         exclude_events=exclude_events,
         batch_export_schema=batch_export_schema,
         batch_export_model=batch_export_model,
+        properties_data_type=properties_data_type,
         **redshift_config,
     )
 
@@ -322,6 +352,7 @@ async def test_insert_into_redshift_activity_inserts_data_into_redshift_table(
         data_interval_end=data_interval_end,
         batch_export_model=model,
         exclude_events=exclude_events,
+        properties_data_type=properties_data_type,
         sort_key="person_id" if batch_export_model is not None and batch_export_model.name == "persons" else "event",
     )
 

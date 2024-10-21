@@ -246,6 +246,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             "request": request,
             "user_permissions": UserPermissions(cast(User, request.user), resource.team),
             "is_shared": True,
+            "get_team": lambda: resource.team,
         }
         exported_data: dict[str, Any] = {"type": "embed" if embedded else "scene"}
 

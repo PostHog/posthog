@@ -37,6 +37,7 @@ import type {
     DatabaseSchemaField,
     HogQLQuery,
     HogQLQueryModifiers,
+    HogQLVariable,
     InsightVizNode,
     Node,
     QueryStatus,
@@ -484,6 +485,9 @@ export interface ProjectType extends ProjectBasicType {
     created_at: string
 }
 
+export interface TeamSurveyConfigType {
+    appearance?: SurveyAppearance
+}
 export interface TeamType extends TeamBasicType {
     created_at: string
     updated_at: string
@@ -505,9 +509,11 @@ export interface TeamType extends TeamBasicType {
         | undefined
         | null
     session_replay_config: { record_canvas?: boolean; ai_config?: SessionRecordingAIConfig } | undefined | null
+    survey_config?: TeamSurveyConfigType
     autocapture_exceptions_opt_in: boolean
     autocapture_web_vitals_opt_in?: boolean
     autocapture_web_vitals_allowed_metrics?: SupportedWebVitalsMetrics[]
+    session_recording_url_trigger_config?: SessionReplayUrlTriggerConfig[]
     surveys_opt_in?: boolean
     heatmaps_opt_in?: boolean
     autocapture_exceptions_errors_to_ignore: string[]
@@ -705,6 +711,7 @@ export enum PipelineNodeTab {
     History = 'history',
     Schemas = 'schemas',
     Syncs = 'syncs',
+    SourceConfiguration = 'source configuration',
 }
 
 export enum ProgressStatus {
@@ -1819,6 +1826,7 @@ export type DashboardTemplateScope = 'team' | 'global' | 'feature_flag'
 export interface DashboardType<T = InsightModel> extends DashboardBasicType {
     tiles: DashboardTile<T>[]
     filters: DashboardFilter
+    variables?: Record<string, HogQLVariable>
 }
 
 export enum TemplateAvailabilityContext {
@@ -2657,6 +2665,8 @@ export interface InsightLogicProps<T = InsightVizNode> {
 
     /** Dashboard filters to override the ones in the query */
     filtersOverride?: DashboardFilter | null
+    /** Dashboard variables to override the ones in the query */
+    variablesOverride?: Record<string, HogQLVariable> | null
 }
 
 export interface SetInsightOptions {
@@ -3650,7 +3660,13 @@ export enum EventDefinitionType {
     EventPostHog = 'event_posthog',
 }
 
-export type IntegrationKind = 'slack' | 'salesforce' | 'hubspot' | 'google-pubsub' | 'google-cloud-storage'
+export type IntegrationKind =
+    | 'slack'
+    | 'salesforce'
+    | 'hubspot'
+    | 'google-pubsub'
+    | 'google-cloud-storage'
+    | 'google-ads'
 
 export interface IntegrationType {
     id: number
@@ -3822,6 +3838,7 @@ export enum ActivityScope {
     INSIGHT = 'Insight',
     PLUGIN = 'Plugin',
     PLUGIN_CONFIG = 'PluginConfig',
+    HOG_FUNCTION = 'HogFunction',
     DATA_MANAGEMENT = 'DataManagement',
     EVENT_DEFINITION = 'EventDefinition',
     PROPERTY_DEFINITION = 'PropertyDefinition',
@@ -3913,7 +3930,7 @@ export interface DataWarehouseTable {
     format: DataWarehouseTableTypes
     url_pattern: string
     credential: DataWarehouseCredential
-    external_data_source?: ExternalDataStripeSource
+    external_data_source?: ExternalDataSource
     external_schema?: SimpleExternalDataSourceSchema
 }
 
@@ -3969,7 +3986,7 @@ export interface ExternalDataSourceCreatePayload {
     prefix: string
     payload: Record<string, any>
 }
-export interface ExternalDataStripeSource {
+export interface ExternalDataSource {
     id: string
     source_id: string
     connection_id: string
@@ -3979,6 +3996,7 @@ export interface ExternalDataStripeSource {
     last_run_at?: Dayjs
     schemas: ExternalDataSourceSchema[]
     sync_frequency: DataWarehouseSyncInterval
+    job_inputs: Record<string, any>
 }
 export interface SimpleExternalDataSourceSchema {
     id: string
@@ -4362,8 +4380,6 @@ export interface SourceConfig {
     caption: string | React.ReactNode
     fields: SourceFieldConfig[]
     disabledReason?: string | null
-    showPrefix?: (payload: Record<string, any>) => boolean
-    showSourceForm?: (payload: Record<string, any>) => boolean
     oauthPayload?: string[]
 }
 
@@ -4592,4 +4608,9 @@ export type AppMetricsV2RequestParams = {
     kind?: string
     interval?: 'hour' | 'day' | 'week'
     breakdown_by?: 'name' | 'kind'
+}
+
+export type SessionReplayUrlTriggerConfig = {
+    url: string
+    matching: 'regex'
 }

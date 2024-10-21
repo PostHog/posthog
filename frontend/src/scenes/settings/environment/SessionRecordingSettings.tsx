@@ -1,8 +1,9 @@
-import { IconPlus } from '@posthog/icons'
+import { IconPencil, IconPlus, IconTrash } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
     LemonDialog,
+    LemonInput,
     LemonSegmentedButton,
     LemonSegmentedButtonOption,
     LemonSelect,
@@ -11,23 +12,32 @@ import {
     Link,
     Spinner,
 } from '@posthog/lemon-ui'
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { Form } from 'kea-forms'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { EventSelect } from 'lib/components/EventSelect/EventSelect'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FlagSelector } from 'lib/components/FlagSelector'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { PropertySelect } from 'lib/components/PropertySelect/PropertySelect'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { SESSION_REPLAY_MINIMUM_DURATION_OPTIONS } from 'lib/constants'
+import { FEATURE_FLAGS, SESSION_REPLAY_MINIMUM_DURATION_OPTIONS } from 'lib/constants'
 import { IconCancel, IconSelectEvents } from 'lib/lemon-ui/icons'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { objectsEqual } from 'lib/utils'
-import { sessionReplayLinkedFlagLogic } from 'scenes/settings/environment/sessionReplayLinkedFlagLogic'
+import { sessionReplayIngestionControlLogic } from 'scenes/settings/environment/sessionReplayIngestionControlLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { AvailableFeature, MultivariateFlagOptions, SessionRecordingAIConfig } from '~/types'
+import {
+    AvailableFeature,
+    MultivariateFlagOptions,
+    SessionRecordingAIConfig,
+    SessionReplayUrlTriggerConfig,
+} from '~/types'
 
 function LogCaptureSettings(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
@@ -259,9 +269,8 @@ function LinkedFlagSelector(): JSX.Element | null {
 
     const featureFlagRecordingFeatureEnabled = hasAvailableFeature(AvailableFeature.REPLAY_FEATURE_FLAG_BASED_RECORDING)
 
-    const logic = sessionReplayLinkedFlagLogic({ id: currentTeam?.session_recording_linked_flag?.id || null })
-    const { linkedFlag, featureFlagLoading, flagHasVariants } = useValues(logic)
-    const { selectFeatureFlag } = useActions(logic)
+    const { linkedFlag, featureFlagLoading, flagHasVariants } = useValues(sessionReplayIngestionControlLogic)
+    const { selectFeatureFlag } = useActions(sessionReplayIngestionControlLogic)
 
     if (!featureFlagRecordingFeatureEnabled) {
         return null
@@ -327,6 +336,123 @@ function LinkedFlagSelector(): JSX.Element | null {
                 )}
             </div>
         </>
+    )
+}
+
+function UrlTriggerForm(): JSX.Element {
+    const { cancelProposingUrlTrigger } = useActions(sessionReplayIngestionControlLogic)
+    const { isProposedUrlTriggerSubmitting } = useValues(sessionReplayIngestionControlLogic)
+
+    return (
+        <Form
+            logic={sessionReplayIngestionControlLogic}
+            formKey="proposedUrlTrigger"
+            enableFormOnSubmit
+            className="w-full flex flex-col border rounded items-center p-2 pl-4 bg-bg-light gap-2"
+        >
+            <div className="flex flex-row gap-2 w-full">
+                <LemonField name="matching">
+                    <LemonSelect options={[{ label: 'Regex', value: 'regex' }]} />
+                </LemonField>
+                <LemonField name="url" className="flex-1">
+                    <LemonInput autoFocus placeholder="Enter URL" data-attr="url-input" />
+                </LemonField>
+            </div>
+            <div className="flex justify-end gap-2 w-full">
+                <LemonButton type="secondary" onClick={cancelProposingUrlTrigger}>
+                    Cancel
+                </LemonButton>
+                <LemonButton
+                    htmlType="submit"
+                    type="primary"
+                    disabledReason={isProposedUrlTriggerSubmitting ? 'Saving url trigger in progress' : undefined}
+                    data-attr="url-save"
+                >
+                    Save
+                </LemonButton>
+            </div>
+        </Form>
+    )
+}
+
+function UrlTriggerRow({ trigger, index }: { trigger: SessionReplayUrlTriggerConfig; index: number }): JSX.Element {
+    const { editUrlTriggerIndex } = useValues(sessionReplayIngestionControlLogic)
+    const { setEditUrlTriggerIndex, removeUrlTrigger } = useActions(sessionReplayIngestionControlLogic)
+
+    if (editUrlTriggerIndex === index) {
+        return (
+            <div className="border rounded p-2 bg-bg-light">
+                <UrlTriggerForm />
+            </div>
+        )
+    }
+
+    return (
+        <div className={clsx('border rounded flex items-center p-2 pl-4 bg-bg-light')}>
+            <span title={trigger.url} className="flex-1 truncate">
+                {trigger.matching === 'regex' ? 'Matches regex: ' : ''} {trigger.url}
+            </span>
+            <div className="Actions flex space-x-1 shrink-0">
+                <LemonButton
+                    icon={<IconPencil />}
+                    onClick={() => setEditUrlTriggerIndex(index)}
+                    tooltip="Edit"
+                    center
+                />
+
+                <LemonButton
+                    icon={<IconTrash />}
+                    tooltip="Remove URL trigger"
+                    center
+                    onClick={() => {
+                        LemonDialog.open({
+                            title: <>Remove URL trigger</>,
+                            description: `Are you sure you want to remove this URL trigger?`,
+                            primaryButton: {
+                                status: 'danger',
+                                children: 'Remove',
+                                onClick: () => removeUrlTrigger(index),
+                            },
+                            secondaryButton: {
+                                children: 'Cancel',
+                            },
+                        })
+                    }}
+                />
+            </div>
+        </div>
+    )
+}
+
+function UrlTriggerOptions(): JSX.Element | null {
+    const { isAddUrlTriggerConfigFormVisible, urlTriggerConfig } = useValues(sessionReplayIngestionControlLogic)
+    const { newUrlTrigger } = useActions(sessionReplayIngestionControlLogic)
+
+    return (
+        <div className="flex flex-col space-y-2 mt-4">
+            <div className="flex items-center gap-2 justify-between">
+                <LemonLabel className="text-base">Enable recordings when URL matches</LemonLabel>
+                <LemonButton
+                    onClick={() => {
+                        newUrlTrigger()
+                    }}
+                    type="secondary"
+                    icon={<IconPlus />}
+                    data-attr="session-replay-add-url-trigger"
+                >
+                    Add
+                </LemonButton>
+            </div>
+            <p>
+                Adding a URL trigger means recording will only be started when the user visits a page that matches the
+                URL.
+            </p>
+
+            {isAddUrlTriggerConfigFormVisible && <UrlTriggerForm />}
+            {urlTriggerConfig?.map((trigger, index) => (
+                <UrlTriggerRow key={`${trigger.url}-${trigger.matching}`} trigger={trigger} index={index} />
+            ))}
+        </div>
     )
 }
 
@@ -484,6 +610,9 @@ export function ReplayCostControl(): JSX.Element | null {
                     </>
                 )}
                 <LinkedFlagSelector />
+                <FlaggedFeature flag={FEATURE_FLAGS.SESSION_REPLAY_URL_TRIGGER}>
+                    <UrlTriggerOptions />
+                </FlaggedFeature>
             </>
         </PayGateMini>
     )

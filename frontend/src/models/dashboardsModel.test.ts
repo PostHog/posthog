@@ -62,7 +62,7 @@ describe('the dashboards model', () => {
     beforeEach(async () => {
         useMocks({
             get: {
-                '/api/projects/:team_id/dashboards/': () => {
+                '/api/environments/:team_id/dashboards/': () => {
                     return [
                         200,
                         {

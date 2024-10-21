@@ -177,38 +177,32 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.Gene
 
         return response.Response(group_type_index_to_properties)
 
-    @extend_schema(
-        parameters=[
-            OpenApiParameter(
-                "group_type_index",
-                OpenApiTypes.INT,
-                description="Specify the group type to find property values of",
-                required=True,
-            ),
-            OpenApiParameter(
-                "key",
-                OpenApiTypes.STR,
-                description="Specify the property key to find values for",
-                required=True,
-            ),
-        ]
-    )
     @action(methods=["GET"], detail=False)
     def property_values(self, request: request.Request, **kw):
-        rows = sync_execute(
-            f"""
-            SELECT {trim_quotes_expr("tupleElement(keysAndValues, 2)")} as value
+        value_filter = request.GET.get("value")
+
+        query = f"""
+            SELECT {trim_quotes_expr("tupleElement(keysAndValues, 2)")} as value, count(*) as count
             FROM groups
             ARRAY JOIN JSONExtractKeysAndValuesRaw(group_properties) as keysAndValues
-            WHERE team_id = %(team_id)s AND group_type_index = %(group_type_index)s AND tupleElement(keysAndValues, 1) = %(key)s
-            GROUP BY tupleElement(keysAndValues, 2)
-            ORDER BY value ASC
-        """,
-            {
-                "team_id": self.team.pk,
-                "group_type_index": request.GET["group_type_index"],
-                "key": request.GET["key"],
-            },
-        )
+            WHERE team_id = %(team_id)s
+              AND group_type_index = %(group_type_index)s
+              AND tupleElement(keysAndValues, 1) = %(key)s
+              {f"AND {trim_quotes_expr('tupleElement(keysAndValues, 2)')} ILIKE %(value_filter)s" if value_filter else ""}
+            GROUP BY value
+            ORDER BY count DESC, value ASC
+            LIMIT 20
+        """
 
-        return response.Response([{"name": name[0]} for name in rows])
+        params = {
+            "team_id": self.team.pk,
+            "group_type_index": request.GET["group_type_index"],
+            "key": request.GET["key"],
+        }
+
+        if value_filter:
+            params["value_filter"] = f"%{value_filter}%"
+
+        rows = sync_execute(query, params)
+
+        return response.Response([{"name": name, "count": count} for name, count in rows])
