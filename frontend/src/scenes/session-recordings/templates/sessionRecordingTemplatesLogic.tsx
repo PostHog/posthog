@@ -10,12 +10,12 @@ import {
     ReplayTabs,
     ReplayTemplateType,
     ReplayTemplateVariableType,
+    UniversalFiltersGroupValue,
 } from '~/types'
 
 import type { sessionReplayTemplatesLogicType } from './sessionRecordingTemplatesLogicType'
 
-// TODO IN THIS PR: What type should this be?
-const getPageviewFilterValue = (pageview: string): Partial<any> => {
+const getPageviewFilterValue = (pageview: string): UniversalFiltersGroupValue => {
     return {
         key: 'visited_page',
         value: pageview,
