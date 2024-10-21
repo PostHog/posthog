@@ -20,10 +20,10 @@ pub fn generate_fingerprint(
             // - this can only happen when there's some bug in our stack trace collection?
             continue;
         }
-        fingerprint.push_str("-");
+        fingerprint.push('-');
         // TODO: if soure contains url as well, should probably strip it out.
         fingerprint.push_str(&frame.source.unwrap_or("unknown".to_string()));
-        fingerprint.push_str(":");
+        fingerprint.push(':');
         fingerprint.push_str(&frame.resolved_name.unwrap_or(frame.mangled_name));
     }
     // TODO: Handle anonymous functions somehow? Not sure if these would have a resolved name at all. How would they show up

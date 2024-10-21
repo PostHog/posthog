@@ -8,6 +8,7 @@ use cymbal::{
     app_context::AppContext,
     config::Config,
     error::Error,
+    fingerprinting,
     metric_consts::{ERRORS, EVENT_RECEIVED, STACK_PROCESSED},
     types::{frames::RawFrame, ErrProps},
 };
@@ -124,7 +125,7 @@ async fn main() -> Result<(), Error> {
             resolved_frames.push(resolved);
         }
 
-        let Ok(fingerprint) = cymbal::fingerprinting::v1::generate_fingerprint(
+        let Ok(fingerprint) = fingerprinting::v1::generate_fingerprint(
             &properties.exception_list[0],
             resolved_frames,
         ) else {
