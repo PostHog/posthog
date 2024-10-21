@@ -668,6 +668,7 @@ export enum SavedInsightsTabs {
 }
 
 export enum ReplayTabs {
+    Templates = 'templates',
     Home = 'home',
     Playlists = 'playlists',
     Errors = 'errors',
@@ -4613,4 +4614,22 @@ export type AppMetricsV2RequestParams = {
 export type SessionReplayUrlTriggerConfig = {
     url: string
     matching: 'regex'
+}
+
+export type ReplayTemplateType = {
+    key: string
+    name: string
+    description: string
+    variables: ReplayTemplateVariableType[]
+    categories: ReplayTemplateCategory[]
+}
+export type ReplayTemplateCategory = 'B2B' | 'B2C' | 'More'
+
+export type ReplayTemplateVariableType = {
+    type: 'event' | 'flag' | 'pageview' | 'person'
+    name: string
+    key: string
+    touched?: boolean
+    value?: string
+    description?: string
 }

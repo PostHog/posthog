@@ -1,5 +1,5 @@
 import { IconEllipsis, IconGear } from '@posthog/icons'
-import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
+import { LemonBadge, LemonButton, LemonMenu } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { authorizedUrlListLogic, AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
@@ -26,6 +26,7 @@ import { SessionRecordingsPlaylist } from './playlist/SessionRecordingsPlaylist'
 import { SavedSessionRecordingPlaylists } from './saved-playlists/SavedSessionRecordingPlaylists'
 import { savedSessionRecordingPlaylistsLogic } from './saved-playlists/savedSessionRecordingPlaylistsLogic'
 import { humanFriendlyTabName, sessionReplaySceneLogic } from './sessionReplaySceneLogic'
+import SessionRecordingTemplates from './templates/SessionRecordingTemplates'
 
 function Header(): JSX.Element {
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
@@ -192,6 +193,8 @@ function MainPanel(): JSX.Element {
                 <SavedSessionRecordingPlaylists tab={ReplayTabs.Playlists} />
             ) : tab === ReplayTabs.Errors ? (
                 <SessionRecordingErrors />
+            ) : tab === ReplayTabs.Templates ? (
+                <SessionRecordingTemplates />
             ) : null}
         </div>
     )
@@ -206,7 +209,13 @@ function PageTabs(): JSX.Element {
             onChange={(t) => router.actions.push(urls.replay(t as ReplayTabs))}
             tabs={tabs.map((replayTab) => {
                 return {
-                    label: humanFriendlyTabName(replayTab),
+                    label: (
+                        <>
+                            {humanFriendlyTabName(replayTab)}
+                            {/* TODO IN THIS PR: Make this disappear after someone clicks it */}
+                            {replayTab === ReplayTabs.Templates && <LemonBadge className="ml-1" size="small" />}
+                        </>
+                    ),
                     key: replayTab,
                 }
             })}
