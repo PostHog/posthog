@@ -144,6 +144,13 @@ export const replayTemplates: ReplayTemplateType[] = [
         variables: [],
         categories: ['More'],
     },
+    {
+        key: 'person-property',
+        name: 'Person property',
+        description: 'Watch all replays for users with a specific property.',
+        variables: [],
+        categories: ['More'],
+    },
 ]
 
 // TODO IN THIS PR: What type should this be?
@@ -153,15 +160,6 @@ const getPageviewFilterValue = (pageview: string): Partial<any> => {
         value: pageview,
         operator: PropertyOperator.IContains,
         type: PropertyFilterType.Recording,
-    }
-}
-
-// TODO IN THIS PR: What type should this be?
-const getEventFilterValue = (event: string): Partial<any> => {
-    return {
-        id: event,
-        name: event,
-        type: 'events',
     }
 }
 
@@ -206,8 +204,8 @@ export const sessionReplayTemplatesLogic = kea<sessionReplayTemplatesLogicType>(
                         if (variable.type === 'pageview' && variable.value) {
                             return getPageviewFilterValue(variable.value)
                         }
-                        if (variable.type === 'event' && variable.value) {
-                            return getEventFilterValue(variable.value)
+                        if (variable.type === 'event' && variable.filterGroup) {
+                            return variable.filterGroup
                         }
                         return undefined
                     })

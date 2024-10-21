@@ -3,7 +3,7 @@ import { LemonButton, LemonButtonProps, LemonDropdown, Popover } from '@posthog/
 import { BindLogic, useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { ActionFilter, AnyPropertyFilter, FilterLogicalOperator } from '~/types'
+import { UniversalFiltersGroup, UniversalFilterValue } from '~/types'
 
 import { TaxonomicPropertyFilter } from '../PropertyFilters/components/TaxonomicPropertyFilter'
 import { PropertyFilters } from '../PropertyFilters/PropertyFilters'
@@ -13,14 +13,6 @@ import { TaxonomicFilterGroupType } from '../TaxonomicFilter/types'
 import { UniversalFilterButton } from './UniversalFilterButton'
 import { universalFiltersLogic } from './universalFiltersLogic'
 import { isEditableFilter, isEventFilter } from './utils'
-
-export interface UniversalFiltersGroup {
-    type: FilterLogicalOperator
-    values: UniversalFiltersGroupValue[]
-}
-
-export type UniversalFiltersGroupValue = UniversalFiltersGroup | UniversalFilterValue
-export type UniversalFilterValue = AnyPropertyFilter | ActionFilter
 
 type UniversalFiltersProps = {
     rootKey: string

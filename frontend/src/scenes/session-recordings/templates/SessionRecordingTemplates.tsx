@@ -1,13 +1,44 @@
 import { LemonButton, LemonCard, LemonInput, LemonLabel, Link } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import UniversalFilters from 'lib/components/UniversalFilters/UniversalFilters'
+import { universalFiltersLogic } from 'lib/components/UniversalFilters/universalFiltersLogic'
+import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
 
-import { ReplayTemplateCategory, ReplayTemplateType, ReplayTemplateVariableType } from '~/types'
+import { actionsModel } from '~/models/actionsModel'
+import { FilterLogicalOperator, ReplayTemplateCategory, ReplayTemplateType, ReplayTemplateVariableType } from '~/types'
 
 import { replayTemplates, sessionReplayTemplatesLogic } from './sessionRecordingTemplatesLogic'
 
 const allCategories: ReplayTemplateCategory[] = replayTemplates
     .flatMap((template) => template.categories)
     .filter((category, index, self) => self.indexOf(category) === index)
+
+const NestedFilterGroup = ({ rootKey }: { rootKey: string }): JSX.Element => {
+    const { filterGroup } = useValues(universalFiltersLogic)
+    const { replaceGroupValue, removeGroupValue } = useActions(universalFiltersLogic)
+
+    return (
+        <div>
+            {filterGroup.values.map((filterOrGroup, index) => {
+                return isUniversalGroupFilterLike(filterOrGroup) ? (
+                    <UniversalFilters.Group key={index} index={index} group={filterOrGroup}>
+                        <NestedFilterGroup rootKey={rootKey} />
+                    </UniversalFilters.Group>
+                ) : (
+                    <UniversalFilters.Value
+                        key={index}
+                        index={index}
+                        filter={filterOrGroup}
+                        onRemove={() => removeGroupValue(index)}
+                        onChange={(value) => replaceGroupValue(index, value)}
+                    />
+                )
+            })}
+            <UniversalFilters.AddFilterButton />
+        </div>
+    )
+}
 
 const SingleTemplateVariable = ({
     variable,
@@ -17,7 +48,9 @@ const SingleTemplateVariable = ({
     template: ReplayTemplateType
 }): JSX.Element | null => {
     const { setVariable } = useActions(sessionReplayTemplatesLogic({ template }))
-    return ['event', 'pageview'].includes(variable.type) ? (
+    useMountedLogic(actionsModel)
+
+    return variable.type === 'pageview' ? (
         <div>
             <LemonLabel info={variable.description}>{variable.name}</LemonLabel>
             <LemonInput
@@ -25,6 +58,23 @@ const SingleTemplateVariable = ({
                 onChange={(e) => setVariable({ ...variable, value: e })}
                 size="small"
             />
+        </div>
+    ) : variable.type === 'event' ? (
+        <div>
+            <LemonLabel info={variable.description}>{variable.name}</LemonLabel>
+            <UniversalFilters
+                rootKey="session-recordings"
+                group={{
+                    type: FilterLogicalOperator.And,
+                    values: [],
+                }}
+                taxonomicGroupTypes={[TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]}
+                onChange={(thisFilterGroup) => {
+                    setVariable({ ...variable, filterGroup: thisFilterGroup.values[0] })
+                }}
+            >
+                <NestedFilterGroup rootKey="session-recordings" />
+            </UniversalFilters>
         </div>
     ) : null
 }

@@ -5,7 +5,6 @@ import { ChartDataset, ChartType, InteractionItem } from 'chart.js'
 import { LogicWrapper } from 'kea'
 import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { UniversalFiltersGroup } from 'lib/components/UniversalFilters/UniversalFilters'
 import {
     BIN_COUNT_AUTO,
     DashboardPrivilegeLevel,
@@ -1059,6 +1058,14 @@ export interface RecordingUniversalFilters {
     filter_test_accounts?: boolean
     filter_group: UniversalFiltersGroup
 }
+
+export interface UniversalFiltersGroup {
+    type: FilterLogicalOperator
+    values: UniversalFiltersGroupValue[]
+}
+
+export type UniversalFiltersGroupValue = UniversalFiltersGroup | UniversalFilterValue
+export type UniversalFilterValue = AnyPropertyFilter | ActionFilter
 
 export type ErrorCluster = {
     cluster: number
@@ -4632,4 +4639,5 @@ export type ReplayTemplateVariableType = {
     touched?: boolean
     value?: string
     description?: string
+    filterGroup?: UniversalFiltersGroupValue
 }
