@@ -297,12 +297,12 @@
                         argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$browser'), ''), 'null'), '^"|"$', ''), person.version) AS `properties___$browser`
                  FROM person
                  WHERE and(equals(person.team_id, 2), in(person.id,
-                                                           (SELECT person.id AS id
-                                                            FROM person
-                                                            WHERE and(equals(person.team_id, 2), notIn(person.id,
-                                                                                                         (SELECT person.id AS id
-                                                                                                          FROM person
-                                                                                                          WHERE and(equals(person.team_id, 2), equals(person.is_deleted, 1)))), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Positive'), 0)))), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Positive'), 0))
+                                                           (SELECT persons_where_optimization.id AS id
+                                                            FROM person AS persons_where_optimization
+                                                            WHERE and(equals(persons_where_optimization.team_id, 2), notIn(persons_where_optimization.id,
+                                                                                                                             (SELECT person.id AS id
+                                                                                                                              FROM person
+                                                                                                                              WHERE and(equals(person.team_id, 2), equals(person.is_deleted, 1)))), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(persons_where_optimization.properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Positive'), 0)))))
                  GROUP BY person.id
                  HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
               WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__person.`properties___$browser`, 'Positive'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
@@ -341,12 +341,12 @@
                                                               (SELECT person.id AS id, argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$browser'), ''), 'null'), '^"|"$', ''), person.version) AS `properties___$browser`
                                                                FROM person
                                                                WHERE and(equals(person.team_id, 2), in(person.id,
-                                                                                                         (SELECT person.id AS id
-                                                                                                          FROM person
-                                                                                                          WHERE and(equals(person.team_id, 2), notIn(person.id,
-                                                                                                                                                       (SELECT person.id AS id
-                                                                                                                                                        FROM person
-                                                                                                                                                        WHERE and(equals(person.team_id, 2), equals(person.is_deleted, 1)))), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Positive'), 0)))), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Positive'), 0))
+                                                                                                         (SELECT persons_where_optimization.id AS id
+                                                                                                          FROM person AS persons_where_optimization
+                                                                                                          WHERE and(equals(persons_where_optimization.team_id, 2), notIn(persons_where_optimization.id,
+                                                                                                                                                                           (SELECT person.id AS id
+                                                                                                                                                                            FROM person
+                                                                                                                                                                            WHERE and(equals(person.team_id, 2), equals(person.is_deleted, 1)))), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(persons_where_optimization.properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Positive'), 0)))))
                                                                GROUP BY person.id
                                                                HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
                                                             WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__person.`properties___$browser`, 'Positive'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
@@ -438,12 +438,12 @@
                         argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$browser'), ''), 'null'), '^"|"$', ''), person.version) AS `properties___$browser`
                  FROM person
                  WHERE and(equals(person.team_id, 2), in(person.id,
-                                                           (SELECT person.id AS id
-                                                            FROM person
-                                                            WHERE and(equals(person.team_id, 2), notIn(person.id,
-                                                                                                         (SELECT person.id AS id
-                                                                                                          FROM person
-                                                                                                          WHERE and(equals(person.team_id, 2), equals(person.is_deleted, 1)))), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Positive'), 0)))), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Positive'), 0))
+                                                           (SELECT persons_where_optimization.id AS id
+                                                            FROM person AS persons_where_optimization
+                                                            WHERE and(equals(persons_where_optimization.team_id, 2), notIn(persons_where_optimization.id,
+                                                                                                                             (SELECT person.id AS id
+                                                                                                                              FROM person
+                                                                                                                              WHERE and(equals(person.team_id, 2), equals(person.is_deleted, 1)))), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(persons_where_optimization.properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Positive'), 0)))))
                  GROUP BY person.id
                  HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
               WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__person.`properties___$browser`, 'Positive'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
@@ -482,12 +482,12 @@
                                                               (SELECT person.id AS id, argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$browser'), ''), 'null'), '^"|"$', ''), person.version) AS `properties___$browser`
                                                                FROM person
                                                                WHERE and(equals(person.team_id, 2), in(person.id,
-                                                                                                         (SELECT person.id AS id
-                                                                                                          FROM person
-                                                                                                          WHERE and(equals(person.team_id, 2), notIn(person.id,
-                                                                                                                                                       (SELECT person.id AS id
-                                                                                                                                                        FROM person
-                                                                                                                                                        WHERE and(equals(person.team_id, 2), equals(person.is_deleted, 1)))), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Positive'), 0)))), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Positive'), 0))
+                                                                                                         (SELECT persons_where_optimization.id AS id
+                                                                                                          FROM person AS persons_where_optimization
+                                                                                                          WHERE and(equals(persons_where_optimization.team_id, 2), notIn(persons_where_optimization.id,
+                                                                                                                                                                           (SELECT person.id AS id
+                                                                                                                                                                            FROM person
+                                                                                                                                                                            WHERE and(equals(person.team_id, 2), equals(person.is_deleted, 1)))), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(persons_where_optimization.properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Positive'), 0)))))
                                                                GROUP BY person.id
                                                                HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
                                                             WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__person.`properties___$browser`, 'Positive'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
@@ -579,12 +579,12 @@
                         argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$browser'), ''), 'null'), '^"|"$', ''), person.version) AS `properties___$browser`
                  FROM person
                  WHERE and(equals(person.team_id, 2), in(person.id,
-                                                           (SELECT person.id AS id
-                                                            FROM person
-                                                            WHERE and(equals(person.team_id, 2), notIn(person.id,
-                                                                                                         (SELECT person.id AS id
-                                                                                                          FROM person
-                                                                                                          WHERE and(equals(person.team_id, 2), equals(person.is_deleted, 1)))), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Negative'), 0)))), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Negative'), 0))
+                                                           (SELECT persons_where_optimization.id AS id
+                                                            FROM person AS persons_where_optimization
+                                                            WHERE and(equals(persons_where_optimization.team_id, 2), notIn(persons_where_optimization.id,
+                                                                                                                             (SELECT person.id AS id
+                                                                                                                              FROM person
+                                                                                                                              WHERE and(equals(person.team_id, 2), equals(person.is_deleted, 1)))), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(persons_where_optimization.properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Negative'), 0)))))
                  GROUP BY person.id
                  HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
               WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__person.`properties___$browser`, 'Negative'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
@@ -623,12 +623,12 @@
                                                               (SELECT person.id AS id, argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$browser'), ''), 'null'), '^"|"$', ''), person.version) AS `properties___$browser`
                                                                FROM person
                                                                WHERE and(equals(person.team_id, 2), in(person.id,
-                                                                                                         (SELECT person.id AS id
-                                                                                                          FROM person
-                                                                                                          WHERE and(equals(person.team_id, 2), notIn(person.id,
-                                                                                                                                                       (SELECT person.id AS id
-                                                                                                                                                        FROM person
-                                                                                                                                                        WHERE and(equals(person.team_id, 2), equals(person.is_deleted, 1)))), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Negative'), 0)))), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Negative'), 0))
+                                                                                                         (SELECT persons_where_optimization.id AS id
+                                                                                                          FROM person AS persons_where_optimization
+                                                                                                          WHERE and(equals(persons_where_optimization.team_id, 2), notIn(persons_where_optimization.id,
+                                                                                                                                                                           (SELECT person.id AS id
+                                                                                                                                                                            FROM person
+                                                                                                                                                                            WHERE and(equals(person.team_id, 2), equals(person.is_deleted, 1)))), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(persons_where_optimization.properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Negative'), 0)))))
                                                                GROUP BY person.id
                                                                HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
                                                             WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__person.`properties___$browser`, 'Negative'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
@@ -720,12 +720,12 @@
                         argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$browser'), ''), 'null'), '^"|"$', ''), person.version) AS `properties___$browser`
                  FROM person
                  WHERE and(equals(person.team_id, 2), in(person.id,
-                                                           (SELECT person.id AS id
-                                                            FROM person
-                                                            WHERE and(equals(person.team_id, 2), notIn(person.id,
-                                                                                                         (SELECT person.id AS id
-                                                                                                          FROM person
-                                                                                                          WHERE and(equals(person.team_id, 2), equals(person.is_deleted, 1)))), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Negative'), 0)))), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Negative'), 0))
+                                                           (SELECT persons_where_optimization.id AS id
+                                                            FROM person AS persons_where_optimization
+                                                            WHERE and(equals(persons_where_optimization.team_id, 2), notIn(persons_where_optimization.id,
+                                                                                                                             (SELECT person.id AS id
+                                                                                                                              FROM person
+                                                                                                                              WHERE and(equals(person.team_id, 2), equals(person.is_deleted, 1)))), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(persons_where_optimization.properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Negative'), 0)))))
                  GROUP BY person.id
                  HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
               WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__person.`properties___$browser`, 'Negative'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
@@ -764,12 +764,12 @@
                                                               (SELECT person.id AS id, argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$browser'), ''), 'null'), '^"|"$', ''), person.version) AS `properties___$browser`
                                                                FROM person
                                                                WHERE and(equals(person.team_id, 2), in(person.id,
-                                                                                                         (SELECT person.id AS id
-                                                                                                          FROM person
-                                                                                                          WHERE and(equals(person.team_id, 2), notIn(person.id,
-                                                                                                                                                       (SELECT person.id AS id
-                                                                                                                                                        FROM person
-                                                                                                                                                        WHERE and(equals(person.team_id, 2), equals(person.is_deleted, 1)))), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Negative'), 0)))), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Negative'), 0))
+                                                                                                         (SELECT persons_where_optimization.id AS id
+                                                                                                          FROM person AS persons_where_optimization
+                                                                                                          WHERE and(equals(persons_where_optimization.team_id, 2), notIn(persons_where_optimization.id,
+                                                                                                                                                                           (SELECT person.id AS id
+                                                                                                                                                                            FROM person
+                                                                                                                                                                            WHERE and(equals(person.team_id, 2), equals(person.is_deleted, 1)))), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(persons_where_optimization.properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Negative'), 0)))))
                                                                GROUP BY person.id
                                                                HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
                                                             WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__person.`properties___$browser`, 'Negative'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
@@ -986,12 +986,12 @@
                         argMax(nullIf(nullIf(person.`pmat_$browser`, ''), 'null'), person.version) AS `properties___$browser`
                  FROM person
                  WHERE and(equals(person.team_id, 2), in(person.id,
-                                                           (SELECT person.id AS id
-                                                            FROM person
-                                                            WHERE and(equals(person.team_id, 2), notIn(person.id,
-                                                                                                         (SELECT person.id AS id
-                                                                                                          FROM person
-                                                                                                          WHERE and(equals(person.team_id, 2), equals(person.is_deleted, 1)))), ifNull(equals(nullIf(nullIf(person.`pmat_$browser`, ''), 'null'), 'Positive'), 0)))), ifNull(equals(nullIf(nullIf(person.`pmat_$browser`, ''), 'null'), 'Positive'), 0))
+                                                           (SELECT persons_where_optimization.id AS id
+                                                            FROM person AS persons_where_optimization
+                                                            WHERE and(equals(persons_where_optimization.team_id, 2), notIn(persons_where_optimization.id,
+                                                                                                                             (SELECT person.id AS id
+                                                                                                                              FROM person
+                                                                                                                              WHERE and(equals(person.team_id, 2), equals(person.is_deleted, 1)))), ifNull(equals(nullIf(nullIf(persons_where_optimization.`pmat_$browser`, ''), 'null'), 'Positive'), 0)))))
                  GROUP BY person.id
                  HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
               WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__person.`properties___$browser`, 'Positive'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
@@ -1030,12 +1030,12 @@
                                                               (SELECT person.id AS id, argMax(nullIf(nullIf(person.`pmat_$browser`, ''), 'null'), person.version) AS `properties___$browser`
                                                                FROM person
                                                                WHERE and(equals(person.team_id, 2), in(person.id,
-                                                                                                         (SELECT person.id AS id
-                                                                                                          FROM person
-                                                                                                          WHERE and(equals(person.team_id, 2), notIn(person.id,
-                                                                                                                                                       (SELECT person.id AS id
-                                                                                                                                                        FROM person
-                                                                                                                                                        WHERE and(equals(person.team_id, 2), equals(person.is_deleted, 1)))), ifNull(equals(nullIf(nullIf(person.`pmat_$browser`, ''), 'null'), 'Positive'), 0)))), ifNull(equals(nullIf(nullIf(person.`pmat_$browser`, ''), 'null'), 'Positive'), 0))
+                                                                                                         (SELECT persons_where_optimization.id AS id
+                                                                                                          FROM person AS persons_where_optimization
+                                                                                                          WHERE and(equals(persons_where_optimization.team_id, 2), notIn(persons_where_optimization.id,
+                                                                                                                                                                           (SELECT person.id AS id
+                                                                                                                                                                            FROM person
+                                                                                                                                                                            WHERE and(equals(person.team_id, 2), equals(person.is_deleted, 1)))), ifNull(equals(nullIf(nullIf(persons_where_optimization.`pmat_$browser`, ''), 'null'), 'Positive'), 0)))))
                                                                GROUP BY person.id
                                                                HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
                                                             WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__person.`properties___$browser`, 'Positive'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
@@ -1127,12 +1127,12 @@
                         argMax(nullIf(nullIf(person.`pmat_$browser`, ''), 'null'), person.version) AS `properties___$browser`
                  FROM person
                  WHERE and(equals(person.team_id, 2), in(person.id,
-                                                           (SELECT person.id AS id
-                                                            FROM person
-                                                            WHERE and(equals(person.team_id, 2), notIn(person.id,
-                                                                                                         (SELECT person.id AS id
-                                                                                                          FROM person
-                                                                                                          WHERE and(equals(person.team_id, 2), equals(person.is_deleted, 1)))), ifNull(equals(nullIf(nullIf(person.`pmat_$browser`, ''), 'null'), 'Positive'), 0)))), ifNull(equals(nullIf(nullIf(person.`pmat_$browser`, ''), 'null'), 'Positive'), 0))
+                                                           (SELECT persons_where_optimization.id AS id
+                                                            FROM person AS persons_where_optimization
+                                                            WHERE and(equals(persons_where_optimization.team_id, 2), notIn(persons_where_optimization.id,
+                                                                                                                             (SELECT person.id AS id
+                                                                                                                              FROM person
+                                                                                                                              WHERE and(equals(person.team_id, 2), equals(person.is_deleted, 1)))), ifNull(equals(nullIf(nullIf(persons_where_optimization.`pmat_$browser`, ''), 'null'), 'Positive'), 0)))))
                  GROUP BY person.id
                  HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
               WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__person.`properties___$browser`, 'Positive'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
@@ -1171,12 +1171,12 @@
                                                               (SELECT person.id AS id, argMax(nullIf(nullIf(person.`pmat_$browser`, ''), 'null'), person.version) AS `properties___$browser`
                                                                FROM person
                                                                WHERE and(equals(person.team_id, 2), in(person.id,
-                                                                                                         (SELECT person.id AS id
-                                                                                                          FROM person
-                                                                                                          WHERE and(equals(person.team_id, 2), notIn(person.id,
-                                                                                                                                                       (SELECT person.id AS id
-                                                                                                                                                        FROM person
-                                                                                                                                                        WHERE and(equals(person.team_id, 2), equals(person.is_deleted, 1)))), ifNull(equals(nullIf(nullIf(person.`pmat_$browser`, ''), 'null'), 'Positive'), 0)))), ifNull(equals(nullIf(nullIf(person.`pmat_$browser`, ''), 'null'), 'Positive'), 0))
+                                                                                                         (SELECT persons_where_optimization.id AS id
+                                                                                                          FROM person AS persons_where_optimization
+                                                                                                          WHERE and(equals(persons_where_optimization.team_id, 2), notIn(persons_where_optimization.id,
+                                                                                                                                                                           (SELECT person.id AS id
+                                                                                                                                                                            FROM person
+                                                                                                                                                                            WHERE and(equals(person.team_id, 2), equals(person.is_deleted, 1)))), ifNull(equals(nullIf(nullIf(persons_where_optimization.`pmat_$browser`, ''), 'null'), 'Positive'), 0)))))
                                                                GROUP BY person.id
                                                                HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
                                                             WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__person.`properties___$browser`, 'Positive'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
@@ -1268,12 +1268,12 @@
                         argMax(nullIf(nullIf(person.`pmat_$browser`, ''), 'null'), person.version) AS `properties___$browser`
                  FROM person
                  WHERE and(equals(person.team_id, 2), in(person.id,
-                                                           (SELECT person.id AS id
-                                                            FROM person
-                                                            WHERE and(equals(person.team_id, 2), notIn(person.id,
-                                                                                                         (SELECT person.id AS id
-                                                                                                          FROM person
-                                                                                                          WHERE and(equals(person.team_id, 2), equals(person.is_deleted, 1)))), ifNull(equals(nullIf(nullIf(person.`pmat_$browser`, ''), 'null'), 'Negative'), 0)))), ifNull(equals(nullIf(nullIf(person.`pmat_$browser`, ''), 'null'), 'Negative'), 0))
+                                                           (SELECT persons_where_optimization.id AS id
+                                                            FROM person AS persons_where_optimization
+                                                            WHERE and(equals(persons_where_optimization.team_id, 2), notIn(persons_where_optimization.id,
+                                                                                                                             (SELECT person.id AS id
+                                                                                                                              FROM person
+                                                                                                                              WHERE and(equals(person.team_id, 2), equals(person.is_deleted, 1)))), ifNull(equals(nullIf(nullIf(persons_where_optimization.`pmat_$browser`, ''), 'null'), 'Negative'), 0)))))
                  GROUP BY person.id
                  HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
               WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__person.`properties___$browser`, 'Negative'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
@@ -1312,12 +1312,12 @@
                                                               (SELECT person.id AS id, argMax(nullIf(nullIf(person.`pmat_$browser`, ''), 'null'), person.version) AS `properties___$browser`
                                                                FROM person
                                                                WHERE and(equals(person.team_id, 2), in(person.id,
-                                                                                                         (SELECT person.id AS id
-                                                                                                          FROM person
-                                                                                                          WHERE and(equals(person.team_id, 2), notIn(person.id,
-                                                                                                                                                       (SELECT person.id AS id
-                                                                                                                                                        FROM person
-                                                                                                                                                        WHERE and(equals(person.team_id, 2), equals(person.is_deleted, 1)))), ifNull(equals(nullIf(nullIf(person.`pmat_$browser`, ''), 'null'), 'Negative'), 0)))), ifNull(equals(nullIf(nullIf(person.`pmat_$browser`, ''), 'null'), 'Negative'), 0))
+                                                                                                         (SELECT persons_where_optimization.id AS id
+                                                                                                          FROM person AS persons_where_optimization
+                                                                                                          WHERE and(equals(persons_where_optimization.team_id, 2), notIn(persons_where_optimization.id,
+                                                                                                                                                                           (SELECT person.id AS id
+                                                                                                                                                                            FROM person
+                                                                                                                                                                            WHERE and(equals(person.team_id, 2), equals(person.is_deleted, 1)))), ifNull(equals(nullIf(nullIf(persons_where_optimization.`pmat_$browser`, ''), 'null'), 'Negative'), 0)))))
                                                                GROUP BY person.id
                                                                HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
                                                             WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__person.`properties___$browser`, 'Negative'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
@@ -1409,12 +1409,12 @@
                         argMax(nullIf(nullIf(person.`pmat_$browser`, ''), 'null'), person.version) AS `properties___$browser`
                  FROM person
                  WHERE and(equals(person.team_id, 2), in(person.id,
-                                                           (SELECT person.id AS id
-                                                            FROM person
-                                                            WHERE and(equals(person.team_id, 2), notIn(person.id,
-                                                                                                         (SELECT person.id AS id
-                                                                                                          FROM person
-                                                                                                          WHERE and(equals(person.team_id, 2), equals(person.is_deleted, 1)))), ifNull(equals(nullIf(nullIf(person.`pmat_$browser`, ''), 'null'), 'Negative'), 0)))), ifNull(equals(nullIf(nullIf(person.`pmat_$browser`, ''), 'null'), 'Negative'), 0))
+                                                           (SELECT persons_where_optimization.id AS id
+                                                            FROM person AS persons_where_optimization
+                                                            WHERE and(equals(persons_where_optimization.team_id, 2), notIn(persons_where_optimization.id,
+                                                                                                                             (SELECT person.id AS id
+                                                                                                                              FROM person
+                                                                                                                              WHERE and(equals(person.team_id, 2), equals(person.is_deleted, 1)))), ifNull(equals(nullIf(nullIf(persons_where_optimization.`pmat_$browser`, ''), 'null'), 'Negative'), 0)))))
                  GROUP BY person.id
                  HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
               WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__person.`properties___$browser`, 'Negative'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
@@ -1453,12 +1453,12 @@
                                                               (SELECT person.id AS id, argMax(nullIf(nullIf(person.`pmat_$browser`, ''), 'null'), person.version) AS `properties___$browser`
                                                                FROM person
                                                                WHERE and(equals(person.team_id, 2), in(person.id,
-                                                                                                         (SELECT person.id AS id
-                                                                                                          FROM person
-                                                                                                          WHERE and(equals(person.team_id, 2), notIn(person.id,
-                                                                                                                                                       (SELECT person.id AS id
-                                                                                                                                                        FROM person
-                                                                                                                                                        WHERE and(equals(person.team_id, 2), equals(person.is_deleted, 1)))), ifNull(equals(nullIf(nullIf(person.`pmat_$browser`, ''), 'null'), 'Negative'), 0)))), ifNull(equals(nullIf(nullIf(person.`pmat_$browser`, ''), 'null'), 'Negative'), 0))
+                                                                                                         (SELECT persons_where_optimization.id AS id
+                                                                                                          FROM person AS persons_where_optimization
+                                                                                                          WHERE and(equals(persons_where_optimization.team_id, 2), notIn(persons_where_optimization.id,
+                                                                                                                                                                           (SELECT person.id AS id
+                                                                                                                                                                            FROM person
+                                                                                                                                                                            WHERE and(equals(person.team_id, 2), equals(person.is_deleted, 1)))), ifNull(equals(nullIf(nullIf(persons_where_optimization.`pmat_$browser`, ''), 'null'), 'Negative'), 0)))))
                                                                GROUP BY person.id
                                                                HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
                                                             WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__person.`properties___$browser`, 'Negative'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
