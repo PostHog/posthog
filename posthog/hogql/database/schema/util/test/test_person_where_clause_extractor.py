@@ -7,7 +7,7 @@ from posthog.hogql.parser import parse_select, parse_expr
 from posthog.hogql.printer import prepare_ast_for_printing, print_ast
 from posthog.hogql.visitor import clone_expr, CloningVisitor
 from posthog.models import PropertyDefinition
-from posthog.schema import PersonsOnEventsMode
+from posthog.schema import PersonsOnEventsMode, PersonsArgMaxVersion
 from posthog.test.base import ClickhouseTestMixin, APIBaseTest
 
 
@@ -40,7 +40,9 @@ class TestPersonWhereClauseExtractor(ClickhouseTestMixin, APIBaseTest):
     def prep_context(self):
         team = self.team
         modifiers = create_default_modifiers_for_team(team)
+        modifiers.optimizeJoinedFilters = True
         modifiers.personsOnEventsMode = PersonsOnEventsMode.DISABLED
+        modifiers.personsArgMaxVersion = PersonsArgMaxVersion.V1
         return HogQLContext(
             team_id=team.pk,
             team=team,
@@ -77,12 +79,12 @@ class TestPersonWhereClauseExtractor(ClickhouseTestMixin, APIBaseTest):
     def test_person_properties(self):
         actual = self.get_clause("SELECT * FROM events WHERE person.properties.email = 'jimmy@posthog.com'")
         expected = _expr("properties.email = 'jimmy@posthog.com'")
-        assert expected in actual.exprs
+        assert actual == expected
 
     def test_person_properties_andor_1(self):
         actual = self.get_clause("SELECT * FROM events WHERE person.properties.email = 'jimmy@posthog.com' or false")
         expected = _expr("properties.email = 'jimmy@posthog.com'")
-        assert expected in actual.exprs
+        assert actual == expected
 
     def test_person_properties_andor_2(self):
         actual = self.get_clause("SELECT * FROM events WHERE person.properties.email = 'jimmy@posthog.com' and false")
@@ -93,28 +95,28 @@ class TestPersonWhereClauseExtractor(ClickhouseTestMixin, APIBaseTest):
             "SELECT * FROM events WHERE person.properties.email = 'jimmy@posthog.com' and person.properties.email = 'timmy@posthog.com'"
         )
         expected = _expr("properties.email = 'jimmy@posthog.com' and properties.email = 'timmy@posthog.com'")
-        assert expected in actual.exprs
+        assert actual == expected
 
     def test_person_properties_andor_4(self):
         actual = self.get_clause(
             "SELECT * FROM events WHERE person.properties.email = 'jimmy@posthog.com' or person.properties.email = 'timmy@posthog.com'"
         )
         expected = _expr("properties.email = 'jimmy@posthog.com' or properties.email = 'timmy@posthog.com'")
-        assert expected in actual.exprs
+        assert actual == expected
 
     def test_person_properties_andor_5(self):
         actual = self.get_clause(
             "SELECT * FROM events WHERE person.properties.email = 'jimmy@posthog.com' or (1 and person.properties.email = 'timmy@posthog.com')"
         )
         expected = _expr("properties.email = 'jimmy@posthog.com' or properties.email = 'timmy@posthog.com'")
-        assert expected in actual.exprs
+        assert actual == expected
 
     def test_person_properties_andor_6(self):
         actual = self.get_clause(
             "SELECT * FROM events WHERE person.properties.email = 'jimmy@posthog.com' or (0 or person.properties.email = 'timmy@posthog.com')"
         )
         expected = _expr("properties.email = 'jimmy@posthog.com' or properties.email = 'timmy@posthog.com'")
-        assert expected in actual.exprs
+        assert actual == expected
 
     def test_person_properties_andor_7(self):
         actual = self.get_clause(
@@ -127,7 +129,7 @@ class TestPersonWhereClauseExtractor(ClickhouseTestMixin, APIBaseTest):
             "SELECT * FROM events WHERE event == '$pageview' and person.properties.email = 'jimmy@posthog.com'"
         )
         expected = _expr("properties.email = 'jimmy@posthog.com'")
-        assert expected in actual.exprs
+        assert actual == expected
 
     def test_person_properties_andor_9(self):
         actual = self.get_clause(
@@ -146,21 +148,21 @@ class TestPersonWhereClauseExtractor(ClickhouseTestMixin, APIBaseTest):
             "SELECT * FROM events WHERE properties.email = 'bla@posthog.com' and person.properties.email = 'jimmy@posthog.com'"
         )
         expected = _expr("properties.email = 'jimmy@posthog.com'")
-        assert expected in actual.exprs
+        assert actual == expected
 
     def test_person_properties_function_calls(self):
         actual = self.get_clause(
             "SELECT * FROM events WHERE properties.email = 'bla@posthog.com' and toString(person.properties.email) = 'jimmy@posthog.com'"
         )
         expected = _expr("toString(properties.email) = 'jimmy@posthog.com'")
-        assert expected in actual.exprs
+        assert actual == expected
 
     def test_person_properties_function_call_args(self):
         actual = self.get_clause(
             "SELECT * FROM events WHERE properties.email = 'bla@posthog.com' and substring(person.properties.email, 10) = 'jimmy@posthog.com'"
         )
         expected = _expr("substring(properties.email, 10) = 'jimmy@posthog.com'")
-        assert expected in actual.exprs
+        assert actual == expected
 
     def test_person_properties_function_call_args_complex(self):
         actual = self.get_clause(
@@ -177,12 +179,6 @@ class TestPersonWhereClauseExtractor(ClickhouseTestMixin, APIBaseTest):
         )
         actual = self.print_query("SELECT * FROM events WHERE person.properties.person_boolean = false")
         assert (
-            f"ifNull(equals(transform(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties"
+            f"FROM person WHERE and(equals(person.team_id, {self.team.id}), ifNull(equals(transform(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties"
             in actual
         )
-
-    def test_id_in(self):
-        actual = self.get_clause(
-            "SELECT * FROM events WHERE in(person.id, (SELECT person_id FROM (SELECT argMax(raw_person_distinct_ids.person_id, raw_person_distinct_ids.version) AS person_id, raw_person_distinct_ids.distinct_id AS distinct_id FROM raw_person_distinct_ids GROUP BY raw_person_distinct_ids.distinct_id HAVING equals(argMax(raw_person_distinct_ids.is_deleted, raw_person_distinct_ids.version), 0)) AS person_distinct_ids WHERE ilike(distinct_id, '%test%')))"
-        )
-        assert actual is None
