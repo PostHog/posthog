@@ -255,7 +255,20 @@
                 },
                 "sample_values": {
                     "items": {
-                        "type": "string"
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "number"
+                            },
+                            {
+                                "type": "boolean"
+                            },
+                            {
+                                "type": "integer"
+                            }
+                        ]
                     },
                     "type": "array"
                 }

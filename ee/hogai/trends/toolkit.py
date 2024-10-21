@@ -266,9 +266,17 @@ class TrendsAgentToolkit:
             return f"Entity {entity} does not exist in the taxonomy."
 
         if entity == "person":
-            qs = PropertyDefinition.objects.filter(team=self._team, type=PropertyDefinition.Type.PERSON)
+            qs = PropertyDefinition.objects.filter(team=self._team, type=PropertyDefinition.Type.PERSON).values_list(
+                "name", "property_type"
+            )
+            props = list(qs)
         elif entity == "session":
-            qs = PropertyDefinition.objects.filter(team=self._team, type=PropertyDefinition.Type.SESSION)
+            # Session properties are not in the DB.
+            props = [
+                (prop_name, prop["type"])
+                for prop_name, prop in hardcoded_prop_defs["session_properties"].items()
+                if prop.get("type") is not None
+            ]
         else:
             group_type_index = next(
                 (group.group_type_index for group in self.groups if group.group_type == entity), None
@@ -277,9 +285,10 @@ class TrendsAgentToolkit:
                 return f"Group {entity} does not exist in the taxonomy."
             qs = PropertyDefinition.objects.filter(
                 team=self._team, type=PropertyDefinition.Type.GROUP, group_type_index=group_type_index
-            )
+            ).values_list("name", "property_type")
+            props = list(qs)
 
-        return self._generate_properties_xml(list(qs.values_list("name", "property_type")))
+        return self._generate_properties_xml(props)
 
     def retrieve_event_properties(self, event_name: str) -> str:
         """
@@ -310,23 +319,30 @@ class TrendsAgentToolkit:
         )
 
     def _format_property_values(
-        self, property_definition: PropertyDefinition, sample_values: list[str], sample_count: Optional[int] = 0
+        self, sample_values: list, sample_count: Optional[int] = 0, is_string: bool = False
     ) -> str:
         if len(sample_values) == 0 or sample_count == 0:
-            return f"The property {property_definition.name} does not have any values in the taxonomy."
+            return f"The property does not have any values in the taxonomy."
 
         # Add quotes to the String type, so the LLM can easily infer a type.
         # Strings like "true" or "10" are interpreted as booleans or numbers without quotes, so the schema generation fails.
-        if property_definition.property_type == PropertyType.String:
-            sample_values = [f'"{value}"' for value in sample_values]
-
-        prop_values = ", ".join(sample_values)
+        # Remove the floating point the value is an integer.
+        formatted_sample_values: list[str] = []
+        for value in sample_values:
+            if is_string:
+                formatted_sample_values.append(f'"{value}"')
+            elif isinstance(value, float) and value.is_integer():
+                formatted_sample_values.append(str(int(value)))
+            else:
+                formatted_sample_values.append(str(value))
+        prop_values = ", ".join(formatted_sample_values)
 
         # If there wasn't an exact match with the user's search, we provide a hint that LLM can use an arbitrary value.
         if sample_count is None:
             return f"{prop_values} and many more distinct values."
         elif sample_count > len(sample_values):
-            return f"{prop_values} and {sample_count - len(sample_values)} more distinct values."
+            diff = sample_count - len(sample_values)
+            return f"{prop_values} and {diff} more distinct value{'' if diff == 1 else 's'}."
 
         return prop_values
 
@@ -352,33 +368,33 @@ class TrendsAgentToolkit:
         if not prop:
             return f"The property {property_name} does not exist in the taxonomy for the event {event_name}."
 
-        return self._format_property_values(property_definition, prop.sample_values, prop.sample_count)
+        return self._format_property_values(
+            prop.sample_values, prop.sample_count, is_string=property_definition.property_type == PropertyType.String
+        )
 
     def _retrieve_session_properties(self, property_name: str) -> str:
         """
         Sessions properties example property values are hardcoded.
         """
-        try:
-            property_definition = PropertyDefinition.objects.get(
-                team=self._team, name=property_name, type=PropertyDefinition.Type.SESSION
-            )
-        except PropertyDefinition.DoesNotExist:
+        if property_name not in hardcoded_prop_defs["session_properties"]:
             return f"The property {property_name} does not exist in the taxonomy."
 
         if property_name == "$channel_type":
             # Not ideal. TODO: replace later.
             sample_values = POSSIBLE_CHANNEL_TYPES.copy()
             sample_count = len(sample_values)
+            is_str = True
         elif (
             property_name in hardcoded_prop_defs["session_properties"]
             and "examples" in hardcoded_prop_defs["session_properties"][property_name]
         ):
             sample_values = hardcoded_prop_defs["session_properties"][property_name]["examples"]
             sample_count = None
+            is_str = hardcoded_prop_defs["session_properties"][property_name]["type"] == PropertyType.String
         else:
             return f"Property values for {property_name} do not exist in the taxonomy for the session entity."
 
-        return self._format_property_values(property_definition, sample_values, sample_count)
+        return self._format_property_values(sample_values, sample_count, is_string=is_str)
 
     def retrieve_entity_property_values(self, entity: str, property_name: str) -> str:
         if entity not in self._entity_names:
@@ -400,7 +416,7 @@ class TrendsAgentToolkit:
                 prop_type = PropertyDefinition.Type.GROUP
                 group_type_index = query.group_type_index
             else:
-                prop_type = PropertyDefinition.Type.EVENT
+                prop_type = PropertyDefinition.Type.PERSON
                 group_type_index = None
 
             property_definition = PropertyDefinition.objects.get(
@@ -424,9 +440,9 @@ class TrendsAgentToolkit:
             return f"Property values for {property_name} do not exist in the taxonomy for the entity {entity}."
 
         return self._format_property_values(
-            property_definition,
             response.results.sample_values,
             response.results.sample_count,
+            is_string=property_definition.property_type == PropertyType.String,
         )
 
     def handle_incorrect_response(self, response: str) -> str:

@@ -2073,7 +2073,7 @@ export type EventTaxonomyQueryResponse = AnalyticsQueryResponseBase<EventTaxonom
 export type CachedEventTaxonomyQueryResponse = CachedQueryResponse<EventTaxonomyQueryResponse>
 
 export interface ActorsPropertyTaxonomyResponse {
-    sample_values: string[]
+    sample_values: (string | number | boolean)[]
     sample_count: integer
 }
 

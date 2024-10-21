@@ -915,8 +915,8 @@ hardcoded_prop_defs: dict = {
     "session_properties": {
         "$session_duration": {
             "label": "Session duration",
-            "description": "The duration of the session being tracked. Learn more about how PostHog tracks sessions in our documentation.\n\nNote, if the duration is formatted as a single number (not 'HH:MM:SS'), it's in seconds.",
-            "examples": ["01:04:12"],
+            "description": "The duration of the session being tracked in seconds.",
+            "examples": ["30", "146", "2"],
             "type": "Numeric",
         },
         "$start_timestamp": {

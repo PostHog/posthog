@@ -32,7 +32,7 @@ class ActorsPropertyTaxonomyResponse(BaseModel):
         extra="forbid",
     )
     sample_count: int
-    sample_values: list[str]
+    sample_values: list[Union[str, float, bool, int]]
 
 
 class AggregationAxisFormat(StrEnum):
