@@ -201,7 +201,7 @@ function MainPanel(): JSX.Element {
 }
 
 function PageTabs(): JSX.Element {
-    const { tab, tabs } = useValues(sessionReplaySceneLogic)
+    const { tab, tabs, shouldShowNewBadge } = useValues(sessionReplaySceneLogic)
 
     return (
         <LemonTabs
@@ -212,8 +212,9 @@ function PageTabs(): JSX.Element {
                     label: (
                         <>
                             {humanFriendlyTabName(replayTab)}
-                            {/* TODO IN THIS PR: Make this disappear after someone clicks it */}
-                            {replayTab === ReplayTabs.Templates && <LemonBadge className="ml-1" size="small" />}
+                            {replayTab === ReplayTabs.Templates && shouldShowNewBadge && (
+                                <LemonBadge className="ml-1" size="small" />
+                            )}
                         </>
                     ),
                     key: replayTab,

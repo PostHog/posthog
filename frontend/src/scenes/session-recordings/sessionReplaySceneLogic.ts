@@ -1,4 +1,4 @@
-import { actions, connect, kea, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { FEATURE_FLAGS, SESSION_RECORDINGS_PLAYLIST_FREE_COUNT } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -33,6 +33,7 @@ export const sessionReplaySceneLogic = kea<sessionReplaySceneLogicType>([
     }),
     actions({
         setTab: (tab: ReplayTabs = ReplayTabs.Home) => ({ tab }),
+        hideNewBadge: true,
     }),
     reducers(() => ({
         tab: [
@@ -41,6 +42,21 @@ export const sessionReplaySceneLogic = kea<sessionReplaySceneLogicType>([
                 setTab: (_, { tab }) => tab,
             },
         ],
+        shouldShowNewBadge: [
+            true as boolean,
+            { persist: true },
+            {
+                hideNewBadge: () => false,
+            },
+        ],
+    })),
+
+    listeners(({ actions }) => ({
+        setTab: ({ tab }) => {
+            if (tab === ReplayTabs.Templates) {
+                actions.hideNewBadge()
+            }
+        },
     })),
 
     actionToUrl(({ values }) => {
