@@ -157,13 +157,11 @@ const getPageviewFilterValue = (pageview: string): Partial<any> => {
 }
 
 // TODO IN THIS PR: What type should this be?
-// TODO IN THIS PR: This doesn't do the right thing..
 const getEventFilterValue = (event: string): Partial<any> => {
     return {
-        key: 'event',
-        value: event,
-        operator: PropertyOperator.IContains,
-        type: PropertyFilterType.Recording,
+        id: event,
+        name: event,
+        type: 'events',
     }
 }
 
