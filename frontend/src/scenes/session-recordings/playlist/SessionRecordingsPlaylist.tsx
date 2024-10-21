@@ -1,5 +1,5 @@
 import { IconGear } from '@posthog/icons'
-import { LemonButton, LemonSelect, Link, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonSelect, LemonSelectSection, Link, Spinner } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { Playlist, PlaylistSection } from 'lib/components/Playlist/Playlist'
@@ -10,6 +10,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 import { urls } from 'scenes/urls'
 
+import { RecordingsQuery } from '~/queries/schema'
 import { RecordingUniversalFilters, ReplayTabs, SessionRecordingType } from '~/types'
 
 import { RecordingsUniversalFilters } from '../filters/RecordingsUniversalFilters'
@@ -27,64 +28,75 @@ function SortedBy({
     filters,
     setFilters,
 }: {
-    filters?: RecordingUniversalFilters
-    setFilters?: (filters: Partial<RecordingUniversalFilters>) => void
-}): JSX.Element | null {
-    return filters && setFilters ? (
+    filters: RecordingUniversalFilters
+    setFilters: (filters: Partial<RecordingUniversalFilters>) => void
+}): JSX.Element {
+    const simpleSortingOptions: LemonSelectSection<RecordingsQuery['order']> = {
+        options: [
+            {
+                value: 'start_time',
+                label: 'Latest',
+            },
+            {
+                value: 'activity_score',
+                label: 'Activity score',
+            },
+            {
+                value: 'console_error_count',
+                label: 'Most errors',
+            },
+        ],
+    }
+    const detailedSortingOptions: LemonSelectSection<RecordingsQuery['order']> = {
+        options: [
+            {
+                label: 'Longest',
+                options: [
+                    {
+                        value: 'duration',
+                        label: 'Total duration',
+                    },
+                    {
+                        value: 'active_seconds',
+                        label: 'Active duration',
+                    },
+                    {
+                        value: 'inactive_seconds',
+                        label: 'Inactive duration',
+                    },
+                ],
+            },
+            {
+                label: 'Most active',
+                options: [
+                    {
+                        value: 'click_count',
+                        label: 'Clicks',
+                    },
+                    {
+                        value: 'keypress_count',
+                        label: 'Key presses',
+                    },
+                    {
+                        value: 'mouse_activity_count',
+                        label: 'Mouse activity',
+                    },
+                ],
+            },
+        ],
+    }
+    return (
         <div className="px-2 py-1 justify-end flex flex-row gap-2 w-full items-center">
             <span className="font-medium">sorted by</span>
             <LemonSelect
                 allowClear={false}
-                options={[
-                    {
-                        value: 'start_time',
-                        label: 'Latest',
-                    },
-                    {
-                        label: 'Longest',
-                        options: [
-                            {
-                                value: 'duration',
-                                label: 'Total duration',
-                            },
-                            {
-                                value: 'active_seconds',
-                                label: 'Active duration',
-                            },
-                            {
-                                value: 'inactive_seconds',
-                                label: 'Inactive duration',
-                            },
-                        ],
-                    },
-                    {
-                        label: 'Most active',
-                        options: [
-                            {
-                                value: 'click_count',
-                                label: 'Clicks',
-                            },
-                            {
-                                value: 'keypress_count',
-                                label: 'Key presses',
-                            },
-                            {
-                                value: 'mouse_activity_count',
-                                label: 'Mouse activity',
-                            },
-                        ],
-                    },
-                    {
-                        value: 'console_error_count',
-                        label: 'Most errors',
-                    },
-                ]}
+                options={[simpleSortingOptions, detailedSortingOptions]}
                 size="xsmall"
                 value={filters.order}
                 onChange={(order) => setFilters({ order })}
             />
         </div>
-    ) : null
+    )
 }
 
 export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicProps): JSX.Element {
@@ -155,7 +167,7 @@ export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicPr
                 )}
                 <Playlist
                     data-attr="session-recordings-playlist"
-                    controls={<SortedBy filters={filters} setFilters={setFilters} />}
+                    controls={filters && setFilters ? <SortedBy filters={filters} setFilters={setFilters} /> : null}
                     notebooksHref={urls.replay(ReplayTabs.Home, filters)}
                     title="Recordings"
                     embedded={!!notebookNode}

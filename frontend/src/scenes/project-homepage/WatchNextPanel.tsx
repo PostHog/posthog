@@ -17,7 +17,7 @@ import {
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { PropertyFilterType, PropertyOperator, SessionRecordingType } from '~/types'
+import { SessionRecordingType } from '~/types'
 
 import { ProjectHomePageCompactListItem } from './ProjectHomePageCompactListItem'
 
@@ -32,7 +32,7 @@ export function RecordingRow({ recording }: RecordingRowProps): JSX.Element {
     return (
         <ProjectHomePageCompactListItem
             title={asDisplay(recording.person)}
-            subtitle={`activity score: ${recording.mouse_activity_count}`}
+            subtitle={`Activity score: ${parseFloat((recording.activity_score ?? 0).toFixed(2))}`}
             prefix={<ProfilePicture name={asDisplay(recording.person)} />}
             suffix={
                 <div className="flex items-center justify-end text-text-3000">
@@ -57,15 +57,7 @@ export function WatchNextPanel(): JSX.Element {
         logicKey: 'projectHomepage',
         filters: {
             ...DEFAULT_RECORDING_FILTERS,
-            order: 'mouse_activity_count',
-            duration: [
-                {
-                    type: PropertyFilterType.Recording,
-                    key: 'active_seconds',
-                    value: 5,
-                    operator: PropertyOperator.GreaterThanOrEqual,
-                },
-            ],
+            order: 'activity_score',
         },
     })
     const { sessionRecordings, sessionRecordingsResponseLoading } = useValues(sessionRecordingsListLogicInstance)
@@ -74,7 +66,7 @@ export function WatchNextPanel(): JSX.Element {
         <>
             <CompactList
                 title={
-                    <Tooltip title="A selection of the most interesting recent recordings">
+                    <Tooltip title="A selection of the most interesting recordings. We use multiple signals to calculate an activity score.">
                         <div className="flex gap-1">
                             <IconInfo />
                             <span>Watch next</span>

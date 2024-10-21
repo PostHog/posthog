@@ -228,6 +228,7 @@ function combineLegacyRecordingFilters(
 function sortRecordings(recordings: SessionRecordingType[], order: RecordingsQuery['order']): SessionRecordingType[] {
     const orderKey:
         | 'recording_duration'
+        | 'activity_score'
         | 'active_seconds'
         | 'inactive_seconds'
         | 'console_error_count'

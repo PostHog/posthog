@@ -1413,6 +1413,10 @@ export interface SessionRecordingType {
      * (assumes the recording was loaded from ClickHouse)
      * **/
     ongoing?: boolean
+    /**
+     * calculated on the backend so that we can sort by it, definition may change over time
+     */
+    activity_score?: number
 }
 
 export interface SessionRecordingUpdateType {
