@@ -61,6 +61,7 @@ posthog/settings/data_stores.py:0: error: Name "DATABASE_URL" already defined on
 posthog/plugins/utils.py:0: error: Subclass of "str" and "bytes" cannot exist: would have incompatible method signatures  [unreachable]
 posthog/plugins/utils.py:0: error: Statement is unreachable  [unreachable]
 posthog/models/dashboard.py:0: error: Need type annotation for "insights"  [var-annotated]
+posthog/celery.py:0: error: Unused "type: ignore" comment  [unused-ignore]
 posthog/warehouse/data_load/service.py:0: error: Unsupported operand types for >= ("timedelta" and "None")  [operator]
 posthog/warehouse/data_load/service.py:0: note: Left operand is of type "timedelta | None"
 posthog/warehouse/data_load/service.py:0: error: Incompatible return value type (got "tuple[timedelta | None, timedelta]", expected "tuple[timedelta, timedelta]")  [return-value]
