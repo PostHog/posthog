@@ -23,6 +23,12 @@ const replayEventsCounter = new Counter({
     help: 'Number of Replay events successfully ingested',
 })
 
+const dataIngestedCounter = new Counter({
+    name: 'replay_data_ingested',
+    help: 'Amount of data being ingested',
+    labelNames: ['snapshot_source'],
+})
+
 export class ReplayEventsIngester {
     constructor(
         private readonly producer: RdKafkaProducer,
@@ -178,6 +184,7 @@ export class ReplayEventsIngester {
             }
 
             replayEventsCounter.inc()
+            dataIngestedCounter.inc({ snapshot_source: replayRecord.snapshot_source ?? undefined }, replayRecord.size)
 
             return [
                 produce({
