@@ -2,6 +2,8 @@ import { IconThumbsDown, IconThumbsDownFilled, IconThumbsUp, IconThumbsUpFilled,
 import { LemonButton, LemonInput, Spinner } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useValues } from 'kea'
+import { BreakdownSummary, PropertiesSummary, SeriesSummary } from 'lib/components/Cards/InsightCard/InsightDetails'
+import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import posthog from 'posthog-js'
 import React, { useRef, useState } from 'react'
@@ -76,9 +78,10 @@ function Answer({
     message: ThreadMessage & { content: TrendGenerationResult }
     previousMessage: ThreadMessage
 }): JSX.Element {
-    const query = {
+    const query: InsightVizNode = {
         kind: NodeKind.InsightVizNode,
-        source: message.content?.answer,
+        source: message.content?.answer as InsightQueryNode,
+        showHeader: true,
     }
 
     return (
@@ -98,18 +101,22 @@ function Answer({
                         <div className="h-96 flex">
                             <Query query={query} readOnly embedded />
                         </div>
-                        <LemonButton
-                            className="mt-4 w-fit"
-                            type="primary"
-                            to={urls.insightNew(undefined, undefined, {
-                                kind: NodeKind.InsightVizNode,
-                                source: message.content.answer as InsightQueryNode,
-                            } as InsightVizNode)}
-                            sideIcon={<IconOpenInNew />}
-                            targetBlank
-                        >
-                            Open as new insight
-                        </LemonButton>
+                        <div className="relative mb-1">
+                            <LemonButton
+                                to={urls.insightNew(undefined, undefined, query)}
+                                sideIcon={<IconOpenInNew />}
+                                size="xsmall"
+                                targetBlank
+                                className="absolute right-0 -top-px"
+                            >
+                                Open as new insight
+                            </LemonButton>
+                            <SeriesSummary query={query.source} heading={<TopHeading query={query} />} />
+                            <div className="flex flex-wrap gap-4 mt-1 *:grow">
+                                <PropertiesSummary properties={query.source.properties} />
+                                <BreakdownSummary query={query.source} />
+                            </div>
+                        </div>
                     </Message>
                     <AnswerActions message={message} previousMessage={previousMessage} />
                 </>
