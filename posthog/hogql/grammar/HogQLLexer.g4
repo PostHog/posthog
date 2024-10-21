@@ -218,6 +218,7 @@ RBRACKET: ']';
 RPAREN: ')';
 SEMICOLON: ';';
 SLASH: '/';
+STRING_OR: '~~';
 UNDERSCORE: '_';
 
 // Comments and whitespace

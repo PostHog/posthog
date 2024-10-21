@@ -1862,6 +1862,10 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     RETURN_NEW_AST_NODE("CompareOperation", "{s:N,s:N,s:N}", "left", left, "right", right, "op", op);
   }
 
+  VISIT(ColumnExprStringOr) {
+    RETURN_NEW_AST_NODE("Call", "{s:s,s:N}", "name", "stringOr", "args", visitPyListOfObjects(ctx->columnExpr()));
+  }
+
   VISIT(ColumnExprInterval) {
     auto interval_ctx = ctx->interval();
     const char* name;
@@ -2614,7 +2618,6 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     auto string_contents = ctx->stringContents();
 
     if (string_contents.size() == 0) {
-      string empty = "";
       RETURN_NEW_AST_NODE("Constant", "{s:s}", "value", "");
     }
 
@@ -2631,7 +2634,6 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     auto string_contents_full = ctx->stringContentsFull();
 
     if (string_contents_full.size() == 0) {
-      string empty = "";
       RETURN_NEW_AST_NODE("Constant", "{s:s}", "value", "");
     }
 
@@ -2654,7 +2656,6 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     if (column_expr) {
       return visit(column_expr);
     }
-    string empty = "";
     RETURN_NEW_AST_NODE("Constant", "{s:s}", "value", "");
   }
 
@@ -2668,7 +2669,6 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     if (column_expr) {
       return visit(column_expr);
     }
-    string empty = "";
     RETURN_NEW_AST_NODE("Constant", "{s:s}", "value", "");
   }
 };
