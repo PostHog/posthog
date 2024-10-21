@@ -2073,7 +2073,7 @@ export type EventTaxonomyQueryResponse = AnalyticsQueryResponseBase<EventTaxonom
 export type CachedEventTaxonomyQueryResponse = CachedQueryResponse<EventTaxonomyQueryResponse>
 
 export interface ActorsPropertyTaxonomyResponse {
-    sample_values: string[]
+    sample_values: (string | number | boolean)[]
     sample_count: integer
 }
 
@@ -2086,3 +2086,24 @@ export interface ActorsPropertyTaxonomyQuery extends DataNode<ActorsPropertyTaxo
 export type ActorsPropertyTaxonomyQueryResponse = AnalyticsQueryResponseBase<ActorsPropertyTaxonomyResponse>
 
 export type CachedActorsPropertyTaxonomyQueryResponse = CachedQueryResponse<ActorsPropertyTaxonomyQueryResponse>
+
+export enum AssistantMessageType {
+    Visualization = 'visualization',
+    /**
+     * Do not use. Force the schema generator to generate a StrEnum.
+     */
+    Noop = 'noop',
+}
+
+export interface VisualizationMessagePayload {
+    type: AssistantMessageType.Visualization
+    plan: string
+}
+
+export type AssistantMessagePayload = VisualizationMessagePayload
+
+export interface AssistantMessage {
+    type: 'human' | 'ai'
+    content: string
+    payload?: AssistantMessagePayload
+}

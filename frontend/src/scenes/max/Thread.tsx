@@ -10,9 +10,10 @@ import React, { useRef, useState } from 'react'
 import { urls } from 'scenes/urls'
 
 import { Query } from '~/queries/Query/Query'
-import { InsightQueryNode, InsightVizNode, NodeKind } from '~/queries/schema'
+import { AssistantMessage, NodeKind } from '~/queries/schema'
 
-import { maxLogic, ThreadMessage, TrendGenerationResult } from './maxLogic'
+import { maxLogic, ThreadMessage } from './maxLogic'
+import { isVisualizationMessage, parseVisualizationMessageContent } from './utils'
 
 export function Thread(): JSX.Element | null {
     const { thread, threadLoading } = useValues(maxLogic)
@@ -20,11 +21,11 @@ export function Thread(): JSX.Element | null {
     return (
         <div className="flex flex-col items-stretch w-full max-w-200 self-center gap-2 grow m-4">
             {thread.map((message, index) => {
-                if (message.role === 'user' || typeof message.content === 'string') {
+                if (message.type === 'human') {
                     return (
                         <Message
                             key={index}
-                            role={message.role}
+                            type={message.type}
                             className={message.status === 'error' ? 'border-danger' : undefined}
                         >
                             {message.content || <i>No text</i>}
@@ -32,16 +33,14 @@ export function Thread(): JSX.Element | null {
                     )
                 }
 
-                return (
-                    <Answer
-                        key={index}
-                        message={message as ThreadMessage & { content: TrendGenerationResult }}
-                        previousMessage={thread[index - 1]}
-                    />
-                )
+                if (message.type === 'ai' && isVisualizationMessage(message.payload)) {
+                    return <Answer key={index} message={message} previousMessage={thread[index - 1]} />
+                }
+
+                return null
             })}
             {threadLoading && (
-                <Message role="assistant" className="w-fit select-none">
+                <Message type="ai" className="w-fit select-none">
                     <div className="flex items-center gap-2">
                         Let me think…
                         <Spinner className="text-xl" />
@@ -54,9 +53,9 @@ export function Thread(): JSX.Element | null {
 
 const Message = React.forwardRef<
     HTMLDivElement,
-    React.PropsWithChildren<{ role: 'user' | 'assistant'; className?: string }>
->(function Message({ role, children, className }, ref): JSX.Element {
-    if (role === 'user') {
+    React.PropsWithChildren<{ type: AssistantMessage['type']; className?: string }>
+>(function Message({ type, children, className }, ref): JSX.Element {
+    if (type === 'human') {
         return (
             <div className={clsx('mt-1 mb-3 text-2xl font-medium', className)} ref={ref}>
                 {children}
@@ -71,33 +70,29 @@ const Message = React.forwardRef<
     )
 })
 
-function Answer({
-    message,
-    previousMessage,
-}: {
-    message: ThreadMessage & { content: TrendGenerationResult }
-    previousMessage: ThreadMessage
-}): JSX.Element {
-    const query: InsightVizNode = {
+function Answer({ message, previousMessage }: { message: ThreadMessage; previousMessage: ThreadMessage }): JSX.Element {
+    const { reasoning_steps, answer } = parseVisualizationMessageContent(message.content)
+
+    const query = {
         kind: NodeKind.InsightVizNode,
-        source: message.content?.answer as InsightQueryNode,
+        source: answer,
         showHeader: true,
     }
 
     return (
         <>
-            {message.content?.reasoning_steps && (
-                <Message role={message.role}>
+            {reasoning_steps && (
+                <Message type={message.type}>
                     <ul className="list-disc ml-4">
-                        {message.content.reasoning_steps.map((step, index) => (
+                        {reasoning_steps.map((step, index) => (
                             <li key={index}>{step}</li>
                         ))}
                     </ul>
                 </Message>
             )}
-            {message.status === 'completed' && message.content?.answer && (
+            {message.status === 'completed' && query.source && (
                 <>
-                    <Message role={message.role}>
+                    <Message type={message.type}>
                         <div className="h-96 flex">
                             <Query query={query} readOnly embedded />
                         </div>
@@ -129,7 +124,7 @@ function AnswerActions({
     message,
     previousMessage,
 }: {
-    message: ThreadMessage & { content: TrendGenerationResult }
+    message: ThreadMessage
     previousMessage: ThreadMessage
 }): JSX.Element {
     const [rating, setRating] = useState<'good' | 'bad' | null>(null)
@@ -188,7 +183,7 @@ function AnswerActions({
             </div>
             {feedbackInputStatus !== 'hidden' && (
                 <Message
-                    role="assistant"
+                    type="ai"
                     ref={(el) => {
                         if (el && !hasScrolledFeedbackInputIntoView.current) {
                             // When the feedback input is first rendered, scroll it into view
