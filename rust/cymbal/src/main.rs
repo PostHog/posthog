@@ -124,6 +124,11 @@ async fn main() -> Result<(), Error> {
             resolved_frames.push(resolved);
         }
 
+        let Ok(fingerprint) = cymbal::fingerprinting::v1::generate_fingerprint(&properties.exception_list[0], resolved_frames) else {
+            metrics::counter!(ERRORS, "cause" => "fingerprint_generation_failed").increment(1);
+            continue;
+        };
+
         metrics::counter!(STACK_PROCESSED).increment(1);
     }
 }

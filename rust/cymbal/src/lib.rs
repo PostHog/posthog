@@ -6,3 +6,4 @@ pub mod metric_consts;
 pub mod resolver;
 pub mod symbol_store;
 pub mod types;
+pub mod fingerprinting;
