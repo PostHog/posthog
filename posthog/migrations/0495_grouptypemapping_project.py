@@ -5,14 +5,37 @@ import django.db.models.deletion
 
 
 class Migration(migrations.Migration):
+    atomic = False  # Added to support concurrent index creation
     dependencies = [
         ("posthog", "0494_team_project_non_null"),
     ]
 
     operations = [
-        migrations.AddField(
-            model_name="grouptypemapping",
-            name="project",
-            field=models.ForeignKey(null=True, on_delete=django.db.models.deletion.CASCADE, to="posthog.project"),
+        migrations.SeparateDatabaseAndState(
+            state_operations=[
+                migrations.AddField(
+                    model_name="grouptypemapping",
+                    name="project",
+                    field=models.ForeignKey(
+                        null=True, on_delete=django.db.models.deletion.CASCADE, to="posthog.project"
+                    ),
+                ),
+            ],
+            database_operations=[
+                migrations.RunSQL(
+                    """
+                    ALTER TABLE "posthog_grouptypemapping" ADD COLUMN "project_id" bigint NULL CONSTRAINT "posthog_grouptypemap_project_id_239c0515_fk_posthog_p" REFERENCES "posthog_project"("id") DEFERRABLE INITIALLY DEFERRED;
+                    SET CONSTRAINTS "posthog_grouptypemap_project_id_239c0515_fk_posthog_p" IMMEDIATE;""",
+                    reverse_sql="""
+                    ALTER TABLE "posthog_grouptypemapping" DROP COLUMN IF EXISTS "project_id";""",
+                ),
+                # We add CONCURRENTLY to the create command
+                migrations.RunSQL(
+                    """
+                    CREATE INDEX CONCURRENTLY "posthog_grouptypemapping_project_id_239c0515" ON "posthog_grouptypemapping" ("project_id");""",
+                    reverse_sql="""
+                    DROP INDEX IF EXISTS "posthog_grouptypemapping_project_id_239c0515";""",
+                ),
+            ],
         ),
     ]
