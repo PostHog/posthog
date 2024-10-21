@@ -1,5 +1,6 @@
 import { useValues } from 'kea'
 import {
+    convertPropertiesToPropertyGroup,
     formatPropertyLabel,
     isAnyPropertyfilter,
     isCohortPropertyFilter,
@@ -245,10 +246,10 @@ function PathsSummary({ query }: { query: PathsQuery }): JSX.Element {
     )
 }
 
-export function SeriesSummary({ query }: { query: InsightQueryNode }): JSX.Element {
+export function SeriesSummary({ query, heading }: { query: InsightQueryNode; heading?: JSX.Element }): JSX.Element {
     return (
         <section>
-            <h5>Query summary</h5>
+            <h5>{heading || 'Query summary'}</h5>
             <div className="InsightDetails__query">
                 {isTrendsQuery(query) && query.trendsFilter?.formula && (
                     <>
@@ -287,23 +288,11 @@ export function PropertiesSummary({
 }: {
     properties: PropertyGroupFilter | AnyPropertyFilter[] | undefined
 }): JSX.Element {
-    const groupFilter: PropertyGroupFilter | null = Array.isArray(properties)
-        ? {
-              type: FilterLogicalOperator.And,
-              values: [
-                  {
-                      type: FilterLogicalOperator.And,
-                      values: properties,
-                  },
-              ],
-          }
-        : properties || null
-
     return (
         <section>
             <h5>Filters</h5>
             <div>
-                <CompactPropertyFiltersDisplay groupFilter={groupFilter} />
+                <CompactPropertyFiltersDisplay groupFilter={convertPropertiesToPropertyGroup(properties)} />
             </div>
         </section>
     )

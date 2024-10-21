@@ -1,5 +1,5 @@
 from typing import Optional, Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 import dateutil
 
 
@@ -184,6 +184,10 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         assert alert_check.state == AlertState.FIRING
         assert alert_check.error is None
 
+        mock_send_breaches.assert_called_once_with(
+            ANY, ["The insight value for previous week increased (2) more than upper threshold (1.0)"]
+        )
+
     def test_relative_increase_upper_threshold_breached(
         self, mock_send_breaches: MagicMock, mock_send_errors: MagicMock
     ) -> None:
@@ -341,6 +345,10 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         assert alert_check.state == AlertState.FIRING
         assert alert_check.error is None
 
+        mock_send_breaches.assert_called_once_with(
+            ANY, ["The insight value for previous week increased (-1) less than lower threshold (2.0)"]
+        )
+
         # check percentage alert
         check_alert(percentage_alert["id"])
 
@@ -353,6 +361,10 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         assert alert_check.calculated_value == -0.5  # 50% decrease
         assert alert_check.state == AlertState.FIRING
         assert alert_check.error is None
+
+        mock_send_breaches.assert_called_with(
+            ANY, ["The insight value for previous week increased (-50.00%) less than lower threshold (50.00%)"]
+        )
 
     def test_relative_increase_lower_threshold_breached_2(
         self, mock_send_breaches: MagicMock, mock_send_errors: MagicMock
@@ -511,6 +523,10 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         assert alert_check.state == AlertState.FIRING
         assert alert_check.error is None
 
+        mock_send_breaches.assert_called_once_with(
+            ANY, ["The insight value for previous week decreased (2) more than upper threshold (1.0)"]
+        )
+
         check_alert(percentage_alert["id"])
 
         updated_alert = AlertConfiguration.objects.get(pk=percentage_alert["id"])
@@ -522,6 +538,10 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         assert alert_check.calculated_value == (2 / 3)
         assert alert_check.state == AlertState.FIRING
         assert alert_check.error is None
+
+        mock_send_breaches.assert_called_with(
+            ANY, ["The insight value for previous week decreased (66.67%) more than upper threshold (20.00%)"]
+        )
 
     def test_relative_decrease_lower_threshold_breached(
         self, mock_send_breaches: MagicMock, mock_send_errors: MagicMock
@@ -592,6 +612,10 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         assert alert_check.state == AlertState.FIRING
         assert alert_check.error is None
 
+        mock_send_breaches.assert_called_once_with(
+            ANY, ["The insight value for previous week decreased (1) less than lower threshold (2.0)"]
+        )
+
         check_alert(percentage_alert["id"])
 
         updated_alert = AlertConfiguration.objects.get(pk=percentage_alert["id"])
@@ -603,6 +627,10 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         assert alert_check.calculated_value == 0.5
         assert alert_check.state == AlertState.FIRING
         assert alert_check.error is None
+
+        mock_send_breaches.assert_called_with(
+            ANY, ["The insight value for previous week decreased (50.00%) less than lower threshold (80.00%)"]
+        )
 
     def test_relative_increase_no_threshold_breached(
         self, mock_send_breaches: MagicMock, mock_send_errors: MagicMock

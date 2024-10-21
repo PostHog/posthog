@@ -140,6 +140,7 @@
     font-weight: 600;
     line-height: 1rem;
     color: var(--text-3000);
+    vertical-align: middle;
     background: var(--primary-highlight);
     border-radius: var(--radius);
 
@@ -173,10 +174,6 @@
 
 .SeriesDisplay__condition {
     display: flex;
-
-    .SeriesDisplay__raw-name {
-        vertical-align: middle;
-    }
 }
 
 .SeriesDisplay__arrow {

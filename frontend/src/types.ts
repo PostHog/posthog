@@ -711,6 +711,7 @@ export enum PipelineNodeTab {
     History = 'history',
     Schemas = 'schemas',
     Syncs = 'syncs',
+    SourceConfiguration = 'source configuration',
 }
 
 export enum ProgressStatus {
@@ -3929,7 +3930,7 @@ export interface DataWarehouseTable {
     format: DataWarehouseTableTypes
     url_pattern: string
     credential: DataWarehouseCredential
-    external_data_source?: ExternalDataStripeSource
+    external_data_source?: ExternalDataSource
     external_schema?: SimpleExternalDataSourceSchema
 }
 
@@ -3985,7 +3986,7 @@ export interface ExternalDataSourceCreatePayload {
     prefix: string
     payload: Record<string, any>
 }
-export interface ExternalDataStripeSource {
+export interface ExternalDataSource {
     id: string
     source_id: string
     connection_id: string
@@ -3995,6 +3996,7 @@ export interface ExternalDataStripeSource {
     last_run_at?: Dayjs
     schemas: ExternalDataSourceSchema[]
     sync_frequency: DataWarehouseSyncInterval
+    job_inputs: Record<string, any>
 }
 export interface SimpleExternalDataSourceSchema {
     id: string
@@ -4378,8 +4380,6 @@ export interface SourceConfig {
     caption: string | React.ReactNode
     fields: SourceFieldConfig[]
     disabledReason?: string | null
-    showPrefix?: (payload: Record<string, any>) => boolean
-    showSourceForm?: (payload: Record<string, any>) => boolean
     oauthPayload?: string[]
 }
 
