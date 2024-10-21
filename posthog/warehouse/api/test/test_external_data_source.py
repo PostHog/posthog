@@ -400,6 +400,7 @@ class TestExternalDataSource(APIBaseTest):
                 "prefix",
                 "last_run_at",
                 "schemas",
+                "job_inputs",
             ],
         )
         self.assertEqual(

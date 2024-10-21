@@ -101,18 +101,14 @@ async fn main() -> Result<(), Error> {
             }
         };
 
-        let Some(trace) = properties.exception_stack_trace_raw.as_ref() else {
+        if properties.exception_list.is_empty() {
+            metrics::counter!(ERRORS, "cause" => "no_exception_list").increment(1);
+            continue;
+        }
+
+        let Some(trace) = properties.exception_list[0].stacktrace.as_ref() else {
             metrics::counter!(ERRORS, "cause" => "no_stack_trace").increment(1);
             continue;
-        };
-
-        let stack_trace: Vec<RawFrame> = match serde_json::from_str(trace) {
-            Ok(r) => r,
-            Err(err) => {
-                metrics::counter!(ERRORS, "cause" => "invalid_stack_trace").increment(1);
-                error!("Error parsing stack trace: {:?}", err);
-                continue;
-            }
         };
 
         let store = match BasicStore::new(&config) {
@@ -122,6 +118,8 @@ async fn main() -> Result<(), Error> {
                 continue;
             }
         };
+
+        let stack_trace: &Vec<RawFrame> = &trace.frames;
 
         let resolver = ResolverImpl::new(Box::new(store));
 
