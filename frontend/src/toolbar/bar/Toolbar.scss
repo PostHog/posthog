@@ -139,6 +139,10 @@
         transform: var(--toolbar-translate) scale(1.1);
     }
 
+    &--with-experiments {
+        --toolbar-width-expanded: 334px;
+    }
+
     &--minimized {
         width: var(--toolbar-width-minimized); // Account for border
 
