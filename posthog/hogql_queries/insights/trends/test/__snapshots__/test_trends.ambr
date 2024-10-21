@@ -73,12 +73,12 @@
                   argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$bool_prop'), ''), 'null'), '^"|"$', ''), person.version) AS `properties___$bool_prop`
            FROM person
            WHERE and(equals(person.team_id, 2), in(person.id,
-                                                     (SELECT person.id AS id
-                                                      FROM person
-                                                      WHERE and(equals(person.team_id, 2), notIn(person.id,
-                                                                                                   (SELECT person.id AS id
-                                                                                                    FROM person
-                                                                                                    WHERE and(equals(person.team_id, 2), equals(person.is_deleted, 1)))), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$bool_prop'), ''), 'null'), '^"|"$', ''), 'x'), 0)))), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$bool_prop'), ''), 'null'), '^"|"$', ''), 'x'), 0))
+                                                     (SELECT persons_where_optimization.id AS id
+                                                      FROM person AS persons_where_optimization
+                                                      WHERE and(equals(persons_where_optimization.team_id, 2), notIn(persons_where_optimization.id,
+                                                                                                                       (SELECT person.id AS id
+                                                                                                                        FROM person
+                                                                                                                        WHERE and(equals(person.team_id, 2), equals(person.is_deleted, 1)))), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(persons_where_optimization.properties, '$bool_prop'), ''), 'null'), '^"|"$', ''), 'x'), 0)))))
            GROUP BY person.id
            HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
         WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-07 23:59:59', 6, 'UTC'))), and(equals(e.event, 'sign up'), ifNull(in(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id),
@@ -803,12 +803,12 @@
                            argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', ''), person.version) AS properties___name
                     FROM person
                     WHERE and(equals(person.team_id, 2), in(person.id,
-                                                              (SELECT person.id AS id
-                                                               FROM person
-                                                               WHERE and(equals(person.team_id, 2), notIn(person.id,
-                                                                                                            (SELECT person.id AS id
-                                                                                                             FROM person
-                                                                                                             WHERE and(equals(person.team_id, 2), equals(person.is_deleted, 1)))), or(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', ''), 'p1'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', ''), 'p2'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', ''), 'p3'), 0))))), or(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', ''), 'p1'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', ''), 'p2'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', ''), 'p3'), 0)))
+                                                              (SELECT persons_where_optimization.id AS id
+                                                               FROM person AS persons_where_optimization
+                                                               WHERE and(equals(persons_where_optimization.team_id, 2), notIn(persons_where_optimization.id,
+                                                                                                                                (SELECT person.id AS id
+                                                                                                                                 FROM person
+                                                                                                                                 WHERE and(equals(person.team_id, 2), equals(person.is_deleted, 1)))), or(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(persons_where_optimization.properties, 'name'), ''), 'null'), '^"|"$', ''), 'p1'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(persons_where_optimization.properties, 'name'), ''), 'null'), '^"|"$', ''), 'p2'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(persons_where_optimization.properties, 'name'), ''), 'null'), '^"|"$', ''), 'p3'), 0))))))
                     GROUP BY person.id
                     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
                  WHERE and(equals(e.team_id, 2), and(equals(e.event, '$pageview'), and(or(ifNull(equals(e__person.properties___name, 'p1'), 0), ifNull(equals(e__person.properties___name, 'p2'), 0), ifNull(equals(e__person.properties___name, 'p3'), 0)), ifNull(in(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id),
@@ -1487,12 +1487,12 @@
                   argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', ''), person.version) AS properties___name
            FROM person
            WHERE and(equals(person.team_id, 2), in(person.id,
-                                                     (SELECT person.id AS id
-                                                      FROM person
-                                                      WHERE and(equals(person.team_id, 2), notIn(person.id,
-                                                                                                   (SELECT person.id AS id
-                                                                                                    FROM person
-                                                                                                    WHERE and(equals(person.team_id, 2), equals(person.is_deleted, 1)))), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', ''), 'Jane'), 0)))), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', ''), 'Jane'), 0))
+                                                     (SELECT persons_where_optimization.id AS id
+                                                      FROM person AS persons_where_optimization
+                                                      WHERE and(equals(persons_where_optimization.team_id, 2), notIn(persons_where_optimization.id,
+                                                                                                                       (SELECT person.id AS id
+                                                                                                                        FROM person
+                                                                                                                        WHERE and(equals(person.team_id, 2), equals(person.is_deleted, 1)))), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(persons_where_optimization.properties, 'name'), ''), 'null'), '^"|"$', ''), 'Jane'), 0)))))
            GROUP BY person.id
            HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
         WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-26 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-02 23:59:59', 6, 'UTC'))), equals(e.event, 'event_name'), ifNull(equals(e__person.properties___name, 'Jane'), 0))
