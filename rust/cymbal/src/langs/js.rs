@@ -4,9 +4,9 @@ use sourcemap::{SourceMap, Token};
 
 use crate::{
     error::{Error, JsResolveErr, ResolutionError},
-    resolver::{Resolver, ResolverImpl},
-    symbol_store::SymbolSetRef,
-    types::frames::Frame,
+    resolver::Resolver,
+    symbol_store::{SymbolSetRef, SymbolStore},
+    types::frames::{Frame, RawFrame},
 };
 
 // A minifed JS stack frame. Just the minimal information needed to lookup some
@@ -26,8 +26,8 @@ pub struct RawJSFrame {
 }
 
 impl Resolver for RawJSFrame {
-    async fn resolve(&self, resolver: ResolverImpl, team_id: i32) -> Result<Frame, Error> {
-        match self.resolve_impl(resolver, team_id).await {
+    async fn resolve(&self, store: &dyn SymbolStore, team_id: i32) -> Result<Frame, Error> {
+        match self.resolve_impl(store, team_id).await {
             Ok(frame) => Ok(frame),
             Err(e) => {
                 let Error::ResolutionError(ResolutionError::JavaScript(e)) = e else {
@@ -57,10 +57,14 @@ impl Resolver for RawJSFrame {
 // }
 
 impl RawJSFrame {
-    async fn resolve_impl(&self, resolver: ResolverImpl, team_id: i32) -> Result<Frame, Error> {
+    async fn resolve_impl(&self, store: &dyn SymbolStore, team_id: i32) -> Result<Frame, Error> {
+        let RawFrame::JavaScript(raw) = self;
+        // let id = raw.source_ref();
+
         let source_ref = self.source_ref()?;
-        source_ref = source_ref.map(SymbolSetRef::Js).map_err(Error::from);
-        let source = resolver.store.fetch(team_id, source_ref).await?;
+        let symbol_set_ref = source_ref.map(SymbolSetRef::Js).map_err(Error::from);
+
+        source_ref = store.fetch(team_id, symbol_set_ref).await?;
 
         let sm = SourceMap::from_reader(source.as_slice()).map_err(JsResolveErr::from)?;
         let token = sm.lookup_token(self.line, self.column).ok_or_else(|| {

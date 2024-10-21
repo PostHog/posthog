@@ -9,7 +9,7 @@ use cymbal::{
     config::Config,
     error::Error,
     metric_consts::{ERRORS, EVENT_RECEIVED, STACK_PROCESSED},
-    resolver::{Resolver, ResolverImpl},
+    resolver::{self, Resolver, ResolverImpl},
     symbol_store::basic::BasicStore,
     types::{frames::RawFrame, ErrProps},
 };
@@ -58,6 +58,7 @@ async fn main() -> Result<(), Error> {
 
     let config = Config::init_from_env()?;
     let context = Arc::new(AppContext::new(&config).await?);
+    let resolver = context.resolver;
 
     start_health_liveness_server(&config, context.clone());
 
@@ -120,8 +121,6 @@ async fn main() -> Result<(), Error> {
         };
 
         let stack_trace: &Vec<RawFrame> = &trace.frames;
-
-        let resolver = ResolverImpl::new(Box::new(store));
 
         let mut resolved_frames = Vec::new();
         for frame in stack_trace {

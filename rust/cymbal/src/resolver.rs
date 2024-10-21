@@ -17,7 +17,7 @@ pub trait Resolver: Send + Sync + 'static {
     // asynchronously get back results - which would permit internal batching etc.
     // Idk, that's a lot of complexity. I'm a lot less happy with this interface
     // than I am with the store one, though.
-    async fn resolve(&self, resolver: ResolverImpl, team_id: i32) -> Result<Frame, Error>;
+    async fn resolve(&self, resolver: &dyn SymbolStore, team_id: i32) -> Result<Frame, Error>;
 }
 
 pub struct ResolverImpl {
