@@ -61,10 +61,6 @@ posthog/settings/data_stores.py:0: error: Name "DATABASE_URL" already defined on
 posthog/plugins/utils.py:0: error: Subclass of "str" and "bytes" cannot exist: would have incompatible method signatures  [unreachable]
 posthog/plugins/utils.py:0: error: Statement is unreachable  [unreachable]
 posthog/models/dashboard.py:0: error: Need type annotation for "insights"  [var-annotated]
-posthog/hogql/database/schema/numbers.py:0: error: Incompatible types in assignment (expression has type "dict[str, IntegerDatabaseField]", variable has type "dict[str, FieldOrTable]")  [assignment]
-posthog/hogql/database/schema/numbers.py:0: note: "Dict" is invariant -- see https://mypy.readthedocs.io/en/stable/common_issues.html#variance
-posthog/hogql/database/schema/numbers.py:0: note: Consider using "Mapping" instead, which is covariant in the value type
-posthog/hogql/ast.py:0: error: Incompatible return value type (got "bool | None", expected "bool")  [return-value]
 posthog/warehouse/data_load/service.py:0: error: Unsupported operand types for >= ("timedelta" and "None")  [operator]
 posthog/warehouse/data_load/service.py:0: note: Left operand is of type "timedelta | None"
 posthog/warehouse/data_load/service.py:0: error: Incompatible return value type (got "tuple[timedelta | None, timedelta]", expected "tuple[timedelta, timedelta]")  [return-value]
@@ -77,6 +73,15 @@ posthog/models/subscription.py:0: error: Argument 2 to "SubscriptionResourceInfo
 posthog/models/exported_asset.py:0: error: Value of type variable "_StrOrPromiseT" of "slugify" cannot be "str | None"  [type-var]
 posthog/models/action/action.py:0: error: Need type annotation for "events"  [var-annotated]
 posthog/models/action/action.py:0: error: Argument 1 to "len" has incompatible type "str | None"; expected "Sized"  [arg-type]
+posthog/hogql/database/schema/numbers.py:0: error: Incompatible types in assignment (expression has type "dict[str, IntegerDatabaseField]", variable has type "dict[str, FieldOrTable]")  [assignment]
+posthog/hogql/database/schema/numbers.py:0: note: "Dict" is invariant -- see https://mypy.readthedocs.io/en/stable/common_issues.html#variance
+posthog/hogql/database/schema/numbers.py:0: note: Consider using "Mapping" instead, which is covariant in the value type
+posthog/hogql/ast.py:0: error: Incompatible return value type (got "bool | None", expected "bool")  [return-value]
+ee/models/license.py:0: error: Incompatible return value type (got "_T", expected "License | None")  [return-value]
+ee/models/license.py:0: error: Cannot use a covariant type variable as a parameter  [misc]
+ee/models/license.py:0: error: "_T" has no attribute "plan"  [attr-defined]
+ee/models/license.py:0: error: Incompatible return value type (got "str | bool", expected "bool")  [return-value]
+ee/models/explicit_team_membership.py:0: error: Incompatible return value type (got "int", expected "Level")  [return-value]
 posthog/hogql/visitor.py:0: error: Incompatible types in assignment (expression has type "Expr", variable has type "CTE")  [assignment]
 posthog/hogql/visitor.py:0: error: Incompatible types in assignment (expression has type "Expr", variable has type "CTE")  [assignment]
 posthog/hogql/visitor.py:0: error: Incompatible types in assignment (expression has type "Expr", variable has type "CTE")  [assignment]
@@ -85,18 +90,13 @@ posthog/hogql/visitor.py:0: error: Incompatible types in assignment (expression 
 posthog/hogql/visitor.py:0: error: Incompatible types in assignment (expression has type "WindowExpr", variable has type "CTE")  [assignment]
 posthog/hogql/visitor.py:0: error: Incompatible types in assignment (expression has type "FieldAliasType", variable has type "BaseTableType | SelectUnionQueryType | SelectQueryType | SelectQueryAliasType | SelectViewType")  [assignment]
 posthog/hogql/visitor.py:0: error: Incompatible types in assignment (expression has type "Type", variable has type "BaseTableType | SelectUnionQueryType | SelectQueryType | SelectQueryAliasType | SelectViewType")  [assignment]
-ee/models/license.py:0: error: Incompatible return value type (got "_T", expected "License | None")  [return-value]
-ee/models/license.py:0: error: Cannot use a covariant type variable as a parameter  [misc]
-ee/models/license.py:0: error: "_T" has no attribute "plan"  [attr-defined]
-ee/models/license.py:0: error: Incompatible return value type (got "str | bool", expected "bool")  [return-value]
-ee/models/explicit_team_membership.py:0: error: Incompatible return value type (got "int", expected "Level")  [return-value]
-posthog/hogql/resolver_utils.py:0: error: Argument 1 to "lookup_field_by_name" has incompatible type "SelectQueryType | SelectUnionQueryType"; expected "SelectQueryType"  [arg-type]
 posthog/models/filters/mixins/simplify.py:0: error: Incompatible type for lookup 'pk': (got "str | int | list[str]", expected "str | int")  [misc]
+posthog/hogql/resolver_utils.py:0: error: Argument 1 to "lookup_field_by_name" has incompatible type "SelectQueryType | SelectUnionQueryType"; expected "SelectQueryType"  [arg-type]
+posthog/helpers/dashboard_templates.py:0: error: Incompatible types in assignment (expression has type "str | None", variable has type "str | Combinable")  [assignment]
 posthog/hogql/parser.py:0: error: Item "None" of "list[Expr] | None" has no attribute "__iter__" (not iterable)  [union-attr]
 posthog/hogql/parser.py:0: error: "None" has no attribute "text"  [attr-defined]
 posthog/hogql/parser.py:0: error: "None" has no attribute "text"  [attr-defined]
 posthog/hogql/parser.py:0: error: Statement is unreachable  [unreachable]
-posthog/helpers/dashboard_templates.py:0: error: Incompatible types in assignment (expression has type "str | None", variable has type "str | Combinable")  [assignment]
 posthog/hogql/functions/cohort.py:0: error: Incompatible type for lookup 'team_id': (got "int | None", expected "str | int")  [misc]
 posthog/hogql/functions/cohort.py:0: error: Incompatible type for lookup 'team_id': (got "int | None", expected "str | int")  [misc]
 posthog/hogql/database/schema/persons_pdi.py:0: error: Incompatible types in assignment (expression has type "Organization | None", variable has type "Organization")  [assignment]
@@ -106,8 +106,8 @@ posthog/hogql/database/schema/groups.py:0: note: Consider using "Mapping" instea
 posthog/hogql/database/schema/groups.py:0: error: Incompatible types in assignment (expression has type "dict[str, DatabaseField]", variable has type "dict[str, FieldOrTable]")  [assignment]
 posthog/hogql/database/schema/groups.py:0: note: "Dict" is invariant -- see https://mypy.readthedocs.io/en/stable/common_issues.html#variance
 posthog/hogql/database/schema/groups.py:0: note: Consider using "Mapping" instead, which is covariant in the value type
-posthog/hogql/database/schema/persons.py:0: error: Incompatible types in assignment (expression has type "Organization | None", variable has type "Organization")  [assignment]
 posthog/batch_exports/service.py:0: error: Argument 4 to "backfill_export" has incompatible type "datetime | None"; expected "datetime"  [arg-type]
+posthog/hogql/database/schema/persons.py:0: error: Incompatible types in assignment (expression has type "Organization | None", variable has type "Organization")  [assignment]
 posthog/models/team/team.py:0: error: Statement is unreachable  [unreachable]
 posthog/models/team/team.py:0: error: Statement is unreachable  [unreachable]
 posthog/models/hog_functions/hog_function.py:0: error: Argument 1 to "get" of "dict" has incompatible type "str | None"; expected "str"  [arg-type]
@@ -230,7 +230,6 @@ posthog/hogql/transforms/in_cohort.py:0: error: List item 0 has incompatible typ
 posthog/hogql/database/database.py:0: error: Argument "week_start_day" to "Database" has incompatible type "int | Any | None"; expected "WeekStartDay | None"  [arg-type]
 posthog/hogql/database/database.py:0: error: "FieldOrTable" has no attribute "fields"  [attr-defined]
 posthog/warehouse/models/datawarehouse_saved_query.py:0: error: Argument 1 to "create_hogql_database" has incompatible type "int | None"; expected "int"  [arg-type]
-posthog/warehouse/models/datawarehouse_saved_query.py:0: error: Incompatible types in assignment (expression has type "Expr", variable has type "SelectQuery | SelectUnionQuery")  [assignment]
 posthog/models/feature_flag/flag_matching.py:0: error: Statement is unreachable  [unreachable]
 posthog/models/feature_flag/flag_matching.py:0: error: Value expression in dictionary comprehension has incompatible type "int"; expected type "Literal[0, 1, 2, 3, 4]"  [misc]
 posthog/models/feature_flag/flag_matching.py:0: error: Value of type variable "_E" of "ExpressionWrapper" cannot be "object"  [type-var]
@@ -610,14 +609,13 @@ posthog/warehouse/api/external_data_schema.py:0: note: def [_T] get(self, Type, 
 posthog/warehouse/api/table.py:0: error: Unused "type: ignore" comment  [unused-ignore]
 posthog/warehouse/api/table.py:0: error: Unused "type: ignore" comment  [unused-ignore]
 posthog/warehouse/api/table.py:0: error: Unused "type: ignore" comment  [unused-ignore]
-posthog/temporal/data_imports/workflow_activities/create_job_model.py:0: error: Argument 1 has incompatible type "str"; expected "Type"  [arg-type]
-posthog/temporal/data_imports/workflow_activities/create_job_model.py:0: error: Incompatible types in assignment (expression has type "list[Any]", variable has type "dict[str, list[tuple[str, str]]]")  [assignment]
-posthog/temporal/data_imports/workflow_activities/create_job_model.py:0: error: No overload variant of "get" of "dict" matches argument types "str", "tuple[()]"  [call-overload]
-posthog/temporal/data_imports/workflow_activities/create_job_model.py:0: note: Possible overload variants:
-posthog/temporal/data_imports/workflow_activities/create_job_model.py:0: note: def get(self, Type, /) -> Sequence[str] | None
-posthog/temporal/data_imports/workflow_activities/create_job_model.py:0: note: def get(self, Type, Sequence[str], /) -> Sequence[str]
-posthog/temporal/data_imports/workflow_activities/create_job_model.py:0: note: def [_T] get(self, Type, _T, /) -> Sequence[str] | _T
-posthog/temporal/data_imports/workflow_activities/create_job_model.py:0: error: Argument 1 has incompatible type "dict[str, list[tuple[str, str]]]"; expected "list[Any]"  [arg-type]
+posthog/temporal/data_imports/workflow_activities/sync_new_schemas.py:0: error: Argument 1 has incompatible type "str"; expected "Type"  [arg-type]
+posthog/temporal/data_imports/workflow_activities/sync_new_schemas.py:0: error: No overload variant of "get" of "dict" matches argument types "str", "tuple[()]"  [call-overload]
+posthog/temporal/data_imports/workflow_activities/sync_new_schemas.py:0: note: Possible overload variants:
+posthog/temporal/data_imports/workflow_activities/sync_new_schemas.py:0: note: def get(self, Type, /) -> Sequence[str] | None
+posthog/temporal/data_imports/workflow_activities/sync_new_schemas.py:0: note: def get(self, Type, Sequence[str], /) -> Sequence[str]
+posthog/temporal/data_imports/workflow_activities/sync_new_schemas.py:0: note: def [_T] get(self, Type, _T, /) -> Sequence[str] | _T
+posthog/temporal/data_imports/workflow_activities/sync_new_schemas.py:0: error: Argument "source_id" has incompatible type "str"; expected "UUID"  [arg-type]
 posthog/tasks/exports/test/test_csv_exporter.py:0: error: Function is missing a return type annotation  [no-untyped-def]
 posthog/tasks/exports/test/test_csv_exporter.py:0: error: Function is missing a type annotation  [no-untyped-def]
 posthog/tasks/exports/test/test_csv_exporter.py:0: error: Function is missing a type annotation for one or more arguments  [no-untyped-def]
@@ -756,10 +754,12 @@ posthog/admin/inlines/plugin_attachment_inline.py:0: note: Superclass:
 posthog/admin/inlines/plugin_attachment_inline.py:0: note: def has_delete_permission(self, request: HttpRequest, obj: Any | None = ...) -> bool
 posthog/admin/inlines/plugin_attachment_inline.py:0: note: Subclass:
 posthog/admin/inlines/plugin_attachment_inline.py:0: note: def has_delete_permission(self, request: Any, obj: Any) -> Any
-posthog/admin/admins/team_admin.py:0: error: Item "None" of "Project | None" has no attribute "pk"  [union-attr]
-posthog/admin/admins/team_admin.py:0: error: Item "None" of "Project | None" has no attribute "name"  [union-attr]
 posthog/admin/admins/plugin_admin.py:0: error: Item "None" of "Organization | None" has no attribute "pk"  [union-attr]
 posthog/admin/admins/plugin_admin.py:0: error: Item "None" of "Organization | None" has no attribute "name"  [union-attr]
+ee/clickhouse/views/experiments.py:0: error: Argument 4 to "ClickhouseTrendExperimentResult" has incompatible type "datetime | None"; expected "datetime"  [arg-type]
+ee/clickhouse/views/experiments.py:0: error: Argument 4 to "ClickhouseFunnelExperimentResult" has incompatible type "datetime | None"; expected "datetime"  [arg-type]
+ee/clickhouse/views/experiments.py:0: error: Argument 4 to "ClickhouseSecondaryExperimentResult" has incompatible type "datetime | None"; expected "datetime"  [arg-type]
+ee/clickhouse/views/experiments.py:0: error: Item "None" of "User | None" has no attribute "email"  [union-attr]
 posthog/temporal/tests/batch_exports/test_run_updates.py:0: error: Unused "type: ignore" comment  [unused-ignore]
 posthog/temporal/tests/batch_exports/test_run_updates.py:0: error: Unused "type: ignore" comment  [unused-ignore]
 posthog/temporal/tests/batch_exports/test_run_updates.py:0: error: Unused "type: ignore" comment  [unused-ignore]
@@ -789,10 +789,6 @@ posthog/api/plugin.py:0: error: Item "None" of "IO[Any] | None" has no attribute
 posthog/api/plugin.py:0: error: Item "None" of "Team | None" has no attribute "organization"  [union-attr]
 posthog/api/plugin.py:0: error: Item "None" of "Team | None" has no attribute "id"  [union-attr]
 posthog/admin/admins/plugin_config_admin.py:0: error: Item "None" of "Team | None" has no attribute "name"  [union-attr]
-ee/clickhouse/views/experiments.py:0: error: Argument 4 to "ClickhouseTrendExperimentResult" has incompatible type "datetime | None"; expected "datetime"  [arg-type]
-ee/clickhouse/views/experiments.py:0: error: Argument 4 to "ClickhouseFunnelExperimentResult" has incompatible type "datetime | None"; expected "datetime"  [arg-type]
-ee/clickhouse/views/experiments.py:0: error: Argument 4 to "ClickhouseSecondaryExperimentResult" has incompatible type "datetime | None"; expected "datetime"  [arg-type]
-ee/clickhouse/views/experiments.py:0: error: Item "None" of "User | None" has no attribute "email"  [union-attr]
 posthog/temporal/tests/batch_exports/test_snowflake_batch_export_workflow.py:0: error: Need type annotation for "_execute_calls" (hint: "_execute_calls: list[<type>] = ...")  [var-annotated]
 posthog/temporal/tests/batch_exports/test_snowflake_batch_export_workflow.py:0: error: Need type annotation for "_execute_async_calls" (hint: "_execute_async_calls: list[<type>] = ...")  [var-annotated]
 posthog/temporal/tests/batch_exports/test_snowflake_batch_export_workflow.py:0: error: Need type annotation for "_cursors" (hint: "_cursors: list[<type>] = ...")  [var-annotated]
