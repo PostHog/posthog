@@ -33,17 +33,6 @@ class TestTemplateMicrosoftTeams(BaseHogFunctionTemplateTest):
             )
         )
 
-    def test_only_run_for_valid_url(self):
-        with pytest.raises(Exception) as e:
-            self.run_function(
-                inputs=self._inputs(
-                    webhookUrl="https://max.webhook.site.com/webhookb2/abcdefg@abcdefg/IncomingWebhook/abcdefg/abcdefg"
-                )
-            )
-        assert (
-            e.value.message == "Invalid url"  # type: ignore[attr-defined]
-        )
-
     def test_only_allow_teams_url(self):
         for url, allowed in [
             ["https://max.webhook.office.com/webhookb2/abc", True],
@@ -57,5 +46,6 @@ class TestTemplateMicrosoftTeams(BaseHogFunctionTemplateTest):
                 with pytest.raises(Exception) as e:
                     self.run_function(inputs=self._inputs(webhookUrl=url))
                 assert (
-                    e.value.message == "Invalid url"  # type: ignore[attr-defined]
+                    e.value.message
+                    == "Invalid URL. The URL should match the format: https://<domain>.webhook.office.com/webhookb2/..."  # type: ignore[attr-defined]
                 )
