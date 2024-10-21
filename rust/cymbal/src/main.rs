@@ -9,6 +9,8 @@ use cymbal::{
     config::Config,
     error::Error,
     metric_consts::{ERRORS, EVENT_RECEIVED, STACK_PROCESSED},
+    resolver::{self, Resolver, ResolverImpl},
+    symbol_store::basic::BasicStore,
     types::{frames::RawFrame, ErrProps},
 };
 use envconfig::Envconfig;
@@ -109,18 +111,32 @@ async fn main() -> Result<(), Error> {
             continue;
         };
 
+        let store = match BasicStore::new(&config) {
+            Ok(r) => r,
+            Err(_err) => {
+                metrics::counter!(ERRORS, "cause" => "invalid_store").increment(1);
+                continue;
+            }
+        };
+
         let stack_trace: &Vec<RawFrame> = &trace.frames;
 
         let mut resolved_frames = Vec::new();
         for frame in stack_trace {
-            let resolved = match context.resolver.resolve(frame.clone(), 1).await {
-                Ok(r) => r,
-                Err(err) => {
-                    metrics::counter!(ERRORS, "cause" => "frame_not_parsable").increment(1);
-                    error!("Error parsing stack frame: {:?}", err);
-                    continue;
-                }
-            };
+            // Do the switch case here once we determine frame type
+            let RawFrame::JavaScript(raw) = raw;
+
+            let resolved = raw.resolve(&context.symbol_store, team_id);
+
+            // let resolved = match resolver.resolve(frame, 1).await {
+            //     Ok(r) => r,
+            //     Err(err) => {
+            //         metrics::counter!(ERRORS, "cause" => "frame_not_parsable").increment(1);
+            //         error!("Error parsing stack frame: {:?}", err);
+            //         continue;
+            //     }
+            // };
+
             resolved_frames.push(resolved);
         }
 

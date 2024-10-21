@@ -1,9 +1,11 @@
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
-use sourcemap::Token;
+use sourcemap::{SourceMap, Token};
 
 use crate::{
-    error::{Error, JsResolveErr},
+    error::{Error, JsResolveErr, ResolutionError},
+    resolver::Resolver,
+    symbol_store::{SymbolSetRef, SymbolStore},
     types::frames::Frame,
 };
 
@@ -23,25 +25,39 @@ pub struct RawJSFrame {
     pub fn_name: String,
 }
 
-// export interface StackFrame {
-//     filename?: string
-//     function?: string
-//     module?: string
-//     platform?: string
-//     lineno?: number
-//     colno?: number
-//     abs_path?: string
-//     context_line?: string
-//     pre_context?: string[]
-//     post_context?: string[]
-//     in_app?: boolean
-//     instruction_addr?: string
-//     addr_mode?: string
-//     vars?: { [key: string]: any }
-//     debug_id?: string
-// }
+impl Resolver for RawJSFrame {
+    async fn resolve(&self, store: &dyn SymbolStore, team_id: i32) -> Result<Frame, Error> {
+        match self.resolve_impl(store, team_id).await {
+            Ok(frame) => Ok(frame),
+            Err(e) => {
+                let Error::ResolutionError(ResolutionError::JavaScript(e)) = e else {
+                    return Err(e);
+                };
+                self.try_handle_resolution_error(e)
+            }
+        }
+    }
+}
 
 impl RawJSFrame {
+    async fn resolve_impl(&self, store: &dyn SymbolStore, team_id: i32) -> Result<Frame, Error> {
+        let source_ref = self.source_ref();
+        let symbol_set_ref = source_ref.map(SymbolSetRef::Js).map_err(Error::from)?;
+        let source = store.fetch(team_id, symbol_set_ref).await?;
+
+        let sm = SourceMap::from_reader(source.as_slice()).map_err(JsResolveErr::from)?;
+        let token = sm.lookup_token(self.line, self.column).ok_or_else(|| {
+            // Unwrap is safe because, if this frame couldn't give us a source ref, we'd know already
+            JsResolveErr::TokenNotFound(
+                self.source_ref().unwrap().to_string(),
+                self.line,
+                self.column,
+            )
+        })?;
+
+        Ok((self, token).into())
+    }
+
     pub fn source_ref(&self) -> Result<Url, JsResolveErr> {
         // We can't resolve a frame without a source ref, and are forced
         // to assume this frame is not minified
