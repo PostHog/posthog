@@ -152,7 +152,7 @@ const AddFilterButton = (props: Omit<LemonButtonProps, 'onClick' | 'sideAction' 
                 onClick={() => setDropdownOpen(!dropdownOpen)}
                 {...props}
             >
-                Add filter
+                {props?.title || 'Add filter'}
             </LemonButton>
         </LemonDropdown>
     )

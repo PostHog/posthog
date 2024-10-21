@@ -35,7 +35,7 @@ const NestedFilterGroup = ({ rootKey }: { rootKey: string }): JSX.Element => {
                     />
                 )
             })}
-            <UniversalFilters.AddFilterButton />
+            <UniversalFilters.AddFilterButton title="Select event" type="secondary" size="xsmall" />
         </div>
     )
 }
