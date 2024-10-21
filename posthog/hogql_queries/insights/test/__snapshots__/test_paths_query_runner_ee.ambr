@@ -1267,7 +1267,7 @@
   INNER JOIN
     (SELECT person.id AS id
      FROM person
-     WHERE and(equals(person.team_id, 2), in(id,
+     WHERE and(equals(person.team_id, 2), in(person.id,
                                                (SELECT source.actor_id AS actor_id
                                                 FROM
                                                   (SELECT person_id AS actor_id, groupUniqArray(100)(tuple(timestamp, uuid, session_id, window_id)) AS matching_events, count(*) AS event_count
@@ -1415,7 +1415,7 @@
   INNER JOIN
     (SELECT person.id AS id
      FROM person
-     WHERE and(equals(person.team_id, 2), in(id,
+     WHERE and(equals(person.team_id, 2), in(person.id,
                                                (SELECT source.actor_id AS actor_id
                                                 FROM
                                                   (SELECT person_id AS actor_id, groupUniqArray(100)(tuple(timestamp, uuid, session_id, window_id)) AS matching_events, count(*) AS event_count
@@ -1562,7 +1562,7 @@
   INNER JOIN
     (SELECT person.id AS id
      FROM person
-     WHERE and(equals(person.team_id, 2), in(id,
+     WHERE and(equals(person.team_id, 2), in(person.id,
                                                (SELECT source.actor_id AS actor_id
                                                 FROM
                                                   (SELECT person_id AS actor_id, groupUniqArray(100)(tuple(timestamp, uuid, session_id, window_id)) AS matching_events, count(*) AS event_count
@@ -1710,7 +1710,7 @@
   INNER JOIN
     (SELECT person.id AS id
      FROM person
-     WHERE and(equals(person.team_id, 2), in(id,
+     WHERE and(equals(person.team_id, 2), in(person.id,
                                                (SELECT source.actor_id AS actor_id
                                                 FROM
                                                   (SELECT person_id AS actor_id, groupUniqArray(100)(tuple(timestamp, uuid, session_id, window_id)) AS matching_events, count(*) AS event_count
@@ -1858,7 +1858,7 @@
   INNER JOIN
     (SELECT person.id AS id
      FROM person
-     WHERE and(equals(person.team_id, 2), in(id,
+     WHERE and(equals(person.team_id, 2), in(person.id,
                                                (SELECT source.actor_id AS actor_id
                                                 FROM
                                                   (SELECT person_id AS actor_id, groupUniqArray(100)(tuple(timestamp, uuid, session_id, window_id)) AS matching_events, count(*) AS event_count
@@ -2005,7 +2005,7 @@
   INNER JOIN
     (SELECT person.id AS id
      FROM person
-     WHERE and(equals(person.team_id, 2), in(id,
+     WHERE and(equals(person.team_id, 2), in(person.id,
                                                (SELECT source.actor_id AS actor_id
                                                 FROM
                                                   (SELECT person_id AS actor_id, groupUniqArray(100)(tuple(timestamp, uuid, session_id, window_id)) AS matching_events, count(*) AS event_count
@@ -2153,7 +2153,7 @@
   INNER JOIN
     (SELECT person.id AS id
      FROM person
-     WHERE and(equals(person.team_id, 2), in(id,
+     WHERE and(equals(person.team_id, 2), in(person.id,
                                                (SELECT source.actor_id AS actor_id
                                                 FROM
                                                   (SELECT person_id AS actor_id, groupUniqArray(100)(tuple(timestamp, uuid, session_id, window_id)) AS matching_events, count(*) AS event_count
@@ -2301,7 +2301,7 @@
   INNER JOIN
     (SELECT person.id AS id
      FROM person
-     WHERE and(equals(person.team_id, 2), in(id,
+     WHERE and(equals(person.team_id, 2), in(person.id,
                                                (SELECT source.actor_id AS actor_id
                                                 FROM
                                                   (SELECT person_id AS actor_id, groupUniqArray(100)(tuple(timestamp, uuid, session_id, window_id)) AS matching_events, count(*) AS event_count
@@ -2448,7 +2448,7 @@
   INNER JOIN
     (SELECT person.id AS id
      FROM person
-     WHERE and(equals(person.team_id, 2), in(id,
+     WHERE and(equals(person.team_id, 2), in(person.id,
                                                (SELECT source.actor_id AS actor_id
                                                 FROM
                                                   (SELECT person_id AS actor_id, groupUniqArray(100)(tuple(timestamp, uuid, session_id, window_id)) AS matching_events, count(*) AS event_count
@@ -2687,10 +2687,10 @@
      WHERE ifNull(equals(path_key, '2_/2'), 0)
      GROUP BY person_id) AS source
   INNER JOIN
-    (SELECT argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
-            person.id AS id
+    (SELECT person.id AS id,
+            argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at
      FROM person
-     WHERE and(equals(person.team_id, 2), in(id,
+     WHERE and(equals(person.team_id, 2), in(person.id,
                                                (SELECT source.actor_id AS actor_id
                                                 FROM
                                                   (SELECT person_id AS actor_id, groupUniqArray(100)(tuple(timestamp, uuid, session_id, window_id)) AS matching_events, count(*) AS event_count
@@ -2853,10 +2853,10 @@
                                                                    and isNull(path_key)))
      GROUP BY person_id) AS source
   INNER JOIN
-    (SELECT argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
-            person.id AS id
+    (SELECT person.id AS id,
+            argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at
      FROM person
-     WHERE and(equals(person.team_id, 2), in(id,
+     WHERE and(equals(person.team_id, 2), in(person.id,
                                                (SELECT source.actor_id AS actor_id
                                                 FROM
                                                   (SELECT person_id AS actor_id, groupUniqArray(100)(tuple(timestamp, uuid, session_id, window_id)) AS matching_events, count(*) AS event_count
@@ -3006,10 +3006,10 @@
                                                                    and isNull(path_key)))
      GROUP BY person_id) AS source
   INNER JOIN
-    (SELECT argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
-            person.id AS id
+    (SELECT person.id AS id,
+            argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at
      FROM person
-     WHERE and(equals(person.team_id, 2), in(id,
+     WHERE and(equals(person.team_id, 2), in(person.id,
                                                (SELECT source.actor_id AS actor_id
                                                 FROM
                                                   (SELECT person_id AS actor_id, groupUniqArray(100)(tuple(timestamp, uuid, session_id, window_id)) AS matching_events, count(*) AS event_count
@@ -3172,10 +3172,10 @@
      WHERE ifNull(equals(path_key, '2_/2'), 0)
      GROUP BY person_id) AS source
   INNER JOIN
-    (SELECT argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
-            person.id AS id
+    (SELECT person.id AS id,
+            argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at
      FROM person
-     WHERE and(equals(person.team_id, 2), in(id,
+     WHERE and(equals(person.team_id, 2), in(person.id,
                                                (SELECT source.actor_id AS actor_id
                                                 FROM
                                                   (SELECT person_id AS actor_id, groupUniqArray(100)(tuple(timestamp, uuid, session_id, window_id)) AS matching_events, count(*) AS event_count
@@ -3346,10 +3346,10 @@
      WHERE ifNull(equals(path_key, '2_/2'), 0)
      GROUP BY person_id) AS source
   INNER JOIN
-    (SELECT argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
-            person.id AS id
+    (SELECT person.id AS id,
+            argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at
      FROM person
-     WHERE and(equals(person.team_id, 2), in(id,
+     WHERE and(equals(person.team_id, 2), in(person.id,
                                                (SELECT source.actor_id AS actor_id
                                                 FROM
                                                   (SELECT person_id AS actor_id, groupUniqArray(100)(tuple(timestamp, uuid, session_id, window_id)) AS matching_events, count(*) AS event_count
@@ -3689,7 +3689,7 @@
   INNER JOIN
     (SELECT person.id AS id
      FROM person
-     WHERE and(equals(person.team_id, 2), in(id,
+     WHERE and(equals(person.team_id, 2), in(person.id,
                                                (SELECT source.actor_id AS actor_id
                                                 FROM
                                                   (SELECT person_id AS actor_id, groupUniqArray(100)(tuple(timestamp, uuid, session_id, window_id)) AS matching_events, count(*) AS event_count
@@ -3933,7 +3933,7 @@
   INNER JOIN
     (SELECT person.id AS id
      FROM person
-     WHERE and(equals(person.team_id, 2), in(id,
+     WHERE and(equals(person.team_id, 2), in(person.id,
                                                (SELECT source.actor_id AS actor_id
                                                 FROM
                                                   (SELECT person_id AS actor_id, groupUniqArray(100)(tuple(timestamp, uuid, session_id, window_id)) AS matching_events, count(*) AS event_count
@@ -4177,7 +4177,7 @@
   INNER JOIN
     (SELECT person.id AS id
      FROM person
-     WHERE and(equals(person.team_id, 2), in(id,
+     WHERE and(equals(person.team_id, 2), in(person.id,
                                                (SELECT source.actor_id AS actor_id
                                                 FROM
                                                   (SELECT person_id AS actor_id, groupUniqArray(100)(tuple(timestamp, uuid, session_id, window_id)) AS matching_events, count(*) AS event_count
@@ -4421,7 +4421,7 @@
   INNER JOIN
     (SELECT person.id AS id
      FROM person
-     WHERE and(equals(person.team_id, 2), in(id,
+     WHERE and(equals(person.team_id, 2), in(person.id,
                                                (SELECT source.actor_id AS actor_id
                                                 FROM
                                                   (SELECT person_id AS actor_id, groupUniqArray(100)(tuple(timestamp, uuid, session_id, window_id)) AS matching_events, count(*) AS event_count
@@ -4816,7 +4816,7 @@
   INNER JOIN
     (SELECT person.id AS id
      FROM person
-     WHERE and(equals(person.team_id, 2), in(id,
+     WHERE and(equals(person.team_id, 2), in(person.id,
                                                (SELECT source.actor_id AS actor_id
                                                 FROM
                                                   (SELECT person_id AS actor_id, groupUniqArray(100)(tuple(timestamp, uuid, session_id, window_id)) AS matching_events, count(*) AS event_count
@@ -4963,7 +4963,7 @@
   INNER JOIN
     (SELECT person.id AS id
      FROM person
-     WHERE and(equals(person.team_id, 2), in(id,
+     WHERE and(equals(person.team_id, 2), in(person.id,
                                                (SELECT source.actor_id AS actor_id
                                                 FROM
                                                   (SELECT person_id AS actor_id, groupUniqArray(100)(tuple(timestamp, uuid, session_id, window_id)) AS matching_events, count(*) AS event_count
@@ -5192,7 +5192,7 @@
   INNER JOIN
     (SELECT person.id AS id
      FROM person
-     WHERE and(equals(person.team_id, 2), in(id,
+     WHERE and(equals(person.team_id, 2), in(person.id,
                                                (SELECT source.actor_id AS actor_id
                                                 FROM
                                                   (SELECT person_id AS actor_id, groupUniqArray(100)(tuple(timestamp, uuid, session_id, window_id)) AS matching_events, count(*) AS event_count
@@ -5421,7 +5421,7 @@
   INNER JOIN
     (SELECT person.id AS id
      FROM person
-     WHERE and(equals(person.team_id, 2), in(id,
+     WHERE and(equals(person.team_id, 2), in(person.id,
                                                (SELECT source.actor_id AS actor_id
                                                 FROM
                                                   (SELECT person_id AS actor_id, groupUniqArray(100)(tuple(timestamp, uuid, session_id, window_id)) AS matching_events, count(*) AS event_count
@@ -5568,7 +5568,7 @@
   INNER JOIN
     (SELECT person.id AS id
      FROM person
-     WHERE and(equals(person.team_id, 2), in(id,
+     WHERE and(equals(person.team_id, 2), in(person.id,
                                                (SELECT source.actor_id AS actor_id
                                                 FROM
                                                   (SELECT person_id AS actor_id, groupUniqArray(100)(tuple(timestamp, uuid, session_id, window_id)) AS matching_events, count(*) AS event_count
@@ -5715,7 +5715,7 @@
   INNER JOIN
     (SELECT person.id AS id
      FROM person
-     WHERE and(equals(person.team_id, 2), in(id,
+     WHERE and(equals(person.team_id, 2), in(person.id,
                                                (SELECT source.actor_id AS actor_id
                                                 FROM
                                                   (SELECT person_id AS actor_id, groupUniqArray(100)(tuple(timestamp, uuid, session_id, window_id)) AS matching_events, count(*) AS event_count
@@ -13121,7 +13121,7 @@
   INNER JOIN
     (SELECT person.id AS id
      FROM person
-     WHERE and(equals(person.team_id, 2), in(id,
+     WHERE and(equals(person.team_id, 2), in(person.id,
                                                (SELECT source.actor_id AS actor_id
                                                 FROM
                                                   (SELECT person_id AS actor_id, groupUniqArray(100)(tuple(timestamp, uuid, session_id, window_id)) AS matching_events, count(*) AS event_count
@@ -13269,7 +13269,7 @@
   INNER JOIN
     (SELECT person.id AS id
      FROM person
-     WHERE and(equals(person.team_id, 2), in(id,
+     WHERE and(equals(person.team_id, 2), in(person.id,
                                                (SELECT source.actor_id AS actor_id
                                                 FROM
                                                   (SELECT person_id AS actor_id, groupUniqArray(100)(tuple(timestamp, uuid, session_id, window_id)) AS matching_events, count(*) AS event_count
@@ -13416,7 +13416,7 @@
   INNER JOIN
     (SELECT person.id AS id
      FROM person
-     WHERE and(equals(person.team_id, 2), in(id,
+     WHERE and(equals(person.team_id, 2), in(person.id,
                                                (SELECT source.actor_id AS actor_id
                                                 FROM
                                                   (SELECT person_id AS actor_id, groupUniqArray(100)(tuple(timestamp, uuid, session_id, window_id)) AS matching_events, count(*) AS event_count
@@ -13564,7 +13564,7 @@
   INNER JOIN
     (SELECT person.id AS id
      FROM person
-     WHERE and(equals(person.team_id, 2), in(id,
+     WHERE and(equals(person.team_id, 2), in(person.id,
                                                (SELECT source.actor_id AS actor_id
                                                 FROM
                                                   (SELECT person_id AS actor_id, groupUniqArray(100)(tuple(timestamp, uuid, session_id, window_id)) AS matching_events, count(*) AS event_count
@@ -13712,7 +13712,7 @@
   INNER JOIN
     (SELECT person.id AS id
      FROM person
-     WHERE and(equals(person.team_id, 2), in(id,
+     WHERE and(equals(person.team_id, 2), in(person.id,
                                                (SELECT source.actor_id AS actor_id
                                                 FROM
                                                   (SELECT person_id AS actor_id, groupUniqArray(100)(tuple(timestamp, uuid, session_id, window_id)) AS matching_events, count(*) AS event_count
@@ -13859,7 +13859,7 @@
   INNER JOIN
     (SELECT person.id AS id
      FROM person
-     WHERE and(equals(person.team_id, 2), in(id,
+     WHERE and(equals(person.team_id, 2), in(person.id,
                                                (SELECT source.actor_id AS actor_id
                                                 FROM
                                                   (SELECT person_id AS actor_id, groupUniqArray(100)(tuple(timestamp, uuid, session_id, window_id)) AS matching_events, count(*) AS event_count
@@ -14007,7 +14007,7 @@
   INNER JOIN
     (SELECT person.id AS id
      FROM person
-     WHERE and(equals(person.team_id, 2), in(id,
+     WHERE and(equals(person.team_id, 2), in(person.id,
                                                (SELECT source.actor_id AS actor_id
                                                 FROM
                                                   (SELECT person_id AS actor_id, groupUniqArray(100)(tuple(timestamp, uuid, session_id, window_id)) AS matching_events, count(*) AS event_count
@@ -14155,7 +14155,7 @@
   INNER JOIN
     (SELECT person.id AS id
      FROM person
-     WHERE and(equals(person.team_id, 2), in(id,
+     WHERE and(equals(person.team_id, 2), in(person.id,
                                                (SELECT source.actor_id AS actor_id
                                                 FROM
                                                   (SELECT person_id AS actor_id, groupUniqArray(100)(tuple(timestamp, uuid, session_id, window_id)) AS matching_events, count(*) AS event_count
@@ -14302,7 +14302,7 @@
   INNER JOIN
     (SELECT person.id AS id
      FROM person
-     WHERE and(equals(person.team_id, 2), in(id,
+     WHERE and(equals(person.team_id, 2), in(person.id,
                                                (SELECT source.actor_id AS actor_id
                                                 FROM
                                                   (SELECT person_id AS actor_id, groupUniqArray(100)(tuple(timestamp, uuid, session_id, window_id)) AS matching_events, count(*) AS event_count
@@ -14541,10 +14541,10 @@
      WHERE ifNull(equals(path_key, '2_/2'), 0)
      GROUP BY person_id) AS source
   INNER JOIN
-    (SELECT argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
-            person.id AS id
+    (SELECT person.id AS id,
+            argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at
      FROM person
-     WHERE and(equals(person.team_id, 2), in(id,
+     WHERE and(equals(person.team_id, 2), in(person.id,
                                                (SELECT source.actor_id AS actor_id
                                                 FROM
                                                   (SELECT person_id AS actor_id, groupUniqArray(100)(tuple(timestamp, uuid, session_id, window_id)) AS matching_events, count(*) AS event_count
@@ -14707,10 +14707,10 @@
                                                                    and isNull(path_key)))
      GROUP BY person_id) AS source
   INNER JOIN
-    (SELECT argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
-            person.id AS id
+    (SELECT person.id AS id,
+            argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at
      FROM person
-     WHERE and(equals(person.team_id, 2), in(id,
+     WHERE and(equals(person.team_id, 2), in(person.id,
                                                (SELECT source.actor_id AS actor_id
                                                 FROM
                                                   (SELECT person_id AS actor_id, groupUniqArray(100)(tuple(timestamp, uuid, session_id, window_id)) AS matching_events, count(*) AS event_count
@@ -14860,10 +14860,10 @@
                                                                    and isNull(path_key)))
      GROUP BY person_id) AS source
   INNER JOIN
-    (SELECT argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
-            person.id AS id
+    (SELECT person.id AS id,
+            argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at
      FROM person
-     WHERE and(equals(person.team_id, 2), in(id,
+     WHERE and(equals(person.team_id, 2), in(person.id,
                                                (SELECT source.actor_id AS actor_id
                                                 FROM
                                                   (SELECT person_id AS actor_id, groupUniqArray(100)(tuple(timestamp, uuid, session_id, window_id)) AS matching_events, count(*) AS event_count
@@ -15026,10 +15026,10 @@
      WHERE ifNull(equals(path_key, '2_/2'), 0)
      GROUP BY person_id) AS source
   INNER JOIN
-    (SELECT argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
-            person.id AS id
+    (SELECT person.id AS id,
+            argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at
      FROM person
-     WHERE and(equals(person.team_id, 2), in(id,
+     WHERE and(equals(person.team_id, 2), in(person.id,
                                                (SELECT source.actor_id AS actor_id
                                                 FROM
                                                   (SELECT person_id AS actor_id, groupUniqArray(100)(tuple(timestamp, uuid, session_id, window_id)) AS matching_events, count(*) AS event_count
@@ -15200,10 +15200,10 @@
      WHERE ifNull(equals(path_key, '2_/2'), 0)
      GROUP BY person_id) AS source
   INNER JOIN
-    (SELECT argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
-            person.id AS id
+    (SELECT person.id AS id,
+            argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at
      FROM person
-     WHERE and(equals(person.team_id, 2), in(id,
+     WHERE and(equals(person.team_id, 2), in(person.id,
                                                (SELECT source.actor_id AS actor_id
                                                 FROM
                                                   (SELECT person_id AS actor_id, groupUniqArray(100)(tuple(timestamp, uuid, session_id, window_id)) AS matching_events, count(*) AS event_count
@@ -15543,7 +15543,7 @@
   INNER JOIN
     (SELECT person.id AS id
      FROM person
-     WHERE and(equals(person.team_id, 2), in(id,
+     WHERE and(equals(person.team_id, 2), in(person.id,
                                                (SELECT source.actor_id AS actor_id
                                                 FROM
                                                   (SELECT person_id AS actor_id, groupUniqArray(100)(tuple(timestamp, uuid, session_id, window_id)) AS matching_events, count(*) AS event_count
@@ -15787,7 +15787,7 @@
   INNER JOIN
     (SELECT person.id AS id
      FROM person
-     WHERE and(equals(person.team_id, 2), in(id,
+     WHERE and(equals(person.team_id, 2), in(person.id,
                                                (SELECT source.actor_id AS actor_id
                                                 FROM
                                                   (SELECT person_id AS actor_id, groupUniqArray(100)(tuple(timestamp, uuid, session_id, window_id)) AS matching_events, count(*) AS event_count
@@ -16031,7 +16031,7 @@
   INNER JOIN
     (SELECT person.id AS id
      FROM person
-     WHERE and(equals(person.team_id, 2), in(id,
+     WHERE and(equals(person.team_id, 2), in(person.id,
                                                (SELECT source.actor_id AS actor_id
                                                 FROM
                                                   (SELECT person_id AS actor_id, groupUniqArray(100)(tuple(timestamp, uuid, session_id, window_id)) AS matching_events, count(*) AS event_count
@@ -16275,7 +16275,7 @@
   INNER JOIN
     (SELECT person.id AS id
      FROM person
-     WHERE and(equals(person.team_id, 2), in(id,
+     WHERE and(equals(person.team_id, 2), in(person.id,
                                                (SELECT source.actor_id AS actor_id
                                                 FROM
                                                   (SELECT person_id AS actor_id, groupUniqArray(100)(tuple(timestamp, uuid, session_id, window_id)) AS matching_events, count(*) AS event_count
@@ -16670,7 +16670,7 @@
   INNER JOIN
     (SELECT person.id AS id
      FROM person
-     WHERE and(equals(person.team_id, 2), in(id,
+     WHERE and(equals(person.team_id, 2), in(person.id,
                                                (SELECT source.actor_id AS actor_id
                                                 FROM
                                                   (SELECT person_id AS actor_id, groupUniqArray(100)(tuple(timestamp, uuid, session_id, window_id)) AS matching_events, count(*) AS event_count
@@ -16817,7 +16817,7 @@
   INNER JOIN
     (SELECT person.id AS id
      FROM person
-     WHERE and(equals(person.team_id, 2), in(id,
+     WHERE and(equals(person.team_id, 2), in(person.id,
                                                (SELECT source.actor_id AS actor_id
                                                 FROM
                                                   (SELECT person_id AS actor_id, groupUniqArray(100)(tuple(timestamp, uuid, session_id, window_id)) AS matching_events, count(*) AS event_count
@@ -17046,7 +17046,7 @@
   INNER JOIN
     (SELECT person.id AS id
      FROM person
-     WHERE and(equals(person.team_id, 2), in(id,
+     WHERE and(equals(person.team_id, 2), in(person.id,
                                                (SELECT source.actor_id AS actor_id
                                                 FROM
                                                   (SELECT person_id AS actor_id, groupUniqArray(100)(tuple(timestamp, uuid, session_id, window_id)) AS matching_events, count(*) AS event_count
@@ -17275,7 +17275,7 @@
   INNER JOIN
     (SELECT person.id AS id
      FROM person
-     WHERE and(equals(person.team_id, 2), in(id,
+     WHERE and(equals(person.team_id, 2), in(person.id,
                                                (SELECT source.actor_id AS actor_id
                                                 FROM
                                                   (SELECT person_id AS actor_id, groupUniqArray(100)(tuple(timestamp, uuid, session_id, window_id)) AS matching_events, count(*) AS event_count
@@ -17422,7 +17422,7 @@
   INNER JOIN
     (SELECT person.id AS id
      FROM person
-     WHERE and(equals(person.team_id, 2), in(id,
+     WHERE and(equals(person.team_id, 2), in(person.id,
                                                (SELECT source.actor_id AS actor_id
                                                 FROM
                                                   (SELECT person_id AS actor_id, groupUniqArray(100)(tuple(timestamp, uuid, session_id, window_id)) AS matching_events, count(*) AS event_count
@@ -17569,7 +17569,7 @@
   INNER JOIN
     (SELECT person.id AS id
      FROM person
-     WHERE and(equals(person.team_id, 2), in(id,
+     WHERE and(equals(person.team_id, 2), in(person.id,
                                                (SELECT source.actor_id AS actor_id
                                                 FROM
                                                   (SELECT person_id AS actor_id, groupUniqArray(100)(tuple(timestamp, uuid, session_id, window_id)) AS matching_events, count(*) AS event_count
