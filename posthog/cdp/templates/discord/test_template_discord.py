@@ -46,5 +46,6 @@ class TestTemplateDiscord(BaseHogFunctionTemplateTest):
                 with pytest.raises(Exception) as e:
                     self.run_function(inputs=self._inputs(webhookUrl=url))
                 assert (
-                    e.value.message == "Invalid url"  # type: ignore[attr-defined]
+                    e.value.message
+                    == "Invalid URL. The URL should match the format: https://discord.com/api/webhooks/..."  # type: ignore[attr-defined]
                 )
