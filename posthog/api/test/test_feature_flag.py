@@ -739,9 +739,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                             },
                             {
                                 "type": "FeatureFlag",
-                                "action": "changed",
+                                "action": "created",
                                 "field": "filters",
-                                "before": {},
+                                "before": None,
                                 "after": {
                                     "groups": [
                                         {
@@ -843,9 +843,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                         "changes": [
                             {
                                 "type": "FeatureFlag",
-                                "action": "changed",
+                                "action": "created",
                                 "field": "filters",
-                                "before": {},
+                                "before": None,
                                 "after": {"groups": [{"properties": [], "rollout_percentage": 74}]},
                             }
                         ],
@@ -948,9 +948,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                         "changes": [
                             {
                                 "type": "FeatureFlag",
-                                "action": "changed",
+                                "action": "created",
                                 "field": "filters",
-                                "before": {},
+                                "before": None,
                                 "after": {"groups": [{"properties": [], "rollout_percentage": 74}]},
                             }
                         ],
@@ -5151,6 +5151,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
         self.user = User.objects.create_and_join(self.organization, "random@test.com", "password", "first_name")
 
         team_id = self.team.pk
+        project_id = self.team.project_id
         rf = RequestFactory()
         create_request = rf.post(f"api/projects/{self.team.pk}/feature_flags/", {"name": "xyz"})
         create_request.user = self.user
@@ -5185,7 +5186,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
                     ],
                 },
             },
-            context={"team_id": team_id, "request": create_request},
+            context={"team_id": team_id, "project_id": project_id, "request": create_request},
         )
         self.assertTrue(serialized_data.is_valid())
         serialized_data.save()
@@ -5200,7 +5201,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
                     "groups": [{"properties": [], "rollout_percentage": None}],
                 },
             },
-            context={"team_id": team_id, "request": create_request},
+            context={"team_id": team_id, "project_id": project_id, "request": create_request},
         )
         self.assertTrue(serialized_data.is_valid())
         serialized_data.save()
@@ -5256,6 +5257,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
         self.user = User.objects.create_and_join(self.organization, "random@test.com", "password", "first_name")
 
         team_id = self.team.pk
+        project_id = self.team.project_id
         rf = RequestFactory()
         create_request = rf.post(f"api/projects/{self.team.pk}/feature_flags/", {"name": "xyz"})
         create_request.user = self.user
@@ -5286,7 +5288,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
                     ]
                 },
             },
-            context={"team_id": team_id, "request": create_request},
+            context={"team_id": team_id, "project_id": project_id, "request": create_request},
         )
         self.assertTrue(serialized_data.is_valid())
         serialized_data.save()
@@ -5298,7 +5300,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
                 "key": "default-flag",
                 "filters": {"groups": [{"properties": [], "rollout_percentage": None}]},
             },
-            context={"team_id": team_id, "request": create_request},
+            context={"team_id": team_id, "project_id": project_id, "request": create_request},
         )
         self.assertTrue(serialized_data.is_valid())
         serialized_data.save()
@@ -5354,6 +5356,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
         self.user = User.objects.create_and_join(self.organization, "random@test.com", "password", "first_name")
 
         team_id = self.team.pk
+        project_id = self.team.project_id
         rf = RequestFactory()
         create_request = rf.post(f"api/projects/{self.team.pk}/feature_flags/", {"name": "xyz"})
         create_request.user = self.user
@@ -5384,7 +5387,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
                     ]
                 },
             },
-            context={"team_id": team_id, "request": create_request},
+            context={"team_id": team_id, "project_id": project_id, "request": create_request},
         )
         self.assertTrue(serialized_data.is_valid())
         serialized_data.save()
@@ -5396,7 +5399,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
                 "key": "default-flag",
                 "filters": {"groups": [{"properties": [], "rollout_percentage": None}]},
             },
-            context={"team_id": team_id, "request": create_request},
+            context={"team_id": team_id, "project_id": project_id, "request": create_request},
         )
         self.assertTrue(serialized_data.is_valid())
         serialized_data.save()
@@ -5454,6 +5457,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
         self.user = User.objects.create_and_join(self.organization, "random@test.com", "password", "first_name")
 
         team_id = self.team.pk
+        project_id = self.team.project_id
         rf = RequestFactory()
         create_request = rf.post(f"api/projects/{self.team.pk}/feature_flags/", {"name": "xyz"})
         create_request.user = self.user
@@ -5484,7 +5488,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
                     ]
                 },
             },
-            context={"team_id": team_id, "request": create_request},
+            context={"team_id": team_id, "project_id": project_id, "request": create_request},
         )
         self.assertTrue(serialized_data.is_valid())
         serialized_data.save()
@@ -5496,7 +5500,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
                 "key": "default-flag",
                 "filters": {"groups": [{"properties": [], "rollout_percentage": None}]},
             },
-            context={"team_id": team_id, "request": create_request},
+            context={"team_id": team_id, "project_id": project_id, "request": create_request},
         )
         self.assertTrue(serialized_data.is_valid())
         serialized_data.save()
@@ -5661,6 +5665,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
         self.user = User.objects.create_and_join(self.organization, "randomXYZ@test.com", "password", "first_name")
 
         team_id = self.team.pk
+        project_id = self.team.project_id
         rf = RequestFactory()
         create_request = rf.post(f"api/projects/{self.team.pk}/feature_flags/", {"name": "xyz"})
         create_request.user = self.user
@@ -5695,7 +5700,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
                     ],
                 },
             },
-            context={"team_id": team_id, "request": create_request},
+            context={"team_id": team_id, "project_id": project_id, "request": create_request},
         )
         self.assertTrue(serialized_data.is_valid())
         serialized_data.save()
@@ -5710,7 +5715,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
                     "groups": [{"properties": [], "rollout_percentage": None}],
                 },
             },
-            context={"team_id": team_id, "request": create_request},
+            context={"team_id": team_id, "project_id": project_id, "request": create_request},
         )
         self.assertTrue(serialized_data.is_valid())
         serialized_data.save()
@@ -5782,6 +5787,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
         self.user = User.objects.create_and_join(self.organization, "random12@test.com", "password", "first_name")
 
         team_id = self.team.pk
+        project_id = self.team.project_id
         rf = RequestFactory()
         create_request = rf.post(f"api/projects/{self.team.pk}/feature_flags/", {"name": "xyz"})
         create_request.user = self.user
@@ -5813,7 +5819,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
                 },
                 "ensure_experience_continuity": True,
             },
-            context={"team_id": team_id, "request": create_request},
+            context={"team_id": team_id, "project_id": project_id, "request": create_request},
         )
         self.assertTrue(serialized_data.is_valid())
         serialized_data.save()
@@ -5825,7 +5831,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
                 "key": "default-flag",
                 "filters": {"groups": [{"properties": [], "rollout_percentage": None}]},
             },
-            context={"team_id": team_id, "request": create_request},
+            context={"team_id": team_id, "project_id": project_id, "request": create_request},
         )
         self.assertTrue(serialized_data.is_valid())
         serialized_data.save()
@@ -5878,6 +5884,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
         self.user = User.objects.create_and_join(self.organization, "random12@test.com", "password", "first_name")
 
         team_id = self.team.pk
+        project_id = self.team.project_id
         rf = RequestFactory()
         create_request = rf.post(f"api/projects/{self.team.pk}/feature_flags/", {"name": "xyz"})
         create_request.user = self.user
@@ -5909,7 +5916,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
                 },
                 "ensure_experience_continuity": True,
             },
-            context={"team_id": team_id, "request": create_request},
+            context={"team_id": team_id, "project_id": project_id, "request": create_request},
         )
         self.assertTrue(serialized_data.is_valid())
         serialized_data.save()
@@ -5921,7 +5928,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
                 "key": "default-flag",
                 "filters": {"groups": [{"properties": [], "rollout_percentage": None}]},
             },
-            context={"team_id": team_id, "request": create_request},
+            context={"team_id": team_id, "project_id": project_id, "request": create_request},
         )
         self.assertTrue(serialized_data.is_valid())
         serialized_data.save()

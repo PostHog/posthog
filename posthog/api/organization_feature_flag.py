@@ -179,6 +179,7 @@ class OrganizationFeatureFlagView(
             context = {
                 "request": request,
                 "team_id": target_project_id,
+                "project_id": target_project_id,
             }
 
             existing_flag = FeatureFlag.objects.filter(

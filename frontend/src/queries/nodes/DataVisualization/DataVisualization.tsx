@@ -17,7 +17,14 @@ import { HogQLBoldNumber } from 'scenes/insights/views/BoldNumber/BoldNumber'
 import { urls } from 'scenes/urls'
 
 import { insightVizDataCollectionId, insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
-import { AnyResponseType, DataVisualizationNode, HogQLQuery, HogQLQueryResponse, NodeKind } from '~/queries/schema'
+import {
+    AnyResponseType,
+    DataVisualizationNode,
+    HogQLQuery,
+    HogQLQueryResponse,
+    HogQLVariable,
+    NodeKind,
+} from '~/queries/schema'
 import { QueryContext } from '~/queries/types'
 import { ChartDisplayType, ExporterFormat, InsightLogicProps } from '~/types'
 
@@ -32,7 +39,8 @@ import { SideBar } from './Components/SideBar'
 import { Table } from './Components/Table'
 import { TableDisplay } from './Components/TableDisplay'
 import { AddVariableButton } from './Components/Variables/AddVariableButton'
-import { Variables } from './Components/Variables/Variables'
+import { variableModalLogic } from './Components/Variables/variableModalLogic'
+import { VariablesForInsight } from './Components/Variables/Variables'
 import { variablesLogic } from './Components/Variables/variablesLogic'
 import { dataVisualizationLogic, DataVisualizationLogicProps } from './dataVisualizationLogic'
 import { displayLogic } from './displayLogic'
@@ -40,12 +48,14 @@ import { displayLogic } from './displayLogic'
 interface DataTableVisualizationProps {
     uniqueKey?: string | number
     query: DataVisualizationNode
-    setQuery?: (query: DataVisualizationNode) => void
+    setQuery: (query: DataVisualizationNode) => void
     context?: QueryContext<DataVisualizationNode>
     /* Cached Results are provided when shared or exported,
     the data node logic becomes read only implicitly */
     cachedResults?: AnyResponseType
     readOnly?: boolean
+    /** Dashboard variables to override the ones in the query */
+    variablesOverride?: Record<string, HogQLVariable> | null
 }
 
 let uniqueNode = 0
@@ -57,6 +67,7 @@ export function DataTableVisualization({
     context,
     cachedResults,
     readOnly,
+    variablesOverride,
 }: DataTableVisualizationProps): JSX.Element {
     const [key] = useState(`DataVisualizationNode.${uniqueKey ?? uniqueNode++}`)
     const insightProps: InsightLogicProps<DataVisualizationNode> = context?.insightProps || {
@@ -73,6 +84,7 @@ export function DataTableVisualization({
         insightLogicProps: insightProps,
         setQuery,
         cachedResults,
+        variablesOverride,
     }
 
     const dataNodeLogicProps: DataNodeLogicProps = {
@@ -81,6 +93,7 @@ export function DataTableVisualization({
         cachedResults,
         loadPriority: insightProps.loadPriority,
         dataNodeCollectionId: insightVizDataCollectionId(insightProps, key),
+        variablesOverride,
     }
 
     return (
@@ -91,14 +104,16 @@ export function DataTableVisualization({
                         logic={variablesLogic}
                         props={{ key: dataVisualizationLogicProps.key, readOnly: readOnly ?? false }}
                     >
-                        <InternalDataTableVisualization
-                            uniqueKey={key}
-                            query={query}
-                            setQuery={setQuery}
-                            context={context}
-                            cachedResults={cachedResults}
-                            readOnly={readOnly}
-                        />
+                        <BindLogic logic={variableModalLogic} props={{ key: dataVisualizationLogicProps.key }}>
+                            <InternalDataTableVisualization
+                                uniqueKey={key}
+                                query={query}
+                                setQuery={setQuery}
+                                context={context}
+                                cachedResults={cachedResults}
+                                readOnly={readOnly}
+                            />
+                        </BindLogic>
                     </BindLogic>
                 </BindLogic>
             </BindLogic>
@@ -238,7 +253,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                     </>
                 )}
 
-                <Variables />
+                <VariablesForInsight />
 
                 <div className="flex flex-1 flex-row gap-4">
                     {showEditingUI && isChartSettingsPanelOpen && (

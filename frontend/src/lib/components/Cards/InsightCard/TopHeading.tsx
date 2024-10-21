@@ -1,7 +1,7 @@
 import { dateFilterToText } from 'lib/utils'
 import { InsightTypeMetadata, QUERY_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
 
-import { NodeKind } from '~/queries/schema'
+import { Node, NodeKind } from '~/queries/schema'
 import {
     containsHogQLQuery,
     dateRangeFor,
@@ -9,11 +9,8 @@ import {
     isInsightQueryNode,
     isInsightVizNode,
 } from '~/queries/utils'
-import { QueryBasedInsightModel } from '~/types'
 
-export function TopHeading({ insight }: { insight: QueryBasedInsightModel }): JSX.Element {
-    const { query } = insight
-
+export function TopHeading({ query }: { query: Node | null }): JSX.Element {
     let insightType: InsightTypeMetadata
 
     if (query?.kind) {

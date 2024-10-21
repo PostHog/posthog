@@ -5,11 +5,11 @@ from rest_framework import status
 
 from ee.api.test.base import APILicensedTest
 from dateutil import parser
-from posthog.constants import ExperimentSignificanceCode
 from posthog.models.action.action import Action
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.experiment import Experiment
 from posthog.models.feature_flag import FeatureFlag, get_feature_flags_for_team_in_cache
+from posthog.schema import ExperimentSignificanceCode
 from posthog.test.base import (
     ClickhouseTestMixin,
     _create_event,

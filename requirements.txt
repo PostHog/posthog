@@ -244,16 +244,17 @@ google-api-core==2.11.1
 google-auth==2.22.0
     # via
     #   google-api-core
+    #   google-cloud-bigquery
     #   google-cloud-bigquery-storage
     #   google-cloud-core
     #   sqlalchemy-bigquery
-google-cloud-bigquery==3.11.4
+google-cloud-bigquery==3.26.0
     # via
     #   -r requirements.in
     #   sqlalchemy-bigquery
 google-cloud-bigquery-storage==2.26.0
     # via sqlalchemy-bigquery
-google-cloud-core==2.3.3
+google-cloud-core==2.4.1
     # via google-cloud-bigquery
 google-crc32c==1.5.0
     # via google-resumable-media
@@ -263,10 +264,11 @@ googleapis-common-protos==1.60.0
     # via
     #   google-api-core
     #   grpcio-status
+greenlet==3.1.1
+    # via sqlalchemy
 grpcio==1.57.0
     # via
     #   google-api-core
-    #   google-cloud-bigquery
     #   grpcio-status
     #   sqlalchemy-bigquery
 grpcio-status==1.57.0
@@ -445,13 +447,10 @@ prometheus-client==0.14.1
 prompt-toolkit==3.0.39
     # via click-repl
 proto-plus==1.22.3
-    # via
-    #   google-cloud-bigquery
-    #   google-cloud-bigquery-storage
+    # via google-cloud-bigquery-storage
 protobuf==4.22.1
     # via
     #   google-api-core
-    #   google-cloud-bigquery
     #   google-cloud-bigquery-storage
     #   googleapis-common-protos
     #   grpcio-status

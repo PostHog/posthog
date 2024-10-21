@@ -1,6 +1,6 @@
 import { EitherMembershipLevel, FEATURE_FLAGS } from 'lib/constants'
 
-import { AvailableFeature } from '~/types'
+import { AvailableFeature, Realm } from '~/types'
 
 export type SettingsLogicProps = {
     logicKey?: string
@@ -110,6 +110,7 @@ export type Setting = {
      */
     flag?: FeatureFlagKey | `!${FeatureFlagKey}`
     features?: AvailableFeature[]
+    hideOn?: Realm[]
 }
 
 export type SettingSection = {

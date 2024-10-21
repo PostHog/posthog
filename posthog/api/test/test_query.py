@@ -1101,3 +1101,12 @@ class TestQueryRetrieve(APIBaseTest):
         response = self.client.delete(f"/api/projects/{self.team.id}/query/{self.valid_query_id}/")
         self.assertEqual(response.status_code, 204)
         self.assertEqual(self.redis_client_mock.delete.call_count, 2)
+
+
+class TestQueryDraftSql(APIBaseTest):
+    @patch("posthog.hogql.ai.hit_openai", return_value=("SELECT 1", 21, 37))
+    def test_draft_sql(self, hit_openai_mock):
+        response = self.client.get(f"/api/projects/{self.team.id}/query/draft_sql/", {"prompt": "I need the number 1"})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"sql": "SELECT 1"})
+        hit_openai_mock.assert_called_once()

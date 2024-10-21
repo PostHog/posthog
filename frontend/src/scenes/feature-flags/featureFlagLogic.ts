@@ -16,6 +16,7 @@ import { experimentLogic } from 'scenes/experiments/experimentLogic'
 import { featureFlagsLogic, FeatureFlagsTab } from 'scenes/feature-flags/featureFlagsLogic'
 import { filterTrendsClientSideParams } from 'scenes/insights/sharedUtils'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
+import { projectLogic } from 'scenes/projectLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { NEW_SURVEY, NewSurvey } from 'scenes/surveys/constants'
 import { urls } from 'scenes/urls'
@@ -37,6 +38,7 @@ import {
     FilterType,
     InsightModel,
     InsightType,
+    JsonType,
     MultivariateFlagOptions,
     MultivariateFlagVariant,
     NewEarlyAccessFeatureType,
@@ -132,9 +134,11 @@ export const variantKeyToIndexFeatureFlagPayloads = (flag: FeatureFlagType): Fea
         return flag
     }
 
-    const newPayloads = {}
+    const newPayloads: Record<number, JsonType> = {}
     flag.filters.multivariate?.variants.forEach((variant, index) => {
-        newPayloads[index] = flag.filters.payloads?.[variant.key]
+        if (flag.filters.payloads?.[variant.key] !== undefined) {
+            newPayloads[index] = flag.filters.payloads[variant.key]
+        }
     })
     return {
         ...flag,
@@ -147,11 +151,10 @@ export const variantKeyToIndexFeatureFlagPayloads = (flag: FeatureFlagType): Fea
 
 const indexToVariantKeyFeatureFlagPayloads = (flag: Partial<FeatureFlagType>): Partial<FeatureFlagType> => {
     if (flag.filters?.multivariate) {
-        const newPayloads = {}
-        flag.filters?.multivariate?.variants.forEach(({ key }, index) => {
-            const payload = flag.filters?.payloads?.[index]
-            if (payload) {
-                newPayloads[key] = payload
+        const newPayloads: Record<string, JsonType> = {}
+        flag.filters.multivariate.variants.forEach(({ key }, index) => {
+            if (flag.filters?.payloads?.[index] !== undefined) {
+                newPayloads[key] = flag.filters.payloads[index]
             }
         })
         return {
@@ -186,6 +189,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         values: [
             teamLogic,
             ['currentTeamId'],
+            projectLogic,
+            ['currentProjectId'],
             groupsModel,
             ['aggregationLabel'],
             userLogic,
@@ -316,6 +321,22 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     }
                     const variants = [...(state.filters.multivariate?.variants || [])]
                     variants.splice(index, 1)
+
+                    const currentPayloads = { ...state.filters.payloads }
+                    const newPayloads: Record<number, any> = {}
+
+                    // TRICKY: In addition to modifying the variant array, we also need to shift the payload indices
+                    // because the variant array is being modified and we need to make sure that the payloads object
+                    // stays in sync with the variant array.
+                    Object.keys(currentPayloads).forEach((key) => {
+                        const payloadIndex = parseInt(key)
+                        if (payloadIndex > index) {
+                            newPayloads[payloadIndex - 1] = currentPayloads[payloadIndex]
+                        } else if (payloadIndex < index) {
+                            newPayloads[payloadIndex] = currentPayloads[payloadIndex]
+                        }
+                    })
+
                     return {
                         ...state,
                         filters: {
@@ -324,6 +345,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                                 ...state.filters.multivariate,
                                 variants,
                             },
+                            payloads: newPayloads,
                         },
                     }
                 },
@@ -472,13 +494,16 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 try {
                     let savedFlag: FeatureFlagType
                     if (!updatedFlag.id) {
-                        savedFlag = await api.create(`api/projects/${values.currentTeamId}/feature_flags`, preparedFlag)
+                        savedFlag = await api.create(
+                            `api/projects/${values.currentProjectId}/feature_flags`,
+                            preparedFlag
+                        )
                         if (values.roleBasedAccessEnabled && savedFlag.id) {
                             featureFlagPermissionsLogic({ flagId: null })?.actions.addAssociatedRoles(savedFlag.id)
                         }
                     } else {
                         savedFlag = await api.update(
-                            `api/projects/${values.currentTeamId}/feature_flags/${updatedFlag.id}`,
+                            `api/projects/${values.currentProjectId}/feature_flags/${updatedFlag.id}`,
                             preparedFlag
                         )
                     }
@@ -525,7 +550,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 loadRelatedInsights: async () => {
                     if (props.id && props.id !== 'new' && values.featureFlag.key) {
                         const response = await api.get<PaginatedResponse<InsightModel>>(
-                            `api/projects/${values.currentTeamId}/insights/?feature_flag=${values.featureFlag.key}&order=-created_at`
+                            `api/environments/${values.currentProjectId}/insights/?feature_flag=${values.featureFlag.key}&order=-created_at`
                         )
                         return response.results.map((legacyInsight) => getQueryBasedInsightModel(legacyInsight))
                     }
@@ -636,7 +661,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             createScheduledChange: async () => {
                 const { scheduledChangeOperation, scheduleDateMarker, currentTeamId, schedulePayload } = values
 
-                const fields = {
+                const fields: Record<ScheduledChangeOperationType, keyof ScheduleFlagPayload> = {
                     [ScheduledChangeOperationType.UpdateStatus]: 'active',
                     [ScheduledChangeOperationType.AddReleaseCondition]: 'filters',
                 }
@@ -665,13 +690,13 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
     })),
     listeners(({ actions, values, props }) => ({
         submitNewDashboardSuccessWithResult: async ({ result }) => {
-            await api.update(`api/projects/${values.currentTeamId}/feature_flags/${values.featureFlag.id}`, {
+            await api.update(`api/projects/${values.currentProjectId}/feature_flags/${values.featureFlag.id}`, {
                 analytics_dashboards: [result.id],
             })
         },
         generateUsageDashboard: async () => {
             if (props.id) {
-                await api.create(`api/projects/${values.currentTeamId}/feature_flags/${props.id}/dashboard`)
+                await api.create(`api/projects/${values.currentProjectId}/feature_flags/${props.id}/dashboard`)
                 actions.loadFeatureFlag()
             }
         },
@@ -679,7 +704,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             if (props.id) {
                 await breakpoint(1000) // in ms
                 await api.create(
-                    `api/projects/${values.currentTeamId}/feature_flags/${props.id}/enrich_usage_dashboard`
+                    `api/projects/${values.currentProjectId}/feature_flags/${props.id}/enrich_usage_dashboard`
                 )
             }
         },
@@ -706,12 +731,13 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             const experimentId = currentPath.split('/').pop()
 
             if (experimentId) {
+                eventUsageLogic.actions.reportExperimentReleaseConditionsUpdated(parseInt(experimentId))
                 experimentLogic({ experimentId: parseInt(experimentId) }).actions.loadExperiment()
             }
         },
         deleteFeatureFlag: async ({ featureFlag }) => {
             await deleteWithUndo({
-                endpoint: `projects/${values.currentTeamId}/feature_flags`,
+                endpoint: `projects/${values.currentProjectId}/feature_flags`,
                 object: { name: featureFlag.key, id: featureFlag.id },
                 callback: () => {
                     featureFlag.id && actions.deleteFlag(featureFlag.id)
@@ -733,7 +759,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         loadInsightAtIndex: async ({ index, filters }) => {
             if (filters) {
                 const response = await api.get(
-                    `api/projects/${values.currentTeamId}/insights/trend/?${toParams(
+                    `api/environments/${values.currentProjectId}/insights/trend/?${toParams(
                         filterTrendsClientSideParams(filters)
                     )}`
                 )

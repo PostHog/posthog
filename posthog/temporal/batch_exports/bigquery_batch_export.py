@@ -3,9 +3,12 @@ import collections.abc
 import contextlib
 import dataclasses
 import datetime as dt
+import functools
 import json
+import operator
 
 import pyarrow as pa
+import structlog
 from django.conf import settings
 from google.cloud import bigquery
 from google.oauth2 import service_account
@@ -27,8 +30,8 @@ from posthog.temporal.batch_exports.batch_exports import (
     default_fields,
     execute_batch_export_insert_activity,
     get_data_interval,
-    iter_model_records,
     start_batch_export_run,
+    start_produce_batch_export_record_batches,
 )
 from posthog.temporal.batch_exports.metrics import (
     get_bytes_exported_metric,
@@ -42,17 +45,18 @@ from posthog.temporal.batch_exports.temporary_file import (
 )
 from posthog.temporal.batch_exports.utils import (
     JsonType,
-    apeek_first_and_rewind,
     cast_record_batch_json_columns,
     set_status_to_running_task,
 )
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.temporal.common.logger import bind_temporal_worker_logger
+from posthog.temporal.common.logger import configure_temporal_worker_logger
 from posthog.temporal.common.utils import (
     BatchExportHeartbeatDetails,
     should_resume_from_activity_heartbeat,
 )
+
+logger = structlog.get_logger()
 
 
 def get_bigquery_fields_from_record_schema(
@@ -72,6 +76,9 @@ def get_bigquery_fields_from_record_schema(
     bq_schema: list[bigquery.SchemaField] = []
 
     for name in record_schema.names:
+        if name == "_inserted_at":
+            continue
+
         pa_field = record_schema.field(name)
 
         if pa.types.is_string(pa_field.type) or isinstance(pa_field.type, JsonType):
@@ -264,8 +271,13 @@ class BigQueryClient(bigquery.Client):
             schema=table_schema,
         )
 
-        load_job = self.load_table_from_file(parquet_file, table, job_config=job_config, rewind=True)
-        return await asyncio.to_thread(load_job.result)
+        await logger.adebug("Creating BigQuery load job for Parquet file '%s'", parquet_file)
+        load_job = await asyncio.to_thread(
+            self.load_table_from_file, parquet_file, table, job_config=job_config, rewind=True
+        )
+        await logger.adebug("Waiting for BigQuery load job for Parquet file '%s'", parquet_file)
+        result = await asyncio.to_thread(load_job.result)
+        return result
 
     async def load_jsonl_file(self, jsonl_file, table, table_schema):
         """Execute a COPY FROM query with given connection to copy contents of jsonl_file."""
@@ -274,8 +286,14 @@ class BigQueryClient(bigquery.Client):
             schema=table_schema,
         )
 
-        load_job = self.load_table_from_file(jsonl_file, table, job_config=job_config, rewind=True)
-        return await asyncio.to_thread(load_job.result)
+        await logger.adebug("Creating BigQuery load job for JSONL file '%s'", jsonl_file)
+        load_job = await asyncio.to_thread(
+            self.load_table_from_file, jsonl_file, table, job_config=job_config, rewind=True
+        )
+
+        await logger.adebug("Waiting for BigQuery load job for JSONL file '%s'", jsonl_file)
+        result = await asyncio.to_thread(load_job.result)
+        return result
 
 
 @contextlib.contextmanager
@@ -327,7 +345,9 @@ def bigquery_default_fields() -> list[BatchExportField]:
 @activity.defn
 async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> RecordsCompleted:
     """Activity streams data from ClickHouse to BigQuery."""
-    logger = await bind_temporal_worker_logger(team_id=inputs.team_id, destination="BigQuery")
+    logger = await configure_temporal_worker_logger(
+        logger=structlog.get_logger(), team_id=inputs.team_id, destination="BigQuery"
+    )
     await logger.ainfo(
         "Batch exporting range %s - %s to BigQuery: %s.%s.%s",
         inputs.data_interval_start,
@@ -357,24 +377,52 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
             field.name for field in dataclasses.fields(inputs)
         }:
             model = inputs.batch_export_model
+            if model is not None:
+                model_name = model.name
+                extra_query_parameters = model.schema["values"] if model.schema is not None else None
+                fields = model.schema["fields"] if model.schema is not None else None
+            else:
+                model_name = "events"
+                extra_query_parameters = None
+                fields = None
         else:
             model = inputs.batch_export_schema
+            model_name = "custom"
+            extra_query_parameters = model["values"] if model is not None else {}
+            fields = model["fields"] if model is not None else None
 
-        records_iterator = iter_model_records(
+        queue, done_event, produce_task = start_produce_batch_export_record_batches(
             client=client,
-            model=model,
+            model_name=model_name,
+            is_backfill=inputs.is_backfill,
             team_id=inputs.team_id,
             interval_start=data_interval_start,
             interval_end=inputs.data_interval_end,
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
+            fields=fields,
             destination_default_fields=bigquery_default_fields(),
-            is_backfill=inputs.is_backfill,
+            extra_query_parameters=extra_query_parameters,
         )
 
-        first_record_batch, records_iterator = await apeek_first_and_rewind(records_iterator)
-        if first_record_batch is None:
+        get_schema_task = asyncio.create_task(queue.get_schema())
+        wait_for_producer_done_task = asyncio.create_task(done_event.wait())
+
+        await asyncio.wait([get_schema_task, wait_for_producer_done_task], return_when=asyncio.FIRST_COMPLETED)
+
+        # Finishing producing happens sequentially after putting to queue and setting the schema.
+        # So, either we finished both tasks, or we finished without putting anything in the queue.
+        if get_schema_task.done():
+            # In the first case, we'll land here.
+            # The schema is available, and the queue is not empty, so we can start the batch export.
+            record_batch_schema = get_schema_task.result()
+        elif wait_for_producer_done_task.done():
+            # In the second case, we'll land here.
+            # The schema is not available as the queue is empty.
+            # Since we finished producing with an empty queue, there is nothing to batch export.
             return 0
+        else:
+            raise Exception("Unreachable")
 
         if inputs.use_json_type is True:
             json_type = "JSON"
@@ -382,8 +430,6 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
         else:
             json_type = "STRING"
             json_columns = []
-
-        first_record_batch = cast_record_batch_json_columns(first_record_batch, json_columns=json_columns)
 
         if model is None or (isinstance(model, BatchExportModel) and model.name == "events"):
             schema = [
@@ -401,9 +447,7 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
                 bigquery.SchemaField("bq_ingested_timestamp", "TIMESTAMP"),
             ]
         else:
-            column_names = [column for column in first_record_batch.schema.names if column != "_inserted_at"]
-            record_schema = first_record_batch.select(column_names).schema
-            schema = get_bigquery_fields_from_record_schema(record_schema, known_json_columns=json_columns)
+            schema = get_bigquery_fields_from_record_schema(record_batch_schema, known_json_columns=json_columns)
 
         rows_exported = get_rows_exported_metric()
         bytes_exported = get_bytes_exported_metric()
@@ -446,41 +490,47 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
                     last: bool,
                     error: Exception | None,
                 ):
+                    table = bigquery_stage_table if requires_merge else bigquery_table
                     await logger.adebug(
-                        "Loading %s records of size %s bytes",
+                        "Loading %s records of size %s bytes to BigQuery table '%s'",
                         records_since_last_flush,
                         bytes_since_last_flush,
+                        table,
                     )
-                    table = bigquery_stage_table if requires_merge else bigquery_table
 
                     await bq_client.load_jsonl_file(local_results_file, table, schema)
 
+                    await logger.adebug("Loading to BigQuery table '%s' finished", table)
                     rows_exported.add(records_since_last_flush)
                     bytes_exported.add(bytes_since_last_flush)
 
                     heartbeater.details = (str(last_inserted_at),)
 
-                record_schema = pa.schema(
-                    # NOTE: For some reason, some batches set non-nullable fields as non-nullable, whereas other
-                    # record batches have them as nullable.
-                    # Until we figure it out, we set all fields to nullable. There are some fields we know
-                    # are not nullable, but I'm opting for the more flexible option until we out why schemas differ
-                    # between batches.
-                    [
-                        field.with_nullable(True)
-                        for field in first_record_batch.select([field.name for field in schema]).schema
-                    ]
-                )
-                writer = JSONLBatchExportWriter(
-                    max_bytes=settings.BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES,
-                    flush_callable=flush_to_bigquery,
-                )
+                flush_tasks = []
+                while not queue.empty() or not done_event.is_set():
+                    await logger.adebug("Starting record batch writer")
+                    flush_start_event = asyncio.Event()
+                    task = asyncio.create_task(
+                        consume_batch_export_record_batches(
+                            queue,
+                            done_event,
+                            flush_start_event,
+                            flush_to_bigquery,
+                            json_columns,
+                            settings.BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES,
+                        )
+                    )
 
-                async with writer.open_temporary_file():
-                    async for record_batch in records_iterator:
-                        record_batch = cast_record_batch_json_columns(record_batch, json_columns=json_columns)
+                    await flush_start_event.wait()
 
-                        await writer.write_record_batch(record_batch)
+                    flush_tasks.append(task)
+
+                await logger.adebug(
+                    "Finished producing and consuming all record batches, now waiting on any pending flush tasks"
+                )
+                await asyncio.wait(flush_tasks)
+
+                records_total = functools.reduce(operator.add, (task.result() for task in flush_tasks))
 
                 if requires_merge:
                     merge_key = (
@@ -494,7 +544,74 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
                         update_fields=schema,
                     )
 
-                return writer.records_total
+                return records_total
+
+
+async def consume_batch_export_record_batches(
+    queue: asyncio.Queue,
+    done_event: asyncio.Event,
+    flush_start_event: asyncio.Event,
+    flush_to_bigquery: FlushCallable,
+    json_columns: list[str],
+    max_bytes: int,
+):
+    """Consume batch export record batches from queue into a writing loop.
+
+    Each record will be written to a temporary file, and flushed after
+    configured `max_bytes`. Flush is done on context manager exit by
+    `JSONLBatchExportWriter`.
+
+    This coroutine reports when flushing will start by setting the
+    `flush_start_event`. This is used by the main thread to start a new writer
+    task as flushing is about to begin, since that can be too slow to do
+    sequentially.
+
+    If there are not enough events to fill up `max_bytes`, the writing
+    loop will detect that there are no more events produced and shut itself off
+    by using the `done_event`, which should be set by the queue producer.
+
+    Arguments:
+        queue: The queue we will be listening on for record batches.
+        done_event: Event set by producer when done.
+        flush_to_start_event: Event set by us when flushing is to about to
+            start.
+        json_columns: Used to cast columns of the record batch to JSON.
+        max_bytes: Max bytes to write before flushing.
+
+    Returns:
+        Number of total records written and flushed in this task.
+    """
+    writer = JSONLBatchExportWriter(
+        max_bytes=max_bytes,
+        flush_callable=flush_to_bigquery,
+    )
+
+    async with writer.open_temporary_file():
+        await logger.adebug("Starting record batch writing loop")
+        while True:
+            try:
+                record_batch = queue.get_nowait()
+            except asyncio.QueueEmpty:
+                if done_event.is_set():
+                    await logger.adebug("Empty queue with no more events being produced, closing writer loop")
+                    flush_start_event.set()
+                    # Exit context manager to trigger flush
+                    break
+                else:
+                    await asyncio.sleep(0.1)
+                    continue
+
+            record_batch = cast_record_batch_json_columns(record_batch, json_columns=json_columns)
+            await writer.write_record_batch(record_batch, flush=False)
+
+            if writer.should_flush():
+                await logger.adebug("Writer finished, ready to flush events")
+                flush_start_event.set()
+                # Exit context manager to trigger flush
+                break
+
+    await logger.adebug("Completed %s records", writer.records_total)
+    return writer.records_total
 
 
 def get_batch_export_writer(

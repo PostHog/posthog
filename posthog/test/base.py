@@ -576,6 +576,15 @@ class QueryMatchingTest:
             r"_condition_X_level",
             query,
         )
+
+        # replace cohort tuples
+        # like (tuple(cohortpeople.cohort_id, cohortpeople.version), [(35, 0)])
+        query = re.sub(
+            r"\(tuple\((.*)\.cohort_id, (.*)\.version\), \[\(\d+, \d+\)\]\)",
+            r"(tuple(\1.cohort_id, \2.version), [(2, 0)])",
+            query,
+        )
+
         #### Cohort replacements end
 
         # Replace organization_id and notebook_id lookups, for postgres

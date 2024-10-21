@@ -31,6 +31,7 @@ import stringWithWBR from 'lib/utils/stringWithWBR'
 import { useState } from 'react'
 import { LinkedHogFunctions } from 'scenes/pipeline/hogfunctions/list/LinkedHogFunctions'
 import { SceneExport } from 'scenes/sceneTypes'
+import { SurveyAppearancePreview } from 'scenes/surveys/SurveyAppearancePreview'
 import { Customization } from 'scenes/surveys/SurveyCustomization'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -38,7 +39,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { ActivityScope, ProductKey, ProgressStatus, Survey } from '~/types'
 
-import { defaultSurveyAppearance, SurveyQuestionLabel } from './constants'
+import { defaultSurveyAppearance, NEW_SURVEY, SurveyQuestionLabel } from './constants'
 import { openSurveysSettingsDialog } from './SurveySettings'
 import { getSurveyStatus, surveysLogic, SurveysTabs } from './surveysLogic'
 
@@ -69,6 +70,12 @@ export function Surveys(): JSX.Element {
     const [editableSurveyConfig, setEditableSurveyConfig] = useState(
         currentTeam?.survey_config?.appearance || defaultSurveyAppearance
     )
+
+    const [templatedSurvey, setTemplatedSurvey] = useState(NEW_SURVEY)
+
+    if (templatedSurvey.appearance === defaultSurveyAppearance) {
+        templatedSurvey.appearance = editableSurveyConfig
+    }
     const shouldShowEmptyState = !surveysLoading && surveys.length === 0
     const showLinkedHogFunctions = useFeatureFlag('HOG_FUNCTIONS_LINKED')
 
@@ -152,9 +159,8 @@ export function Surveys(): JSX.Element {
                             </LemonButton>
                         )}
                     </div>
-                    <div className="flex flex-col overflow-hidden flex-1">
-                        <LemonDivider />
-
+                    <LemonDivider />
+                    <div className="flex align-top mb-2 gap-2">
                         <Customization
                             key="survey-settings-customization"
                             appearance={editableSurveyConfig}
@@ -166,8 +172,18 @@ export function Surveys(): JSX.Element {
                                     ...editableSurveyConfig,
                                     ...appearance,
                                 })
+                                setTemplatedSurvey({
+                                    ...templatedSurvey,
+                                    ...{ appearance: appearance },
+                                })
                             }}
                         />
+                        <div className="flex-1" />
+                        <div className="mt-10 mr-5">
+                            {globalSurveyAppearanceConfigAvailable && (
+                                <SurveyAppearancePreview survey={templatedSurvey} previewPageIndex={0} />
+                            )}
+                        </div>
                     </div>
                 </>
             )}

@@ -1,4 +1,5 @@
 import json
+from ee.clickhouse.materialized_columns.analyze import materialize
 from datetime import datetime, timedelta
 from typing import Optional, Any
 from unittest import mock
@@ -12,11 +13,11 @@ from rest_framework.test import APIClient
 
 from posthog.api.test.test_exports import TestExportMixin
 from posthog.clickhouse.client.execute import sync_execute
-from posthog.models import FeatureFlag, Person
+from posthog.models import FeatureFlag, Person, Action
 from posthog.models.async_deletion.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.cohort import Cohort
 from posthog.models.team.team import Team
-from posthog.schema import PropertyOperator
+from posthog.schema import PropertyOperator, PersonsOnEventsMode
 from posthog.tasks.calculate_cohort import calculate_cohort_ch, calculate_cohort_from_list
 from posthog.tasks.tasks import clickhouse_clear_removed_data
 from posthog.test.base import (
@@ -142,6 +143,89 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
                 "updated_by_creator": True,
             },
         )
+
+    @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay", side_effect=calculate_cohort_ch)
+    @patch("posthog.models.cohort.util.sync_execute", side_effect=sync_execute)
+    def test_action_persons_on_events(self, patch_sync_execute, patch_calculate_cohort, patch_capture):
+        materialize("events", "team_id", table_column="person_properties")
+        self.team.modifiers = {"personsOnEventsMode": PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS}
+        self.team.save()
+        _create_person(
+            team=self.team,
+            distinct_ids=[f"person_1"],
+            properties={"team_id": 5},
+        )
+        _create_person(
+            team=self.team,
+            distinct_ids=[f"person_2"],
+            properties={"team_id": 6},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="person_1",
+            timestamp=datetime.now() - timedelta(hours=12),
+        )
+        action = Action.objects.create(
+            team=self.team,
+            steps_json=[
+                {
+                    "event": "$pageview",
+                    "properties": [{"key": "team_id", "type": "person", "value": 5}],
+                }
+            ],
+        )
+
+        # Make sure the endpoint works with and without the trailing slash
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={
+                "name": "whatever",
+                "filters": {
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [
+                                    {
+                                        "key": action.pk,
+                                        "type": "behavioral",
+                                        "value": "performed_event",
+                                        "negation": False,
+                                        "event_type": "actions",
+                                        "time_value": 30,
+                                        "time_interval": "day",
+                                        "explicit_datetime": "-30d",
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+        self.assertEqual(response.json()["created_by"]["id"], self.user.pk)
+        self.assertEqual(patch_calculate_cohort.call_count, 1)
+        self.assertEqual(patch_capture.call_count, 1)
+
+        with self.capture_queries_startswith("INSERT INTO cohortpeople") as insert_statements:
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/cohorts/{response.json()['id']}",
+                data={
+                    "name": "whatever2",
+                    "description": "A great cohort!",
+                    "groups": [{"properties": {"team_id": 6}}],
+                    "created_by": "something something",
+                    "last_calculation": "some random date",
+                    "errors_calculating": 100,
+                    "deleted": False,
+                },
+            )
+
+            self.assertIn(f"mat_pp_team_id", insert_statements[0])
 
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")

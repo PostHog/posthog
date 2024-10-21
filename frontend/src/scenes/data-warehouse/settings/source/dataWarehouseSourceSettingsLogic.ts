@@ -1,10 +1,12 @@
 import { lemonToast } from '@posthog/lemon-ui'
-import { actions, afterMount, kea, key, listeners, path, props, reducers } from 'kea'
+import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import posthog from 'posthog-js'
+import { SOURCE_DETAILS } from 'scenes/data-warehouse/new/sourceWizardLogic'
 
-import { ExternalDataJob, ExternalDataSourceSchema, ExternalDataStripeSource } from '~/types'
+import { ExternalDataJob, ExternalDataSource, ExternalDataSourceSchema } from '~/types'
 
 import type { dataWarehouseSourceSettingsLogicType } from './dataWarehouseSourceSettingsLogicType'
 
@@ -26,14 +28,14 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
     }),
     loaders(({ actions, values }) => ({
         source: [
-            null as ExternalDataStripeSource | null,
+            null as ExternalDataSource | null,
             {
                 loadSource: async () => {
                     return await api.externalDataSources.get(values.sourceId)
                 },
                 updateSchema: async (schema: ExternalDataSourceSchema) => {
                     // Optimistic UI updates before sending updates to the backend
-                    const clonedSource = JSON.parse(JSON.stringify(values.source)) as ExternalDataStripeSource
+                    const clonedSource = JSON.parse(JSON.stringify(values.source)) as ExternalDataSource
                     const schemaIndex = clonedSource.schemas.findIndex((n) => n.id === schema.id)
                     clonedSource.schemas[schemaIndex] = schema
                     actions.loadSourceSuccess(clonedSource)
@@ -46,6 +48,11 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
                     }
 
                     return source
+                },
+                updateSource: async (source: ExternalDataSource) => {
+                    const updatedSource = await api.externalDataSources.update(values.sourceId, source)
+                    actions.loadSourceSuccess(updatedSource)
+                    return updatedSource
                 },
             },
         ],
@@ -94,7 +101,42 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
             },
         ],
     })),
+    selectors({
+        sourceFieldConfig: [
+            (s) => [s.source],
+            (source) => {
+                if (!source) {
+                    return null
+                }
 
+                return SOURCE_DETAILS[source.source_type]
+            },
+        ],
+    }),
+    forms(({ values, actions }) => ({
+        sourceConfig: {
+            defaults: {} as Record<string, any>,
+            submit: async ({ payload = {} }) => {
+                const newJobInputs = {
+                    ...values.source?.job_inputs,
+                    ...payload,
+                }
+                try {
+                    const updatedSource = await api.externalDataSources.update(values.sourceId, {
+                        job_inputs: newJobInputs,
+                    })
+                    actions.loadSourceSuccess(updatedSource)
+                    lemonToast.success('Source updated')
+                } catch (e: any) {
+                    if (e.message) {
+                        lemonToast.error(e.message)
+                    } else {
+                        lemonToast.error('Cant update source at this time')
+                    }
+                }
+            },
+        },
+    })),
     listeners(({ values, actions, cache }) => ({
         loadSourceSuccess: () => {
             clearTimeout(cache.sourceRefreshTimeout)
@@ -126,7 +168,7 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
         },
         reloadSchema: async ({ schema }) => {
             // Optimistic UI updates before sending updates to the backend
-            const clonedSource = JSON.parse(JSON.stringify(values.source)) as ExternalDataStripeSource
+            const clonedSource = JSON.parse(JSON.stringify(values.source)) as ExternalDataSource
             const schemaIndex = clonedSource.schemas.findIndex((n) => n.id === schema.id)
             clonedSource.status = 'Running'
             clonedSource.schemas[schemaIndex].status = 'Running'
@@ -147,7 +189,7 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
         },
         resyncSchema: async ({ schema }) => {
             // Optimistic UI updates before sending updates to the backend
-            const clonedSource = JSON.parse(JSON.stringify(values.source)) as ExternalDataStripeSource
+            const clonedSource = JSON.parse(JSON.stringify(values.source)) as ExternalDataSource
             const schemaIndex = clonedSource.schemas.findIndex((n) => n.id === schema.id)
             clonedSource.status = 'Running'
             clonedSource.schemas[schemaIndex].status = 'Running'

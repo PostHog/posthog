@@ -6,9 +6,9 @@ from zoneinfo import ZoneInfo
 
 from rest_framework.exceptions import ValidationError
 
-from posthog.constants import ExperimentSignificanceCode, ExperimentNoResultsErrorKeys
+from posthog.constants import ExperimentNoResultsErrorKeys
 from posthog.hogql_queries.experiments import CONTROL_VARIANT_KEY
-from posthog.hogql_queries.experiments.funnel_statistics import (
+from posthog.hogql_queries.experiments.funnels_statistics import (
     are_results_significant,
     calculate_credible_intervals,
     calculate_probabilities,
@@ -17,6 +17,7 @@ from posthog.models.feature_flag import FeatureFlag
 from posthog.models.filters.filter import Filter
 from posthog.models.team import Team
 from posthog.queries.funnels import ClickhouseFunnel
+from posthog.schema import ExperimentSignificanceCode
 
 Probability = float
 

@@ -31,7 +31,9 @@ filters = {
 
 
 @freeze_time("2021-05-01")
-class TestFunnelTrendsPersons(ClickhouseTestMixin, APIBaseTest):
+class BaseTestFunnelTrendsActors(ClickhouseTestMixin, APIBaseTest):
+    __test__ = False
+
     @snapshot_clickhouse_queries
     def test_funnel_trend_persons_returns_recordings(self):
         persons = journeys_for(
@@ -169,3 +171,7 @@ class TestFunnelTrendsPersons(ClickhouseTestMixin, APIBaseTest):
             [next(iter(results[0][2]))["session_id"]],
             ["s1a"],
         )
+
+
+class TestFunnelTrendsActors(BaseTestFunnelTrendsActors):
+    __test__ = True

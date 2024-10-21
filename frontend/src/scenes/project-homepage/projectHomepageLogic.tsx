@@ -2,6 +2,7 @@ import { afterMount, connect, kea, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { DashboardLogicProps } from 'scenes/dashboard/dashboardLogic'
+import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
@@ -12,7 +13,7 @@ import type { projectHomepageLogicType } from './projectHomepageLogicType'
 export const projectHomepageLogic = kea<projectHomepageLogicType>([
     path(['scenes', 'project-homepage', 'projectHomepageLogic']),
     connect({
-        values: [teamLogic, ['currentTeamId', 'currentTeam']],
+        values: [teamLogic, ['currentTeam'], projectLogic, ['currentProjectId']],
     }),
 
     selectors({
@@ -35,7 +36,7 @@ export const projectHomepageLogic = kea<projectHomepageLogicType>([
             {
                 loadRecentInsights: async () => {
                     const insights = await api.get<InsightModel[]>(
-                        `api/projects/${values.currentTeamId}/insights/my_last_viewed`
+                        `api/environments/${values.currentProjectId}/insights/my_last_viewed`
                     )
                     return insights.map((legacyInsight) => getQueryBasedInsightModel(legacyInsight))
                 },

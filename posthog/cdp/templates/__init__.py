@@ -27,16 +27,18 @@ from .meta_ads.template_meta_ads import template as meta_ads
 from .activecampaign.template_activecampaign import template as activecampaign
 from .google_ads.template_google_ads import template as google_ads
 from .attio.template_attio import template as attio
+from .klaviyo.template_klaviyo import template_user as klaviyo_user, template_event as klaviyo_event
 from .google_cloud_storage.template_google_cloud_storage import (
     template as google_cloud_storage,
     TemplateGoogleCloudStorageMigrator,
 )
-
+from .airtable.template_airtable import template as airtable
 
 HOG_FUNCTION_TEMPLATES = [
     slack,
     webhook,
     activecampaign,
+    airtable,
     attio,
     avo,
     aws_kinesis,
@@ -50,6 +52,8 @@ HOG_FUNCTION_TEMPLATES = [
     google_pubsub,
     hubspot,
     intercom,
+    klaviyo_event,
+    klaviyo_user,
     knock,
     loops,
     mailgun,

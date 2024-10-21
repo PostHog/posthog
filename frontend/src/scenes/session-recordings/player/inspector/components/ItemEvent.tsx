@@ -1,4 +1,5 @@
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
+import { useValues } from 'kea'
 import { ErrorDisplay } from 'lib/components/Errors/ErrorDisplay'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -7,6 +8,7 @@ import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { autoCaptureEventToDescription, capitalizeFirstLetter, isString } from 'lib/utils'
 import { insightUrlForEvent } from 'scenes/insights/utils'
+import { eventPropertyFilteringLogic } from 'scenes/session-recordings/player/inspector/components/eventPropertyFilteringLogic'
 
 import { InspectorListItemEvent } from '../playerInspectorLogic'
 import { SimpleKeyValueList } from './SimpleKeyValueList'
@@ -51,6 +53,7 @@ function SummarizeWebVitals({ properties }: { properties: Record<string, any> })
 
 export function ItemEvent({ item, expanded, setExpanded }: ItemEventProps): JSX.Element {
     const insightUrl = insightUrlForEvent(item.data)
+    const { promoteProperties, filterProperties } = useValues(eventPropertyFilteringLogic)
 
     const subValue =
         item.data.event === '$pageview' ? (
@@ -61,25 +64,7 @@ export function ItemEvent({ item, expanded, setExpanded }: ItemEventProps): JSX.
             <SummarizeWebVitals properties={item.data.properties} />
         ) : undefined
 
-    let promotedKeys: string[] | undefined = undefined
-    if (item.data.event === '$pageview') {
-        promotedKeys = ['$current_url', '$title', '$referrer']
-    } else if (item.data.event === '$groupidentify') {
-        promotedKeys = ['$group_type', '$group_key', '$group_set']
-    } else if (item.data.event === '$screen') {
-        promotedKeys = ['$screen_name']
-    } else if (item.data.event === '$web_vitals') {
-        promotedKeys = [
-            '$web_vitals_FCP_value',
-            '$web_vitals_CLS_value',
-            '$web_vitals_INP_value',
-            '$web_vitals_LCP_value',
-            '$web_vitals_FCP_event',
-            '$web_vitals_CLS_event',
-            '$web_vitals_INP_event',
-            '$web_vitals_LCP_event',
-        ]
-    }
+    const promotedKeys = promoteProperties(item.data.event)
 
     return (
         <div data-attr="item-event">
@@ -129,7 +114,10 @@ export function ItemEvent({ item, expanded, setExpanded }: ItemEventProps): JSX.
                         item.data.event === '$exception' ? (
                             <ErrorDisplay eventProperties={item.data.properties} />
                         ) : (
-                            <SimpleKeyValueList item={item.data.properties} promotedKeys={promotedKeys} />
+                            <SimpleKeyValueList
+                                item={filterProperties(item.data.properties)}
+                                promotedKeys={promotedKeys}
+                            />
                         )
                     ) : (
                         <div className="text-muted-alt flex gap-1 items-center">

@@ -37,11 +37,11 @@ if (res.status >= 200 and res.status < 300) {
 }
 
 if (res.status == 404) {
-    print('No existing contact found for email')
+    throw Error('No existing contact found for email')
     return
 }
 
-print('Error sending event:', res.status, res.body)
+throw Error(f'Error from intercom api (status {res.status}): {res.body}')
 
 """.strip(),
     inputs_schema=[

@@ -132,4 +132,26 @@ describe('cleanEntityProperties', () => {
             },
         ])
     })
+
+    it('handles negation for cohorts', () => {
+        let properties: any = [
+            {
+                key: 'id',
+                type: 'cohort',
+                value: 1,
+                operator: 'exact',
+                negation: false,
+            },
+        ]
+        let result = cleanEntityProperties(properties)
+        expect(result).toEqual([{ key: 'id', type: 'cohort', value: 1, operator: 'exact' }])
+
+        properties = [{ key: 'id', type: 'cohort', value: 1, operator: 'exact', negation: true }]
+        result = cleanEntityProperties(properties)
+        expect(result).toEqual([{ key: 'id', type: 'cohort', value: 1, operator: 'not_in' }])
+
+        properties = [{ key: 'id', type: 'cohort', value: 1, negation: true }]
+        result = cleanEntityProperties(properties)
+        expect(result).toEqual([{ key: 'id', type: 'cohort', value: 1, operator: 'not_in' }])
+    })
 })

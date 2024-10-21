@@ -115,7 +115,7 @@ export function Billing(): JSX.Element {
             ) : null}
 
             {!billing?.has_active_subscription && platformAndSupportProduct && (
-                <div className="mb-6">
+                <div className="mb-4">
                     <BillingCTAHero product={platformAndSupportProduct} />
                 </div>
             )}
@@ -130,7 +130,7 @@ export function Billing(): JSX.Element {
             >
                 <div>
                     <div
-                        className={clsx('flex flex-wrap gap-6 w-fit', {
+                        className={clsx('flex flex-wrap gap-6 w-fit mb-4', {
                             'flex-col items-stretch': size === 'small',
                             'items-center': size !== 'small',
                         })}
@@ -193,7 +193,7 @@ export function Billing(): JSX.Element {
                                             </div>
                                         </>
                                     )}
-                                    <div className="my-4">
+                                    <div>
                                         <p className="ml-0 mb-0">
                                             {billing?.has_active_subscription ? 'Billing period' : 'Cycle'}:{' '}
                                             <b>{billing.billing_period.current_period_start.format('LL')}</b> to{' '}
@@ -202,7 +202,7 @@ export function Billing(): JSX.Element {
                                             remaining)
                                         </p>
                                         {!billing.has_active_subscription && (
-                                            <p className="italic ml-0 text-muted">
+                                            <p className="italic ml-0 text-muted mb-0">
                                                 Monthly free allocation resets at the end of the cycle.
                                             </p>
                                         )}
@@ -212,8 +212,8 @@ export function Billing(): JSX.Element {
                         )}
                     </div>
 
-                    {!isOnboarding && billing?.has_active_subscription && (
-                        <div className="w-fit mt-4">
+                    {!isOnboarding && billing?.customer_id && billing?.stripe_portal_url && (
+                        <div className="w-fit">
                             <LemonButton
                                 type="primary"
                                 htmlType="submit"
@@ -223,7 +223,9 @@ export function Billing(): JSX.Element {
                                 center
                                 data-attr="manage-billing"
                             >
-                                Manage card details and view past invoices
+                                {billing.has_active_subscription
+                                    ? 'Manage card details and invoices'
+                                    : 'View past invoices'}
                             </LemonButton>
                         </div>
                     )}

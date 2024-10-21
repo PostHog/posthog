@@ -57,7 +57,7 @@ let res := fetch('https://api.sendgrid.com/v3/marketing/contacts', {
 })
 
 if (res.status > 300) {
-    print('Error updating contact:', res.status, res.body)
+    throw Error(f'Error from api.sendgrid.com (status {res.status}): {res.body}')
 }
 """.strip(),
     inputs_schema=[

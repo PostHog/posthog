@@ -311,15 +311,69 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
         )
         create_group(
             team_id=self.team.pk,
+            group_type_index=0,
+            group_key="org:7",
+            properties={"industry": "finance-technology"},
+        )
+        create_group(
+            team_id=self.team.pk,
             group_type_index=1,
             group_key="org:1",
             properties={"industry": "finance"},
         )
+
+        # Test without query parameter
         response_data = self.client.get(
             f"/api/projects/{self.team.id}/groups/property_values/?key=industry&group_type_index=0"
         ).json()
+        self.assertEqual(len(response_data), 3)
+        self.assertEqual(
+            response_data,
+            [
+                {"name": "finance", "count": 1},
+                {"name": "finance-technology", "count": 1},
+                {"name": "technology", "count": 1},
+            ],
+        )
+
+        # Test with query parameter
+        response_data = self.client.get(
+            f"/api/projects/{self.team.id}/groups/property_values/?key=industry&group_type_index=0&value=fin"
+        ).json()
         self.assertEqual(len(response_data), 2)
-        self.assertEqual(response_data, [{"name": "finance"}, {"name": "technology"}])
+        self.assertEqual(response_data, [{"name": "finance", "count": 1}, {"name": "finance-technology", "count": 1}])
+
+        # Test with query parameter - case insensitive
+        response_data = self.client.get(
+            f"/api/projects/{self.team.id}/groups/property_values/?key=industry&group_type_index=0&value=TECH"
+        ).json()
+        self.assertEqual(len(response_data), 2)
+        self.assertEqual(
+            response_data, [{"name": "finance-technology", "count": 1}, {"name": "technology", "count": 1}]
+        )
+
+        # Test with query parameter - no matches
+        response_data = self.client.get(
+            f"/api/projects/{self.team.id}/groups/property_values/?key=industry&group_type_index=0&value=healthcare"
+        ).json()
+        self.assertEqual(len(response_data), 0)
+        self.assertEqual(response_data, [])
+
+        # Test with query parameter - exact match
+        response_data = self.client.get(
+            f"/api/projects/{self.team.id}/groups/property_values/?key=industry&group_type_index=0&value=technology"
+        ).json()
+        self.assertEqual(len(response_data), 2)
+        self.assertEqual(
+            response_data, [{"name": "finance-technology", "count": 1}, {"name": "technology", "count": 1}]
+        )
+
+        # Test with different group_type_index
+        response_data = self.client.get(
+            f"/api/projects/{self.team.id}/groups/property_values/?key=industry&group_type_index=1&value=fin"
+        ).json()
+        self.assertEqual(len(response_data), 1)
+        self.assertEqual(response_data, [{"name": "finance", "count": 1}])
 
     def test_empty_property_values(self):
         create_group(

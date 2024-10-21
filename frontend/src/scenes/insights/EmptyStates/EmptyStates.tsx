@@ -273,9 +273,11 @@ export function InsightErrorState({ excludeDetail, title, query, queryId }: Insi
                         </ol>
                     </div>
                 )}
-                <div className="text-muted text-xs text-center">
-                    Query ID: <span className="font-mono">{queryId}</span>
-                </div>
+                {queryId && (
+                    <div className="text-muted text-xs text-center">
+                        Query ID: <span className="font-mono">{queryId}</span>
+                    </div>
+                )}
                 {query && (
                     <LemonButton
                         data-attr="insight-error-query"

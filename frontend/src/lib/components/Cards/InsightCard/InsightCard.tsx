@@ -11,6 +11,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { Query } from '~/queries/Query/Query'
+import { HogQLVariable } from '~/queries/schema'
 import {
     DashboardBasicType,
     DashboardPlacement,
@@ -60,6 +61,8 @@ export interface InsightCardProps extends Resizeable, React.HTMLAttributes<HTMLD
     /** Priority for loading the insight, lower is earlier. */
     loadPriority?: number
     doNotLoad?: boolean
+    /** Dashboard variables to override the ones in the insight */
+    variablesOverride?: Record<string, HogQLVariable>
 }
 
 function InsightCardInternal(
@@ -90,6 +93,7 @@ function InsightCardInternal(
         placement,
         loadPriority,
         doNotLoad,
+        variablesOverride,
         ...divProps
     }: InsightCardProps,
     ref: React.Ref<HTMLDivElement>
@@ -141,6 +145,7 @@ function InsightCardInternal(
                         showEditingControls={showEditingControls}
                         showDetailsControls={showDetailsControls}
                         moreButtons={moreButtons}
+                        variablesOverride={variablesOverride}
                     />
                     <div className="InsightCard__viz">
                         <Query
@@ -152,6 +157,7 @@ function InsightCardInternal(
                             readOnly
                             embedded
                             inSharedMode={placement === DashboardPlacement.Public}
+                            variablesOverride={variablesOverride}
                         />
                     </div>
                 </BindLogic>

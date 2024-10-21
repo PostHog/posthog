@@ -70,6 +70,11 @@ class HogFunction(UUIDModel):
     _status: Optional[dict] = None
 
     @property
+    def type(self) -> str:
+        # Used in activity logs
+        return "destination"
+
+    @property
     def status(self) -> dict:
         if not self.enabled:
             return DEFAULT_STATE

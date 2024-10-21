@@ -4,6 +4,7 @@ from uuid import UUID
 
 from posthog.hogql import ast
 from posthog.hogql.ast import ConstantType, FieldTraverserType
+from posthog.hogql.base import _T_AST
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import (
     FunctionCallTable,
@@ -77,11 +78,11 @@ def resolve_types_from_table(
 
 
 def resolve_types(
-    node: ast.Expr | ast.SelectQuery,
+    node: _T_AST,
     context: HogQLContext,
     dialect: Literal["hogql", "clickhouse"],
     scopes: Optional[list[ast.SelectQueryType]] = None,
-) -> ast.Expr:
+) -> _T_AST:
     return Resolver(scopes=scopes, context=context, dialect=dialect).visit(node)
 
 

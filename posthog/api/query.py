@@ -28,7 +28,10 @@ from posthog.errors import ExposedCHQueryError
 from posthog.event_usage import report_user_action
 from posthog.hogql.ai import PromptUnclear, write_sql_from_prompt
 from posthog.hogql.errors import ExposedHogQLError
-from posthog.hogql_queries.apply_dashboard_filters import apply_dashboard_filters_to_dict
+from posthog.hogql_queries.apply_dashboard_filters import (
+    apply_dashboard_filters_to_dict,
+    apply_dashboard_variables_to_dict,
+)
 from posthog.hogql_queries.query_runner import ExecutionMode, execution_mode_from_refresh
 from posthog.models.user import User
 from posthog.rate_limit import (
@@ -78,6 +81,14 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             data.query = apply_dashboard_filters_to_dict(
                 data.query.model_dump(), data.filters_override.model_dump(), self.team
             )  # type: ignore
+
+        if data.variables_override is not None:
+            if isinstance(data.query, BaseModel):
+                query_as_dict = data.query.model_dump()
+            else:
+                query_as_dict = data.query
+
+            data.query = apply_dashboard_variables_to_dict(query_as_dict, data.variables_override, self.team)  # type: ignore
 
         client_query_id = data.client_query_id or uuid.uuid4().hex
         execution_mode = execution_mode_from_refresh(data.refresh)

@@ -5,7 +5,8 @@ from freezegun import freeze_time
 
 from posthog.models.alert import AlertCheck
 from posthog.models.instance_setting import set_instance_setting
-from posthog.tasks.alerts.checks import _send_notifications_for_breaches, check_alert
+from posthog.tasks.alerts.utils import send_notifications_for_breaches
+from posthog.tasks.alerts.checks import check_alert
 from posthog.test.base import APIBaseTest, _create_event, flush_persons_and_events, ClickhouseDestroyTablesMixin
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.schema import ChartDisplayType, EventsNode, TrendsQuery, TrendsFilter, AlertState
@@ -14,8 +15,8 @@ from posthog.models import AlertConfiguration
 
 
 @freeze_time("2024-06-02T08:55:00.000Z")
-@patch("posthog.tasks.alerts.checks._send_notifications_for_errors")
-@patch("posthog.tasks.alerts.checks._send_notifications_for_breaches")
+@patch("posthog.tasks.alerts.checks.send_notifications_for_errors")
+@patch("posthog.tasks.alerts.checks.send_notifications_for_breaches")
 class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
     def setUp(self) -> None:
         super().setUp()
@@ -52,14 +53,15 @@ class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
                     "type": "TrendsAlertConfig",
                     "series_index": 0,
                 },
-                "threshold": {"configuration": {"absoluteThreshold": {}}},
+                "condition": {"type": "absolute_value"},
+                "threshold": {"configuration": {"type": "absolute", "bounds": {}}},
             },
         ).json()
 
     def set_thresholds(self, lower: Optional[int] = None, upper: Optional[int] = None) -> None:
         self.client.patch(
             f"/api/projects/{self.team.id}/alerts/{self.alert['id']}",
-            data={"threshold": {"configuration": {"absoluteThreshold": {"lower": lower, "upper": upper}}}},
+            data={"threshold": {"configuration": {"type": "absolute", "bounds": {"lower": lower, "upper": upper}}}},
         )
 
     def get_breach_description(self, mock_send_notifications_for_breaches: MagicMock, call_index: int) -> list[str]:
@@ -97,7 +99,7 @@ class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
 
         anomalies_descriptions = self.get_breach_description(mock_send_notifications_for_breaches, call_index=0)
         assert len(anomalies_descriptions) == 1
-        assert "The trend value (1) is above the upper threshold (0.0)" in anomalies_descriptions[0]
+        assert "The insight value for previous day is (1) more than upper threshold (0.0)" in anomalies_descriptions[0]
 
     def test_alert_is_not_triggered_for_events_beyond_interval(
         self, mock_send_notifications_for_breaches: MagicMock, mock_send_errors: MagicMock
@@ -125,7 +127,7 @@ class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
 
         assert mock_send_notifications_for_breaches.call_count == 1
         anomalies = self.get_breach_description(mock_send_notifications_for_breaches, call_index=0)
-        assert "The trend value (0) is below the lower threshold (1.0)" in anomalies
+        assert "The insight value for previous day is (0) less than lower threshold (1.0)" in anomalies
 
     def test_alert_triggers_but_does_not_send_notification_during_firing(
         self, mock_send_notifications_for_breaches: MagicMock, mock_send_errors: MagicMock
@@ -225,7 +227,7 @@ class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
         self, _mock_send_notifications_for_breaches: MagicMock, mock_send_notifications_for_errors: MagicMock
     ) -> None:
         with patch(
-            "posthog.tasks.alerts.checks.calculate_for_query_based_insight"
+            "posthog.tasks.alerts.trends.calculate_for_query_based_insight"
         ) as mock_calculate_for_query_based_insight:
             mock_calculate_for_query_based_insight.side_effect = Exception("Some error")
 
@@ -238,7 +240,6 @@ class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
                 )
 
                 error_message = latest_alert_check.error["message"]
-                assert "AlertCheckError: error computing aggregate value for insight" in error_message
                 assert "Some error" in error_message
 
     def test_error_while_calculating_on_alert_in_firing_state(
@@ -254,7 +255,7 @@ class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
         assert latest_alert_check.error is None
 
         with patch(
-            "posthog.tasks.alerts.checks.calculate_for_query_based_insight"
+            "posthog.tasks.alerts.trends.calculate_for_query_based_insight"
         ) as mock_calculate_for_query_based_insight:
             mock_calculate_for_query_based_insight.side_effect = Exception("Some error")
 
@@ -269,7 +270,6 @@ class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
                 assert latest_alert_check.state == AlertState.ERRORED
 
                 error_message = latest_alert_check.error["message"]
-                assert "AlertCheckError: error computing aggregate value for insight" in error_message
                 assert "Some error" in error_message
 
     def test_error_while_calculating_on_alert_in_not_firing_state(
@@ -285,7 +285,7 @@ class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
         assert latest_alert_check.error is None
 
         with patch(
-            "posthog.tasks.alerts.checks.calculate_for_query_based_insight"
+            "posthog.tasks.alerts.trends.calculate_for_query_based_insight"
         ) as mock_calculate_for_query_based_insight:
             mock_calculate_for_query_based_insight.side_effect = Exception("Some error")
 
@@ -299,7 +299,6 @@ class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
                 )
 
                 error_message = latest_alert_check.error["message"]
-                assert "AlertCheckError: error computing aggregate value for insight" in error_message
                 assert "Some error" in error_message
 
     def test_alert_with_insight_with_filter(
@@ -316,15 +315,15 @@ class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
 
         assert mock_send_notifications_for_breaches.call_count == 1
         anomalies = self.get_breach_description(mock_send_notifications_for_breaches, call_index=0)
-        assert "The trend value (0) is below the lower threshold (1.0)" in anomalies
+        assert "The insight value for previous day is (0) less than lower threshold (1.0)" in anomalies
 
-    @patch("posthog.tasks.alerts.checks.EmailMessage")
+    @patch("posthog.tasks.alerts.utils.EmailMessage")
     def test_send_emails(
         self, MockEmailMessage: MagicMock, mock_send_notifications_for_breaches: MagicMock, mock_send_errors: MagicMock
     ) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
         alert = AlertConfiguration.objects.get(pk=self.alert["id"])
-        _send_notifications_for_breaches(alert, ["first anomaly description", "second anomaly description"])
+        send_notifications_for_breaches(alert, ["first anomaly description", "second anomaly description"])
 
         assert len(mocked_email_messages) == 1
         email = mocked_email_messages[0]

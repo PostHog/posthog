@@ -245,6 +245,7 @@ export function FeatureFlagReleaseConditions({
                                         : null
                                 }
                                 exactMatchFeatureFlagCohortOperators={true}
+                                hideBehavioralCohorts={true}
                             />
                         </div>
                     )}
@@ -453,8 +454,17 @@ export function FeatureFlagReleaseConditions({
                                 <>
                                     <h3 className="l3">Release conditions</h3>
                                     <div className="text-muted mb-4">
-                                        Specify the {aggregationTargetName} to which you want to release this flag. Note
-                                        that condition sets are rolled out independently of each other.
+                                        Specify {aggregationTargetName} for flag release. Condition sets roll out
+                                        independently.
+                                        {aggregationTargetName === 'users' && (
+                                            <>
+                                                {' '}
+                                                Cohort-based targeting{' '}
+                                                <Link to="https://posthog.com/docs/data/cohorts#can-you-use-a-dynamic-behavioral-cohort-as-a-feature-flag-target">
+                                                    doesn't support dynamic behavioral cohorts.
+                                                </Link>{' '}
+                                            </>
+                                        )}
                                     </div>
                                 </>
                             )}

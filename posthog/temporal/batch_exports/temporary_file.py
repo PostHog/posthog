@@ -96,6 +96,9 @@ class BatchExportTemporaryFile:
     def __iter__(self):
         yield from self._file
 
+    def __str__(self) -> str:
+        return self._file.name
+
     @property
     def brotli_compressor(self):
         if self._brotli_compressor is None:
@@ -387,7 +390,7 @@ class BatchExportWriter(abc.ABC):
         self.bytes_total = batch_export_file.bytes_total
         self.bytes_since_last_flush = batch_export_file.bytes_since_last_reset
 
-    async def write_record_batch(self, record_batch: pa.RecordBatch) -> None:
+    async def write_record_batch(self, record_batch: pa.RecordBatch, flush: bool = True) -> None:
         """Issue a record batch write tracking progress and flushing if required."""
         record_batch = record_batch.sort_by("_inserted_at")
         last_inserted_at = record_batch.column("_inserted_at")[-1].as_py()
@@ -401,8 +404,11 @@ class BatchExportWriter(abc.ABC):
         self.track_records_written(record_batch)
         self.track_bytes_written(self.batch_export_file)
 
-        if self.bytes_since_last_flush >= self.max_bytes:
+        if flush and self.should_flush():
             await self.flush(last_inserted_at)
+
+    def should_flush(self) -> bool:
+        return self.bytes_since_last_flush >= self.max_bytes
 
     async def flush(self, last_inserted_at: dt.datetime, is_last: bool = False) -> None:
         """Call the provided `flush_callable` and reset underlying file.

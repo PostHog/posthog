@@ -119,7 +119,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
     props({} as OnboardingLogicProps),
     path(['scenes', 'onboarding', 'onboardingLogic']),
     // connect this so we start collecting live events the whole time during onboarding
-    connect(liveEventsTableLogic),
+    connect(liveEventsTableLogic({ showLiveStreamErrorToast: false })),
     connect({
         values: [
             billingLogic,

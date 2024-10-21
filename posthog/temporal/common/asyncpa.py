@@ -1,6 +1,10 @@
+import asyncio
 import typing
 
 import pyarrow as pa
+import structlog
+
+logger = structlog.get_logger()
 
 CONTINUATION_BYTES = b"\xff\xff\xff\xff"
 
@@ -128,3 +132,20 @@ class AsyncRecordBatchReader:
             raise TypeError(f"Expected message of type 'schema' got '{message.type}'")
 
         return pa.ipc.read_schema(message)
+
+
+class AsyncRecordBatchProducer(AsyncRecordBatchReader):
+    def __init__(self, bytes_iter: typing.AsyncIterator[tuple[bytes, bool]]) -> None:
+        super().__init__(bytes_iter)
+
+    async def produce(self, queue: asyncio.Queue, done_event: asyncio.Event):
+        await logger.adebug("Starting record batch produce loop")
+        while True:
+            try:
+                record_batch = await self.read_next_record_batch()
+            except StopAsyncIteration:
+                await logger.adebug("No more record batches to produce, closing loop")
+                done_event.set()
+                return
+
+            await queue.put(record_batch)

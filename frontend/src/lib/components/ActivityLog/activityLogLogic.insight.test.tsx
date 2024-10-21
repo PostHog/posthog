@@ -13,7 +13,7 @@ describe('the activity log logic', () => {
     describe('humanizing insights', () => {
         const insightTestSetup = makeTestSetup(
             ActivityScope.INSIGHT,
-            `/api/projects/${MOCK_TEAM_ID}/insights/activity/`
+            `/api/environments/${MOCK_TEAM_ID}/insights/activity/`
         )
 
         it('can handle change of name', async () => {

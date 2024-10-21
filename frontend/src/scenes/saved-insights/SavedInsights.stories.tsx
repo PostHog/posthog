@@ -23,7 +23,7 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:team_id/insights': toPaginatedResponse(
+                '/api/environments/:team_id/insights': toPaginatedResponse(
                     insightsJson.results.slice(0, 6).map((result, i) => ({
                         // Keep size of response in check
                         ...result,
@@ -56,7 +56,7 @@ CardView.parameters = {
 export const EmptyState: Story = () => {
     useStorybookMocks({
         get: {
-            '/api/projects/:team_id/insights': EMPTY_PAGINATED_RESPONSE,
+            '/api/environments/:team_id/insights': EMPTY_PAGINATED_RESPONSE,
         },
     })
     useEffect(() => {

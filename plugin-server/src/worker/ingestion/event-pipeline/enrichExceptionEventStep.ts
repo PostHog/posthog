@@ -35,15 +35,20 @@ export function enrichExceptionEventStep(
     let type: string | null = null
     let message: string | null = null
     let firstFunction: string | null = null
-    let exceptionStack: string | null = null
     let exceptionList: any[] | null = null
 
     try {
-        exceptionStack = event.properties['$exception_stack_trace_raw']
         exceptionList = event.properties['$exception_list']
         const fingerPrint = event.properties['$exception_fingerprint']
         type = event.properties['$exception_type']
         message = event.properties['$exception_message']
+
+        if (!type && exceptionList && exceptionList.length > 0) {
+            type = exceptionList[0].type
+        }
+        if (!message && exceptionList && exceptionList.length > 0) {
+            message = exceptionList[0].value
+        }
 
         if (fingerPrint) {
             EXTERNAL_FINGERPRINT_COUNTER.inc()
@@ -55,12 +60,7 @@ export function enrichExceptionEventStep(
     }
 
     try {
-        if (exceptionStack) {
-            const parsedStack = JSON.parse(exceptionStack)
-            if (parsedStack.length > 0) {
-                firstFunction = parsedStack[0].function
-            }
-        } else if (exceptionList && exceptionList.length > 0) {
+        if (exceptionList && exceptionList.length > 0) {
             const firstException = exceptionList[0]
             if (firstException.stacktrace) {
                 // TODO: Should this be the last function instead?, or first in app function?

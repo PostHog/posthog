@@ -153,6 +153,7 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
             "prefix",
             "last_run_at",
             "schemas",
+            "job_inputs",
         ]
         read_only_fields = [
             "id",
@@ -690,21 +691,16 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if latest_running_job and latest_running_job.workflow_id and latest_running_job.status == "Running":
             cancel_external_data_workflow(latest_running_job.workflow_id)
 
-        all_jobs = ExternalDataJob.objects.filter(
-            pipeline_id=instance.pk, team_id=instance.team_id, status="Completed"
-        ).all()
-        for job in all_jobs:
-            try:
-                delete_data_import_folder(job.folder_path())
-            except Exception as e:
-                logger.exception(f"Could not clean up data import folder: {job.folder_path()}", exc_info=e)
-                pass
-
         for schema in (
             ExternalDataSchema.objects.exclude(deleted=True)
             .filter(team_id=self.team_id, source_id=instance.id, should_sync=True)
             .all()
         ):
+            try:
+                delete_data_import_folder(schema.folder_path())
+            except Exception as e:
+                logger.exception(f"Could not clean up data import folder: {schema.folder_path()}", exc_info=e)
+                pass
             delete_external_data_schedule(str(schema.id))
 
         delete_external_data_schedule(str(instance.id))

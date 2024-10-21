@@ -640,7 +640,6 @@ class TrendsQueryRunner(QueryRunner):
         if isinstance(series, EventsNode):
             return series.event
         if isinstance(series, ActionsNode):
-            assert self.team.project_id is not None
             # TODO: Can we load the Action in more efficiently?
             action = Action.objects.get(pk=int(series.id), team__project_id=self.team.project_id)
             return action.name

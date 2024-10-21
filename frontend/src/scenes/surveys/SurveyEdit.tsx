@@ -889,6 +889,9 @@ export default function SurveyEdit(): JSX.Element {
                                                         if (newValue === 'once') {
                                                             setSurveyValue('iteration_count', 0)
                                                             setSurveyValue('iteration_frequency_days', 0)
+                                                        } else if (newValue === 'recurring') {
+                                                            setSurveyValue('iteration_count', 1)
+                                                            setSurveyValue('iteration_frequency_days', 90)
                                                         }
                                                     }}
                                                     options={[
@@ -899,7 +902,7 @@ export default function SurveyEdit(): JSX.Element {
                                                         },
                                                         {
                                                             value: 'recurring',
-                                                            label: 'Repeat on a Schedule',
+                                                            label: 'Repeat on a schedule',
                                                             'data-attr': 'survey-iteration-frequency-days',
                                                             disabledReason: surveysRecurringScheduleDisabledReason,
                                                         },

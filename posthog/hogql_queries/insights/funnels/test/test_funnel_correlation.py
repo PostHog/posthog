@@ -1311,11 +1311,6 @@ class BaseTestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             funnelCorrelationType=FunnelCorrelationResultsType.PROPERTIES,
             funnelCorrelationNames=["$browser", "$nice"],
         )
-        result, _ = self._get_events_for_filters(
-            filters,
-            funnelCorrelationType=FunnelCorrelationResultsType.PROPERTIES,
-            funnelCorrelationNames=["$browser", "$nice"],
-        )
 
         # Success Total = 5 + 10 + 1 = 16
         # Failure Total = 5 + 1 = 6

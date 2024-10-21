@@ -1,17 +1,18 @@
+import math
+import time
+import traceback
+
 from datetime import datetime, timedelta, UTC
-from typing import Optional, cast
+from typing import cast
 from dateutil.relativedelta import relativedelta
 
 from celery import shared_task
 from celery.canvas import chain
+from django.conf import settings
 from django.db import transaction
-from django.utils import timezone
 import structlog
 from sentry_sdk import capture_exception
 
-from posthog.api.services.query import ExecutionMode
-from posthog.caching.calculate_results import calculate_for_query_based_insight
-from posthog.email import EmailMessage
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager import (
     conversion_to_query_based,
@@ -21,40 +22,36 @@ from posthog.models.alert import AlertCheck
 from posthog.tasks.utils import CeleryQueue
 from posthog.schema import (
     TrendsQuery,
-    IntervalType,
-    ChartDisplayType,
-    NodeKind,
     AlertCalculationInterval,
     AlertState,
-    TrendsAlertConfig,
 )
 from posthog.utils import get_from_dict_or_attr
-from posthog.caching.fetch_from_cache import InsightResult
-from posthog.clickhouse.client.limit import limit_concurrency
 from prometheus_client import Counter, Gauge
 from django.db.models import Q, F
-from typing import TypedDict, NotRequired
 from collections import defaultdict
+from posthog.tasks.alerts.utils import (
+    AlertEvaluationResult,
+    calculation_interval_to_order,
+    send_notifications_for_errors,
+    send_notifications_for_breaches,
+    WRAPPER_NODE_KINDS,
+    alert_calculation_interval_to_relativedelta,
+)
+from posthog.tasks.alerts.trends import check_trends_alert
 
 
-# TODO: move the TrendResult UI type to schema.ts and use that instead
-class TrendResult(TypedDict):
-    action: dict
-    actions: list[dict]
-    count: int
-    data: list[float]
-    days: list[str]
-    dates: list[str]
-    label: str
-    labels: list[str]
-    breakdown_value: str | int | list[str]
-    aggregated_value: NotRequired[float]
-    status: str | None
-    compare_label: str | None
-    compare: bool
-    persons_urls: list[dict]
-    persons: dict
-    filter: dict
+logger = structlog.get_logger(__name__)
+
+
+class AlertCheckException(Exception):
+    """
+    Required for custom exceptions to pass stack trace to sentry.
+    Subclassing through other ways doesn't transfer the traceback.
+    https://stackoverflow.com/a/69963663/5540417
+    """
+
+    def __init__(self, err: Exception):
+        self.__traceback__ = err.__traceback__
 
 
 HOURLY_ALERTS_BACKLOG_GAUGE = Gauge(
@@ -78,28 +75,9 @@ ALERT_COMPUTED_COUNTER = Counter(
 )
 
 
-logger = structlog.get_logger(__name__)
-
-
-WRAPPER_NODE_KINDS = [NodeKind.DATA_TABLE_NODE, NodeKind.DATA_VISUALIZATION_NODE, NodeKind.INSIGHT_VIZ_NODE]
-
-NON_TIME_SERIES_DISPLAY_TYPES = {
-    ChartDisplayType.BOLD_NUMBER,
-    ChartDisplayType.ACTIONS_PIE,
-    ChartDisplayType.ACTIONS_BAR_VALUE,
-    ChartDisplayType.ACTIONS_TABLE,
-    ChartDisplayType.WORLD_MAP,
-}
-
-
-def calculation_interval_to_order(interval: AlertCalculationInterval | None) -> int:
-    match interval:
-        case AlertCalculationInterval.HOURLY:
-            return 0
-        case AlertCalculationInterval.DAILY:
-            return 1
-        case _:
-            return 2
+@shared_task(ignore_result=True)
+def checks_cleanup_task() -> None:
+    AlertCheck.clean_up_old_checks()
 
 
 @shared_task(
@@ -136,6 +114,9 @@ def alerts_backlog_task() -> None:
 
     DAILY_ALERTS_BACKLOG_GAUGE.set(daily_alerts_breaching_sla)
 
+    # sleeping 30s for prometheus to pick up the metrics sent during task
+    time.sleep(30)
+
 
 @shared_task(
     ignore_result=True,
@@ -145,48 +126,18 @@ def check_alerts_task() -> None:
     """
     This runs every 2min to check for alerts that are due to recalculate
     """
-    check_alerts()
-
-
-@shared_task(
-    ignore_result=True,
-    queue=CeleryQueue.ALERTS.value,
-    autoretry_for=(CHQueryErrorTooManySimultaneousQueries,),
-    retry_backoff=1,
-    retry_backoff_max=10,
-    max_retries=3,
-    expires=60 * 60,
-)
-@limit_concurrency(5)  # Max 5 concurrent alert checks
-def check_alert_task(alert_id: str) -> None:
-    try:
-        check_alert(alert_id)
-    except Exception as err:
-        ALERT_CHECK_ERROR_COUNTER.inc()
-        capture_exception(Exception(f"Error checking alert, user wasn't notified: {err}"))
-        raise
-
-
-@shared_task(ignore_result=True)
-def checks_cleanup_task() -> None:
-    AlertCheck.clean_up_old_checks()
-
-
-def check_alerts() -> None:
     now = datetime.now(UTC)
     # Use a fixed expiration time since tasks in the chain are executed sequentially
     expire_after = now + timedelta(minutes=30)
 
-    # find all alerts with the provided interval that are due to be calculated (next_check_at is null or less than now)
+    # find all alerts with the provided interval that are due to be calculated
+    # (next_check_at is null or less than now) and it's not snoozed
     alerts = (
         AlertConfiguration.objects.filter(
             Q(enabled=True, is_calculating=False, next_check_at__lte=now)
-            | Q(
-                enabled=True,
-                is_calculating=False,
-                next_check_at__isnull=True,
-            )
+            | Q(enabled=True, is_calculating=False, next_check_at__isnull=True)
         )
+        .filter(Q(snoozed_until__isnull=True) | Q(snoozed_until__lt=now))
         .order_by(F("next_check_at").asc(nulls_first=True))
         .only("id", "team", "calculation_interval")
     )
@@ -207,7 +158,23 @@ def check_alerts() -> None:
         chain(*(check_alert_task.si(str(alert_id)).set(expires=expire_after) for alert_id in alert_ids))()
 
 
+@shared_task(
+    ignore_result=True,
+    queue=CeleryQueue.ALERTS.value,
+    autoretry_for=(CHQueryErrorTooManySimultaneousQueries,),
+    retry_backoff=1,
+    retry_backoff_max=10,
+    max_retries=3,
+    expires=60 * 60,
+)
+# @limit_concurrency(5)  Concurrency controlled by CeleryQueue.ALERTS for now
+def check_alert_task(alert_id: str) -> None:
+    check_alert(alert_id)
+
+
 def check_alert(alert_id: str) -> None:
+    task_start_time = time.time()
+
     try:
         alert = AlertConfiguration.objects.get(id=alert_id, enabled=True)
     except AlertConfiguration.DoesNotExist:
@@ -230,12 +197,35 @@ def check_alert(alert_id: str) -> None:
         )
         return
 
+    if alert.snoozed_until:
+        if alert.snoozed_until > now:
+            logger.warning(
+                "Alert has been snoozed so skipping checking it now",
+                alert=alert,
+            )
+            return
+        else:
+            # not snoozed (anymore) so clear snoozed_until
+            alert.snoozed_until = None
+            alert.state = AlertState.NOT_FIRING
+
     alert.is_calculating = True
     alert.save()
 
     try:
-        check_alert_atomically(alert)
-    except Exception:
+        check_alert_and_notify_atomically(alert)
+    except Exception as err:
+        ALERT_CHECK_ERROR_COUNTER.inc()
+
+        logger.exception(AlertCheckException(err))
+        capture_exception(
+            AlertCheckException(err),
+            tags={
+                "alert_configuration_id": alert_id,
+            },
+        )
+
+        # raise again so alert check is retried depending on error type
         raise
     finally:
         # Get all updates with alert checks
@@ -243,186 +233,133 @@ def check_alert(alert_id: str) -> None:
         alert.is_calculating = False
         alert.save()
 
+        # only in PROD
+        if not settings.DEBUG and not settings.TEST:
+            task_duration = time.time() - task_start_time
+
+            # Ensure task runs at least 40s
+            # for prometheus to pick up the metrics sent during task
+            time_left_to_run = 40 - math.floor(task_duration)
+            time.sleep(time_left_to_run)
+
 
 @transaction.atomic
-def check_alert_atomically(alert: AlertConfiguration) -> None:
+def check_alert_and_notify_atomically(alert: AlertConfiguration) -> None:
     """
-    Alert check only gets updated when we successfully
-    1. Compute the aggregated value for the insight for the interval
-    2. Compare the aggregated value with the threshold
-    3. Send notifications if breaches are found
+    Computes insight results, checks alert for breaches and notifies user.
+    Only commits updates to alert state if all of the above complete successfully.
+    TODO: Later separate notification mechanism from alert checking mechanism (when we move to CDP)
+        so we can retry notification without re-computing insight.
     """
     ALERT_COMPUTED_COUNTER.inc()
+    value = breaches = error = None
 
-    insight = alert.insight
-    aggregated_value: Optional[float] = None
-    error: Optional[dict] = None
-
+    # 1. Evaluate insight and get alert value
     try:
-        with conversion_to_query_based(insight):
-            query = insight.query
-            kind = get_from_dict_or_attr(query, "kind")
-
-            if kind in WRAPPER_NODE_KINDS:
-                query = get_from_dict_or_attr(query, "source")
-                kind = get_from_dict_or_attr(query, "kind")
-
-            if kind == "TrendsQuery":
-                query = TrendsQuery.model_validate(query)
-
-                filters_override = _calculate_date_range_override_for_alert(query)
-
-                calculation_result = calculate_for_query_based_insight(
-                    insight,
-                    execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
-                    user=None,
-                    filters_override=filters_override,
-                )
-            else:
-                raise NotImplementedError(f"Alerts for {query.kind} are not supported yet")
-
-        if not calculation_result.result:
-            raise RuntimeError(f"No results for alert {alert.id}")
-
-        aggregated_value = _aggregate_insight_result_value(alert, query, calculation_result)
+        alert_evaluation_result = check_alert_for_insight(alert)
+        value = alert_evaluation_result.value
+        breaches = alert_evaluation_result.breaches
     except CHQueryErrorTooManySimultaneousQueries:
-        # error on our side, need to make sure to retry the alert check
+        # error on our side so we raise
+        # as celery task can be retried according to config
         raise
     except Exception as err:
-        # error possibly on user's config side
-        # notify user that alert check errored
-        error_message = f"AlertCheckError: error computing aggregate value for insight, alert_id = {alert.id}"
-        logger.exception(error_message)
+        capture_exception(AlertCheckException(err))
+        # error can be on user side (incorrectly configured insight/alert)
+        # we won't retry and set alert to errored state
+        error = {"message": str(err), "traceback": traceback.format_exc()}
 
-        event_id = capture_exception(
-            Exception(error_message),
-            {"alert_id": alert.id, "query": str(query), "message": str(err)},
-        )
+    # 2. Check alert value against threshold
+    alert_check = add_alert_check(alert, value, breaches, error)
 
-        error = {
-            "sentry_event_id": event_id,
-            "message": f"{error_message}: {str(err)}",
-        }
-
-    try:
-        # Lock alert to prevent concurrent state changes
-        alert = AlertConfiguration.objects.select_for_update().get(id=alert.id, enabled=True)
-        check, breaches, error, notify = alert.add_check(aggregated_value=aggregated_value, error=error)
-    except Exception as err:
-        error_message = f"AlertCheckError: error comparing insight value with threshold for alert_id = {alert.id}"
-        logger.exception(error_message)
-
-        event_id = capture_exception(
-            Exception(error_message),
-            {"alert_id": alert.id, "query": str(query), "message": str(err)},
-        )
-        raise
-
-    if not notify:
-        # no need to notify users
+    # 3. Notify users if needed
+    if not alert_check.targets_notified:
         return
 
     try:
-        match check.state:
+        match alert_check.state:
             case AlertState.NOT_FIRING:
-                logger.info("Check state is %s", check.state, alert_id=alert.id)
+                logger.info("Check state is %s", alert_check.state, alert_id=alert.id)
             case AlertState.ERRORED:
-                if error:
-                    _send_notifications_for_errors(alert, error)
+                send_notifications_for_errors(alert, alert_check.error)
             case AlertState.FIRING:
-                _send_notifications_for_breaches(alert, breaches)
+                assert breaches is not None
+                send_notifications_for_breaches(alert, breaches)
     except Exception as err:
         error_message = f"AlertCheckError: error sending notifications for alert_id = {alert.id}"
         logger.exception(error_message)
 
-        event_id = capture_exception(
+        capture_exception(
             Exception(error_message),
-            {"alert_id": alert.id, "query": str(query), "message": str(err)},
+            {"alert_id": alert.id, "message": str(err)},
         )
+
+        # don't want alert state to be updated (so that it's retried as next_check_at won't be updated)
+        # so we raise again as @transaction.atomic decorator won't commit db updates
+        # TODO: later should have a way just to retry notification mechanism
         raise
 
 
-def _calculate_date_range_override_for_alert(query: TrendsQuery) -> Optional[dict]:
-    if query.trendsFilter and query.trendsFilter.display in NON_TIME_SERIES_DISPLAY_TYPES:
-        # for single value insights, need to recompute with full time range
-        return None
+def check_alert_for_insight(alert: AlertConfiguration) -> AlertEvaluationResult:
+    """
+    Matches insight type with alert checking logic
+    """
+    insight = alert.insight
 
-    match query.interval:
-        case IntervalType.DAY:
-            date_from = "-1d"
-        case IntervalType.WEEK:
-            date_from = "-1w"
-        case IntervalType.MONTH:
-            date_from = "-1m"
-        case _:
-            date_from = "-1h"
+    with conversion_to_query_based(insight):
+        query = insight.query
+        kind = get_from_dict_or_attr(query, "kind")
 
-    return {"date_from": date_from}
+        if kind in WRAPPER_NODE_KINDS:
+            query = get_from_dict_or_attr(query, "source")
+            kind = get_from_dict_or_attr(query, "kind")
 
-
-def _aggregate_insight_result_value(alert: AlertConfiguration, query: TrendsQuery, results: InsightResult) -> float:
-    if "type" in alert.config and alert.config["type"] == "TrendsAlertConfig":
-        alert_config = TrendsAlertConfig.model_validate(alert.config)
-        series_index = alert_config.series_index
-        result = cast(list[TrendResult], results.result)[series_index]
-
-        if query.trendsFilter and query.trendsFilter.display in NON_TIME_SERIES_DISPLAY_TYPES:
-            return result["aggregated_value"]
-
-        return result["data"][-1]
-
-    raise ValueError(f"Unsupported alert config type: {alert_config.type}")
+        match kind:
+            case "TrendsQuery":
+                query = TrendsQuery.model_validate(query)
+                return check_trends_alert(alert, insight, query)
+            case _:
+                raise NotImplementedError(f"AlertCheckError: Alerts for {query.kind} are not supported yet")
 
 
-def _send_notifications_for_breaches(alert: AlertConfiguration, breaches: list[str]) -> None:
-    subject = f"PostHog alert {alert.name} is firing"
-    campaign_key = f"alert-firing-notification-{alert.id}-{timezone.now().timestamp()}"
-    insight_url = f"/project/{alert.team.pk}/insights/{alert.insight.short_id}?alert_id={alert.id}"
-    alert_url = f"{insight_url}/alerts/{alert.id}"
-    message = EmailMessage(
-        campaign_key=campaign_key,
-        subject=subject,
-        template_name="alert_check_firing",
-        template_context={
-            "match_descriptions": breaches,
-            "insight_url": insight_url,
-            "insight_name": alert.insight.name,
-            "alert_url": alert_url,
-            "alert_name": alert.name,
-        },
+def add_alert_check(
+    alert: AlertConfiguration, value: float | None, breaches: list[str] | None, error: dict | None
+) -> AlertCheck:
+    notify = False
+    targets_notified = {}
+
+    if error:
+        alert.state = AlertState.ERRORED
+        notify = True
+    elif breaches:
+        alert.state = AlertState.FIRING
+        notify = True
+    else:
+        alert.state = AlertState.NOT_FIRING  # Set the Alert to not firing if the threshold is no longer met
+        # TODO: Optionally send a resolved notification when alert goes from firing to not_firing?
+
+    now = datetime.now(UTC)
+    alert.last_checked_at = datetime.now(UTC)
+
+    # IMPORTANT: update next_check_at according to interval
+    # ensure we don't recheck alert until the next interval is due
+    alert.next_check_at = (alert.next_check_at or now) + alert_calculation_interval_to_relativedelta(
+        cast(AlertCalculationInterval, alert.calculation_interval)
     )
-    targets = alert.subscribed_users.all().values_list("email", flat=True)
-    if not targets:
-        raise RuntimeError(f"no targets configured for the alert {alert.id}")
-    for target in targets:
-        message.add_recipient(email=target)
 
-    logger.info(f"Send notifications about {len(breaches)} anomalies", alert_id=alert.id)
-    message.send()
+    if notify:
+        alert.last_notified_at = now
+        targets_notified = {"users": list(alert.subscribed_users.all().values_list("email", flat=True))}
 
-
-def _send_notifications_for_errors(alert: AlertConfiguration, error: dict) -> None:
-    subject = f"PostHog alert {alert.name} check failed to evaluate"
-    campaign_key = f"alert-firing-notification-{alert.id}-{timezone.now().timestamp()}"
-    insight_url = f"/project/{alert.team.pk}/insights/{alert.insight.short_id}?alert_id={alert.id}"
-    alert_url = f"{insight_url}/alerts/{alert.id}"
-    message = EmailMessage(
-        campaign_key=campaign_key,
-        subject=subject,
-        template_name="alert_check_firing",
-        template_context={
-            "match_descriptions": error,
-            "insight_url": insight_url,
-            "insight_name": alert.insight.name,
-            "alert_url": alert_url,
-            "alert_name": alert.name,
-        },
+    alert_check = AlertCheck.objects.create(
+        alert_configuration=alert,
+        calculated_value=value,
+        condition=alert.condition,
+        targets_notified=targets_notified,
+        state=alert.state,
+        error=error,
     )
-    targets = alert.subscribed_users.all().values_list("email", flat=True)
-    if not targets:
-        raise RuntimeError(f"no targets configured for the alert {alert.id}")
-    for target in targets:
-        message.add_recipient(email=target)
 
-    logger.info(f"Send notifications about alert checking error", alert_id=alert.id)
-    message.send()
+    alert.save()
+
+    return alert_check

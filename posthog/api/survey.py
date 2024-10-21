@@ -386,7 +386,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                 instance.targeting_flag.active = False
             instance.targeting_flag.save()
 
-        iteration_count = validated_data.get("iteration_count")
+        iteration_count = validated_data.get("iteration_count", None)
         if (
             instance.current_iteration is not None
             and iteration_count is not None
@@ -396,8 +396,9 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                 f"Cannot change survey recurrence to {iteration_count}, should be at least {instance.current_iteration}"
             )
 
-        instance.iteration_count = iteration_count
-        instance.iteration_frequency_days = validated_data.get("iteration_frequency_days")
+        if iteration_count is not None:
+            instance.iteration_count = iteration_count
+            instance.iteration_frequency_days = validated_data.get("iteration_frequency_days")
 
         instance = super().update(instance, validated_data)
 

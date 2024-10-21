@@ -74,7 +74,7 @@ export function ExportedInsight({
                     <div className="ExportedInsight__header">
                         <div>
                             <h5>
-                                <TopHeading insight={insight} />
+                                <TopHeading query={query} />
                             </h5>
                             <h4 title={name} className="ExportedInsight__header__title">
                                 {name || derived_name}

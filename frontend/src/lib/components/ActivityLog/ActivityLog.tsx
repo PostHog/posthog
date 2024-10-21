@@ -24,8 +24,8 @@ export type ActivityLogProps = ActivityLogLogicProps & {
     renderSideAction?: (logItem: HumanizedActivityLogItem) => JSX.Element
 }
 
-const Empty = ({ scope }: { scope: string }): JSX.Element => {
-    const noun = scope
+const Empty = ({ scope }: { scope: string | string[] }): JSX.Element => {
+    const noun = (Array.isArray(scope) ? scope[0] : scope)
         .replace(/([A-Z])/g, ' $1')
         .trim()
         .toLowerCase()

@@ -17,8 +17,21 @@ import { ChartDisplayType } from '~/types'
 type CompareQueryOpts = { ignoreVisualizationOnlyChanges: boolean }
 
 export const getVariablesFromQuery = (query: string): string[] => {
-    const queryVariableMatches = /\{variables\.([a-z0-9_]+)\}/gm.exec(query)
-    return (queryVariableMatches ?? []).filter(Boolean)
+    const re = /\{variables\.([a-z0-9_]+)\}/gm
+    const results: string[] = []
+
+    for (;;) {
+        const reResult = re.exec(query)
+        if (!reResult) {
+            break
+        }
+
+        if (reResult[1]) {
+            results.push(reResult[1])
+        }
+    }
+
+    return results
 }
 
 export const compareQuery = (a: Node, b: Node, opts?: CompareQueryOpts): boolean => {

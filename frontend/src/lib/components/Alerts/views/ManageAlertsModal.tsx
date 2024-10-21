@@ -8,20 +8,20 @@ import { ProfileBubbles } from 'lib/lemon-ui/ProfilePicture'
 import { pluralize } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
-import { AlertState } from '~/queries/schema'
+import { AlertState, InsightThresholdType } from '~/queries/schema'
 import { InsightShortId } from '~/types'
 
 import { insightAlertsLogic, InsightAlertsLogicProps } from '../insightAlertsLogic'
 import { AlertType } from '../types'
 
 export function AlertStateIndicator({ alert }: { alert: AlertType }): JSX.Element {
-    return alert.state === AlertState.NOT_FIRING ? (
-        <span className="text-success-dark">
-            <IconCheck />
-        </span>
-    ) : (
+    return alert.state === AlertState.FIRING ? (
         <span className="text-danger-dark">
             <IconX />
+        </span>
+    ) : (
+        <span className="text-success-dark">
+            <IconCheck />
         </span>
     )
 }
@@ -32,7 +32,9 @@ interface AlertListItemProps {
 }
 
 export function AlertListItem({ alert, onClick }: AlertListItemProps): JSX.Element {
-    const absoluteThreshold = alert.threshold?.configuration?.absoluteThreshold
+    const bounds = alert.threshold?.configuration?.bounds
+    const isPercentage = alert.threshold?.configuration.type === InsightThresholdType.PERCENTAGE
+
     return (
         <LemonButton type="secondary" onClick={onClick} data-attr="alert-list-item" fullWidth>
             <div className="flex justify-between flex-auto items-center p-2">
@@ -42,9 +44,11 @@ export function AlertListItem({ alert, onClick }: AlertListItemProps): JSX.Eleme
 
                     {alert.enabled ? (
                         <div className="text-muted pl-3">
-                            {absoluteThreshold?.lower && `Low ${absoluteThreshold.lower}`}
-                            {absoluteThreshold?.lower && absoluteThreshold?.upper ? ' · ' : ''}
-                            {absoluteThreshold?.upper && `High ${absoluteThreshold.upper}`}
+                            {bounds?.lower &&
+                                `Low ${isPercentage ? bounds.lower * 100 : bounds.lower}${isPercentage ? '%' : ''}`}
+                            {bounds?.lower && bounds?.upper ? ' · ' : ''}
+                            {bounds?.upper &&
+                                `High ${isPercentage ? bounds.upper * 100 : bounds.upper}${isPercentage ? '%' : ''}`}
                         </div>
                     ) : (
                         <div className="text-muted pl-3">Disabled</div>

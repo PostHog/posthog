@@ -338,14 +338,14 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconVideoCamera,
         inMenu: false,
     },
-    [NodeKind.ExperimentTrendQuery]: {
-        name: 'Experiment Result',
+    [NodeKind.ExperimentTrendsQuery]: {
+        name: 'Experiment Trends Result',
         description: 'View experiment trend result',
         icon: IconFlask,
         inMenu: false,
     },
-    [NodeKind.ExperimentFunnelQuery]: {
-        name: 'Experiment Funnel',
+    [NodeKind.ExperimentFunnelsQuery]: {
+        name: 'Experiment Funnels Result',
         description: 'View experiment funnel result',
         icon: IconFlask,
         inMenu: false,

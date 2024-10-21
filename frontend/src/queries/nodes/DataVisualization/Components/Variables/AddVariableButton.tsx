@@ -5,14 +5,14 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { dataVisualizationLogic } from '../../dataVisualizationLogic'
-import { addVariableLogic } from './addVariableLogic'
 import { NewVariableModal } from './NewVariableModal'
+import { variableModalLogic } from './variableModalLogic'
 import { variablesLogic } from './variablesLogic'
 
 export const AddVariableButton = (): JSX.Element => {
     const { showEditingUI } = useValues(dataVisualizationLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const { openModal } = useActions(addVariableLogic)
+    const { openNewVariableModal } = useActions(variableModalLogic)
 
     const { variables, variablesLoading } = useValues(variablesLogic)
     const { addVariable } = useActions(variablesLogic)
@@ -30,19 +30,19 @@ export const AddVariableButton = (): JSX.Element => {
                         items: [
                             {
                                 label: 'String',
-                                onClick: () => openModal('String'),
+                                onClick: () => openNewVariableModal('String'),
                             },
                             {
                                 label: 'Number',
-                                onClick: () => openModal('Number'),
+                                onClick: () => openNewVariableModal('Number'),
                             },
                             {
                                 label: 'Boolean',
-                                onClick: () => openModal('Boolean'),
+                                onClick: () => openNewVariableModal('Boolean'),
                             },
                             {
                                 label: 'List',
-                                onClick: () => openModal('List'),
+                                onClick: () => openNewVariableModal('List'),
                             },
                         ],
                     },
@@ -57,7 +57,7 @@ export const AddVariableButton = (): JSX.Element => {
                               ]
                             : variables.map((n) => ({
                                   label: n.name,
-                                  onClick: () => addVariable({ variableId: n.id, code_name: '' }),
+                                  onClick: () => addVariable({ variableId: n.id, code_name: n.code_name }),
                               })),
                     },
                 ]}

@@ -149,7 +149,6 @@ class ErrorTrackingQueryRunner(QueryRunner):
                 or_exprs: list[ast.Expr] = []
                 props_to_search = [
                     "$exception_list",
-                    "$exception_stack_trace_raw",
                     "$exception_type",
                     "$exception_message",
                 ]

@@ -4,8 +4,28 @@ import { enrichExceptionEventStep } from '../../../../src/worker/ingestion/event
 
 jest.mock('../../../../src/worker/plugins/run')
 
-const aStackTrace =
-    '[{"filename":"http://localhost:8234/static/chunk-VDD5ZZ2W.js","function":"dependenciesChecker","in_app":true,"lineno":721,"colno":42},{"filename":"http://localhost:8234/static/chunk-VDD5ZZ2W.js","function":"?","in_app":true,"lineno":2474,"colno":40},{"filename":"http://localhost:8234/static/chunk-VDD5ZZ2W.js","function":"Object.memoized [as tiles]","in_app":true,"lineno":632,"colno":24},{"filename":"http://localhost:8234/static/chunk-VDD5ZZ2W.js","function":"dependenciesChecker","in_app":true,"lineno":721,"colno":42},{"filename":"http://localhost:8234/static/chunk-VDD5ZZ2W.js","function":"memoized","in_app":true,"lineno":632,"colno":24},{"filename":"http://localhost:8234/static/chunk-VDD5ZZ2W.js","function":"dependenciesChecker","in_app":true,"lineno":721,"colno":42},{"filename":"http://localhost:8234/static/chunk-VDD5ZZ2W.js","function":"logic.selector","in_app":true,"lineno":2517,"colno":18},{"filename":"http://localhost:8234/static/chunk-VDD5ZZ2W.js","function":"pathSelector","in_app":true,"lineno":2622,"colno":37},{"filename":"<anonymous>","function":"Array.reduce","in_app":true},{"filename":"http://localhost:8234/static/chunk-VDD5ZZ2W.js","function":"?","in_app":true,"lineno":2626,"colno":15}]'
+const DEFAULT_EXCEPTION_LIST = [
+    {
+        mechanism: {
+            handled: true,
+            type: 'generic',
+            synthetic: false,
+        },
+        stacktrace: {
+            frames: [
+                {
+                    colno: 220,
+                    filename: 'https://app-static-prod.posthog.com/static/chunk-UFQKIDIH.js',
+                    function: 'submitZendeskTicket',
+                    in_app: true,
+                    lineno: 25,
+                },
+            ],
+        },
+        type: 'Error',
+        value: 'There was an error creating the support ticket with zendesk.',
+    },
+]
 
 const preIngestionEvent: PreIngestionEvent = {
     eventUuid: '018eebf3-cb48-750b-bfad-36409ea6f2b2',
@@ -42,7 +62,7 @@ describe('enrichExceptionEvent()', () => {
 
     it('ignores non-exception events - even if they have a stack trace', async () => {
         event.event = 'not_exception'
-        event.properties['$exception_stack_trace_raw'] = '[{"some": "data"}]'
+        event.properties['$exception_list'] = DEFAULT_EXCEPTION_LIST
         expect(event.properties['$exception_fingerprint']).toBeUndefined()
 
         const response = await enrichExceptionEventStep(runner, event)
@@ -51,7 +71,8 @@ describe('enrichExceptionEvent()', () => {
 
     it('use a fingerprint if it is present', async () => {
         event.event = '$exception'
-        event.properties['$exception_stack_trace_raw'] = '[{"some": "data"}]'
+        event.properties['$exception_list'] = DEFAULT_EXCEPTION_LIST
+
         event.properties['$exception_fingerprint'] = 'some-fingerprint'
 
         const response = await enrichExceptionEventStep(runner, event)
@@ -62,17 +83,21 @@ describe('enrichExceptionEvent()', () => {
     it('uses the message and stack trace as the simplest grouping', async () => {
         event.event = '$exception'
         event.properties['$exception_message'] = 'some-message'
-        event.properties['$exception_stack_trace_raw'] = aStackTrace
+        event.properties['$exception_list'] = DEFAULT_EXCEPTION_LIST
 
         const response = await enrichExceptionEventStep(runner, event)
 
-        expect(response.properties['$exception_fingerprint']).toStrictEqual(['some-message', 'dependenciesChecker'])
+        expect(response.properties['$exception_fingerprint']).toStrictEqual([
+            'Error',
+            'some-message',
+            'submitZendeskTicket',
+        ])
     })
 
     it('includes type in stack grouping when present', async () => {
         event.event = '$exception'
         event.properties['$exception_message'] = 'some-message'
-        event.properties['$exception_stack_trace_raw'] = aStackTrace
+        event.properties['$exception_list'] = DEFAULT_EXCEPTION_LIST
         event.properties['$exception_type'] = 'UnhandledRejection'
 
         const response = await enrichExceptionEventStep(runner, event)
@@ -80,14 +105,14 @@ describe('enrichExceptionEvent()', () => {
         expect(response.properties['$exception_fingerprint']).toStrictEqual([
             'UnhandledRejection',
             'some-message',
-            'dependenciesChecker',
+            'submitZendeskTicket',
         ])
     })
 
     it('falls back to message and type when no stack trace', async () => {
         event.event = '$exception'
         event.properties['$exception_message'] = 'some-message'
-        event.properties['$exception_stack_trace_raw'] = null
+        event.properties['$exception_list'] = null
         event.properties['$exception_type'] = 'UnhandledRejection'
 
         const response = await enrichExceptionEventStep(runner, event)
@@ -98,11 +123,38 @@ describe('enrichExceptionEvent()', () => {
     it('adds no fingerprint if no qualifying properties', async () => {
         event.event = '$exception'
         event.properties['$exception_message'] = null
-        event.properties['$exception_stack_trace_raw'] = null
+        event.properties['$exception_list'] = null
         event.properties['$exception_type'] = null
 
         const response = await enrichExceptionEventStep(runner, event)
 
         expect(response.properties['$exception_fingerprint']).toBeUndefined()
+    })
+
+    it('uses exception_list to generate message, type, and fingerprint when not present', async () => {
+        event.event = '$exception'
+        event.properties['$exception_list'] = DEFAULT_EXCEPTION_LIST
+
+        const response = await enrichExceptionEventStep(runner, event)
+
+        expect(response.properties['$exception_fingerprint']).toStrictEqual([
+            'Error',
+            'There was an error creating the support ticket with zendesk.',
+            'submitZendeskTicket',
+        ])
+    })
+
+    it('exception_type overrides exception_list to generate fingerprint when present', async () => {
+        event.event = '$exception'
+        event.properties['$exception_list'] = DEFAULT_EXCEPTION_LIST
+        event.properties['$exception_type'] = 'UnhandledRejection'
+
+        const response = await enrichExceptionEventStep(runner, event)
+
+        expect(response.properties['$exception_fingerprint']).toStrictEqual([
+            'UnhandledRejection',
+            'There was an error creating the support ticket with zendesk.',
+            'submitZendeskTicket',
+        ])
     })
 })

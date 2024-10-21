@@ -68,7 +68,7 @@ import { DataTableOpenEditor } from './DataTableOpenEditor'
 interface DataTableProps {
     uniqueKey?: string | number
     query: DataTableNode
-    setQuery?: (query: DataTableNode) => void
+    setQuery: (query: DataTableNode) => void
     /** Custom table columns */
     context?: QueryContext<DataTableNode>
     /* Cached Results are provided when shared or exported,
@@ -76,6 +76,7 @@ interface DataTableProps {
     cachedResults?: AnyResponseType
     // Override the data logic node key if needed
     dataNodeLogicKey?: string
+    readOnly?: boolean
 }
 
 const eventGroupTypes = [
@@ -88,7 +89,14 @@ const personGroupTypes = [TaxonomicFilterGroupType.HogQLExpression, TaxonomicFil
 
 let uniqueNode = 0
 
-export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }: DataTableProps): JSX.Element {
+export function DataTable({
+    uniqueKey,
+    query,
+    setQuery,
+    context,
+    cachedResults,
+    readOnly,
+}: DataTableProps): JSX.Element {
     const [uniqueNodeKey] = useState(() => uniqueNode++)
     const [dataKey] = useState(() => `DataNode.${uniqueKey || uniqueNodeKey}`)
     const insightProps: InsightLogicProps<DataTableNode> = context?.insightProps || {
@@ -148,7 +156,7 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
         showTimings,
     } = queryWithDefaults
 
-    const isReadOnly = setQuery === undefined
+    const isReadOnly = !!readOnly
 
     const eventActionsColumnShown =
         showActions && sourceFeatures.has(QueryFeature.eventActionsColumn) && columnsInResponse?.includes('*')

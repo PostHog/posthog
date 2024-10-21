@@ -2,7 +2,7 @@ import { expectLogic, partial } from 'kea-test-utils'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { performQuery } from '~/queries/query'
-import { DashboardFilter, NodeKind } from '~/queries/schema'
+import { DashboardFilter, HogQLVariable, NodeKind } from '~/queries/schema'
 import { initKeaTests } from '~/test/init'
 
 jest.mock('~/queries/query', () => {
@@ -473,6 +473,40 @@ describe('dataNodeLogic', () => {
             expect.any(String),
             expect.any(Function),
             filtersOverride,
+            undefined,
+            false
+        )
+    })
+
+    it('passes variablesOverride to api', async () => {
+        const variablesOverride: Record<string, HogQLVariable> = {
+            test_1: {
+                variableId: 'some_id',
+                code_name: 'some_name',
+                value: 'hello world',
+            },
+        }
+
+        const query = {
+            kind: NodeKind.EventsQuery,
+            select: ['*', 'event', 'timestamp'],
+        }
+
+        logic = dataNodeLogic({
+            key: 'key',
+            query,
+            variablesOverride,
+        })
+        logic.mount()
+
+        expect(performQuery).toHaveBeenCalledWith(
+            query,
+            expect.anything(),
+            false,
+            expect.any(String),
+            expect.any(Function),
+            undefined,
+            variablesOverride,
             false
         )
     })
@@ -496,6 +530,32 @@ describe('dataNodeLogic', () => {
             false,
             expect.any(String),
             expect.any(Function),
+            undefined,
+            undefined,
+            false
+        )
+    })
+
+    it("doesn't pass undefined variablesOverride to api", async () => {
+        const query = {
+            kind: NodeKind.EventsQuery,
+            select: ['*', 'event', 'timestamp'],
+        }
+
+        logic = dataNodeLogic({
+            key: 'key',
+            query,
+            variablesOverride: undefined,
+        })
+        logic.mount()
+
+        expect(performQuery).toHaveBeenCalledWith(
+            query,
+            expect.anything(),
+            false,
+            expect.any(String),
+            expect.any(Function),
+            undefined,
             undefined,
             false
         )

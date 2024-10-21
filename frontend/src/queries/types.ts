@@ -1,7 +1,7 @@
 import { ComponentType, HTMLProps } from 'react'
 
 import { QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
-import { DataTableNode, InsightVizNode } from '~/queries/schema'
+import { DataTableNode, DataVisualizationNode, InsightVizNode } from '~/queries/schema'
 import { ChartDisplayType, GraphPointPayload, InsightLogicProps, TrendResult } from '~/types'
 
 /** Pass custom metadata to queries. Used for e.g. custom columns in the DataTable. */
@@ -37,12 +37,12 @@ export interface ChartRenderingMetadata {
 
 export type QueryContextColumnTitleComponent = ComponentType<{
     columnName: string
-    query: DataTableNode
+    query: DataTableNode | DataVisualizationNode
 }>
 
 export type QueryContextColumnComponent = ComponentType<{
     columnName: string
-    query: DataTableNode
+    query: DataTableNode | DataVisualizationNode
     record: unknown
     recordIndex: number
     value: unknown

@@ -32,7 +32,7 @@ GROUP BY week_of
 ORDER BY week_of DESC"""
 
 SCHEMA_MESSAGE = (
-    "My schema is:\n{schema_description}\nPerson or event metadata unspecified above (emails, names, etc.) "
+    "This project's schema is:\n\n{schema_description}\nPerson or event metadata unspecified above (emails, names, etc.) "
     'is stored in `properties` fields, accessed like: `properties.foo.bar`. Note: "persons" means "users".\nSpecial events/properties such as pageview or screen start with `$`. Custom ones don\'t.'
 )
 
@@ -63,8 +63,8 @@ def write_sql_from_prompt(prompt: str, *, current_query: Optional[str] = None, t
     schema_description = "\n\n".join(
         (
             f"Table {table_name} with fields:\n"
-            + "\n".join(f'- {field["key"]} ({field["type"]})' for field in table_fields)
-            for table_name, table_fields in serialized_database.items()
+            + "\n".join(f"- {field.name} ({field.type})" for field in table.fields.values())
+            for table_name, table in serialized_database.items()
         )
     )
     instance_region = get_instance_region() or "HOBBY"

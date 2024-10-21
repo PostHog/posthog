@@ -115,7 +115,7 @@ export function LemonInputSelect({
         // Show the input value if custom values are allowed and it's not in the list
         if (inputValue && !values.includes(inputValue)) {
             if (allowCustomValues) {
-                const unescapedInputValue = inputValue.replace('\\,', ',') // Transform escaped commas to plain commas
+                const unescapedInputValue = inputValue.replaceAll('\\,', ',') // Transform escaped commas to plain commas
                 ret.push({ key: unescapedInputValue, label: unescapedInputValue, __isInput: true })
             }
         } else if (mode === 'single' && values.length > 0) {
@@ -164,7 +164,7 @@ export function LemonInputSelect({
 
             // We split on commas EXCEPT if they're escaped (to allow for commas in values)
             newValue.split(NON_ESCAPED_COMMA_REGEX).forEach((value) => {
-                const trimmedValue = value.replace('\\,', ',').trim() // Transform escaped commas to plain commas
+                const trimmedValue = value.replaceAll('\\,', ',').trim() // Transform escaped commas to plain commas
                 if (trimmedValue && !values.includes(trimmedValue)) {
                     newValues.push(trimmedValue)
                 }

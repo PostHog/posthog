@@ -1,5 +1,6 @@
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import serializers, viewsets
+from rest_framework.exceptions import ValidationError
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.insight_variable import InsightVariable
@@ -9,7 +10,7 @@ class InsightVariableSerializer(serializers.ModelSerializer):
     class Meta:
         model = InsightVariable
 
-        fields = ["id", "name", "type", "default_value", "created_by", "created_at", "code_name"]
+        fields = ["id", "name", "type", "default_value", "created_by", "created_at", "code_name", "values"]
 
         read_only_fields = ["id", "code_name", "created_by", "created_at"]
 
@@ -21,6 +22,13 @@ class InsightVariableSerializer(serializers.ModelSerializer):
         validated_data["code_name"] = (
             "".join(n for n in validated_data["name"] if n.isalnum() or n == " ").replace(" ", "_").lower()
         )
+
+        count = InsightVariable.objects.filter(
+            team_id=self.context["team_id"], code_name=validated_data["code_name"]
+        ).count()
+
+        if count > 0:
+            raise ValidationError("Variable with name already exists")
 
         return InsightVariable.objects.create(**validated_data)
 

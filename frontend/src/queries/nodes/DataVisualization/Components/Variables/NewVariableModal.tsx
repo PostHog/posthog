@@ -10,7 +10,7 @@ import { useActions, useValues } from 'kea'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { Variable } from '../../types'
-import { addVariableLogic } from './addVariableLogic'
+import { variableModalLogic } from './variableModalLogic'
 
 const renderVariableSpecificFields = (
     variable: Variable,
@@ -95,12 +95,14 @@ const renderVariableSpecificFields = (
 }
 
 export const NewVariableModal = (): JSX.Element => {
-    const { closeModal, updateVariable, save } = useActions(addVariableLogic)
-    const { isModalOpen, variable } = useValues(addVariableLogic)
+    const { closeModal, updateVariable, save } = useActions(variableModalLogic)
+    const { isModalOpen, variable, modalType } = useValues(variableModalLogic)
+
+    const title = modalType === 'new' ? `New ${variable.type} variable` : `Editing ${variable.name}`
 
     return (
         <LemonModal
-            title={`New ${variable.type} variable`}
+            title={title}
             isOpen={isModalOpen}
             onClose={closeModal}
             maxWidth="30rem"

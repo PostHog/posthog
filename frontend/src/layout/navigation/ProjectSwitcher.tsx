@@ -101,6 +101,17 @@ function OtherProjectButton({ team }: { team: TeamBasicType; onClickInside?: () 
         // and after switching is on a different page than before.
         let route = removeProjectIdIfPresent(location.pathname)
         route = removeFlagIdIfPresent(route)
+
+        // List of routes that should redirect to project home
+        // instead of keeping the current path.
+        const redirectToHomeRoutes = ['/products', '/onboarding']
+
+        const shouldRedirectToHome = redirectToHomeRoutes.some((redirectRoute) => route.includes(redirectRoute))
+
+        if (shouldRedirectToHome) {
+            return urls.project(team.id) // Go to project home
+        }
+
         return urls.project(team.id, route)
     }, [location.pathname])
 

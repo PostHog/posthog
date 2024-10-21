@@ -125,23 +125,32 @@ def get_cache_type(cacheable: Optional[FilterType] | Optional[dict]) -> CacheTyp
 def calculate_for_query_based_insight(
     insight: Insight,
     *,
+    team: Team,
     dashboard: Optional[Dashboard] = None,
     execution_mode: ExecutionMode,
     user: Optional[User],
     filters_override: Optional[dict] = None,
+    variables_override: Optional[dict] = None,
 ) -> "InsightResult":
     from posthog.caching.fetch_from_cache import InsightResult, NothingInCacheResult
     from posthog.caching.insight_cache import update_cached_state
 
-    tag_queries(team_id=insight.team_id, insight_id=insight.pk)
+    tag_queries(team_id=team.id, insight_id=insight.pk)
     if dashboard:
         tag_queries(dashboard_id=dashboard.pk)
 
     response = process_response = process_query_dict(
-        insight.team,
+        team,
         insight.query,
         dashboard_filters_json=(
             filters_override if filters_override is not None else dashboard.filters if dashboard is not None else None
+        ),
+        variables_override_json=(
+            variables_override
+            if variables_override is not None
+            else dashboard.variables
+            if dashboard is not None
+            else None
         ),
         execution_mode=execution_mode,
         user=user,
@@ -161,7 +170,7 @@ def calculate_for_query_based_insight(
     last_refresh = response.get("last_refresh")
     if isinstance(cache_key, str) and isinstance(last_refresh, datetime):
         update_cached_state(  # Updating the relevant InsightCachingState
-            insight.team_id,
+            team.id,
             cache_key,
             last_refresh,
             result=None,  # Not caching the result here, since in HogQL this is the query runner's responsibility

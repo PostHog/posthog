@@ -105,7 +105,12 @@ async def assert_clickhouse_records_in_bigquery(
                 inserted_bq_ingested_timestamp.append(v)
                 continue
 
-            inserted_record[k] = json.loads(v) if k in json_columns and v is not None else v
+            if k in json_columns:
+                assert (
+                    isinstance(v, dict) or v is None
+                ), f"Expected '{k}' to be JSON, but it was not deserialized to dict"
+
+            inserted_record[k] = v
 
         inserted_records.append(inserted_record)
 

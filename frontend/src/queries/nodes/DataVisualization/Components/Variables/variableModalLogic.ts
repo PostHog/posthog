@@ -1,9 +1,11 @@
-import { actions, kea, path, reducers } from 'kea'
-import { loaders } from 'kea-loaders'
-import api from 'lib/api'
+import { lemonToast } from '@posthog/lemon-ui'
+import { actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
+import api, { ApiError } from 'lib/api'
 
 import { BooleanVariable, ListVariable, NumberVariable, StringVariable, Variable, VariableType } from '../../types'
-import type { addVariableLogicType } from './addVariableLogicType'
+import { variableDataLogic } from './variableDataLogic'
+import type { variableModalLogicType } from './variableModalLogicType'
+import { variablesLogic } from './variablesLogic'
 
 const DEFAULT_VARIABLE: StringVariable = {
     id: '',
@@ -13,31 +15,52 @@ const DEFAULT_VARIABLE: StringVariable = {
     code_name: '',
 }
 
-export const addVariableLogic = kea<addVariableLogicType>([
+export interface AddVariableLogicProps {
+    key: string
+}
+
+export const variableModalLogic = kea<variableModalLogicType>([
     path(['queries', 'nodes', 'DataVisualization', 'Components', 'Variables', 'variableLogic']),
+    props({ key: '' } as AddVariableLogicProps),
+    key((props) => props.key),
+    connect({
+        actions: [variableDataLogic, ['getVariables'], variablesLogic, ['addVariable']],
+    }),
     actions({
-        openModal: (variableType: VariableType) => ({ variableType }),
+        openNewVariableModal: (variableType: VariableType) => ({ variableType }),
+        openExistingVariableModal: (variable: Variable) => ({ variable }),
         closeModal: true,
         updateVariable: (variable: Variable) => ({ variable }),
+        save: true,
     }),
     reducers({
+        modalType: [
+            'new' as 'new' | 'existing',
+            {
+                openNewVariableModal: () => 'new',
+                openExistingVariableModal: () => 'existing',
+            },
+        ],
         variableType: [
             'string' as VariableType,
             {
-                openModal: (_, { variableType }) => variableType,
+                openNewVariableModal: (_, { variableType }) => variableType,
+                openExistingVariableModal: (_, { variable }) => variable.type,
             },
         ],
         isModalOpen: [
             false as boolean,
             {
-                openModal: () => true,
+                openNewVariableModal: () => true,
+                openExistingVariableModal: () => true,
                 closeModal: () => false,
             },
         ],
         variable: [
             DEFAULT_VARIABLE as Variable,
             {
-                openModal: (_, { variableType }) => {
+                openExistingVariableModal: (_, { variable }) => ({ ...variable }),
+                openNewVariableModal: (_, { variableType }) => {
                     if (variableType === 'String') {
                         return {
                             id: '',
@@ -86,14 +109,22 @@ export const addVariableLogic = kea<addVariableLogicType>([
             },
         ],
     }),
-    loaders(({ values }) => ({
-        savedVariable: [
-            null as null | Variable,
-            {
-                save: async () => {
-                    return await api.insightVariables.create(values.variable)
-                },
-            },
-        ],
+    listeners(({ values, actions }) => ({
+        save: async () => {
+            try {
+                if (values.modalType === 'new') {
+                    const variable = await api.insightVariables.create(values.variable)
+                    actions.addVariable({ variableId: variable.id, code_name: variable.code_name })
+                } else {
+                    await api.insightVariables.update(values.variable.id, values.variable)
+                }
+
+                actions.getVariables()
+                actions.closeModal()
+            } catch (e: any) {
+                const error = e as ApiError
+                lemonToast.error(error.detail ?? error.message)
+            }
+        },
     })),
 ])

@@ -3,13 +3,13 @@ import { urls } from 'scenes/urls'
 describe('Notebooks', () => {
     beforeEach(() => {
         cy.fixture('api/session-recordings/recordings.json').then((recordings) => {
-            cy.intercept('GET', /api\/projects\/\d+\/session_recordings\/?\?.*/, { body: recordings }).as(
+            cy.intercept('GET', /api\/environments\/\d+\/session_recordings\/?\?.*/, { body: recordings }).as(
                 'loadSessionRecordingsList'
             )
         })
 
         cy.fixture('api/session-recordings/recording.json').then((recording) => {
-            cy.intercept('GET', /api\/projects\/\d+\/session_recordings\/.*\?.*/, { body: recording }).as(
+            cy.intercept('GET', /api\/environments\/\d+\/session_recordings\/.*\?.*/, { body: recording }).as(
                 'loadSessionRecording'
             )
         })

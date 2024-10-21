@@ -2371,6 +2371,19 @@ class TestSurveysRecurringIterations(APIBaseTest):
         assert len(response_data["iteration_start_dates"]) == 2
         assert response_data["current_iteration"] == 1
 
+    def test_can_create_and_launch_recurring_survey(self):
+        survey = self._create_recurring_survey()
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={
+                "start_date": datetime.now() - timedelta(days=1),
+            },
+        )
+        response_data = response.json()
+        assert response_data["iteration_start_dates"] is not None
+        assert len(response_data["iteration_start_dates"]) == 2
+        assert response_data["current_iteration"] == 1
+
     def test_can_set_internal_targeting_flag(self):
         survey = self._create_recurring_survey()
         response = self.client.patch(
@@ -2493,7 +2506,7 @@ class TestSurveysRecurringIterations(APIBaseTest):
         )
         assert response.status_code == status.HTTP_200_OK
         survey.refresh_from_db()
-        self.assertIsNone(survey.current_iteration)
+        self.assertIsNotNone(survey.current_iteration)
         response = self.client.patch(
             f"/api/projects/{self.team.id}/surveys/{survey.id}/",
             data={
