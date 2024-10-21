@@ -137,6 +137,8 @@ export const urls = {
         `/pipeline/${!stage.startsWith(':') && !stage?.endsWith('s') ? `${stage}s` : stage}/${id}${
             nodeTab ? `/${nodeTab}` : ''
         }`,
+    messagingBroadcasts: (): string => '/messaging/broadcasts',
+    messagingProviders: (): string => '/messaging/providers',
     groups: (groupTypeIndex: string | number): string => `/groups/${groupTypeIndex}`,
     // :TRICKY: Note that groupKey is provided by user. We need to override urlPatternOptions for kea-router.
     group: (groupTypeIndex: string | number, groupKey: string, encode: boolean = true, tab?: string | null): string =>
