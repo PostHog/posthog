@@ -9,7 +9,6 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 from posthog.models.event.sql import TRUNCATE_EVENTS_TABLE_SQL
 from posthog.models.utils import uuid7
-from posthog.schema import HogQLQueryModifiers
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.session_recordings.sql.session_replay_event_sql import TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL
 from posthog.test.base import (
@@ -352,25 +351,6 @@ class TestFilterSessionReplaysByPerson(ClickhouseTestMixin, APIBaseTest):
         ]
 
     @snapshot_clickhouse_queries
-    def test_select_where_person_property_without_join_optimization(self):
-        response = execute_hogql_query(
-            parse_select(
-                """
-                select session_id, any(person.properties.person_property)
-                from raw_session_replay_events
-                where person.properties.person_property = 'true'
-                group by session_id order by session_id asc
-                """,
-            ),
-            self.team,
-            modifiers=HogQLQueryModifiers(optimizeJoinedFilters=False),
-        )
-
-        assert response.results == [
-            ("session_with_person_with_person_property", "true"),
-        ]
-
-    @snapshot_clickhouse_queries
     def test_select_where_person_property_with_join_optimization(self):
         response = execute_hogql_query(
             parse_select(
@@ -382,7 +362,6 @@ class TestFilterSessionReplaysByPerson(ClickhouseTestMixin, APIBaseTest):
                 """,
             ),
             self.team,
-            modifiers=HogQLQueryModifiers(optimizeJoinedFilters=True),
         )
 
         assert response.results == [
