@@ -21,22 +21,26 @@ const NestedFilterGroup = ({ rootKey, buttonTitle }: { rootKey: string; buttonTi
 
     return (
         <div>
-            {filterGroup.values.map((filterOrGroup, index) => {
-                return isUniversalGroupFilterLike(filterOrGroup) ? (
-                    <UniversalFilters.Group key={index} index={index} group={filterOrGroup}>
-                        <NestedFilterGroup rootKey={rootKey} />
-                    </UniversalFilters.Group>
-                ) : (
-                    <UniversalFilters.Value
-                        key={index}
-                        index={index}
-                        filter={filterOrGroup}
-                        onRemove={() => removeGroupValue(index)}
-                        onChange={(value) => replaceGroupValue(index, value)}
-                    />
-                )
-            })}
-            <UniversalFilters.AddFilterButton title={buttonTitle} type="secondary" size="xsmall" />
+            <div className="inline-flex flex-col gap-2">
+                {filterGroup.values.map((filterOrGroup, index) => {
+                    return isUniversalGroupFilterLike(filterOrGroup) ? (
+                        <UniversalFilters.Group key={index} index={index} group={filterOrGroup}>
+                            <NestedFilterGroup rootKey={rootKey} />
+                        </UniversalFilters.Group>
+                    ) : (
+                        <UniversalFilters.Value
+                            key={index}
+                            index={index}
+                            filter={filterOrGroup}
+                            onRemove={() => removeGroupValue(index)}
+                            onChange={(value) => replaceGroupValue(index, value)}
+                        />
+                    )
+                })}
+                <div>
+                    <UniversalFilters.AddFilterButton title={buttonTitle} type="secondary" size="xsmall" />
+                </div>
+            </div>
         </div>
     )
 }
