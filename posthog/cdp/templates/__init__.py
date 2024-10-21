@@ -12,6 +12,7 @@ from .salesforce.template_salesforce import template_create as salesforce_create
 from .mailjet.template_mailjet import (
     template_create_contact as mailjet_create_contact,
     template_update_contact_list as mailjet_update_contact_list,
+    template_send_email as mailset_send_email,
 )
 from .zapier.template_zapier import template as zapier
 from .mailgun.template_mailgun import template_mailgun_send_email as mailgun
@@ -56,6 +57,7 @@ HOG_FUNCTION_TEMPLATES = [
     mailgun,
     mailjet_create_contact,
     mailjet_update_contact_list,
+    mailset_send_email,
     meta_ads,
     posthog,
     rudderstack,

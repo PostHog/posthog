@@ -28,12 +28,14 @@ class HogFunctionTemplateSerializer(DataclassSerializer):
 # NOTE: There is nothing currently private about these values
 class PublicHogFunctionTemplateViewSet(viewsets.GenericViewSet):
     filter_backends = [DjangoFilterBackend]
-    filterset_fields = ["id", "team", "created_by", "enabled"]
+    filterset_fields = ["id", "team", "created_by", "enabled", "type"]
     permission_classes = [permissions.AllowAny]
     serializer_class = HogFunctionTemplateSerializer
 
     def _get_templates(self):
         data = HOG_FUNCTION_TEMPLATES
+        types = self.request.GET.get("type", "destination").split(",")
+        data = [item for item in data if item.type in types]
         return data
 
     def list(self, request: Request, *args, **kwargs):

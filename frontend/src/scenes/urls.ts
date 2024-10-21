@@ -138,6 +138,7 @@ export const urls = {
             nodeTab ? `/${nodeTab}` : ''
         }`,
     messagingBroadcasts: (): string => '/messaging/broadcasts',
+    messagingBroadcastsNew: (): string => '/messaging/broadcasts/new',
     messagingProviders: (): string => '/messaging/providers',
     groups: (groupTypeIndex: string | number): string => `/groups/${groupTypeIndex}`,
     // :TRICKY: Note that groupKey is provided by user. We need to override urlPatternOptions for kea-router.

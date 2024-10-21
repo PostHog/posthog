@@ -31,6 +31,7 @@ common_filters = {
 
 template_create_contact: HogFunctionTemplate = HogFunctionTemplate(
     status="beta",
+    type="destination",
     id="template-mailjet-create-contact",
     name="Mailjet",
     description="Add contacts to Mailjet",
@@ -81,6 +82,7 @@ fetch(f'https://api.mailjet.com/v3/REST/contact/', {
 
 template_update_contact_list: HogFunctionTemplate = HogFunctionTemplate(
     status="beta",
+    type="destination",
     id="template-mailjet-update-contact-list",
     name="Mailjet",
     description="Update a Mailjet contact list",
@@ -144,5 +146,44 @@ fetch(f'https://api.mailjet.com/v3/REST/contact/{inputs.email}/managecontactlist
             ],
         },
     ],
+    filters=common_filters,
+)
+
+template_send_email: HogFunctionTemplate = HogFunctionTemplate(
+    status="beta",
+    type="email",
+    id="template-mailjet-send-email",
+    name="Mailjet",
+    description="Send an email with Mailjet",
+    icon_url="/static/services/mailjet.png",
+    category=["Email Provider"],
+    hog="""
+fetch(f'https://api.mailjet.com/v3.1/send', {
+    'method': 'POST',
+    'headers': {
+        'Authorization': f'Bearer {inputs.api_key}',
+        'Content-Type': 'application/json'
+    },
+    'body': {
+		'Messages':[
+            {
+                'From': {
+                    'Email': inputs.email.from_email,
+                    'Name': inputs.email.from_name
+                },
+                'To': [
+                    {
+                        'Email': inputs.email.to_email,
+                        'Name': inputs.email.to_name
+                    }
+                ],
+                'Subject': inputs.email.subject,
+                'HTMLPart': inputs.email.body
+            }
+		]
+    }
+})
+""".strip(),
+    inputs_schema=[*common_inputs_schemas],
     filters=common_filters,
 )

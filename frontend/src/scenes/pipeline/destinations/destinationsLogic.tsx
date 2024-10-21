@@ -1,6 +1,6 @@
 import { lemonToast } from '@posthog/lemon-ui'
 import FuseClass from 'fuse.js'
-import { actions, afterMount, connect, kea, listeners, path, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -12,6 +12,7 @@ import { userLogic } from 'scenes/userLogic'
 import {
     BatchExportConfiguration,
     HogFunctionType,
+    HogFunctionTypeType,
     PipelineStage,
     PluginConfigTypeNew,
     PluginConfigWithPluginInfoNew,
@@ -34,8 +35,15 @@ import type { pipelineDestinationsLogicType } from './destinationsLogicType'
 // Helping kea-typegen navigate the exported default class for Fuse
 export interface Fuse extends FuseClass<Destination> {}
 
+export interface DestinationsLogicProps {
+    type?: HogFunctionTypeType
+}
+
+// TODO: rename or merge with hogFunctionsListLogic
 export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
     path(['scenes', 'pipeline', 'destinationsLogic']),
+    props({} as DestinationsLogicProps),
+    key((props: DestinationsLogicProps) => props.type ?? 'destination'),
     connect({
         values: [
             teamLogic,
@@ -61,7 +69,7 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
         updatePluginConfig: (pluginConfig: PluginConfigTypeNew) => ({ pluginConfig }),
         updateBatchExportConfig: (batchExportConfig: BatchExportConfiguration) => ({ batchExportConfig }),
     }),
-    loaders(({ values, actions }) => ({
+    loaders(({ values, actions, props }) => ({
         plugins: [
             {} as Record<number, PluginType>,
             {
@@ -166,7 +174,7 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
             {
                 loadHogFunctions: async () => {
                     // TODO: Support pagination?
-                    return (await api.hogFunctions.list()).results
+                    return (await api.hogFunctions.list({ type: props.type ?? 'destination' })).results
                 },
 
                 deleteNodeHogFunction: async ({ destination }) => {
@@ -205,6 +213,18 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
         ],
     })),
     selectors({
+        typeSingular: [
+            () => [(_, p) => p.type],
+            (type?: string): string => {
+                return { email: 'email provider' }[type ?? ''] ?? type ?? 'destination'
+            },
+        ],
+        typePlural: [
+            () => [(_, p) => p.type],
+            (type?: string): string => {
+                return { email: 'email providers' }[type ?? ''] ?? (type ?? 'destination') + 's'
+            },
+        ],
         paidHogFunctions: [
             (s) => [s.hogFunctions],
             (hogFunctions) => {
@@ -310,10 +330,12 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
         },
     })),
 
-    afterMount(({ actions }) => {
-        actions.loadPlugins()
-        actions.loadPluginConfigs()
-        actions.loadBatchExports()
+    afterMount(({ props, actions }) => {
+        if (props.type === 'destination') {
+            actions.loadPlugins()
+            actions.loadPluginConfigs()
+            actions.loadBatchExports()
+        }
         actions.loadHogFunctions()
     }),
 ])

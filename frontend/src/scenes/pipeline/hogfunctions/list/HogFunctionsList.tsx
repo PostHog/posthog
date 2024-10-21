@@ -13,6 +13,7 @@ import { HogFunctionType, PipelineNodeTab, PipelineStage } from '~/types'
 import { HogFunctionIcon } from '../HogFunctionIcon'
 import { hogFunctionListLogic, HogFunctionListLogicProps } from './hogFunctionListLogic'
 
+// TODO: rename to match filename, use template in name
 export function HogFunctionList({
     extraControls,
     ...props

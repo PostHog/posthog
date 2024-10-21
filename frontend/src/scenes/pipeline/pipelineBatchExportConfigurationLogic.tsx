@@ -393,7 +393,9 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
             if (!batchExportConfig) {
                 return
             }
-            pipelineDestinationsLogic.findMounted()?.actions.updateBatchExportConfig(batchExportConfig)
+            pipelineDestinationsLogic
+                .findMounted({ type: 'destination' })
+                ?.actions.updateBatchExportConfig(batchExportConfig)
         },
         setConfigurationValue: async ({ name, value }) => {
             if (name[0] === 'json_config_file' && value) {

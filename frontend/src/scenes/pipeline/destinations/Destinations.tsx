@@ -1,5 +1,5 @@
 import { LemonTable, LemonTableColumn, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
@@ -9,7 +9,7 @@ import { updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { urls } from 'scenes/urls'
 
-import { AvailableFeature, PipelineNodeTab, PipelineStage, ProductKey } from '~/types'
+import { AvailableFeature, HogFunctionTypeType, PipelineNodeTab, PipelineStage, ProductKey } from '~/types'
 
 import { AppMetricSparkLine } from '../AppMetricSparkLine'
 import { HogFunctionIcon } from '../hogfunctions/HogFunctionIcon'
@@ -24,11 +24,17 @@ import { destinationsFiltersLogic } from './destinationsFiltersLogic'
 import { pipelineDestinationsLogic } from './destinationsLogic'
 import { DestinationOptionsTable } from './NewDestinations'
 
-export function Destinations(): JSX.Element {
-    const { destinations, loading } = useValues(pipelineDestinationsLogic({ syncFiltersWithUrl: true }))
+export interface DestinationsProps {
+    type?: HogFunctionTypeType
+}
+
+export function Destinations({ type }: DestinationsProps): JSX.Element {
+    const { destinations, loading } = useValues(
+        pipelineDestinationsLogic({ syncFiltersWithUrl: true, type: type ?? 'destination' })
+    )
 
     return (
-        <>
+        <BindLogic logic={pipelineDestinationsLogic} props={{ syncFiltersWithUrl: true, type: type ?? 'destination' }}>
             <PageHeader
                 caption="Send your data in real time or in batches to destinations outside of PostHog."
                 buttons={<NewButton stage={PipelineStage.Destination} />}
@@ -48,13 +54,14 @@ export function Destinations(): JSX.Element {
             <div className="mt-4" />
             <h2>New destinations</h2>
             <DestinationOptionsTable />
-        </>
+        </BindLogic>
     )
 }
 
 export function DestinationsTable(): JSX.Element {
     const { canConfigurePlugins, canEnableDestination } = useValues(pipelineAccessLogic)
-    const { loading, filteredDestinations, destinations, hiddenDestinations } = useValues(pipelineDestinationsLogic)
+    const { loading, filteredDestinations, destinations, hiddenDestinations, typeSingular, typePlural } =
+        useValues(pipelineDestinationsLogic)
     const { toggleNode, deleteNode } = useActions(pipelineDestinationsLogic)
     const { resetFilters } = useActions(destinationsFiltersLogic)
 
@@ -167,23 +174,23 @@ export function DestinationsTable(): JSX.Element {
                                             items={[
                                                 {
                                                     label: destination.enabled
-                                                        ? 'Pause destination'
-                                                        : 'Unpause destination',
+                                                        ? `Pause ${typeSingular}`
+                                                        : `Unpause ${typeSingular}`,
                                                     onClick: () => toggleNode(destination, !destination.enabled),
                                                     disabledReason: !canConfigurePlugins
-                                                        ? 'You do not have permission to toggle destinations.'
+                                                        ? `You do not have permission to toggle ${typePlural}.`
                                                         : !canEnableDestination(destination) && !destination.enabled
-                                                        ? 'Data pipelines add-on is required for enabling new destinations'
+                                                        ? `Data pipelines add-on is required for enabling new ${typePlural}`
                                                         : undefined,
                                                 },
                                                 ...pipelineNodeMenuCommonItems(destination),
                                                 {
-                                                    label: 'Delete destination',
+                                                    label: `Delete ${typeSingular}`,
                                                     status: 'danger' as const, // for typechecker happiness
                                                     onClick: () => deleteNode(destination),
                                                     disabledReason: canConfigurePlugins
                                                         ? undefined
-                                                        : 'You do not have permission to delete destinations.',
+                                                        : `You do not have permission to delete ${typePlural}.`,
                                                 },
                                             ]}
                                         />
@@ -195,10 +202,10 @@ export function DestinationsTable(): JSX.Element {
                 ]}
                 emptyState={
                     destinations.length === 0 && !loading ? (
-                        'No destinations found'
+                        `No ${typePlural} found`
                     ) : (
                         <>
-                            No destinations matching filters. <Link onClick={() => resetFilters()}>Clear filters</Link>{' '}
+                            No {typePlural} matching filters. <Link onClick={() => resetFilters()}>Clear filters</Link>{' '}
                         </>
                     )
                 }

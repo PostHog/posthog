@@ -35,10 +35,10 @@ export const exportsUnsubscribeTableLogic = kea<exportsUnsubscribeTableLogicType
             ['canConfigurePlugins'],
             userLogic,
             ['user'],
-            pipelineDestinationsLogic,
+            pipelineDestinationsLogic({ type: 'destination' }),
             ['paidHogFunctions'],
         ],
-        actions: [pipelineDestinationsLogic, ['toggleNodeHogFunction']],
+        actions: [pipelineDestinationsLogic({ type: 'destination' }), ['toggleNodeHogFunction']],
     }),
 
     actions({
