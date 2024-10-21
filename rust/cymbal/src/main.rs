@@ -58,7 +58,6 @@ async fn main() -> Result<(), Error> {
 
     let config = Config::init_from_env()?;
     let context = Arc::new(AppContext::new(&config).await?);
-    let resolver = context.resolver;
 
     start_health_liveness_server(&config, context.clone());
 
@@ -127,7 +126,7 @@ async fn main() -> Result<(), Error> {
             // Do the switch case here once we determine frame type
             let RawFrame::JavaScript(raw) = raw;
 
-            let resolved = raw.resolve(resolver, team_id);
+            let resolved = raw.resolve(&context.symbol_store, team_id);
 
             // let resolved = match resolver.resolve(frame, 1).await {
             //     Ok(r) => r,

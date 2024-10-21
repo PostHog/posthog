@@ -6,7 +6,7 @@ use crate::{
     error::{Error, JsResolveErr, ResolutionError},
     resolver::Resolver,
     symbol_store::{SymbolSetRef, SymbolStore},
-    types::frames::{Frame, RawFrame},
+    types::frames::Frame,
 };
 
 // A minifed JS stack frame. Just the minimal information needed to lookup some
@@ -38,33 +38,12 @@ impl Resolver for RawJSFrame {
         }
     }
 }
-// export interface StackFrame {
-//     filename?: string
-//     function?: string
-//     module?: string
-//     platform?: string
-//     lineno?: number
-//     colno?: number
-//     abs_path?: string
-//     context_line?: string
-//     pre_context?: string[]
-//     post_context?: string[]
-//     in_app?: boolean
-//     instruction_addr?: string
-//     addr_mode?: string
-//     vars?: { [key: string]: any }
-//     debug_id?: string
-// }
 
 impl RawJSFrame {
     async fn resolve_impl(&self, store: &dyn SymbolStore, team_id: i32) -> Result<Frame, Error> {
-        let RawFrame::JavaScript(raw) = self;
-        // let id = raw.source_ref();
-
-        let source_ref = self.source_ref()?;
-        let symbol_set_ref = source_ref.map(SymbolSetRef::Js).map_err(Error::from);
-
-        source_ref = store.fetch(team_id, symbol_set_ref).await?;
+        let source_ref = self.source_ref();
+        let symbol_set_ref = source_ref.map(SymbolSetRef::Js).map_err(Error::from)?;
+        let source = store.fetch(team_id, symbol_set_ref).await?;
 
         let sm = SourceMap::from_reader(source.as_slice()).map_err(JsResolveErr::from)?;
         let token = sm.lookup_token(self.line, self.column).ok_or_else(|| {

@@ -8,8 +8,7 @@ use tracing::info;
 use crate::{
     config::Config,
     error::Error,
-    resolver::{Resolver, ResolverImpl},
-    symbol_store::{basic::BasicStore, caching::CachingStore},
+    symbol_store::{basic::BasicStore, caching::CachingStore, SymbolStore},
 };
 
 pub struct AppContext {
@@ -17,7 +16,7 @@ pub struct AppContext {
     pub worker_liveness: HealthHandle,
     pub consumer: SingleTopicConsumer,
     pub pool: PgPool,
-    pub resolver: Box<dyn Resolver>,
+    pub symbol_store: Box<dyn SymbolStore>,
 }
 
 impl AppContext {
@@ -44,15 +43,14 @@ impl AppContext {
         let symbol_store =
             CachingStore::new(Box::new(symbol_store), config.symbol_store_cache_max_bytes);
 
-        // Box box, box box
-        let resolver = Box::new(ResolverImpl::new(Box::new(symbol_store)));
+        let symbol_store = Box::new(symbol_store);
 
         Ok(Self {
             health_registry,
             worker_liveness,
             consumer,
             pool,
-            resolver,
+            symbol_store,
         })
     }
 }
