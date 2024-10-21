@@ -17,7 +17,7 @@ import { RecordingsQuery } from '~/queries/schema'
 import { SessionRecordingType } from '~/types'
 
 import { sessionRecordingsListPropertiesLogic } from './sessionRecordingsListPropertiesLogic'
-import { sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
+import { DEFAULT_RECORDING_FILTERS_ORDER_BY, sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
 
 export interface SessionRecordingPreviewProps {
     recording: SessionRecordingType
@@ -176,7 +176,7 @@ export function SessionRecordingPreview({
     onClick,
     pinned,
 }: SessionRecordingPreviewProps): JSX.Element {
-    const { orderBy } = useValues(sessionRecordingsPlaylistLogic)
+    const { filters } = useValues(sessionRecordingsPlaylistLogic)
 
     const { recordingPropertiesById, recordingPropertiesLoading } = useValues(sessionRecordingsListPropertiesLogic)
     const recordingProperties = recordingPropertiesById[recording.id]
@@ -232,10 +232,15 @@ export function SessionRecordingPreview({
                             </div>
                         </div>
 
-                        {orderBy === 'console_error_count' ? (
+                        {filters.order === 'console_error_count' ? (
                             <ErrorCount iconClassNames={iconClassNames} errorCount={recording.console_error_count} />
                         ) : (
-                            <RecordingDuration recordingDuration={durationToShow(recording, orderBy)} />
+                            <RecordingDuration
+                                recordingDuration={durationToShow(
+                                    recording,
+                                    filters.order || DEFAULT_RECORDING_FILTERS_ORDER_BY
+                                )}
+                            />
                         )}
                     </div>
 

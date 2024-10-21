@@ -277,6 +277,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 "storage": "object_storage",
                 "viewed": False,
                 "ongoing": True,
+                "activity_score": None,
             },
         ]
 
@@ -504,6 +505,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             "storage": "object_storage",
             "snapshot_source": "web",
             "ongoing": None,
+            "activity_score": None,
         }
 
     def test_single_session_recording_doesnt_leak_teams(self):

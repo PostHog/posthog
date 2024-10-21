@@ -44,6 +44,7 @@ export type PlaylistProps<T> = {
     onChangeSections?: (activeKeys: string[]) => void
     'data-attr'?: string
     activeItemId?: string
+    controls?: JSX.Element | null
 }
 
 const CounterBadge = ({ children }: { children: React.ReactNode }): JSX.Element => (
@@ -70,6 +71,7 @@ export function Playlist<
     onSelect,
     onChangeSections,
     'data-attr': dataAttr,
+    controls,
 }: PlaylistProps<T>): JSX.Element {
     const [controlledActiveItemId, setControlledActiveItemId] = useState<T['id'] | null>(
         selectInitialItem && sections[0].items[0] ? sections[0].items[0].id : null
@@ -115,6 +117,7 @@ export function Playlist<
                         setActiveItemId={onChangeActiveItem}
                         onChangeSections={onChangeSections}
                         emptyState={listEmptyState}
+                        controls={controls}
                     />
                 )}
                 <Resizer
@@ -154,6 +157,7 @@ function List<
     onScrollListEdge,
     loading,
     emptyState,
+    controls,
 }: {
     title: PlaylistProps<T>['title']
     notebooksHref: PlaylistProps<T>['notebooksHref']
@@ -166,6 +170,7 @@ function List<
     onScrollListEdge: PlaylistProps<T>['onScrollListEdge']
     loading: PlaylistProps<T>['loading']
     emptyState: PlaylistProps<T>['listEmptyState']
+    controls?: JSX.Element | null
 }): JSX.Element {
     const [activeHeaderActionKey, setActiveHeaderActionKey] = useState<string | null>(null)
     const lastScrollPositionRef = useRef(0)
@@ -203,42 +208,49 @@ function List<
     return (
         <div className="flex flex-col w-full bg-bg-light overflow-hidden border-r h-full">
             <DraggableToNotebook href={notebooksHref}>
-                <div className="shrink-0 relative flex justify-between items-center p-1 gap-1 whitespace-nowrap border-b">
-                    <LemonButton size="small" icon={<IconCollapse className="rotate-90" />} onClick={onClickCollapse} />
-                    <span className="py-1 flex flex-1 gap-2">
-                        {title ? (
-                            <span className="font-bold uppercase text-xs my-1 tracking-wide flex gap-1 items-center">
-                                {title}
-                            </span>
-                        ) : null}
-                        <Tooltip
-                            placement="bottom"
-                            title={
-                                <>
-                                    Showing {itemsCount} results.
-                                    <br />
-                                    Scrolling to the bottom or the top of the list will load older or newer results
-                                    respectively.
-                                </>
-                            }
-                        >
-                            <span>
-                                <CounterBadge>{Math.min(999, itemsCount)}+</CounterBadge>
-                            </span>
-                        </Tooltip>
-                    </span>
-                    {headerActions.map(({ key, icon, tooltip, children }) => (
+                <div className="flex flex-col gap-1">
+                    <div className="shrink-0 relative flex justify-between items-center p-1 gap-1 whitespace-nowrap border-b">
                         <LemonButton
-                            key={key}
-                            icon={icon}
-                            tooltip={tooltip}
                             size="small"
-                            active={activeHeaderActionKey === key}
-                            onClick={() => setActiveHeaderActionKey(activeHeaderActionKey === key ? null : key)}
-                        >
-                            {children}
-                        </LemonButton>
-                    ))}
+                            icon={<IconCollapse className="rotate-90" />}
+                            onClick={onClickCollapse}
+                        />
+                        <span className="py-1 flex flex-1 gap-2">
+                            {title ? (
+                                <span className="font-bold uppercase text-xs my-1 tracking-wide flex gap-1 items-center">
+                                    {title}
+                                </span>
+                            ) : null}
+                            <Tooltip
+                                placement="bottom"
+                                title={
+                                    <>
+                                        Showing {itemsCount} results.
+                                        <br />
+                                        Scrolling to the bottom or the top of the list will load older or newer results
+                                        respectively.
+                                    </>
+                                }
+                            >
+                                <span>
+                                    <CounterBadge>{Math.min(999, itemsCount)}+</CounterBadge>
+                                </span>
+                            </Tooltip>
+                        </span>
+                        {headerActions.map(({ key, icon, tooltip, children }) => (
+                            <LemonButton
+                                key={key}
+                                icon={icon}
+                                tooltip={tooltip}
+                                size="small"
+                                active={activeHeaderActionKey === key}
+                                onClick={() => setActiveHeaderActionKey(activeHeaderActionKey === key ? null : key)}
+                            >
+                                {children}
+                            </LemonButton>
+                        ))}
+                    </div>
+                    {controls ? <div className="w-full border-b">{controls}</div> : null}
                     <LemonTableLoader loading={loading} />
                 </div>
             </DraggableToNotebook>

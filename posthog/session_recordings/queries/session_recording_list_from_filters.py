@@ -73,7 +73,13 @@ class SessionRecordingListFromFilters:
             sum(s.console_log_count) as console_log_count,
             sum(s.console_warn_count) as console_warn_count,
             sum(s.console_error_count) as console_error_count,
-            {ongoing_selection}
+            {ongoing_selection},
+            round((
+            ((sum(s.active_milliseconds) / 1000 + sum(s.click_count) + sum(s.keypress_count) + sum(s.console_error_count))) -- intent
+            /
+            ((sum(s.mouse_activity_count) + dateDiff('SECOND', start_time, end_time) + sum(s.console_error_count) + sum(s.console_log_count) + sum(s.console_warn_count)))
+            * 100
+            ), 2) as activity_score
         FROM raw_session_replay_events s
         WHERE {where_predicates}
         GROUP BY session_id
@@ -100,6 +106,7 @@ class SessionRecordingListFromFilters:
             "console_warn_count",
             "console_error_count",
             "ongoing",
+            "activity_score",
         ]
 
         return [

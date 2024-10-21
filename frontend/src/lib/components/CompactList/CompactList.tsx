@@ -10,7 +10,7 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { EmptyMessage, EmptyMessageProps } from '../EmptyMessage/EmptyMessage'
 
 interface CompactListProps {
-    title: string
+    title: string | JSX.Element
     viewAllURL?: string
     loading: boolean
     items: any[]
@@ -34,7 +34,7 @@ export function CompactList({
             style={theme?.boxStyle}
         >
             <div className="CompactList__header">
-                <h3 className="px-2 truncate" title={title}>
+                <h3 className="px-2 truncate" title={typeof title === 'string' ? title : undefined}>
                     {title}
                 </h3>
                 {viewAllURL && <LemonButton to={viewAllURL}>View all</LemonButton>}

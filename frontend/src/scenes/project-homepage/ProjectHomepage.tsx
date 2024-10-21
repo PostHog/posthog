@@ -15,6 +15,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
 import { dashboardLogic, DashboardLogicProps } from 'scenes/dashboard/dashboardLogic'
 import { projectHomepageLogic } from 'scenes/project-homepage/projectHomepageLogic'
+import { WatchNextPanel } from 'scenes/project-homepage/WatchNextPanel'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { urls } from 'scenes/urls'
@@ -24,7 +25,6 @@ import { DashboardPlacement } from '~/types'
 
 import { RecentInsights } from './RecentInsights'
 import { RecentPersons } from './RecentPersons'
-import { RecentRecordings } from './RecentRecordings'
 
 export const scene: SceneExport = {
     component: ProjectHomepage,
@@ -70,7 +70,7 @@ export function ProjectHomepage(): JSX.Element {
             <div className="ProjectHomepage__lists">
                 <RecentInsights />
                 <RecentPersons />
-                <RecentRecordings />
+                <WatchNextPanel />
             </div>
             {dashboardLogicProps ? (
                 <HomeDashboard dashboardLogicProps={dashboardLogicProps} />
