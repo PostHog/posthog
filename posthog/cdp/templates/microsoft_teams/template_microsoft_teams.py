@@ -69,7 +69,7 @@ if (res.status >= 400) {
             description="Posts a message to Microsoft Teams when a user enrolls or un-enrolls in an early access feature",
             filters=SUB_TEMPLATE_COMMON["early_access_feature_enrollment"].filters,
             inputs={
-                "content": "**{person.name}** {event.properties.$feature_enrollment ? 'enrolled in' : 'un-enrolled from'} the early access feature for '{event.properties.$feature_flag}'"
+                "text": "**{person.name}** {event.properties.$feature_enrollment ? 'enrolled in' : 'un-enrolled from'} the early access feature for '{event.properties.$feature_flag}'"
             },
         ),
         HogFunctionSubTemplate(
@@ -77,7 +77,7 @@ if (res.status >= 400) {
             name="Post to Microsoft Teams on survey response",
             description="Posts a message to Microsoft Teams when a user responds to a survey",
             filters=SUB_TEMPLATE_COMMON["survey_response"].filters,
-            inputs={"content": "**{person.name}** responded to survey **{event.properties.$survey_name}**"},
+            inputs={"text": "**{person.name}** responded to survey **{event.properties.$survey_name}**"},
         ),
     ],
 )
