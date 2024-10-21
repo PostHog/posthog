@@ -319,7 +319,7 @@ class TrendsAgentToolkit:
         )
 
     def _format_property_values(
-        self, sample_values: list, sample_count: Optional[int] = 0, is_string: bool = False
+        self, sample_values: list, sample_count: Optional[int] = 0, format_as_string: bool = False
     ) -> str:
         if len(sample_values) == 0 or sample_count == 0:
             return f"The property does not have any values in the taxonomy."
@@ -329,7 +329,7 @@ class TrendsAgentToolkit:
         # Remove the floating point the value is an integer.
         formatted_sample_values: list[str] = []
         for value in sample_values:
-            if is_string:
+            if format_as_string:
                 formatted_sample_values.append(f'"{value}"')
             elif isinstance(value, float) and value.is_integer():
                 formatted_sample_values.append(str(int(value)))
@@ -369,7 +369,9 @@ class TrendsAgentToolkit:
             return f"The property {property_name} does not exist in the taxonomy for the event {event_name}."
 
         return self._format_property_values(
-            prop.sample_values, prop.sample_count, is_string=property_definition.property_type == PropertyType.String
+            prop.sample_values,
+            prop.sample_count,
+            format_as_string=property_definition.property_type in (PropertyType.String, PropertyType.Datetime),
         )
 
     def _retrieve_session_properties(self, property_name: str) -> str:
@@ -394,7 +396,7 @@ class TrendsAgentToolkit:
         else:
             return f"Property values for {property_name} do not exist in the taxonomy for the session entity."
 
-        return self._format_property_values(sample_values, sample_count, is_string=is_str)
+        return self._format_property_values(sample_values, sample_count, format_as_string=is_str)
 
     def retrieve_entity_property_values(self, entity: str, property_name: str) -> str:
         if entity not in self._entity_names:
@@ -442,7 +444,7 @@ class TrendsAgentToolkit:
         return self._format_property_values(
             response.results.sample_values,
             response.results.sample_count,
-            is_string=property_definition.property_type == PropertyType.String,
+            format_as_string=property_definition.property_type in (PropertyType.String, PropertyType.Datetime),
         )
 
     def handle_incorrect_response(self, response: str) -> str:

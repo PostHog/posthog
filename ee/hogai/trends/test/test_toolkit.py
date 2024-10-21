@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from django.test import override_settings
 from freezegun import freeze_time
 
@@ -5,15 +7,62 @@ from ee.hogai.trends.toolkit import TrendsAgentToolkit
 from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.property_definition import PropertyDefinition, PropertyType
-from posthog.test.base import (
-    APIBaseTest,
-    ClickhouseTestMixin,
-    _create_person,
-)
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
 
 
 @override_settings(IN_UNIT_TESTING=True)
 class TestToolkit(ClickhouseTestMixin, APIBaseTest):
+    def _create_taxonomy(self):
+        PropertyDefinition.objects.create(
+            team=self.team, type=PropertyDefinition.Type.EVENT, name="$browser", property_type=PropertyType.String
+        )
+        PropertyDefinition.objects.create(
+            team=self.team, type=PropertyDefinition.Type.EVENT, name="id", property_type=PropertyType.Numeric
+        )
+        PropertyDefinition.objects.create(
+            team=self.team, type=PropertyDefinition.Type.EVENT, name="bool", property_type=PropertyType.Boolean
+        )
+        PropertyDefinition.objects.create(
+            team=self.team, type=PropertyDefinition.Type.EVENT, name="date", property_type=PropertyType.Datetime
+        )
+
+        _create_person(
+            distinct_ids=["person1"],
+            team=self.team,
+            properties={"email": "person1@example.com"},
+        )
+        _create_event(
+            event="event1",
+            distinct_id="person1",
+            properties={
+                "$browser": "Chrome",
+                "date": datetime(2024, 1, 1).isoformat(),
+            },
+            team=self.team,
+        )
+        _create_event(
+            event="event1",
+            distinct_id="person1",
+            properties={
+                "$browser": "Firefox",
+                "bool": True,
+            },
+            team=self.team,
+        )
+
+        _create_person(
+            distinct_ids=["person2"],
+            properties={"email": "person2@example.com"},
+            team=self.team,
+        )
+        for i in range(10):
+            _create_event(
+                event="event1",
+                distinct_id=f"person2",
+                properties={"id": i},
+                team=self.team,
+            )
+
     def test_retrieve_entity_properties(self):
         toolkit = TrendsAgentToolkit(self.team)
 
@@ -123,3 +172,64 @@ class TestToolkit(ClickhouseTestMixin, APIBaseTest):
         GroupTypeMapping.objects.create(team=self.team, group_type_index=1, group_type="org")
         toolkit = TrendsAgentToolkit(self.team)
         self.assertEqual(toolkit._entity_names, ["person", "session", "proj", "org"])
+
+    def test_empty_events(self):
+        toolkit = TrendsAgentToolkit(self.team)
+        self.assertEqual(
+            toolkit.retrieve_event_properties("test"), "Properties do not exist in the taxonomy for the event test."
+        )
+
+        _create_person(
+            distinct_ids=["person1"],
+            team=self.team,
+            properties={},
+        )
+        _create_event(
+            event="event1",
+            distinct_id="person1",
+            properties={},
+            team=self.team,
+        )
+
+        toolkit = TrendsAgentToolkit(self.team)
+        self.assertEqual(
+            toolkit.retrieve_event_properties("event1"),
+            "Properties do not exist in the taxonomy for the event event1.",
+        )
+
+    def test_retrieve_event_properties(self):
+        self._create_taxonomy()
+        toolkit = TrendsAgentToolkit(self.team)
+        prompt = toolkit.retrieve_event_properties("event1")
+
+        self.assertIn(
+            "<Numeric><name>id</name><br /></Numeric>",
+            prompt,
+        )
+        self.assertIn(
+            "<String><name>$browser</name><br /></String>",
+            prompt,
+        )
+        self.assertIn(
+            "<DateTime><name>date</name><br /></DateTime>",
+            prompt,
+        )
+        self.assertIn(
+            "<Boolean><name>bool</name><br /></Boolean>",
+            prompt,
+        )
+
+    def test_retrieve_event_property_values(self):
+        self._create_taxonomy()
+        toolkit = TrendsAgentToolkit(self.team)
+
+        self.assertIn('"Chrome"', toolkit.retrieve_event_property_values("event1", "$browser"))
+        self.assertIn('"Firefox"', toolkit.retrieve_event_property_values("event1", "$browser"))
+        self.assertEqual(toolkit.retrieve_event_property_values("event1", "bool"), "true")
+        self.assertEqual(
+            toolkit.retrieve_event_property_values("event1", "id"),
+            "9, 8, 7, 6, 5 and 5 more distinct values.",
+        )
+        self.assertEqual(
+            toolkit.retrieve_event_property_values("event1", "date"), f'"{datetime(2024, 1, 1).isoformat()}"'
+        )
