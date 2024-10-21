@@ -123,7 +123,7 @@ export class HogFunctionManager {
                 `
             SELECT ${HOG_FUNCTION_FIELDS.join(', ')}
             FROM posthog_hogfunction
-            WHERE deleted = FALSE AND enabled = TRUE
+            WHERE deleted = FALSE AND enabled = TRUE AND (type = 'destination' or type IS NULL)
         `,
                 [],
                 'fetchAllHogFunctions'
@@ -156,7 +156,7 @@ export class HogFunctionManager {
                 PostgresUse.COMMON_READ,
                 `SELECT ${HOG_FUNCTION_FIELDS.join(', ')}
                 FROM posthog_hogfunction
-                WHERE id = ANY($1) AND deleted = FALSE AND enabled = TRUE`,
+                WHERE id = ANY($1) AND deleted = FALSE AND enabled = TRUE AND (type = 'destination' or type IS NULL)`,
                 [ids],
                 'fetchEnabledHogFunctions'
             )
@@ -183,7 +183,7 @@ export class HogFunctionManager {
                 PostgresUse.COMMON_READ,
                 `SELECT ${HOG_FUNCTION_FIELDS.join(', ')}
                 FROM posthog_hogfunction
-                WHERE id = $1 AND deleted = FALSE`,
+                WHERE id = $1 AND deleted = FALSE AND (type = 'destination' or type IS NULL)`,
                 [id],
                 'fetchHogFunction'
             )

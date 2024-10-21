@@ -56,6 +56,7 @@ const UNSAVED_CONFIGURATION_TTL = 1000 * 60 * 5
 
 const NEW_FUNCTION_TEMPLATE: HogFunctionTemplateType = {
     id: 'new',
+    type: 'destination',
     name: '',
     description: '',
     inputs_schema: [],
@@ -94,6 +95,7 @@ export function sanitizeConfiguration(data: HogFunctionConfigurationType): HogFu
 
     const payload: HogFunctionConfigurationType = {
         ...data,
+        type: data.type ?? 'destination',
         filters: data.filters,
         inputs: sanitizedInputs,
         masking: data.masking?.hash ? data.masking : null,
@@ -118,6 +120,7 @@ const templateToConfiguration = (
     })
 
     return {
+        type: 'destination',
         name: subTemplate?.name ?? template.name,
         description: subTemplate?.name ?? template.description,
         inputs_schema: template.inputs_schema,

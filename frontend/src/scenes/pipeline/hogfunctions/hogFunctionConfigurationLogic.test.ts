@@ -63,6 +63,7 @@ const HOG_TEMPLATE: HogFunctionTemplateType = {
     ],
     status: 'beta',
     id: 'template-webhook',
+    type: 'destination',
     name: 'HTTP Webhook',
     description: 'Sends a webhook templated by the incoming event data',
     hog: "let res := fetch(inputs.url, {\n  'headers': inputs.headers,\n  'body': inputs.body,\n  'method': inputs.method\n});\n\nif (inputs.debug) {\n  print('Response', res.status, res.body);\n}",

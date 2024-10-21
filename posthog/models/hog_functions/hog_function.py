@@ -32,6 +32,16 @@ class HogFunctionState(enum.Enum):
 
 
 class HogFunction(UUIDModel):
+    class HogFunctionType(models.TextChoices):
+        DESTINATION = "destination"
+        SHARED = "shared"
+        EMAIL = "email"
+        SMS = "sms"
+        PUSH = "push"
+        BROADCAST = "broadcast"
+        ACTIVITY = "activity"
+        ALERT = "alert"
+
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
     name = models.CharField(max_length=400, null=True, blank=True)
     description = models.TextField(blank=True, default="")
@@ -40,6 +50,7 @@ class HogFunction(UUIDModel):
     deleted = models.BooleanField(default=False)
     updated_at = models.DateTimeField(auto_now=True)
     enabled = models.BooleanField(default=False)
+    type = models.CharField(max_length=24, choices=HogFunctionType.choices, null=True, blank=True)
 
     icon_url = models.TextField(null=True, blank=True)
     hog = models.TextField()
@@ -68,11 +79,6 @@ class HogFunction(UUIDModel):
             return []
 
     _status: Optional[dict] = None
-
-    @property
-    def type(self) -> str:
-        # Used in activity logs
-        return "destination"
 
     @property
     def status(self) -> dict:
