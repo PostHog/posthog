@@ -16,10 +16,6 @@ use crate::{
 
 use super::SymbolProvider;
 
-// A store that implements basic lookups, for whatever that means for each language. In
-// JS, that means it does fetching and searches for sourcemap references. In other languages,
-// it might mean talking to S3, or something else. It implements no caching, and no storing of
-// fetched symbol sets - other stores should wrap this one to provide that functionality.
 pub struct SourcemapProvider {
     pub client: reqwest::Client,
 }
