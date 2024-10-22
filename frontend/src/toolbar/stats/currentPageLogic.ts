@@ -21,6 +21,22 @@ const replaceWithWildcard = (part: string): string => {
     return part
 }
 
+/**
+ * Some implementations are able to set the href before the posthog init fragment is removed
+ * we never want to store it as it will mean the heatmap URL is too specific and doesn't match
+ * this ensures we never store it
+ */
+export function withoutPostHogInit(href: string): string {
+    try {
+        const url = new URL(href)
+        url.hash = url.hash.replace(/__posthog=\{.*}/, '').replace(/^##/, '#')
+        url.hash = url.hash === '#' ? '' : url.hash
+        return url.toString()
+    } catch {
+        return href
+    }
+}
+
 export const currentPageLogic = kea<currentPageLogicType>([
     path(['toolbar', 'stats', 'currentPageLogic']),
     actions(() => ({
@@ -29,10 +45,13 @@ export const currentPageLogic = kea<currentPageLogicType>([
         autoWildcardHref: true,
     })),
     reducers(() => ({
-        href: [window.location.href, { setHref: (_, { href }) => href }],
+        href: [window.location.href, { setHref: (_, { href }) => withoutPostHogInit(href) }],
         wildcardHref: [
             window.location.href,
-            { setHref: (_, { href }) => href, setWildcardHref: (_, { href }) => href },
+            {
+                setHref: (_, { href }) => withoutPostHogInit(href),
+                setWildcardHref: (_, { href }) => withoutPostHogInit(href),
+            },
         ],
     })),
 
