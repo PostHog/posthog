@@ -2,6 +2,7 @@ use crate::{
     error::Error,
     types::{frames::Frame, Exception},
 };
+use reqwest::Url;
 use sha2::{Digest, Sha256};
 
 // Given resolved Frames vector and the original Exception, we can now generate a fingerprint for it
@@ -20,9 +21,14 @@ pub fn generate_fingerprint(
             // - this can only happen when there's some bug in our stack trace collection?
             continue;
         }
+
+        let source_fn = match Url::parse(&frame.source.unwrap_or("".to_string())) {
+            Ok(url) => url.path().to_string(),
+            Err(_) => "unknown".to_string(),
+        };
+
         fingerprint.push('-');
-        // TODO: if soure contains url as well, should probably strip it out.
-        fingerprint.push_str(&frame.source.unwrap_or("unknown".to_string()));
+        fingerprint.push_str(&source_fn);
         fingerprint.push(':');
         fingerprint.push_str(&frame.resolved_name.unwrap_or(frame.mangled_name));
     }
@@ -60,7 +66,7 @@ mod test {
                 mangled_name: "foo".to_string(),
                 line: Some(10),
                 column: Some(5),
-                source: Some("http://example.com/foo.js".to_string()),
+                source: Some("http://example.com/alpha/foo.js".to_string()),
                 in_app: true,
                 resolved_name: Some("bar".to_string()),
                 lang: "javascript".to_string(),
@@ -97,7 +103,7 @@ mod test {
         let fingerprint = super::generate_fingerprint(&exception, resolved_frames).unwrap();
         assert_eq!(
             fingerprint,
-            "TypeError-Cannot read property 'foo' of undefined-http://example.com/foo.js:bar-http://example.com/bar.js:baz-unknown:xyz"
+            "TypeError-Cannot read property 'foo' of undefined-/alpha/foo.js:bar-/bar.js:baz-unknown:xyz"
         );
     }
 }

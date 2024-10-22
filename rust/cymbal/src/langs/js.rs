@@ -103,7 +103,7 @@ impl RawJSFrame {
         }?)
     }
 
-    // Returns none if the frame is
+    // Returns none if the frame is minified
     fn try_assume_unminified(&self) -> Option<Frame> {
         // TODO - we should include logic here that uses some kind of heuristic to determine
         // if this frame is minified or not. Right now, we simply assume it isn't if this is

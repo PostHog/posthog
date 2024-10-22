@@ -125,7 +125,7 @@ async fn main() -> Result<(), Error> {
             resolved_frames.push(resolved);
         }
 
-        let Ok(fingerprint) = fingerprinting::v1::generate_fingerprint(
+        let Ok(_fingerprint) = fingerprinting::v1::generate_fingerprint(
             &properties.exception_list[0],
             resolved_frames,
         ) else {
