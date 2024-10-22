@@ -392,6 +392,7 @@ export const trendsFilterToQuery = (filters: Partial<TrendsFilterType>): TrendsF
     return objectCleanWithEmpty({
         smoothingIntervals: filters.smoothing_intervals,
         showLegend: filters.show_legend,
+        showAlertThresholdLines: filters.show_alert_threshold_lines,
         hiddenLegendIndexes: hiddenLegendKeysToIndexes(filters.hidden_legend_keys),
         aggregationAxisFormat: filters.aggregation_axis_format,
         aggregationAxisPrefix: filters.aggregation_axis_prefix,

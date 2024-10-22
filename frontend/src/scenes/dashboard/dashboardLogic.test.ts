@@ -306,7 +306,7 @@ describe('dashboardLogic', () => {
             jest.spyOn(api, 'update')
 
             await expectLogic(logic, () => {
-                logic.actions.updateFiltersAndLayouts()
+                logic.actions.updateFiltersAndLayoutsAndVariables()
             }).toFinishAllListeners()
 
             expect(api.update).toHaveBeenCalledWith(`api/environments/${MOCK_TEAM_ID}/dashboards/5`, {
@@ -329,6 +329,7 @@ describe('dashboardLogic', () => {
                     date_to: null,
                     properties: [],
                 },
+                variables: {},
             })
         })
     })

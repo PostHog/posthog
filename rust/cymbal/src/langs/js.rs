@@ -1,5 +1,5 @@
 use reqwest::Url;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use sourcemap::Token;
 
 use crate::{
@@ -10,7 +10,7 @@ use crate::{
 // A minifed JS stack frame. Just the minimal information needed to lookup some
 // sourcemap for it and produce a "real" stack frame.
 // TODO - how do we know if this frame is minified? If it isn't, we can skip a lot of work, but I think we have to guess? Based on whether we can get a sourcemap for it?
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct RawJSFrame {
     #[serde(rename = "lineno")]
     pub line: u32,
@@ -22,6 +22,24 @@ pub struct RawJSFrame {
     #[serde(rename = "function")]
     pub fn_name: String,
 }
+
+// export interface StackFrame {
+//     filename?: string
+//     function?: string
+//     module?: string
+//     platform?: string
+//     lineno?: number
+//     colno?: number
+//     abs_path?: string
+//     context_line?: string
+//     pre_context?: string[]
+//     post_context?: string[]
+//     in_app?: boolean
+//     instruction_addr?: string
+//     addr_mode?: string
+//     vars?: { [key: string]: any }
+//     debug_id?: string
+// }
 
 impl RawJSFrame {
     pub fn source_ref(&self) -> Result<Url, JsResolveErr> {
