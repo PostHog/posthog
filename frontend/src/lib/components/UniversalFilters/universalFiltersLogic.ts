@@ -8,6 +8,7 @@ import { taxonomicFilterGroupTypeToEntityType } from 'scenes/insights/filters/Ac
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import {
     ActionFilter,
+    FeatureFlagFilter,
     FilterLogicalOperator,
     PropertyFilterType,
     UniversalFiltersGroup,
@@ -57,7 +58,7 @@ export const universalFiltersLogic = kea<universalFiltersLogicType>([
         addGroupFilter: (
             taxonomicGroup: TaxonomicFilterGroup,
             propertyKey: TaxonomicFilterValue,
-            item: { propertyFilterType?: PropertyFilterType; name?: string }
+            item: { propertyFilterType?: PropertyFilterType; name?: string; key?: string }
         ) => ({
             taxonomicGroup,
             propertyKey,
@@ -103,6 +104,7 @@ export const universalFiltersLogic = kea<universalFiltersLogicType>([
                         TaxonomicFilterGroupType.Cohorts,
                         TaxonomicFilterGroupType.Elements,
                         TaxonomicFilterGroupType.HogQLExpression,
+                        TaxonomicFilterGroupType.FeatureFlags,
                     ].includes(t)
                 ),
         ],
@@ -117,26 +119,38 @@ export const universalFiltersLogic = kea<universalFiltersLogicType>([
         addGroupFilter: ({ taxonomicGroup, propertyKey, item }) => {
             const newValues = [...values.filterGroup.values]
 
-            const propertyType = item.propertyFilterType ?? taxonomicFilterTypeToPropertyFilterType(taxonomicGroup.type)
-            if (propertyKey && propertyType) {
-                const newPropertyFilter = createDefaultPropertyFilter(
-                    {},
-                    propertyKey,
-                    propertyType,
-                    taxonomicGroup,
-                    values.describeProperty
-                )
-                newValues.push(newPropertyFilter)
+            if (taxonomicGroup.type === TaxonomicFilterGroupType.FeatureFlags) {
+                if (!item.key) {
+                    return
+                }
+                const newFeatureFlagFilter: FeatureFlagFilter = {
+                    type: PropertyFilterType.Feature,
+                    key: item.key,
+                }
+                newValues.push(newFeatureFlagFilter)
             } else {
-                const entityType = taxonomicFilterGroupTypeToEntityType(taxonomicGroup.type)
-                if (entityType) {
-                    const newEntityFilter: ActionFilter = {
-                        id: propertyKey,
-                        name: item?.name ?? '',
-                        type: entityType,
-                    }
+                const propertyType =
+                    item.propertyFilterType ?? taxonomicFilterTypeToPropertyFilterType(taxonomicGroup.type)
+                if (propertyKey && propertyType) {
+                    const newPropertyFilter = createDefaultPropertyFilter(
+                        {},
+                        propertyKey,
+                        propertyType,
+                        taxonomicGroup,
+                        values.describeProperty
+                    )
+                    newValues.push(newPropertyFilter)
+                } else {
+                    const entityType = taxonomicFilterGroupTypeToEntityType(taxonomicGroup.type)
+                    if (entityType) {
+                        const newEntityFilter: ActionFilter = {
+                            id: propertyKey,
+                            name: item?.name ?? '',
+                            type: entityType,
+                        }
 
-                    newValues.push(newEntityFilter)
+                        newValues.push(newEntityFilter)
+                    }
                 }
             }
             actions.setGroupValues(newValues)

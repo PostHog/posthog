@@ -1065,7 +1065,7 @@ export interface UniversalFiltersGroup {
 }
 
 export type UniversalFiltersGroupValue = UniversalFiltersGroup | UniversalFilterValue
-export type UniversalFilterValue = AnyPropertyFilter | ActionFilter
+export type UniversalFilterValue = AnyPropertyFilter | ActionFilter | FeatureFlagFilter
 
 export type ErrorCluster = {
     cluster: number
@@ -1111,6 +1111,11 @@ export interface ActionFilter extends EntityFilter {
     properties?: AnyPropertyFilter[]
     type: EntityType
     days?: string[] // TODO: why was this added here?
+}
+
+export interface FeatureFlagFilter {
+    type: PropertyFilterType.Feature
+    key: string
 }
 
 export interface DataWarehouseFilter extends ActionFilter {

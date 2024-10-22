@@ -11,11 +11,11 @@ import React from 'react'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { ActionFilter, AnyPropertyFilter, UniversalFilterValue } from '~/types'
+import { ActionFilter, AnyPropertyFilter, FeatureFlagFilter, UniversalFilterValue } from '~/types'
 
 import { EntityFilterInfo } from '../EntityFilterInfo'
 import { formatPropertyLabel } from '../PropertyFilters/utils'
-import { isActionFilter, isEditableFilter, isEventFilter } from './utils'
+import { isActionFilter, isEditableFilter, isEventFilter, isFeatureFlagFilter } from './utils'
 
 export interface UniversalFilterButtonProps {
     onClick?: () => void
@@ -32,7 +32,7 @@ export const UniversalFilterButton = React.forwardRef<HTMLElement, UniversalFilt
         const isEditable = isEditableFilter(filter)
         const isAction = isActionFilter(filter)
         const isEvent = isEventFilter(filter)
-
+        const isFeatureFlag = isFeatureFlagFilter(filter)
         const button = (
             <div
                 ref={ref as any}
@@ -47,6 +47,8 @@ export const UniversalFilterButton = React.forwardRef<HTMLElement, UniversalFilt
                     <EventLabel filter={filter} onClick={onClick} />
                 ) : isAction ? (
                     <EntityFilterInfo filter={filter} />
+                ) : isFeatureFlag ? (
+                    <FeatureFlagLabel filter={filter} />
                 ) : (
                     <PropertyLabel filter={filter} />
                 )}
@@ -114,4 +116,8 @@ const EventLabel = ({
             />
         </div>
     )
+}
+
+const FeatureFlagLabel = ({ filter }: { filter: FeatureFlagFilter }): JSX.Element => {
+    return <div>{filter.key}</div>
 }

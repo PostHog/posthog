@@ -1,5 +1,6 @@
 import {
     ActionFilter,
+    FeatureFlagFilter,
     FilterLogicalOperator,
     LogEntryPropertyFilter,
     RecordingPropertyFilter,
@@ -21,6 +22,9 @@ export function isEventFilter(filter: UniversalFilterValue): filter is ActionFil
 }
 export function isActionFilter(filter: UniversalFilterValue): filter is ActionFilter {
     return filter.type === 'actions'
+}
+export function isFeatureFlagFilter(filter: UniversalFilterValue): filter is FeatureFlagFilter {
+    return filter.type === 'feature'
 }
 export function isRecordingPropertyFilter(filter: UniversalFilterValue): filter is RecordingPropertyFilter {
     return filter.type === 'recording'
