@@ -1065,7 +1065,7 @@ export interface UniversalFiltersGroup {
 }
 
 export type UniversalFiltersGroupValue = UniversalFiltersGroup | UniversalFilterValue
-export type UniversalFilterValue = AnyPropertyFilter | ActionFilter | FeatureFlagFilter
+export type UniversalFilterValue = AnyPropertyFilter | ActionFilter | FeatureFlagFilter | RecordingFilter
 
 export type ErrorCluster = {
     cluster: number
@@ -1115,6 +1115,11 @@ export interface ActionFilter extends EntityFilter {
 
 export interface FeatureFlagFilter {
     type: PropertyFilterType.Feature
+    key: string
+}
+
+export interface RecordingFilter {
+    type: PropertyFilterType.Recording
     key: string
 }
 
@@ -4639,7 +4644,7 @@ export type ReplayTemplateType = {
 export type ReplayTemplateCategory = 'B2B' | 'B2C' | 'More'
 
 export type ReplayTemplateVariableType = {
-    type: 'event' | 'flag' | 'pageview' | 'person-property'
+    type: 'event' | 'flag' | 'pageview' | 'person-property' | 'snapshot_source'
     name: string
     key: string
     touched?: boolean

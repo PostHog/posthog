@@ -100,7 +100,7 @@ export const sessionReplayTemplatesLogic = kea<sessionReplayTemplatesLogicType>(
                         if (variable.type === 'flag' && variable.value) {
                             return getFlagFilterValue(variable.value)
                         }
-                        if (variable.type === 'event' && variable.filterGroup) {
+                        if (['snapshot_source', 'event'].includes(variable.type) && variable.filterGroup) {
                             return variable.filterGroup
                         }
                         return undefined

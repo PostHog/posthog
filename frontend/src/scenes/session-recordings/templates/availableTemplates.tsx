@@ -3,6 +3,7 @@ import {
     IconCursorClick,
     IconFlag,
     IconHandMoney,
+    IconPhone,
     IconSearch,
     IconThumbsDown,
     IconUser,
@@ -10,7 +11,7 @@ import {
 } from '@posthog/icons'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
-import { ReplayTemplateType } from '~/types'
+import { PropertyFilterType, PropertyOperator, ReplayTemplateType } from '~/types'
 
 export const replayTemplates: ReplayTemplateType[] = [
     {
@@ -186,5 +187,27 @@ export const replayTemplates: ReplayTemplateType[] = [
         ],
         categories: ['More'],
         icon: <IconUser />,
+    },
+    {
+        key: 'mobile-devices',
+        name: 'Mobile devices',
+        description: 'Watch all replays from mobile devices to look for problems with your responsive design.',
+        variables: [
+            {
+                type: 'snapshot_source',
+                name: 'Mobile device',
+                key: 'mobile-device',
+                description: 'Users who used your website on a mobile device.',
+                noTouch: true,
+                filterGroup: {
+                    key: 'snapshot_source',
+                    value: ['mobile'],
+                    operator: PropertyOperator.Exact,
+                    type: PropertyFilterType.Recording,
+                },
+            },
+        ],
+        categories: ['More'],
+        icon: <IconPhone />,
     },
 ]
