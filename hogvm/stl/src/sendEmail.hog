@@ -1,0 +1,4 @@
+fun sendEmail(email) {
+  // TODO: add arg
+  return __importCallable('provider/email')()
+}

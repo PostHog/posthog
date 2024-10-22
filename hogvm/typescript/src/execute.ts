@@ -153,8 +153,8 @@ export function exec(
             chunkBytecode = BYTECODE_STL[frame.chunk.substring(4)][1]
         } else if (bytecodes[frame.chunk]) {
             chunkBytecode = bytecodes[frame.chunk].bytecode
-        } else if (options?.getChunkBytecode) {
-            const chunk = options.getChunkBytecode(frame.chunk)
+        } else if (options?.importBytecode) {
+            const chunk = options.importBytecode(frame.chunk)
             if (chunk) {
                 bytecodes[frame.chunk] = chunk // cache for later
                 chunkBytecode = chunk.bytecode
@@ -317,7 +317,22 @@ export function exec(
           }
 
     try {
-        while (frame.ip < chunkBytecode.length) {
+        while (true) {
+            if (frame.ip >= chunkBytecode.length) {
+                const lastCallFrame = callStack.pop()
+                if (!lastCallFrame || callStack.length === 0) {
+                    return {
+                        result: stack.length > 0 ? popStack() : null,
+                        finished: true,
+                        state: { ...getVMState(), bytecodes: {}, stack: [], callStack: [], upvalues: [] },
+                    } satisfies ExecResult
+                }
+                stackKeepFirstElements(lastCallFrame.stackStart)
+                pushStack(null)
+                frame = callStack[callStack.length - 1]
+                setChunkBytecode()
+                continue // resume the loop without incrementing frame.ip
+            }
             nextOp()
             switch (chunkBytecode[frame.ip]) {
                 case null:

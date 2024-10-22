@@ -288,8 +288,8 @@ export class HogExecutor {
                         // We need to pass these in but they don't actually do anything as it is a sync exec
                         fetch: async () => Promise.resolve(),
                     },
-                    getChunkBytecode: (chunkId) => {
-                        if (chunkId === 'send_email') {
+                    importBytecode: (chunkId) => {
+                        if (chunkId === 'provider/email') {
                             const provider = this.hogFunctionManager.getTeamHogEmailProvider(invocation.teamId)
                             if (!provider) {
                                 throw new Error('No email provider configured for team')

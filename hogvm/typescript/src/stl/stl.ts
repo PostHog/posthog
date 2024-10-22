@@ -784,7 +784,7 @@ export const STL: Record<string, STLFunction> = {
         minArgs: 1,
         maxArgs: 1,
     },
-    getCallableChunk: {
+    __importCallable: {
         fn: ([chunk]) => {
             return newHogClosure(
                 newHogCallable('chunk', {

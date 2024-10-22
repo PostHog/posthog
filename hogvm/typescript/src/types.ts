@@ -37,7 +37,7 @@ export interface ExecOptions {
     globals?: Record<string, any>
     functions?: Record<string, (...args: any[]) => any>
     asyncFunctions?: Record<string, (...args: any[]) => Promise<any>>
-    getChunkBytecode?: (chunk: string) => BytecodeEntry | undefined
+    importBytecode?: (chunk: string) => BytecodeEntry | undefined
     /** Timeout in milliseconds */
     timeout?: number
     /** Max number of async function that can happen. When reached the function will throw */

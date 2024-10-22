@@ -2522,7 +2522,7 @@ describe('hogvm execute', () => {
     test('multiple bytecodes', () => {
         const ret = (string: string): BytecodeEntry => ({ bytecode: ['_H', 1, op.STRING, string, op.RETURN] })
         const call = (chunk: string): BytecodeEntry => ({
-            bytecode: ['_H', 1, op.STRING, chunk, op.CALL_GLOBAL, 'getCallableChunk', 1, op.CALL_LOCAL, 0, op.RETURN],
+            bytecode: ['_H', 1, op.STRING, chunk, op.CALL_GLOBAL, '__importCallable', 1, op.CALL_LOCAL, 0, op.RETURN],
         })
 
         const bytecodes: Record<string, BytecodeEntry> = {
@@ -2536,10 +2536,10 @@ describe('hogvm execute', () => {
     test('multiple bytecodes via callback', () => {
         const ret = (string: string): BytecodeEntry => ({ bytecode: ['_H', 1, op.STRING, string, op.RETURN] })
         const call = (chunk: string): BytecodeEntry => ({
-            bytecode: ['_H', 1, op.STRING, chunk, op.CALL_GLOBAL, 'getCallableChunk', 1, op.CALL_LOCAL, 0, op.RETURN],
+            bytecode: ['_H', 1, op.STRING, chunk, op.CALL_GLOBAL, '__importCallable', 1, op.CALL_LOCAL, 0, op.RETURN],
         })
         const res = exec(call('code2').bytecode, {
-            getChunkBytecode: (chunk: string) =>
+            importBytecode: (chunk: string) =>
                 ({
                     code2: call('code3'),
                     code3: call('code4'),
