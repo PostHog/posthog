@@ -114,7 +114,7 @@ export class HogExecutor {
         nonMatchingFunctions: HogFunctionType[]
         erroredFunctions: HogFunctionType[]
     } {
-        const allFunctionsForTeam = this.hogFunctionManager.getTeamHogFunctions(event.project.id)
+        const allFunctionsForTeam = this.hogFunctionManager.getTeamHogDestinations(event.project.id)
         const filtersGlobals = convertToHogFunctionFilterGlobal(event)
 
         const nonMatchingFunctions: HogFunctionType[] = []
@@ -287,6 +287,17 @@ export class HogExecutor {
                     asyncFunctions: {
                         // We need to pass these in but they don't actually do anything as it is a sync exec
                         fetch: async () => Promise.resolve(),
+                    },
+                    getChunkBytecode: (chunkId) => {
+                        if (chunkId === 'send_email') {
+                            const provider = this.hogFunctionManager.getTeamHogEmailProvider(invocation.teamId)
+                            if (!provider) {
+                                throw new Error('No email provider configured for team')
+                            }
+                            // TODO: add globals from provider.inputs & encrypted inputs
+                            return { bytecode: provider.bytecode }
+                        }
+                        throw new Error(`Unknown chunk: ${chunkId}`)
                     },
                     functions: {
                         print: (...args) => {

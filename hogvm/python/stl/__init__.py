@@ -23,7 +23,7 @@ from .date import (
     is_hog_date,
 )
 from .crypto import sha256Hex, md5Hex, sha256HmacChainHex
-from ..objects import is_hog_error, new_hog_error, is_hog_callable, is_hog_closure
+from ..objects import is_hog_error, new_hog_error, is_hog_callable, is_hog_closure, new_hog_closure, new_hog_callable
 from ..utils import like, get_nested_value
 
 if TYPE_CHECKING:
@@ -421,6 +421,12 @@ def _typeof(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]]
     return "unknown"
 
 
+def getCallableChunk(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> str:
+    return new_hog_closure(
+        new_hog_callable("chunk", {"name": "chunk", "argCount": 0, "upvalueCount": 0, "ip": 0, "chunk": args[0]})
+    )
+
+
 STL: dict[str, STLFunction] = {
     "concat": STLFunction(
         fn=lambda args, team, stdout, timeout: "".join(
@@ -559,6 +565,7 @@ STL: dict[str, STLFunction] = {
         maxArgs=2,
     ),
     "typeof": STLFunction(fn=_typeof, minArgs=1, maxArgs=1),
+    "getCallableChunk": STLFunction(fn=getCallableChunk, minArgs=1, maxArgs=1),
     # only in python, async function in nodejs
     "sleep": STLFunction(fn=sleep, minArgs=1, maxArgs=1),
     "run": STLFunction(fn=run, minArgs=1, maxArgs=1),
