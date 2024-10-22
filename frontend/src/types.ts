@@ -4634,6 +4634,7 @@ export type ReplayTemplateType = {
     description: string
     variables: ReplayTemplateVariableType[]
     categories: ReplayTemplateCategory[]
+    icon?: React.ReactNode
 }
 export type ReplayTemplateCategory = 'B2B' | 'B2C' | 'More'
 

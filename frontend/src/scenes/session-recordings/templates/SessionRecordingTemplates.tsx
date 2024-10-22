@@ -144,11 +144,18 @@ const RecordingTemplateCard = ({ template }: { template: ReplayTemplateType }): 
             focused={variablesVisible}
         >
             <div className="flex flex-col gap-2">
-                <h3>
-                    <Link onClick={() => showVariables()} className="text-primary">
-                        {template.name}
-                    </Link>
-                </h3>
+                <div className="flex items-center gap-2">
+                    {template.icon && (
+                        <div className="bg-accent-3000 rounded p-2 w-8 h-8 flex items-center justify-center">
+                            {template.icon}
+                        </div>
+                    )}
+                    <h3 className="mb-0">
+                        <Link onClick={() => showVariables()} className="text-primary">
+                            {template.name}
+                        </Link>
+                    </h3>
+                </div>
                 <p>{template.description}</p>
                 {variablesVisible ? <TemplateVariables template={template} /> : null}
             </div>

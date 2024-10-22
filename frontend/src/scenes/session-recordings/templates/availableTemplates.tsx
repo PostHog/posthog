@@ -1,3 +1,13 @@
+import {
+    IconApp,
+    IconCursorClick,
+    IconFlag,
+    IconHandMoney,
+    IconSearch,
+    IconThumbsDown,
+    IconUser,
+    IconVideoCamera,
+} from '@posthog/icons'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 import { ReplayTemplateType } from '~/types'
@@ -17,6 +27,7 @@ export const replayTemplates: ReplayTemplateType[] = [
             },
         ],
         categories: ['B2B'],
+        icon: <IconUser />,
     },
     {
         key: 'pricing-page',
@@ -31,6 +42,7 @@ export const replayTemplates: ReplayTemplateType[] = [
             },
         ],
         categories: ['B2B'],
+        icon: <IconHandMoney />,
     },
     {
         key: 'upgrade-flow',
@@ -52,6 +64,7 @@ export const replayTemplates: ReplayTemplateType[] = [
             },
         ],
         categories: ['B2B'],
+        icon: <IconHandMoney />,
     },
     {
         key: 'onboarding-flow',
@@ -66,6 +79,7 @@ export const replayTemplates: ReplayTemplateType[] = [
             },
         ],
         categories: ['B2B'],
+        icon: <IconApp />,
     },
     {
         key: 'feature-usage',
@@ -81,6 +95,7 @@ export const replayTemplates: ReplayTemplateType[] = [
             },
         ],
         categories: ['B2B', 'B2C'],
+        icon: <IconCursorClick />,
     },
     {
         key: 'purchase-flow',
@@ -95,6 +110,7 @@ export const replayTemplates: ReplayTemplateType[] = [
             },
         ],
         categories: ['B2C'],
+        icon: <IconHandMoney />,
     },
     {
         key: 'product-search',
@@ -110,6 +126,7 @@ export const replayTemplates: ReplayTemplateType[] = [
             },
         ],
         categories: ['B2C'],
+        icon: <IconSearch />,
     },
     {
         key: 'experiment',
@@ -124,6 +141,7 @@ export const replayTemplates: ReplayTemplateType[] = [
             },
         ],
         categories: ['More'],
+        icon: <IconFlag />,
     },
     {
         key: 'rageclicks',
@@ -144,6 +162,7 @@ export const replayTemplates: ReplayTemplateType[] = [
             },
         ],
         categories: ['More'],
+        icon: <IconThumbsDown />,
     },
     {
         key: 'scattershot',
@@ -151,6 +170,7 @@ export const replayTemplates: ReplayTemplateType[] = [
         description: 'Watch all recent replays, and see where users are getting stuck.',
         variables: [],
         categories: ['More'],
+        icon: <IconVideoCamera />,
     },
     {
         key: 'person-property',
@@ -165,5 +185,6 @@ export const replayTemplates: ReplayTemplateType[] = [
             },
         ],
         categories: ['More'],
+        icon: <IconUser />,
     },
 ]
