@@ -113,7 +113,7 @@ genson==1.2.2
     # via datamodel-code-generator
 icdiff==2.0.5
     # via pytest-icdiff
-idna==2.8
+idna==3.10
     # via
     #   -c requirements.txt
     #   email-validator
