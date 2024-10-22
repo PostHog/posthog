@@ -119,14 +119,13 @@ export const batchExportRunsLogic = kea<batchExportRunsLogicType>([
             }),
 
             submit: async ({ start_at, end_at, earliest_backfill }) => {
-                if (
-                    values.batchExportConfig &&
-                    values.batchExportConfig.interval.endsWith('minutes') &&
-                    (start_at?.minute() !== undefined || end_at?.minute() !== undefined)
-                ) {
+                if (values.batchExportConfig && values.batchExportConfig.interval.endsWith('minutes')) {
                     // TODO: Make this generic for all minute frequencies.
                     // Currently, only 5 minute batch exports are supported.
-                    if (!(start_at?.minute() % 5 === 0) || !(end_at?.minute() % 5 === 0)) {
+                    if (
+                        (start_at?.minute() !== undefined && !(start_at?.minute() % 5 === 0)) ||
+                        (end_at?.minute() !== undefined && !(end_at?.minute() % 5 === 0))
+                    ) {
                         lemonToast.error(
                             'Backfilling a 5 minute batch export requires bounds be multiple of five minutes'
                         )
@@ -201,7 +200,7 @@ export const batchExportRunsLogic = kea<batchExportRunsLogicType>([
                     return {
                         ...run,
                         created_at: dayjs(run.created_at),
-                        data_interval_start: run.data_interval_start ? dayjs(run.data_interval_start) : null,
+                        data_interval_start: run.data_interval_start ? dayjs(run.data_interval_start) : undefined,
                         data_interval_end: dayjs(run.data_interval_end),
                         last_updated_at: run.last_updated_at ? dayjs(run.last_updated_at) : undefined,
                     }
@@ -224,7 +223,7 @@ export const batchExportRunsLogic = kea<batchExportRunsLogicType>([
 
                     if (!groupedRuns[key]) {
                         groupedRuns[key] = {
-                            data_interval_start: run.data_interval_start ? dayjs(run.data_interval_start) : null,
+                            data_interval_start: run.data_interval_start ? dayjs(run.data_interval_start) : undefined,
                             data_interval_end: dayjs(run.data_interval_end),
                             runs: [],
                             last_run_at: dayjs(run.created_at),
@@ -234,7 +233,7 @@ export const batchExportRunsLogic = kea<batchExportRunsLogicType>([
                     groupedRuns[key].runs.push({
                         ...run,
                         created_at: dayjs(run.created_at),
-                        data_interval_start: run.data_interval_start ? dayjs(run.data_interval_start) : null,
+                        data_interval_start: run.data_interval_start ? dayjs(run.data_interval_start) : undefined,
                         data_interval_end: dayjs(run.data_interval_end),
                         last_updated_at: run.last_updated_at ? dayjs(run.last_updated_at) : undefined,
                     })
