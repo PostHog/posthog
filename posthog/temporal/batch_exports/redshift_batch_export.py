@@ -211,7 +211,7 @@ def redshift_default_fields() -> list[BatchExportField]:
 
 
 def get_redshift_fields_from_record_schema(
-    record_schema: pa.Schema, known_super_columns: list[str], use_super: bool = False
+    record_schema: pa.Schema, known_super_columns: list[str], use_super: bool
 ) -> Fields:
     """Generate a list of supported Redshift fields from PyArrow schema.
 
@@ -267,6 +267,8 @@ async def insert_records_to_redshift(
     schema: str | None,
     table: str,
     batch_size: int = 100,
+    use_super: bool = False,
+    known_super_columns: list[str] | None = None,
 ) -> int:
     """Execute an INSERT query with given Redshift connection.
 
@@ -302,7 +304,14 @@ async def insert_records_to_redshift(
         table=table_identifier,
         fields=sql.SQL(", ").join(map(sql.Identifier, columns)),
     )
-    template = sql.SQL("({})").format(sql.SQL(", ").join(map(sql.Placeholder, columns)))
+    placeholders: list[sql.Composable] = []
+    for column in columns:
+        if use_super is True and known_super_columns is not None and column in known_super_columns:
+            placeholders.append(sql.SQL("JSON_PARSE({placeholder})").format(placeholder=sql.Placeholder(column)))
+        else:
+            placeholders.append(sql.Placeholder(column))
+
+    template = sql.SQL("({})").format(sql.SQL(", ").join(placeholders))
     rows_exported = get_rows_exported_metric()
 
     total_rows_exported = 0
@@ -324,6 +333,10 @@ async def insert_records_to_redshift(
                 # in the future if we decide it's useful enough.
 
             async for record in records_iterator:
+                for column in columns:
+                    if known_super_columns is not None and column in known_super_columns:
+                        record[column] = json.dumps(record[column], ensure_ascii=False)
+
                 batch.append(cursor.mogrify(template, record).encode("utf-8"))
                 if len(batch) < batch_size:
                     continue
@@ -471,9 +484,7 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> Records
                     for column in known_super_columns:
                         if record.get(column, None) is not None:
                             # TODO: We should be able to save a json.loads here.
-                            record[column] = json.dumps(
-                                remove_escaped_whitespace_recursive(json.loads(record[column])), ensure_ascii=False
-                            )
+                            record[column] = remove_escaped_whitespace_recursive(json.loads(record[column]))
 
                     return record
 
@@ -487,6 +498,8 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> Records
                     redshift_client,
                     inputs.schema,
                     redshift_stage_table if requires_merge else redshift_table,
+                    use_super=properties_type == "SUPER",
+                    known_super_columns=known_super_columns,
                 )
 
                 if requires_merge:

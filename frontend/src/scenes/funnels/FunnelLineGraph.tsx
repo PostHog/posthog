@@ -87,6 +87,7 @@ export function FunnelLineGraph({
                                   kind: NodeKind.FunnelsActorsQuery,
                                   source: querySource,
                                   funnelTrendsDropOff: false,
+                                  includeRecordings: true,
                                   funnelTrendsEntrancePeriodStart: dayjs(day).format('YYYY-MM-DD HH:mm:ss'),
                               }
                               openPersonsModal({

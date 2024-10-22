@@ -123,6 +123,11 @@ class TestPrinter(BaseTest):
             f"SELECT\n    1 AS id\nLIMIT 50000\nINTERSECT\nSELECT\n    2 AS id\nLIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
 
+    def test_print_to_string(self):
+        assert str(parse_select("select 1 + 2, 3 from events")) == "sql(SELECT plus(1, 2), 3 FROM events)"
+        assert str(parse_expr("1 + 2")) == "sql(plus(1, 2))"
+        assert str(parse_expr("unknown_field")) == "sql(unknown_field)"
+
     def test_literals(self):
         self.assertEqual(self._expr("1 + 2"), "plus(1, 2)")
         self.assertEqual(self._expr("-1 + 2"), "plus(-1, 2)")
