@@ -50,11 +50,11 @@ import {
     Experiment,
     ExportedAssetType,
     ExternalDataJob,
+    ExternalDataSource,
     ExternalDataSourceCreatePayload,
     ExternalDataSourceSchema,
     ExternalDataSourceSyncSchema,
     ExternalDataSourceType,
-    ExternalDataStripeSource,
     FeatureFlagAssociatedRoleType,
     FeatureFlagType,
     Group,
@@ -854,7 +854,7 @@ class ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('external_data_sources')
     }
 
-    public externalDataSource(sourceId: ExternalDataStripeSource['id'], teamId?: TeamType['id']): ApiRequest {
+    public externalDataSource(sourceId: ExternalDataSource['id'], teamId?: TeamType['id']): ApiRequest {
         return this.externalDataSources(teamId).addPathComponent(sourceId)
     }
 
@@ -2083,6 +2083,13 @@ const api = {
         ): Promise<BatchExportRun> {
             return await new ApiRequest().batchExportRun(id, runId, teamId).withAction('retry').create()
         },
+        async cancelRun(
+            id: BatchExportConfiguration['id'],
+            runId: BatchExportRun['id'],
+            teamId?: TeamType['id']
+        ): Promise<BatchExportRun> {
+            return await new ApiRequest().batchExportRun(id, runId, teamId).withAction('cancel').create()
+        },
         async logs(
             id: BatchExportConfiguration['id'],
             params: LogEntryRequestParams = {}
@@ -2199,25 +2206,25 @@ const api = {
         },
     },
     externalDataSources: {
-        async list(options?: ApiMethodOptions | undefined): Promise<PaginatedResponse<ExternalDataStripeSource>> {
+        async list(options?: ApiMethodOptions | undefined): Promise<PaginatedResponse<ExternalDataSource>> {
             return await new ApiRequest().externalDataSources().get(options)
         },
-        async get(sourceId: ExternalDataStripeSource['id']): Promise<ExternalDataStripeSource> {
+        async get(sourceId: ExternalDataSource['id']): Promise<ExternalDataSource> {
             return await new ApiRequest().externalDataSource(sourceId).get()
         },
         async create(data: Partial<ExternalDataSourceCreatePayload>): Promise<{ id: string }> {
             return await new ApiRequest().externalDataSources().create({ data })
         },
-        async delete(sourceId: ExternalDataStripeSource['id']): Promise<void> {
+        async delete(sourceId: ExternalDataSource['id']): Promise<void> {
             await new ApiRequest().externalDataSource(sourceId).delete()
         },
-        async reload(sourceId: ExternalDataStripeSource['id']): Promise<void> {
+        async reload(sourceId: ExternalDataSource['id']): Promise<void> {
             await new ApiRequest().externalDataSource(sourceId).withAction('reload').create()
         },
         async update(
-            sourceId: ExternalDataStripeSource['id'],
-            data: Partial<ExternalDataStripeSource>
-        ): Promise<ExternalDataStripeSource> {
+            sourceId: ExternalDataSource['id'],
+            data: Partial<ExternalDataSource>
+        ): Promise<ExternalDataSource> {
             return await new ApiRequest().externalDataSource(sourceId).update({ data })
         },
         async database_schema(
@@ -2239,7 +2246,7 @@ const api = {
                 .create({ data: { source_type, prefix } })
         },
         async jobs(
-            sourceId: ExternalDataStripeSource['id'],
+            sourceId: ExternalDataSource['id'],
             before: string | null,
             after: string | null
         ): Promise<ExternalDataJob[]> {
