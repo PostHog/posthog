@@ -36,6 +36,7 @@ export const batchExportRunsLogic = kea<batchExportRunsLogicType>([
         switchLatestRuns: (enabled: boolean) => ({ enabled }),
         loadRuns: true,
         retryRun: (run: BatchExportRun) => ({ run }),
+        cancelRun: (run: BatchExportRun) => ({ run }),
         openBackfillModal: true,
         closeBackfillModal: true,
     }),
@@ -238,6 +239,10 @@ export const batchExportRunsLogic = kea<batchExportRunsLogicType>([
         retryRun: async ({ run }) => {
             await api.batchExports.retryRun(props.id, run.id)
             lemonToast.success('Retry has been scheduled.')
+        },
+        cancelRun: async ({ run }) => {
+            await api.batchExports.cancelRun(props.id, run.id)
+            lemonToast.success('Run has been cancelled.')
         },
     })),
     afterMount(({ actions }) => {

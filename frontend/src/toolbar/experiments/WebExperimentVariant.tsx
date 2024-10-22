@@ -22,7 +22,7 @@ export function WebExperimentVariant({ variant }: WebExperimentVariantProps): JS
             {selectedExperimentId === 'new' && experimentForm.variants && experimentForm.variants[variant].is_new && (
                 <LemonInput
                     key="variant-name-small"
-                    className="m-2"
+                    className="mb-2"
                     value={localTentativeValue}
                     onChange={(newName) => {
                         setLocalTentativeValue(newName)

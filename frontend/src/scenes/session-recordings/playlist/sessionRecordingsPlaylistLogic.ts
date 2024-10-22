@@ -12,7 +12,6 @@ import {
     isLogEntryPropertyFilter,
     isRecordingPropertyFilter,
 } from 'lib/components/UniversalFilters/utils'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectClean, objectsEqual } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -44,6 +43,7 @@ interface Params {
     simpleFilters?: LegacyRecordingFilters
     advancedFilters?: LegacyRecordingFilters
     sessionRecordingId?: SessionRecordingId
+    order?: RecordingsQuery['order']
 }
 
 interface NoEventsToMatch {
@@ -77,12 +77,15 @@ export const defaultRecordingDurationFilter: RecordingDurationFilter = {
     operator: PropertyOperator.GreaterThan,
 }
 
+export const DEFAULT_RECORDING_FILTERS_ORDER_BY = 'start_time'
+
 export const DEFAULT_RECORDING_FILTERS: RecordingUniversalFilters = {
     filter_test_accounts: false,
     date_from: '-3d',
     date_to: null,
     filter_group: { ...DEFAULT_UNIVERSAL_GROUP_FILTER },
     duration: [defaultRecordingDurationFilter],
+    order: DEFAULT_RECORDING_FILTERS_ORDER_BY,
 }
 
 const DEFAULT_PERSON_RECORDING_FILTERS: RecordingUniversalFilters = {
@@ -103,6 +106,7 @@ export function convertUniversalFiltersToRecordingsQuery(universalFilters: Recor
     const console_log_filters: RecordingsQuery['console_log_filters'] = []
     const having_predicates: RecordingsQuery['having_predicates'] = []
 
+    const order: RecordingsQuery['order'] = universalFilters.order || DEFAULT_RECORDING_FILTERS_ORDER_BY
     const durationFilter = universalFilters.duration[0]
 
     if (durationFilter) {
@@ -143,7 +147,7 @@ export function convertUniversalFiltersToRecordingsQuery(universalFilters: Recor
 
     return {
         kind: NodeKind.RecordingsQuery,
-        order: 'start_time',
+        order: order,
         date_from: universalFilters.date_from,
         date_to: universalFilters.date_to,
         properties,
@@ -206,6 +210,7 @@ export function convertLegacyFiltersToUniversalFilters(
                 },
             ],
         },
+        order: DEFAULT_RECORDING_FILTERS.order,
     }
 }
 
@@ -223,6 +228,7 @@ function combineLegacyRecordingFilters(
 function sortRecordings(recordings: SessionRecordingType[], order: RecordingsQuery['order']): SessionRecordingType[] {
     const orderKey:
         | 'recording_duration'
+        | 'activity_score'
         | 'active_seconds'
         | 'inactive_seconds'
         | 'console_error_count'
@@ -277,7 +283,6 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         setFilters: (filters: Partial<RecordingUniversalFilters>) => ({ filters }),
         setShowFilters: (showFilters: boolean) => ({ showFilters }),
         setShowSettings: (showSettings: boolean) => ({ showSettings }),
-        setOrderBy: (orderBy: RecordingsQuery['order'] | null) => ({ orderBy }),
         resetFilters: true,
         setSelectedRecordingId: (id: SessionRecordingType['id'] | null) => ({
             id,
@@ -326,14 +331,13 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             {
                 results: [],
                 has_next: false,
-                order: 'start_time',
+                order: DEFAULT_RECORDING_FILTERS_ORDER_BY,
             } as RecordingsQueryResponse & { order: RecordingsQuery['order'] },
             {
                 loadSessionRecordings: async ({ direction, userModifiedFilters }, breakpoint) => {
                     const params: RecordingsQuery = {
                         ...convertUniversalFiltersToRecordingsQuery(values.filters),
                         person_uuid: props.personUUID ?? '',
-                        order: values.orderBy,
                         limit: RECORDINGS_LIMIT,
                     }
 
@@ -365,7 +369,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                                 ? values.sessionRecordingsResponse?.has_next ?? true
                                 : response.has_next,
                         results: response.results,
-                        order: values.orderBy,
+                        order: params.order,
                     }
                 },
             },
@@ -389,7 +393,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                         const fetchedRecordings = await api.recordings.list({
                             kind: NodeKind.RecordingsQuery,
                             session_ids: recordingIds,
-                            order: 'start_time',
+                            order: DEFAULT_RECORDING_FILTERS_ORDER_BY,
                         })
 
                         recordings = [...recordings, ...fetchedRecordings.results]
@@ -402,13 +406,6 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         ],
     })),
     reducers(({ props }) => ({
-        selectedOrderBy: [
-            null as RecordingsQuery['order'] | null,
-            { persist: true, prefix: 'orderByExperiment' },
-            {
-                setOrderBy: (_, { orderBy }) => orderBy,
-            },
-        ],
         // If we initialise with pinned recordings then we don't show others by default
         // but if we go down to 0 pinned recordings then we show others
         showOtherRecordings: [
@@ -520,10 +517,6 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             actions.loadSessionRecordings(undefined, filters)
             props.onFiltersChange?.(values.filters)
             actions.loadEventsHaveSessionId()
-        },
-
-        setOrderBy: () => {
-            actions.loadSessionRecordings()
         },
 
         resetFilters: () => {
@@ -648,13 +641,13 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         ],
 
         otherRecordings: [
-            (s) => [s.sessionRecordings, s.hideViewedRecordings, s.pinnedRecordings, s.selectedRecordingId, s.orderBy],
+            (s) => [s.sessionRecordings, s.hideViewedRecordings, s.pinnedRecordings, s.selectedRecordingId, s.filters],
             (
                 sessionRecordings,
                 hideViewedRecordings,
                 pinnedRecordings,
                 selectedRecordingId,
-                orderBy
+                filters
             ): SessionRecordingType[] => {
                 const filteredRecordings = sessionRecordings.filter((rec) => {
                     if (pinnedRecordings.find((pinned) => pinned.id === rec.id)) {
@@ -668,7 +661,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     return true
                 })
 
-                return sortRecordings(filteredRecordings, orderBy)
+                return sortRecordings(filteredRecordings, filters.order || DEFAULT_RECORDING_FILTERS_ORDER_BY)
             },
         ],
 
@@ -683,29 +676,6 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             (s) => [s.pinnedRecordings, s.otherRecordings, s.showOtherRecordings],
             (pinnedRecordings, otherRecordings, showOtherRecordings): number => {
                 return showOtherRecordings ? otherRecordings.length + pinnedRecordings.length : pinnedRecordings.length
-            },
-        ],
-        orderByExperimentFeatureFlag: [
-            (s) => [s.featureFlags],
-            (featureFlags): RecordingsQuery['order'] | 'control' | null =>
-                typeof featureFlags[FEATURE_FLAGS.REPLAY_DEFAULT_SORT_ORDER_EXPERIMENT] === 'string'
-                    ? (featureFlags[FEATURE_FLAGS.REPLAY_DEFAULT_SORT_ORDER_EXPERIMENT] as
-                          | RecordingsQuery['order']
-                          | 'control')
-                    : null,
-        ],
-        orderBy: [
-            (s) => [s.selectedOrderBy, s.orderByExperimentFeatureFlag],
-            (selectedOrderBy, orderByExperimentFeatureFlag): RecordingsQuery['order'] => {
-                if (selectedOrderBy) {
-                    return selectedOrderBy
-                }
-
-                if (orderByExperimentFeatureFlag === 'control' || !orderByExperimentFeatureFlag) {
-                    return 'start_time'
-                }
-
-                return orderByExperimentFeatureFlag
             },
         ],
     }),
@@ -726,11 +696,19 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         ] => {
             const params: Params = objectClean({
                 ...router.values.searchParams,
-                filters: values.filters ?? undefined,
+                filters: objectsEqual(values.filters, getDefaultFilters(props.personUUID)) ? undefined : values.filters,
                 sessionRecordingId: values.selectedRecordingId ?? undefined,
             })
 
-            return [router.values.location.pathname, params, router.values.hashParams, { replace }]
+            if (!objectsEqual(params, router.values.searchParams)) {
+                return [router.values.location.pathname, params, router.values.hashParams, { replace }]
+            }
+            return [
+                router.values.location.pathname,
+                router.values.searchParams,
+                router.values.hashParams,
+                { replace: false },
+            ]
         }
 
         return {
@@ -774,9 +752,6 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             if (showOtherRecordings) {
                 actions.loadSessionRecordings()
             }
-        },
-        orderBy: () => {
-            actions.loadSessionRecordings()
         },
     })),
 

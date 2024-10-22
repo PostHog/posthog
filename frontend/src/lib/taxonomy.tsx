@@ -158,7 +158,7 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             description: 'Automatically captured exceptions from the client Sentry integration',
         },
         $web_vitals: {
-            label: 'Web vitals',
+            label: 'Web Vitals',
             description: 'Automatically captured web vitals data',
         },
         // Mobile SDKs events
@@ -1212,6 +1212,10 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             description: 'posthog-js adds these to the page leave event, they are used in web analytics calculations',
             label: 'Previous pageview duration',
         },
+        $surveys_activated: {
+            label: 'Surveys Activated',
+            description: 'The surveys that were activated for this event.',
+        },
     },
     numerical_event_properties: {}, // Same as event properties, see assignment below
     person_properties: {}, // Currently person properties are the same as event properties, see assignment below
@@ -1413,7 +1417,7 @@ export const PROPERTY_KEYS = Object.keys(CORE_FILTER_DEFINITIONS_BY_GROUP.event_
  * but often more numerous than actual properties set on events and useful to hide
  * to make those properties discoverable
  */
-export const NON_DOLLAR_POSTHOG_PROPERTY_KEYS = [
+export const CLOUD_INTERNAL_POSTHOG_PROPERTY_KEYS = [
     'billing_period_end',
     'billing_period_start',
     'current_amount_usd.data_warehouse',
@@ -1432,7 +1436,20 @@ export const NON_DOLLAR_POSTHOG_PROPERTY_KEYS = [
     'current_usage.session_replay',
     'current_usage.surveys',
     'customer_deactivated',
+    'custom_limits.data_warehouse',
+    'custom_limits.feature_flags',
+    'custom_limits.integrations',
+    'custom_limits.platform_and_support',
+    'custom_limits.product_analytics',
+    'custom_limits.session_replay',
+    'custom_limits.surveys',
     'custom_limits_usd.data_warehouse',
+    'custom_limits_usd.feature_flags',
+    'custom_limits_usd.integrations',
+    'custom_limits_usd.platform_and_support',
+    'custom_limits_usd.product_analytics',
+    'custom_limits_usd.session_replay',
+    'custom_limits_usd.surveys',
     'free_allocation.data_warehouse',
     'free_allocation.feature_flags',
     'free_allocation.integrations',
@@ -1474,8 +1491,6 @@ export const NON_DOLLAR_POSTHOG_PROPERTY_KEYS = [
     'email_service_available',
     'slack_service_available',
     'commit_sha',
-    'token',
-    'distinct_id',
 ]
 
 /** Return whether a given filter key is part of PostHog's core (marked by the PostHog logo). */
