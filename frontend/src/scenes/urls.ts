@@ -138,8 +138,11 @@ export const urls = {
             nodeTab ? `/${nodeTab}` : ''
         }`,
     messagingBroadcasts: (): string => '/messaging/broadcasts',
-    messagingBroadcastsNew: (): string => '/messaging/broadcasts/new',
+    messagingBroadcast: (id?: string): string => `/messaging/broadcasts/${id}`,
+    messagingBroadcastNew: (): string => '/messaging/broadcasts/new',
     messagingProviders: (): string => '/messaging/providers',
+    messagingProvider: (id?: string): string => `/messaging/providers/${id}`,
+    messagingProviderNew: (template?: string): string => '/messaging/providers/new' + (template ? `/${template}` : ''),
     groups: (groupTypeIndex: string | number): string => `/groups/${groupTypeIndex}`,
     // :TRICKY: Note that groupKey is provided by user. We need to override urlPatternOptions for kea-router.
     group: (groupTypeIndex: string | number, groupKey: string, encode: boolean = true, tab?: string | null): string =>

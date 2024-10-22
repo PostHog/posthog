@@ -1,5 +1,6 @@
 import { LemonCheckbox, LemonInput, LemonSelect, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { pipelineDestinationsLogic } from 'scenes/pipeline/destinations/destinationsLogic'
 
 import { PipelineBackend } from '../types'
 import { destinationsFiltersLogic } from './destinationsFiltersLogic'
@@ -8,15 +9,22 @@ export type DestinationsFiltersProps = {
     hideSearch?: boolean
     hideShowPaused?: boolean
     hideKind?: boolean
+    hideFeedback?: boolean
 }
 
 export function DestinationsFilters({
     hideSearch,
-    hideShowPaused,
-    hideKind,
+    hideShowPaused: _hideShowPaused,
+    hideKind: _hideKind,
+    hideFeedback: _hideFeedback,
 }: DestinationsFiltersProps): JSX.Element | null {
     const { filters } = useValues(destinationsFiltersLogic)
     const { setFilters, openFeedbackDialog } = useActions(destinationsFiltersLogic)
+    const { type } = useValues(pipelineDestinationsLogic)
+
+    const hideKind = _hideKind || type !== 'destination'
+    const hideShowPaused = _hideShowPaused || type !== 'destination'
+    const hideFeedback = _hideFeedback || type === 'broadcast'
 
     return (
         <div className="space-y-2">
@@ -29,11 +37,13 @@ export function DestinationsFilters({
                         onChange={(e) => setFilters({ search: e })}
                     />
                 )}
-                <Link className="text-sm font-semibold" subtle onClick={() => openFeedbackDialog()}>
-                    Can't find what you're looking for?
-                </Link>
+                {!hideFeedback && (
+                    <Link className="text-sm font-semibold" subtle onClick={() => openFeedbackDialog()}>
+                        Can't find what you're looking for?
+                    </Link>
+                )}
                 <div className="flex-1" />
-                {typeof hideShowPaused !== 'boolean' && (
+                {!hideShowPaused && (
                     <LemonCheckbox
                         label="Show paused"
                         bordered
@@ -55,6 +65,7 @@ export function DestinationsFilters({
                         }
                         value={filters.kind ?? null}
                         onChange={(e) => setFilters({ kind: e ?? null })}
+                        allowClear={false}
                     />
                 )}
             </div>

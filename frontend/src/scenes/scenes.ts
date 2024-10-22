@@ -594,5 +594,10 @@ export const routes: Record<string, Scene> = {
     [urls.heatmaps()]: Scene.Heatmaps,
     [urls.sessionAttributionExplorer()]: Scene.SessionAttributionExplorer,
     [urls.messagingProviders()]: Scene.MessagingProviders,
+    [urls.messagingProvider(':id')]: Scene.MessagingProviders,
+    [urls.messagingProviderNew()]: Scene.MessagingProviders,
+    [urls.messagingProviderNew(':template')]: Scene.MessagingProviders,
     [urls.messagingBroadcasts()]: Scene.MessagingBroadcasts,
+    [urls.messagingBroadcast(':id')]: Scene.MessagingBroadcasts,
+    [urls.messagingBroadcastNew()]: Scene.MessagingBroadcasts,
 }

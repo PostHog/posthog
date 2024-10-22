@@ -122,11 +122,16 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
             (s) => [s.filters],
             (filters): ((template: HogFunctionTemplateType) => string) => {
                 return (template: HogFunctionTemplateType) => {
+                    const url =
+                        template.type === 'email'
+                            ? urls.messagingProviderNew(template.id)
+                            : urls.pipelineNodeNew(PipelineStage.Destination, `hog-${template.id}`)
+
                     // Add the filters to the url and the template id
                     const subTemplateId = filters.subTemplateId
 
                     return combineUrl(
-                        urls.pipelineNodeNew(PipelineStage.Destination, `hog-${template.id}`),
+                        url,
                         {
                             sub_template: subTemplateId,
                         },

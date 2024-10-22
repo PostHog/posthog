@@ -18,7 +18,7 @@ export function Broadcasts(): JSX.Element {
                 buttons={
                     <LemonButton
                         data-attr="new-broadcast"
-                        to={urls.messagingBroadcastsNew()}
+                        to={urls.messagingBroadcastNew()}
                         type="primary"
                         icon={<IconPlusSmall />}
                     >

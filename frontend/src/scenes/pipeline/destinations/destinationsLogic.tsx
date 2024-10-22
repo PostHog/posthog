@@ -213,16 +213,17 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
         ],
     })),
     selectors({
+        type: [() => [(_, p) => p.type], (type?: HogFunctionTypeType): HogFunctionTypeType => type ?? 'destination'],
         typeSingular: [
-            () => [(_, p) => p.type],
-            (type?: string): string => {
-                return { email: 'email provider' }[type ?? ''] ?? type ?? 'destination'
+            (s) => [s.type],
+            (type): string => {
+                return { email: 'email provider' }[type as string] ?? type
             },
         ],
         typePlural: [
-            () => [(_, p) => p.type],
-            (type?: string): string => {
-                return { email: 'email providers' }[type ?? ''] ?? (type ?? 'destination') + 's'
+            (s) => [s.type],
+            (type): string => {
+                return { email: 'email providers' }[type as string] ?? type + 's'
             },
         ],
         paidHogFunctions: [
