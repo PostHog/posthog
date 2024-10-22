@@ -9,7 +9,6 @@ import { urls } from 'scenes/urls'
 import { DatabaseSchemaBatchExportTable } from '~/queries/schema'
 import { BatchExportConfiguration, BatchExportService, PipelineNodeTab, PipelineStage } from '~/types'
 
-import { BatchExportConfigurationForm } from './batch-exports/types'
 import { humanizeBatchExportName } from './batch-exports/utils'
 import { pipelineDestinationsLogic } from './destinations/destinationsLogic'
 import { pipelineAccessLogic } from './pipelineAccessLogic'
@@ -31,9 +30,9 @@ function getConfigurationFromBatchExportConfig(batchExportConfig: BatchExportCon
     }
 }
 
-export function getDefaultConfiguration(service: BatchExportService['type']): Record<string, any> {
+export function getDefaultConfiguration(service: string): Record<string, any> {
     return {
-        name: humanizeBatchExportName(service),
+        name: humanizeBatchExportName(service as BatchExportService['type']),
         destination: service,
         model: 'events',
         paused: true,
@@ -296,7 +295,7 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
             },
         ],
         configuration: [
-            props.service ? getDefaultConfiguration(props.service) : ({} as BatchExportConfigurationForm),
+            props.service ? getDefaultConfiguration(props.service) : ({} as Record<string, any>),
             {
                 loadBatchExportConfigSuccess: (state, { batchExportConfig }) => {
                     if (!batchExportConfig) {
@@ -315,7 +314,7 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
             },
         ],
         savedConfiguration: [
-            {} as BatchExportConfigurationForm,
+            {} as Record<string, any>,
             {
                 loadBatchExportConfigSuccess: (state, { batchExportConfig }) => {
                     if (!batchExportConfig) {

@@ -51,7 +51,7 @@ export function PipelineBatchExportConfiguration({ service, id }: { service?: st
                 type="secondary"
                 htmlType="reset"
                 onClick={() =>
-                    isNew
+                    isNew && service
                         ? resetConfiguration(getDefaultConfiguration(service))
                         : resetConfiguration(savedConfiguration)
                 }
