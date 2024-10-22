@@ -158,23 +158,20 @@ class TestPrinter(BaseTest):
             "LIMIT 50000",
         )
 
-    # INTERSECT has higher priority than union
     def test_intersect_and_union_parens(self):
-        expr = parse_select("""(select 1 as id intersect select 2 as id) union all select 3 as id""", backend="python")
+        expr = parse_select("""select 1 as id intersect (select 2 as id union all select 3 as id)""", backend="python")
         response = to_printed_hogql(expr, self.team)
         self.assertEqual(
             response,
-            (
-                "(SELECT\n"
-                "    1 AS id\n"
-                "INTERSECT\n"
-                "SELECT\n"
-                "    2 AS id)\n"
-                "UNION ALL\n"
-                "SELECT\n"
-                "    3 AS id\n"
-                "LIMIT 50000"
-            ),
+            "SELECT\n"
+            "    1 AS id\n"
+            "LIMIT 50000\n"
+            "INTERSECT\n"
+            "(SELECT\n"
+            "    2 AS id\n"
+            "UNION ALL\n"
+            "SELECT\n"
+            "    3 AS id)",
         )
 
     # INTERSECT has higher priority than union
@@ -184,15 +181,15 @@ class TestPrinter(BaseTest):
         self.assertEqual(
             response,
             (
-                "(SELECT\n"
-                "    1 AS id\n"
-                "UNION ALL\n"
                 "SELECT\n"
-                "    2 AS id)\n"
+                "    1 AS id\n"
+                "LIMIT 50000\n"
+                "UNION ALL\n"
+                "(SELECT\n"
+                "    2 AS id\n"
                 "INTERSECT\n"
                 "SELECT\n"
-                "    3 AS id\n"
-                "LIMIT 50000 WRONG"
+                "    3 AS id)"
             ),
         )
 

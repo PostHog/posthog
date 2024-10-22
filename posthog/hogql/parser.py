@@ -342,7 +342,12 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         select_queries: list[ast.SelectQuery | ast.SelectUnionQuery | ast.Placeholder] = [
             self.visit(select)
             for select in ctx.children
-            if isinstance(select, HogQLParser.SelectStmtWithParensContext | HogQLParser.SelectUnionStmtContext)
+            if isinstance(
+                select,
+                HogQLParser.SelectStmtWithParensContext
+                | HogQLParser.SelectIntersectStmtContext
+                | HogQLParser.SelectUnionStmtContext,
+            )
         ]
         flattened_queries: list[ast.SelectQuery | ast.SelectUnionQuery] = []
         for query in select_queries:

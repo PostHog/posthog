@@ -53,8 +53,8 @@ kvPairList: kvPair (COMMA kvPair)* COMMA?;
 // SELECT statement
 select: (selectSetStmt | selectStmt | hogqlxTagElement) EOF;
 
-selectUnionStmt: selectStmtWithParens (UNION ALL selectStmtWithParens)*;
-selectIntersectStmt: (selectStmtWithParens | selectUnionStmt) (INTERSECT (selectStmtWithParens | selectUnionStmt))*;
+selectIntersectStmt: selectStmtWithParens (INTERSECT selectStmtWithParens)*;
+selectUnionStmt: (selectStmtWithParens | selectIntersectStmt) (UNION ALL (selectStmtWithParens | selectIntersectStmt))*;
 selectSetStmt
     : selectIntersectStmt
     | selectUnionStmt;
