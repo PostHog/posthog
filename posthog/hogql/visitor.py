@@ -589,6 +589,7 @@ class CloningVisitor(Visitor[Any]):
             end=None if self.clear_locations else node.end,
             type=None if self.clear_types else node.type,
             select_queries=[self.visit(expr) for expr in node.select_queries],
+            value=node.value,
         )
 
     def visit_window_expr(self, node: ast.WindowExpr):

@@ -19,6 +19,7 @@ from posthog.hogql.filters import replace_filters
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql.variables import replace_variables
 from posthog.hogql.visitor import clone_expr
+from posthog.hogql.resolver_utils import extract_select_queries
 from posthog.models.team import Team
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.client import sync_execute
@@ -105,10 +106,7 @@ def execute_hogql_query(
             select_query = replace_placeholders(select_query, placeholders)
 
     with timings.measure("max_limit"):
-        select_queries = (
-            select_query.select_queries if isinstance(select_query, ast.SelectUnionQuery) else [select_query]
-        )
-        for one_query in select_queries:
+        for one_query in extract_select_queries(select_query):
             if one_query.limit is None:
                 one_query.limit = ast.Constant(value=get_default_limit_for_context(limit_context))
 

@@ -13,6 +13,7 @@ from posthog.hogql.variables import replace_variables
 from posthog.hogql.visitor import clone_expr
 from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models import Team
+from posthog.hogql.resolver_utils import extract_select_queries
 from posthog.schema import HogQLMetadataResponse, HogQLMetadata, HogQLNotice, HogLanguage
 from posthog.hogql import ast
 
@@ -115,14 +116,8 @@ def process_expr_on_table(
 
 
 def is_valid_view(select_query: ast.SelectQuery | ast.SelectUnionQuery) -> bool:
-    if isinstance(select_query, ast.SelectQuery):
-        for field in select_query.select:
+    for query in extract_select_queries(select_query):
+        for field in query.select:
             if not isinstance(field, ast.Alias):
                 return False
-    elif isinstance(select_query, ast.SelectUnionQuery):
-        for select in select_query.select_queries:
-            for field in select.select:
-                if not isinstance(field, ast.Alias):
-                    return False
-
     return True

@@ -1,5 +1,6 @@
 from enum import StrEnum
 from typing import Any, Literal, Optional, Union
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 
 from posthog.hogql.base import Type, Expr, CTE, ConstantType, UnknownType, AST
@@ -277,7 +278,7 @@ class SelectQueryType(Type):
 
 @dataclass(kw_only=True)
 class SelectUnionQueryType(Type):
-    types: list[SelectQueryType]
+    types: list[Union[SelectQueryType, "SelectUnionQueryType"]]
 
     def get_alias_for_table_type(self, table_type: TableOrSelectType) -> Optional[str]:
         return self.types[0].get_alias_for_table_type(table_type)
@@ -803,7 +804,8 @@ class SelectQuery(Expr):
 @dataclass(kw_only=True)
 class SelectUnionQuery(Expr):
     type: Optional[SelectUnionQueryType] = None
-    select_queries: list[SelectQuery]
+    value: Optional[Literal["UNION ALL", "INTERSECT"]] = None
+    select_queries: Sequence[Union[SelectQuery, "SelectUnionQuery"]]
 
 
 @dataclass(kw_only=True)

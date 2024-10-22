@@ -28,6 +28,7 @@ from posthog.hogql.resolver import resolve_types
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql.visitor import TraversingVisitor, clone_expr
 from posthog.hogql_queries.query_runner import get_query_runner
+from posthog.hogql.resolver_utils import extract_select_queries
 from posthog.models.insight_variable import InsightVariable
 from posthog.models.property_definition import PropertyDefinition
 from posthog.models.team.team import Team
@@ -476,7 +477,7 @@ def get_hogql_autocomplete(
             if isinstance(select_ast, ast.SelectQuery):
                 ctes = select_ast.ctes
             elif isinstance(select_ast, ast.SelectUnionQuery):
-                ctes = select_ast.select_queries[0].ctes
+                ctes = next(extract_select_queries(select_ast)).ctes
             nearest_select = find_node.nearest_select_query or select_ast
 
             table_has_alias = (

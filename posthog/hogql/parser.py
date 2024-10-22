@@ -327,28 +327,47 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
     ##### HogQL rules
 
     def visitSelect(self, ctx: HogQLParser.SelectContext):
-        return self.visit(ctx.selectUnionStmt() or ctx.selectStmt() or ctx.hogqlxTagElement())
+        return self.visit(ctx.selectSetStmt() or ctx.selectStmt() or ctx.hogqlxTagElement())
 
-    def visitSelectUnionStmt(self, ctx: HogQLParser.SelectUnionStmtContext):
+    def visitSelectSetStmt(self, ctx: HogQLParser.SelectSetStmtContext):
+        return self.visit(ctx.selectUnionStmt() or ctx.selectIntersectStmt())
+
+    def visitSelectIntersectStmt(self, ctx: HogQLParser.SelectIntersectStmtContext):
+        return self.visitSelectUnionStmt(ctx)
+
+    def visitSelectUnionStmt(self, ctx: HogQLParser.SelectIntersectStmtContext | HogQLParser.SelectUnionStmtContext):
+        value: Literal["UNION ALL" | "INTERSECT"] = (
+            "INTERSECT" if isinstance(ctx, HogQLParser.SelectIntersectStmtContext) else "UNION ALL"
+        )
         select_queries: list[ast.SelectQuery | ast.SelectUnionQuery | ast.Placeholder] = [
-            self.visit(select) for select in ctx.selectStmtWithParens()
+            self.visit(select)
+            for select in ctx.children
+            if isinstance(
+                select,
+                HogQLParser.SelectStmtWithParensContext
+                | HogQLParser.SelectIntersectStmtContext
+                | HogQLParser.SelectUnionStmtContext,
+            )
         ]
-        flattened_queries: list[ast.SelectQuery] = []
+        flattened_queries: list[ast.SelectQuery | ast.SelectUnionQuery] = []
         for query in select_queries:
             if isinstance(query, ast.SelectQuery):
                 flattened_queries.append(query)
             elif isinstance(query, ast.SelectUnionQuery):
-                flattened_queries.extend(query.select_queries)
+                if query.value == value:
+                    flattened_queries.extend(query.select_queries)
+                else:
+                    flattened_queries.append(query)
             elif isinstance(query, ast.Placeholder):
                 flattened_queries.append(query)  # type: ignore
             else:
                 raise Exception(f"Unexpected query node type {type(query).__name__}")
         if len(flattened_queries) == 1:
             return flattened_queries[0]
-        return ast.SelectUnionQuery(select_queries=flattened_queries)
+        return ast.SelectUnionQuery(select_queries=flattened_queries, value=value)
 
     def visitSelectStmtWithParens(self, ctx: HogQLParser.SelectStmtWithParensContext):
-        return self.visit(ctx.selectStmt() or ctx.selectUnionStmt() or ctx.placeholder())
+        return self.visit(ctx.selectStmt() or ctx.selectSetStmt() or ctx.placeholder())
 
     def visitSelectStmt(self, ctx: HogQLParser.SelectStmtContext):
         select_query = ast.SelectQuery(
@@ -673,7 +692,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return ast.Dict(items=self.visit(ctx.kvPairList()) if ctx.kvPairList() else [])
 
     def visitColumnExprSubquery(self, ctx: HogQLParser.ColumnExprSubqueryContext):
-        return self.visit(ctx.selectUnionStmt())
+        return self.visit(ctx.selectSetStmt())
 
     def visitColumnExprLiteral(self, ctx: HogQLParser.ColumnExprLiteralContext):
         return self.visitChildren(ctx)
@@ -958,7 +977,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return ctes
 
     def visitWithExprSubquery(self, ctx: HogQLParser.WithExprSubqueryContext):
-        subquery = self.visit(ctx.selectUnionStmt())
+        subquery = self.visit(ctx.selectSetStmt())
         name = self.visit(ctx.identifier())
         return ast.CTE(name=name, expr=subquery, cte_type="subquery")
 
@@ -992,7 +1011,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return ast.Field(chain=chain)
 
     def visitTableExprSubquery(self, ctx: HogQLParser.TableExprSubqueryContext):
-        return self.visit(ctx.selectUnionStmt())
+        return self.visit(ctx.selectSetStmt())
 
     def visitTableExprPlaceholder(self, ctx: HogQLParser.TableExprPlaceholderContext):
         return self.visit(ctx.placeholder())

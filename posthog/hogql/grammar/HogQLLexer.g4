@@ -49,6 +49,7 @@ ILIKE: I L I K E;
 IN: I N;
 INF: I N F | I N F I N I T Y;
 INNER: I N N E R;
+INTERSECT: I N T E R S E C T;
 INTERVAL: I N T E R V A L;
 IS: I S;
 JOIN: J O I N;
