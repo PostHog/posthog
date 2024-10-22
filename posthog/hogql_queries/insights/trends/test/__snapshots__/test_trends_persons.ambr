@@ -1,14 +1,4 @@
 # serializer version: 1
-# name: TestTrendsPersons.test_trends_all_cohort_breakdown_persons_leftjoin
-  '''
-  
-  SELECT count(DISTINCT person_id)
-  FROM cohortpeople
-  WHERE team_id = 2
-    AND cohort_id = 2
-    AND version = NULL
-  '''
-# ---
 # name: TestTrendsPersons.test_trends_all_cohort_breakdown_persons_leftjoin.1
   '''
   /* cohort_calculation: */
