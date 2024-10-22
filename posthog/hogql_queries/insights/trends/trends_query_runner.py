@@ -829,7 +829,9 @@ class TrendsQueryRunner(QueryRunner):
                                 "days": any_result.get("days"),
                             }
                         )
-                new_result = self.apply_formula_to_results_group(row_results, formula, is_total_value)
+                new_result = self.apply_formula_to_results_group(
+                    row_results, formula, breakdown_value=breakdown_value, aggregate_values=is_total_value
+                )
                 computed_results.append(new_result)
 
             if has_compare:
@@ -843,13 +845,17 @@ class TrendsQueryRunner(QueryRunner):
 
     @staticmethod
     def apply_formula_to_results_group(
-        results_group: list[dict[str, Any]], formula: str, aggregate_values: Optional[bool] = False
+        results_group: list[dict[str, Any]],
+        formula: str,
+        *,
+        breakdown_value: Any = None,
+        aggregate_values: Optional[bool] = False,
     ) -> dict[str, Any]:
         """
         Applies the formula to a list of results, resulting in a single, computed result.
         """
         base_result = results_group[0]
-        base_result["label"] = f"Formula ({formula})"
+        base_result["label"] = f"Formula ({formula})" if breakdown_value is None else breakdown_value
         base_result["action"] = None
 
         if aggregate_values:

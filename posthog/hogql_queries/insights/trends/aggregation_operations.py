@@ -138,7 +138,18 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
         else:
             chain = ["properties", self.series.math_property]
 
-        return ast.Call(name=method, args=[ast.Field(chain=chain)])
+        return ast.Call(
+            # Two caveats here:
+            # 1. We always parse/convert the value to a Float64, to make sure it's a number. This truncates precision
+            # of very large integers, but it's a tradeoff preventing queries failing with "Illegal type String"
+            # 2. We fall back to 0 when there's no data, which is not quite kosher for math functions other than sum
+            # (null would actually be more meaningful for e.g. min or max), but formulas aren't equipped to handle nulls
+            name="ifNull",
+            args=[
+                ast.Call(name=method, args=[ast.Call(name="toFloat", args=[ast.Field(chain=chain)])]),
+                ast.Constant(value=0),
+            ],
+        )
 
     def _math_quantile(self, percentile: float, override_chain: Optional[list[str | int]]) -> ast.Call:
         if self.series.math_property == "$session_duration":
