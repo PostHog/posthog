@@ -8,6 +8,7 @@ import {
     PropertyOperator,
     RecordingUniversalFilters,
     ReplayTabs,
+    ReplayTemplateCategory,
     ReplayTemplateType,
     ReplayTemplateVariableType,
     UniversalFiltersGroupValue,
@@ -54,12 +55,15 @@ const getFlagFilterValue = (flag: string): UniversalFiltersGroupValue => {
 
 export interface ReplayTemplateLogicPropsType {
     template: ReplayTemplateType
+    // one card can be in multiple categories,
+    // key on the category so that multiple instances of the same card are isolated
+    category: ReplayTemplateCategory
 }
 
 export const sessionReplayTemplatesLogic = kea<sessionReplayTemplatesLogicType>([
     path(() => ['scenes', 'session-recordings', 'templates', 'sessionReplayTemplatesLogic']),
     props({} as ReplayTemplateLogicPropsType),
-    key((props) => props.template.key),
+    key((props) => `${props.category}-${props.template.key}`),
     actions({
         setVariables: (variables: ReplayTemplateVariableType[]) => ({ variables }),
         setVariable: (variable: ReplayTemplateVariableType) => ({ variable }),
@@ -101,7 +105,7 @@ export const sessionReplayTemplatesLogic = kea<sessionReplayTemplatesLogicType>(
                         }
                         return undefined
                     })
-                    .filter((filter) => filter !== undefined)
+                    .filter((filter): filter is UniversalFiltersGroupValue => filter !== undefined)
 
                 const filterGroup: Partial<RecordingUniversalFilters> = {
                     filter_group: {

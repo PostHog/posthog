@@ -129,9 +129,15 @@ const TemplateVariables = ({ template }: { template: ReplayTemplateType }): JSX.
     )
 }
 
-const RecordingTemplateCard = ({ template }: { template: ReplayTemplateType }): JSX.Element => {
-    const { showVariables, hideVariables, navigate } = useActions(sessionReplayTemplatesLogic({ template }))
-    const { variablesVisible, editableVariables } = useValues(sessionReplayTemplatesLogic({ template }))
+const RecordingTemplateCard = ({
+    template,
+    category,
+}: {
+    template: ReplayTemplateType
+    category: ReplayTemplateCategory
+}): JSX.Element => {
+    const { showVariables, hideVariables, navigate } = useActions(sessionReplayTemplatesLogic({ template, category }))
+    const { variablesVisible, editableVariables } = useValues(sessionReplayTemplatesLogic({ template, category }))
 
     return (
         <LemonCard
@@ -142,6 +148,7 @@ const RecordingTemplateCard = ({ template }: { template: ReplayTemplateType }): 
             closeable={variablesVisible}
             onClose={hideVariables}
             focused={variablesVisible}
+            data-attr={`session-replay-template-${category}-${template.key}`}
         >
             <div className="flex flex-col gap-2">
                 <div className="flex items-center gap-2">
@@ -179,7 +186,7 @@ const SessionRecordingTemplates = (): JSX.Element => {
                         {replayTemplates
                             .filter((template) => template.categories.includes(category))
                             .map((template) => (
-                                <RecordingTemplateCard key={template.key} template={template} />
+                                <RecordingTemplateCard key={template.key} template={template} category={category} />
                             ))}
                     </div>
                 </div>
