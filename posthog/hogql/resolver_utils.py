@@ -1,4 +1,5 @@
 from typing import Optional
+from collections.abc import Generator
 
 from posthog import schema
 from posthog.hogql import ast
@@ -86,3 +87,11 @@ def expand_hogqlx_query(node: ast.HogQLXTag, team_id: Optional[int]):
         return query
     except Exception as e:
         raise ResolutionError(f"Error parsing query tag: {e}", start=node.start, end=node.end)
+
+
+def extract_select_queries(select: ast.SelectUnionQuery | ast.SelectQuery) -> Generator[ast.SelectQuery, None, None]:
+    if isinstance(select, ast.SelectQuery):
+        yield select
+    else:
+        for select_query in select.select_queries:
+            extract_select_queries(select_query)

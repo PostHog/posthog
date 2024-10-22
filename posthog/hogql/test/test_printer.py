@@ -122,6 +122,60 @@ class TestPrinter(BaseTest):
             f"SELECT\n    1 AS id\nLIMIT 50000\nINTERSECT\nSELECT\n    2 AS id\nLIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
 
+    def test_intersect3(self):
+        expr = parse_select("""select 1 as id intersect select 2 as id intersect select 3 as id""", backend="python")
+        response = to_printed_hogql(expr, self.team)
+        self.assertEqual(
+            response,
+            "SELECT\n"
+            "    1 AS id\n"
+            "LIMIT 50000\n"
+            "INTERSECT\n"
+            "SELECT\n"
+            "    2 AS id\n"
+            "LIMIT 50000\n"
+            "INTERSECT\n"
+            "SELECT\n"
+            "    3 AS id\n"
+            "LIMIT 50000",
+        )
+
+    def test_union3(self):
+        expr = parse_select("""select 1 as id union all select 2 as id union all select 3 as id""", backend="python")
+        response = to_printed_hogql(expr, self.team)
+        self.assertEqual(
+            response,
+            "SELECT\n"
+            "    1 AS id\n"
+            "LIMIT 50000\n"
+            "UNION ALL\n"
+            "SELECT\n"
+            "    2 AS id\n"
+            "LIMIT 50000\n"
+            "UNION ALL\n"
+            "SELECT\n"
+            "    3 AS id\n"
+            "LIMIT 50000",
+        )
+
+    # INTERSECT has higher priority than union
+    def test_intersect_and_union_parens(self):
+        expr = parse_select("""(select 1 as id intersect select 2 as id) union all select 3 as id""", backend="python")
+        response = to_printed_hogql(expr, self.team)
+        self.assertEqual(
+            response,
+            f"SELECT\n    1 AS id\nLIMIT 50000\nINTERSECT\nSELECT\n    2 AS id\nLIMIT {MAX_SELECT_RETURNED_ROWS}",
+        )
+
+    # INTERSECT has higher priority than union
+    def test_intersect_and_union(self):
+        expr = parse_select("""select 1 as id intersect select 2 as id union all select 3 as id""", backend="python")
+        response = to_printed_hogql(expr, self.team)
+        self.assertEqual(
+            response,
+            f"SELECT\n    1 AS id\nLIMIT 50000\nINTERSECT\nSELECT\n    2 AS id\nLIMIT {MAX_SELECT_RETURNED_ROWS}",
+        )
+
     def test_print_to_string(self):
         assert str(parse_select("select 1 + 2, 3 from events")) == "sql(SELECT plus(1, 2), 3 FROM events)"
         assert str(parse_expr("1 + 2")) == "sql(plus(1, 2))"

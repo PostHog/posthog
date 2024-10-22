@@ -277,7 +277,7 @@ class SelectQueryType(Type):
 
 @dataclass(kw_only=True)
 class SelectUnionQueryType(Type):
-    types: list[SelectQueryType]
+    types: list[Union[SelectQueryType, "SelectUnionQueryType"]]
 
     def get_alias_for_table_type(self, table_type: TableOrSelectType) -> Optional[str]:
         return self.types[0].get_alias_for_table_type(table_type)
@@ -804,7 +804,7 @@ class SelectQuery(Expr):
 class SelectUnionQuery(Expr):
     type: Optional[SelectUnionQueryType] = None
     value: Optional[Literal["UNION ALL", "INTERSECT"]] = None
-    select_queries: list[SelectQuery]
+    select_queries: list[Union[SelectQuery, "SelectUnionQuery"]]
 
 
 @dataclass(kw_only=True)

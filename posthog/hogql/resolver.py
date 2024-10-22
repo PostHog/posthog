@@ -24,7 +24,12 @@ from posthog.hogql.functions.recording_button import recording_button
 from posthog.hogql.functions.sparkline import sparkline
 from posthog.hogql.hogqlx import HOGQLX_COMPONENTS, convert_to_hx
 from posthog.hogql.parser import parse_select
-from posthog.hogql.resolver_utils import expand_hogqlx_query, lookup_cte_by_name, lookup_field_by_name
+from posthog.hogql.resolver_utils import (
+    expand_hogqlx_query,
+    lookup_cte_by_name,
+    lookup_field_by_name,
+    extract_select_queries,
+)
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 from posthog.models.utils import UUIDT
 
@@ -126,12 +131,12 @@ class Resolver(CloningVisitor):
     def visit_select_union_query(self, node: ast.SelectUnionQuery):
         # all expressions combined by UNION ALL can use CTEs from the first expression
         # so we put these CTEs to the scope
-        default_ctes = node.select_queries[0].ctes if node.select_queries else None
+        default_ctes = next(extract_select_queries(node)).ctes
         if default_ctes:
             self.scopes.append(ast.SelectQueryType(ctes=default_ctes))
 
         node = super().visit_select_union_query(node)
-        node.type = ast.SelectUnionQueryType(types=[expr.type for expr in node.select_queries])
+        node.type = ast.SelectUnionQueryType(types=[expr.type for expr in node.select_queries])  # type: ignore
 
         if default_ctes:
             self.scopes.pop()

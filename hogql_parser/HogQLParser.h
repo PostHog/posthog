@@ -604,8 +604,8 @@ public:
   public:
     SelectSetStmtContext(antlr4::ParserRuleContext *parent, size_t invokingState);
     virtual size_t getRuleIndex() const override;
-    SelectUnionStmtContext *selectUnionStmt();
     SelectIntersectStmtContext *selectIntersectStmt();
+    SelectUnionStmtContext *selectUnionStmt();
 
 
     virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;

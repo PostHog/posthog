@@ -6,6 +6,7 @@ from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.parser import parse_expr, parse_order_expr
 from posthog.hogql.property import has_aggregation
+from posthog.hogql.resolver_utils import extract_select_queries
 from posthog.hogql_queries.actor_strategies import ActorStrategy, PersonStrategy, GroupStrategy
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
 from posthog.hogql_queries.insights.insight_actors_query_runner import InsightActorsQueryRunner
@@ -147,7 +148,7 @@ class ActorsQueryRunner(QueryRunner):
         if isinstance(source_query, ast.SelectQuery):
             select = source_query.select
         else:
-            select = source_query.select_queries[0].select
+            select = next(extract_select_queries(source_query)).select
 
         for column in select:
             if isinstance(column, ast.Alias) and (column.alias in ("group_key", "actor_id", "person_id")):

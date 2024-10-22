@@ -309,7 +309,7 @@ void hogqlparserParserInitialize() {
   	0,0,0,371,374,1,0,0,0,372,370,1,0,0,0,372,373,1,0,0,0,373,45,1,0,0,0,
   	374,372,1,0,0,0,375,380,3,50,25,0,376,377,5,46,0,0,377,379,3,50,25,0,
   	378,376,1,0,0,0,379,382,1,0,0,0,380,378,1,0,0,0,380,381,1,0,0,0,381,47,
-  	1,0,0,0,382,380,1,0,0,0,383,386,3,44,22,0,384,386,3,46,23,0,385,383,1,
+  	1,0,0,0,382,380,1,0,0,0,383,386,3,46,23,0,384,386,3,44,22,0,385,383,1,
   	0,0,0,385,384,1,0,0,0,386,49,1,0,0,0,387,394,3,52,26,0,388,389,5,132,
   	0,0,389,390,3,48,24,0,390,391,5,151,0,0,391,394,1,0,0,0,392,394,3,164,
   	82,0,393,387,1,0,0,0,393,388,1,0,0,0,393,392,1,0,0,0,394,51,1,0,0,0,395,
@@ -2909,12 +2909,12 @@ HogQLParser::SelectSetStmtContext::SelectSetStmtContext(ParserRuleContext *paren
   : ParserRuleContext(parent, invokingState) {
 }
 
-HogQLParser::SelectUnionStmtContext* HogQLParser::SelectSetStmtContext::selectUnionStmt() {
-  return getRuleContext<HogQLParser::SelectUnionStmtContext>(0);
-}
-
 HogQLParser::SelectIntersectStmtContext* HogQLParser::SelectSetStmtContext::selectIntersectStmt() {
   return getRuleContext<HogQLParser::SelectIntersectStmtContext>(0);
+}
+
+HogQLParser::SelectUnionStmtContext* HogQLParser::SelectSetStmtContext::selectUnionStmt() {
+  return getRuleContext<HogQLParser::SelectUnionStmtContext>(0);
 }
 
 
@@ -2948,14 +2948,14 @@ HogQLParser::SelectSetStmtContext* HogQLParser::selectSetStmt() {
     case 1: {
       enterOuterAlt(_localctx, 1);
       setState(383);
-      selectUnionStmt();
+      selectIntersectStmt();
       break;
     }
 
     case 2: {
       enterOuterAlt(_localctx, 2);
       setState(384);
-      selectIntersectStmt();
+      selectUnionStmt();
       break;
     }
 

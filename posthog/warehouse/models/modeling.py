@@ -10,6 +10,7 @@ from django.db import connection, models, transaction
 from posthog.hogql import ast
 from posthog.hogql.database.database import Database, create_hogql_database
 from posthog.hogql.parser import parse_select
+from posthog.hogql.resolver_utils import extract_select_queries
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.utils import (
@@ -100,7 +101,7 @@ def get_parents_from_model_query(model_query: str) -> set[str]:
     hogql_query = parse_select(model_query)
 
     if isinstance(hogql_query, ast.SelectUnionQuery):
-        queries = hogql_query.select_queries
+        queries = list(extract_select_queries(hogql_query))
     else:
         queries = [hogql_query]
 
@@ -115,7 +116,7 @@ def get_parents_from_model_query(model_query: str) -> set[str]:
                 ctes.add(name)
 
                 if isinstance(cte.expr, ast.SelectUnionQuery):
-                    queries.extend(cte.expr.select_queries)
+                    queries.extend(list(extract_select_queries(cte.expr)))
                 elif isinstance(cte.expr, ast.SelectQuery):
                     queries.append(cte.expr)
 
@@ -131,7 +132,7 @@ def get_parents_from_model_query(model_query: str) -> set[str]:
 
             queries.append(join.table)
         elif isinstance(join.table, ast.SelectUnionQuery):
-            queries.extend(join.table.select_queries)
+            queries.extend(list(extract_select_queries(join.table)))
 
         while join is not None:
             parent_name = join.table.chain[0]  # type: ignore

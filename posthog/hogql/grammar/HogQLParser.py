@@ -220,8 +220,8 @@ def serializedATN():
         1,0,0,0,371,374,1,0,0,0,372,370,1,0,0,0,372,373,1,0,0,0,373,45,1,
         0,0,0,374,372,1,0,0,0,375,380,3,50,25,0,376,377,5,46,0,0,377,379,
         3,50,25,0,378,376,1,0,0,0,379,382,1,0,0,0,380,378,1,0,0,0,380,381,
-        1,0,0,0,381,47,1,0,0,0,382,380,1,0,0,0,383,386,3,44,22,0,384,386,
-        3,46,23,0,385,383,1,0,0,0,385,384,1,0,0,0,386,49,1,0,0,0,387,394,
+        1,0,0,0,381,47,1,0,0,0,382,380,1,0,0,0,383,386,3,46,23,0,384,386,
+        3,44,22,0,385,383,1,0,0,0,385,384,1,0,0,0,386,49,1,0,0,0,387,394,
         3,52,26,0,388,389,5,132,0,0,389,390,3,48,24,0,390,391,5,151,0,0,
         391,394,1,0,0,0,392,394,3,164,82,0,393,387,1,0,0,0,393,388,1,0,0,
         0,393,392,1,0,0,0,394,51,1,0,0,0,395,397,3,54,27,0,396,395,1,0,0,
@@ -2665,12 +2665,12 @@ class HogQLParser ( Parser ):
             super().__init__(parent, invokingState)
             self.parser = parser
 
-        def selectUnionStmt(self):
-            return self.getTypedRuleContext(HogQLParser.SelectUnionStmtContext,0)
-
-
         def selectIntersectStmt(self):
             return self.getTypedRuleContext(HogQLParser.SelectIntersectStmtContext,0)
+
+
+        def selectUnionStmt(self):
+            return self.getTypedRuleContext(HogQLParser.SelectUnionStmtContext,0)
 
 
         def getRuleIndex(self):
@@ -2696,13 +2696,13 @@ class HogQLParser ( Parser ):
             if la_ == 1:
                 self.enterOuterAlt(localctx, 1)
                 self.state = 383
-                self.selectUnionStmt()
+                self.selectIntersectStmt()
                 pass
 
             elif la_ == 2:
                 self.enterOuterAlt(localctx, 2)
                 self.state = 384
-                self.selectIntersectStmt()
+                self.selectUnionStmt()
                 pass
 
 
