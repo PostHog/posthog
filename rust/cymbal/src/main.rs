@@ -118,7 +118,7 @@ async fn main() -> Result<(), Error> {
 
         let mut resolved_frames = Vec::new();
         for frame in stack_trace {
-            let resolved = match context.resolver.resolve(frame.clone(), 1).await {
+            let resolved = match frame.resolve(event.team_id, &context.catalog).await {
                 Ok(r) => r,
                 Err(err) => {
                     metrics::counter!(ERRORS, "cause" => "frame_not_parsable").increment(1);

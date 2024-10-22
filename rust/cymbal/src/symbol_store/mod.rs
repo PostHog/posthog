@@ -1,33 +1,45 @@
-use std::{
-    fmt::{Display, Formatter},
-    sync::Arc,
-};
+use std::sync::Arc;
 
+use ::sourcemap::SourceMap;
 use axum::async_trait;
+use caching::{CacheInner, CachingProvider};
 use reqwest::Url;
+use sourcemap::SourcemapProvider;
+use tokio::sync::Mutex;
 
 use crate::error::Error;
 
-pub mod basic;
 pub mod caching;
+pub mod sourcemap;
+
+pub trait SymbolCatlog<Ref, Set>: Send + Sync + 'static {
+    fn get(&self) -> &dyn SymbolProvider<Ref = Ref, Set = Set>;
+}
 
 #[async_trait]
-pub trait SymbolStore: Send + Sync + 'static {
+pub trait SymbolProvider: Send + Sync + 'static {
+    type Ref;
+    type Set;
     // Symbol stores return an Arc, to allow them to cache (and evict) without any consent from callers
-    async fn fetch(&self, team_id: i32, r: SymbolSetRef) -> Result<Arc<Vec<u8>>, Error>;
+    async fn fetch(&self, team_id: i32, r: Self::Ref) -> Result<Arc<Self::Set>, Error>;
 }
 
-#[derive(Debug, Clone, Hash, Eq, PartialEq)]
-pub enum SymbolSetRef {
-    Js(Url),
+pub struct Catalog {
+    pub sourcemap: CachingProvider<SourcemapProvider>,
+    pub cache: Arc<Mutex<CacheInner>>,
 }
 
-// We provide this to allow for using these refs as primary keys in some arbitrary storage system,
-// like s3 or a database. The result should be ~unique, per team.
-impl Display for SymbolSetRef {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            SymbolSetRef::Js(url) => write!(f, "{}", url),
-        }
+impl Catalog {
+    pub fn new(max_bytes: usize, sourcemap: SourcemapProvider) -> Self {
+        let cache = Arc::new(Mutex::new(CacheInner::new(max_bytes)));
+        let sourcemap = CachingProvider::new(max_bytes, sourcemap, cache.clone());
+
+        Self { sourcemap, cache }
+    }
+}
+
+impl SymbolCatlog<Url, SourceMap> for Catalog {
+    fn get(&self) -> &dyn SymbolProvider<Ref = Url, Set = SourceMap> {
+        &self.sourcemap
     }
 }

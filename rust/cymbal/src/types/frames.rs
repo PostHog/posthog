@@ -1,10 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    error::{Error, ResolutionError},
-    langs::js::RawJSFrame,
-    symbol_store::SymbolSetRef,
-};
+use crate::{error::Error, langs::js::RawJSFrame, symbol_store::Catalog};
 
 // We consume a huge variety of differently shaped stack frames, which we have special-case
 // transformation for, to produce a single, unified representation of a frame.
@@ -15,26 +11,10 @@ pub enum RawFrame {
 }
 
 impl RawFrame {
-    pub fn source_ref(&self) -> Result<SymbolSetRef, Error> {
-        let RawFrame::JavaScript(raw) = self;
-        let id = raw.source_ref();
-        id.map(SymbolSetRef::Js).map_err(Error::from)
-    }
-
-    // We expect different exception types to handle failure to resolve differently,
-    // so raw frames are handed the error in the event of one to see if they can
-    // turn it into a Frame anyway. E.g. for JS frames, if the failure is that
-    // we didn't manage to find a sourcemap, that indicates we should treat the
-    // frame as a "real" frame, and just pass it through.
-    pub fn try_handle_resolve_error(&self, e: Error) -> Result<Frame, Error> {
+    pub async fn resolve(&self, team_id: i32, catalog: &Catalog) -> Result<Frame, Error> {
         let RawFrame::JavaScript(raw) = self;
 
-        // We unpack the general resolution error into the specific one our inner frame can
-        // handle
-        let Error::ResolutionError(ResolutionError::JavaScript(e)) = e else {
-            return Err(e);
-        };
-        raw.try_handle_resolution_error(e)
+        raw.resolve(team_id, catalog).await
     }
 }
 
