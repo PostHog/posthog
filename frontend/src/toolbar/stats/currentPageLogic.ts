@@ -29,7 +29,7 @@ const replaceWithWildcard = (part: string): string => {
 export function withoutPostHogInit(href: string): string {
     try {
         const url = new URL(href)
-        url.hash = url.hash.replace(/__posthog=\{.*}/, '').replace(/^##/, '#')
+        url.hash = url.hash.replace(/__posthog=\{[^}]*}[^#]*/, '').replace(/^##/, '#')
         url.hash = url.hash === '#' ? '' : url.hash
         return url.toString()
     } catch {

@@ -11,6 +11,14 @@ describe('current page logic', () => {
                 'https://wat.io/?something=a#myfragment'
             )
         })
+        it('can handle multiple curly braces in the init', () => {
+            // not technically a valid URL but :shrug:
+            expect(
+                withoutPostHogInit(
+                    `https://wat.io?something=a#__posthog={something}and something}#myfragment={something}`
+                )
+            ).toBe('https://wat.io/?something=a#myfragment={something}')
+        })
         it('can ignore posthog init hash param when no other hash params present', () => {
             expect(withoutPostHogInit(`https://wat.io?something=a#${posthogInitHashParam}`)).toBe(
                 'https://wat.io/?something=a'
