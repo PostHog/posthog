@@ -835,6 +835,8 @@ export type TrendsFilter = {
     display?: TrendsFilterLegacy['display']
     /** @default false */
     showLegend?: TrendsFilterLegacy['show_legend']
+    /** @default false */
+    showAlertThresholdLines?: boolean
     breakdown_histogram_bin_count?: TrendsFilterLegacy['breakdown_histogram_bin_count'] // TODO: fully move into BreakdownFilter
     /** @default numeric */
     aggregationAxisFormat?: TrendsFilterLegacy['aggregation_axis_format']
