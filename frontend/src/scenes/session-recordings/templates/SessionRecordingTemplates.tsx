@@ -26,7 +26,15 @@ const allCategories: ReplayTemplateCategory[] = replayTemplates
     .flatMap((template) => template.categories)
     .filter((category, index, self) => self.indexOf(category) === index)
 
-const NestedFilterGroup = ({ rootKey, buttonTitle }: { rootKey: string; buttonTitle?: string }): JSX.Element => {
+const NestedFilterGroup = ({
+    rootKey,
+    buttonTitle,
+    selectOne,
+}: {
+    rootKey: string
+    buttonTitle?: string
+    selectOne?: boolean
+}): JSX.Element => {
     const { filterGroup } = useValues(universalFiltersLogic)
     const { replaceGroupValue, removeGroupValue } = useActions(universalFiltersLogic)
 
@@ -48,9 +56,11 @@ const NestedFilterGroup = ({ rootKey, buttonTitle }: { rootKey: string; buttonTi
                         />
                     )
                 })}
-                <div>
-                    <UniversalFilters.AddFilterButton title={buttonTitle} type="secondary" size="xsmall" />
-                </div>
+                {selectOne && filterGroup.values.length === 0 && (
+                    <div>
+                        <UniversalFilters.AddFilterButton title={buttonTitle} type="secondary" size="xsmall" />
+                    </div>
+                )}
             </div>
         </div>
     )
@@ -103,6 +113,7 @@ const SingleTemplateVariable = ({
                     buttonTitle={`Select ${
                         variable.type === 'event' ? 'event' : variable.type === 'flag' ? 'flag' : 'person property'
                     }`}
+                    selectOne={variable.type == 'flag'}
                 />
             </UniversalFilters>
         </div>
