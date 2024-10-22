@@ -17,6 +17,11 @@ import {
 import { replayTemplates } from './availableTemplates'
 import { sessionReplayTemplatesLogic } from './sessionRecordingTemplatesLogic'
 
+interface RecordingTemplateCardProps {
+    template: ReplayTemplateType
+    category: ReplayTemplateCategory
+}
+
 const allCategories: ReplayTemplateCategory[] = replayTemplates
     .flatMap((template) => template.categories)
     .filter((category, index, self) => self.indexOf(category) === index)
@@ -53,12 +58,11 @@ const NestedFilterGroup = ({ rootKey, buttonTitle }: { rootKey: string; buttonTi
 
 const SingleTemplateVariable = ({
     variable,
-    template,
-}: {
+    ...props
+}: RecordingTemplateCardProps & {
     variable: ReplayTemplateVariableType
-    template: ReplayTemplateType
 }): JSX.Element | null => {
-    const { setVariable } = useActions(sessionReplayTemplatesLogic({ template }))
+    const { setVariable } = useActions(sessionReplayTemplatesLogic(props))
     useMountedLogic(actionsModel)
 
     return variable.type === 'pageview' ? (
@@ -105,13 +109,13 @@ const SingleTemplateVariable = ({
     ) : null
 }
 
-const TemplateVariables = ({ template }: { template: ReplayTemplateType }): JSX.Element => {
-    const { navigate } = useActions(sessionReplayTemplatesLogic({ template }))
-    const { variables, areAnyVariablesTouched } = useValues(sessionReplayTemplatesLogic({ template }))
+const TemplateVariables = (props: RecordingTemplateCardProps): JSX.Element => {
+    const { navigate } = useActions(sessionReplayTemplatesLogic(props))
+    const { variables, areAnyVariablesTouched } = useValues(sessionReplayTemplatesLogic(props))
     return (
         <div className="flex flex-col gap-2">
             {variables.map((variable) => (
-                <SingleTemplateVariable key={variable.key} variable={variable} template={template} />
+                <SingleTemplateVariable key={variable.key} variable={variable} {...props} />
             ))}
             <div>
                 <LemonButton
@@ -129,15 +133,9 @@ const TemplateVariables = ({ template }: { template: ReplayTemplateType }): JSX.
     )
 }
 
-const RecordingTemplateCard = ({
-    template,
-    category,
-}: {
-    template: ReplayTemplateType
-    category: ReplayTemplateCategory
-}): JSX.Element => {
-    const { showVariables, hideVariables, navigate } = useActions(sessionReplayTemplatesLogic({ template, category }))
-    const { variablesVisible, editableVariables } = useValues(sessionReplayTemplatesLogic({ template, category }))
+const RecordingTemplateCard = (props: RecordingTemplateCardProps): JSX.Element => {
+    const { showVariables, hideVariables, navigate } = useActions(sessionReplayTemplatesLogic(props))
+    const { variablesVisible, editableVariables } = useValues(sessionReplayTemplatesLogic(props))
 
     return (
         <LemonCard
@@ -148,23 +146,23 @@ const RecordingTemplateCard = ({
             closeable={variablesVisible}
             onClose={hideVariables}
             focused={variablesVisible}
-            data-attr={`session-replay-template-${category}-${template.key}`}
+            data-attr={`session-replay-template-${props.category}-${props.template.key}`}
         >
             <div className="flex flex-col gap-2">
                 <div className="flex items-center gap-2">
-                    {template.icon && (
+                    {props.template.icon && (
                         <div className="bg-accent-3000 rounded p-2 w-8 h-8 flex items-center justify-center">
-                            {template.icon}
+                            {props.template.icon}
                         </div>
                     )}
                     <h3 className="mb-0">
                         <Link onClick={() => showVariables()} className="text-primary">
-                            {template.name}
+                            {props.template.name}
                         </Link>
                     </h3>
                 </div>
-                <p>{template.description}</p>
-                {variablesVisible ? <TemplateVariables template={template} /> : null}
+                <p>{props.template.description}</p>
+                {variablesVisible ? <TemplateVariables {...props} /> : null}
             </div>
         </LemonCard>
     )
