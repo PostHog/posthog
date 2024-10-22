@@ -410,7 +410,7 @@ class DateTimeType(ConstantType):
 
 @dataclass(kw_only=True)
 class IntervalType(ConstantType):
-    data_type: ConstantDataType = field(default="timedelta", init=False)
+    data_type: ConstantDataType = field(default="unknown", init=False)
 
     def print_type(self) -> str:
         return "IntervalType"

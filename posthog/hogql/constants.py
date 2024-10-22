@@ -1,4 +1,4 @@
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from enum import StrEnum
 from typing import Optional, Literal, TypeAlias
 from uuid import UUID
@@ -13,11 +13,10 @@ ConstantDataType: TypeAlias = Literal[
     "tuple",
     "date",
     "datetime",
-    "timedelta",
     "uuid",
     "unknown",
 ]
-ConstantSupportedPrimitive: TypeAlias = int | float | str | bool | date | datetime | timedelta | UUID | None
+ConstantSupportedPrimitive: TypeAlias = int | float | str | bool | date | datetime | UUID | None
 ConstantSupportedData: TypeAlias = (
     ConstantSupportedPrimitive | list[ConstantSupportedPrimitive] | tuple[ConstantSupportedPrimitive, ...]
 )
