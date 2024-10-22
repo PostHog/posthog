@@ -197,7 +197,7 @@ export const replayTemplates: ReplayTemplateType[] = [
     {
         key: 'mobile-devices',
         name: 'Mobile devices',
-        description: 'Watch all replays from mobile devices to look for problems with your responsive design.',
+        description: 'Watch replays from mobile device web browsers to look for problems with your responsive design.',
         variables: [
             {
                 type: 'snapshot_source',
@@ -206,10 +206,17 @@ export const replayTemplates: ReplayTemplateType[] = [
                 description: 'Users who used your website on a mobile device.',
                 noTouch: true,
                 filterGroup: {
-                    key: 'snapshot_source',
-                    value: ['mobile'],
-                    operator: PropertyOperator.Exact,
-                    type: PropertyFilterType.Recording,
+                    id: '$pageview',
+                    name: '$pageview',
+                    type: 'events',
+                    properties: [
+                        {
+                            key: '$screen_width',
+                            value: '600',
+                            operator: PropertyOperator.LessThan,
+                            type: PropertyFilterType.Event,
+                        },
+                    ],
                 },
             },
         ],
