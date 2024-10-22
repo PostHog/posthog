@@ -2073,7 +2073,9 @@ export type EventTaxonomyQueryResponse = AnalyticsQueryResponseBase<EventTaxonom
 export type CachedEventTaxonomyQueryResponse = CachedQueryResponse<EventTaxonomyQueryResponse>
 
 export interface ActorsPropertyTaxonomyResponse {
-    sample_values: (string | number | boolean)[]
+    // Values can be floats and integers. The comment below is to preserve the `integer` type.
+    // eslint-disable-next-line @typescript-eslint/no-duplicate-type-constituents
+    sample_values: (string | number | boolean | integer)[]
     sample_count: integer
 }
 
