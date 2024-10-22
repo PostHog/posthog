@@ -169,7 +169,9 @@ class CreateTrendsPlanNode(AssistantNode):
                     {
                         "tools": toolkit.render_text_description(),
                         "tool_names": ", ".join([t["name"] for t in toolkit.tools]),
-                        "agent_scratchpad": format_log_to_str(intermediate_steps),
+                        "agent_scratchpad": format_log_to_str(
+                            [(action, output) for action, output in intermediate_steps if output is not None]
+                        ),
                     },
                     config,
                 ),
