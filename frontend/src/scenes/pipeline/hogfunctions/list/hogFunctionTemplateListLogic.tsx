@@ -5,10 +5,10 @@ import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils'
+import { hogFunctionNewUrl } from 'scenes/pipeline/hogfunctions/urls'
 import { pipelineAccessLogic } from 'scenes/pipeline/pipelineAccessLogic'
-import { urls } from 'scenes/urls'
 
-import { HogFunctionTemplateType, HogFunctionTypeType, PipelineStage } from '~/types'
+import { HogFunctionTemplateType, HogFunctionTypeType } from '~/types'
 
 import type { hogFunctionTemplateListLogicType } from './hogFunctionTemplateListLogicType'
 
@@ -122,16 +122,11 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
             (s) => [s.filters],
             (filters): ((template: HogFunctionTemplateType) => string) => {
                 return (template: HogFunctionTemplateType) => {
-                    const url =
-                        template.type === 'email'
-                            ? urls.messagingProviderNew(template.id)
-                            : urls.pipelineNodeNew(PipelineStage.Destination, `hog-${template.id}`)
-
                     // Add the filters to the url and the template id
                     const subTemplateId = filters.subTemplateId
 
                     return combineUrl(
-                        url,
+                        hogFunctionNewUrl(template.type, template.id),
                         {
                             sub_template: subTemplateId,
                         },

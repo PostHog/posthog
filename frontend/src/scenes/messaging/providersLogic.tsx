@@ -1,4 +1,5 @@
-import { kea, path, reducers, selectors } from 'kea'
+import { actions, kea, path, reducers, selectors } from 'kea'
+import { urlToAction } from 'kea-router'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -8,14 +9,17 @@ import type { providersLogicType } from './providersLogicType'
 
 export const providersLogic = kea<providersLogicType>([
     path(['scenes', 'messaging', 'providersLogic']),
-    reducers({
-        counter: [1, {}],
+    actions({
+        editProvider: (id: string | null, template: string | null) => ({ id, template }),
     }),
-
+    reducers({
+        providerId: [null as string | null, { editProvider: (_, { id }) => id }],
+        templateId: [null as string | null, { editProvider: (_, { template }) => template }],
+    }),
     selectors({
         breadcrumbs: [
-            () => [],
-            (): Breadcrumb[] => {
+            (s) => [s.providerId, s.templateId],
+            (providerId, templateId): Breadcrumb[] => {
                 return [
                     {
                         key: Scene.MessagingBroadcasts,
@@ -27,8 +31,39 @@ export const providersLogic = kea<providersLogicType>([
                         name: 'Providers',
                         path: urls.messagingProviders(),
                     },
+                    ...(providerId === 'new' || templateId
+                        ? [
+                              {
+                                  key: 'new-provider',
+                                  name: 'New provider',
+                                  path: urls.messagingProviderNew(),
+                              },
+                          ]
+                        : providerId
+                        ? [
+                              {
+                                  key: 'edit-provider',
+                                  name: 'Edit provider',
+                                  path: urls.messagingProvider(providerId),
+                              },
+                          ]
+                        : []),
                 ]
             },
         ],
     }),
+    urlToAction(({ actions }) => ({
+        '/messaging/providers/new': () => {
+            actions.editProvider('new', null)
+        },
+        '/messaging/providers/new/:template': ({ template }) => {
+            actions.editProvider('new', template ?? null)
+        },
+        '/messaging/providers/:id': ({ id }) => {
+            actions.editProvider(id ?? null, null)
+        },
+        '/messaging/providers': () => {
+            actions.editProvider(null, null)
+        },
+    })),
 ])

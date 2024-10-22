@@ -104,7 +104,6 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         ]
         read_only_fields = [
             "id",
-            "type",
             "created_at",
             "created_by",
             "updated_at",
@@ -204,8 +203,6 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
     def create(self, validated_data: dict, *args, **kwargs) -> HogFunction:
         request = self.context["request"]
         validated_data["created_by"] = request.user
-        # TODO: who sets this?
-        validated_data["type"] = "destination"
         return super().create(validated_data=validated_data)
 
     def update(self, instance: HogFunction, validated_data: dict, *args, **kwargs) -> HogFunction:
@@ -242,7 +239,6 @@ class HogFunctionViewSet(
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         if self.action == "list":
             queryset = queryset.filter(deleted=False)
-
             types = self.request.GET.get("type", "destination").split(",")
             queryset = queryset.filter(type__in=types)
 

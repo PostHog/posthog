@@ -11,8 +11,8 @@ import { uuid } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import posthog from 'posthog-js'
 import { asDisplay } from 'scenes/persons/person-utils'
+import { hogFunctionNewUrl, hogFunctionUrl } from 'scenes/pipeline/hogfunctions/urls'
 import { teamLogic } from 'scenes/teamLogic'
-import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { groupsModel } from '~/models/groupsModel'
@@ -34,9 +34,6 @@ import {
     HogFunctionTemplateType,
     HogFunctionType,
     PersonType,
-    PipelineNodeTab,
-    PipelineStage,
-    PipelineTab,
     PropertyFilterType,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
@@ -46,9 +43,9 @@ import { EmailTemplate } from './email-templater/emailTemplaterLogic'
 import type { hogFunctionConfigurationLogicType } from './hogFunctionConfigurationLogicType'
 
 export interface HogFunctionConfigurationLogicProps {
-    templateId?: string
-    subTemplateId?: string
-    id?: string
+    templateId?: string | null
+    subTemplateId?: string | null
+    id?: string | null
 }
 
 export const EVENT_VOLUME_DAILY_WARNING_THRESHOLD = 1000
@@ -95,7 +92,7 @@ export function sanitizeConfiguration(data: HogFunctionConfigurationType): HogFu
 
     const payload: HogFunctionConfigurationType = {
         ...data,
-        type: data.type ?? 'destination',
+
         filters: data.filters,
         inputs: sanitizedInputs,
         masking: data.masking?.hash ? data.masking : null,
@@ -110,7 +107,6 @@ const templateToConfiguration = (
     subTemplate?: HogFunctionSubTemplateType | null
 ): HogFunctionConfigurationType => {
     const inputs: Record<string, HogFunctionInputType> = {}
-
     template.inputs_schema?.forEach((schema) => {
         if (typeof subTemplate?.inputs?.[schema.key] !== 'undefined') {
             inputs[schema.key] = { value: subTemplate.inputs[schema.key] }
@@ -120,7 +116,7 @@ const templateToConfiguration = (
     })
 
     return {
-        type: 'destination',
+        type: template.type ?? 'destination',
         name: subTemplate?.name ?? template.name,
         description: subTemplate?.name ?? template.description,
         inputs_schema: template.inputs_schema,
@@ -406,6 +402,10 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
     })),
     selectors(() => ({
         logicProps: [() => [(_, props) => props], (props): HogFunctionConfigurationLogicProps => props],
+        type: [
+            (s) => [s.configuration, s.hogFunction],
+            (configuration, hogFunction) => configuration?.type ?? hogFunction?.type ?? 'destination',
+        ],
         hasAddon: [
             (s) => [s.hasAvailableFeature],
             (hasAvailableFeature) => {
@@ -771,13 +771,9 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     name: `${values.configuration.name} (copy)`,
                 }
                 const originalTemplate = values.hogFunction.template?.id ?? 'new'
-                router.actions.push(
-                    urls.pipelineNodeNew(PipelineStage.Destination, `hog-${originalTemplate}`),
-                    undefined,
-                    {
-                        configuration: newConfig,
-                    }
-                )
+                router.actions.push(hogFunctionNewUrl(newConfig.type, originalTemplate), undefined, {
+                    configuration: newConfig,
+                })
             }
         },
         duplicateFromTemplate: async () => {
@@ -785,13 +781,9 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 const newConfig = {
                     ...values.hogFunction.template,
                 }
-                router.actions.push(
-                    urls.pipelineNodeNew(PipelineStage.Destination, `hog-${values.hogFunction.template.id}`),
-                    undefined,
-                    {
-                        configuration: newConfig,
-                    }
-                )
+                router.actions.push(hogFunctionNewUrl(newConfig.type, newConfig.id), undefined, {
+                    configuration: newConfig,
+                })
             }
         },
         resetToTemplate: async () => {
@@ -828,7 +820,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             if (!values.hogFunction) {
                 return
             }
-            const { id, name } = values.hogFunction
+            const { id, name, type } = values.hogFunction
             await deleteWithUndo({
                 endpoint: `projects/${teamLogic.values.currentTeamId}/hog_functions`,
                 object: {
@@ -837,14 +829,12 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 },
                 callback(undo) {
                     if (undo) {
-                        router.actions.replace(
-                            urls.pipelineNode(PipelineStage.Destination, `hog-${id}`, PipelineNodeTab.Configuration)
-                        )
+                        router.actions.replace(hogFunctionUrl(type, id))
                     }
                 },
             })
 
-            router.actions.replace(urls.pipeline(PipelineTab.Destinations))
+            router.actions.replace(hogFunctionUrl(type))
         },
 
         setSubTemplateId: () => {
@@ -886,9 +876,8 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 // Catch all for any scenario where we need to redirect away from the template to the actual hog function
 
                 cache.disabledBeforeUnload = true
-                router.actions.replace(
-                    urls.pipelineNode(PipelineStage.Destination, `hog-${hogFunction.id}`, PipelineNodeTab.Configuration)
-                )
+
+                router.actions.replace(hogFunctionUrl(hogFunction.type, hogFunction.id))
             }
         },
 

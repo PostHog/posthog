@@ -14,6 +14,7 @@ import { AvailableFeature, HogFunctionTypeType, PipelineNodeTab, PipelineStage, 
 import { AppMetricSparkLine } from '../AppMetricSparkLine'
 import { HogFunctionIcon } from '../hogfunctions/HogFunctionIcon'
 import { HogFunctionStatusIndicator } from '../hogfunctions/HogFunctionStatusIndicator'
+import { hogFunctionUrl } from '../hogfunctions/urls'
 import { AppMetricSparkLineV2 } from '../metrics/AppMetricsV2Sparkline'
 import { NewButton } from '../NewButton'
 import { pipelineAccessLogic } from '../pipelineAccessLogic'
@@ -60,7 +61,7 @@ export function Destinations({ type }: DestinationsProps): JSX.Element {
 
 export function DestinationsTable(): JSX.Element {
     const { canConfigurePlugins, canEnableDestination } = useValues(pipelineAccessLogic)
-    const { loading, filteredDestinations, destinations, hiddenDestinations, typeSingular, typePlural } =
+    const { loading, filteredDestinations, destinations, hiddenDestinations, typeSingular, typePlural, type } =
         useValues(pipelineDestinationsLogic)
     const { toggleNode, deleteNode } = useActions(pipelineDestinationsLogic)
     const { resetFilters } = useActions(destinationsFiltersLogic)
@@ -99,11 +100,7 @@ export function DestinationsTable(): JSX.Element {
                         render: function RenderPluginName(_, destination) {
                             return (
                                 <LemonTableLink
-                                    to={urls.pipelineNode(
-                                        PipelineStage.Destination,
-                                        destination.id,
-                                        PipelineNodeTab.Configuration
-                                    )}
+                                    to={hogFunctionUrl(type, String(destination.id))}
                                     title={
                                         <>
                                             <Tooltip title="Click to update configuration, view metrics, and more">
@@ -128,11 +125,13 @@ export function DestinationsTable(): JSX.Element {
                         render: function RenderSuccessRate(_, destination) {
                             return (
                                 <Link
-                                    to={urls.pipelineNode(
-                                        PipelineStage.Destination,
-                                        destination.id,
-                                        PipelineNodeTab.Metrics
-                                    )}
+                                    to={
+                                        /* TODO for emails */ urls.pipelineNode(
+                                            PipelineStage.Destination,
+                                            destination.id,
+                                            PipelineNodeTab.Metrics
+                                        )
+                                    }
                                 >
                                     {destination.backend === PipelineBackend.HogFunction ? (
                                         <AppMetricSparkLineV2 id={destination.hog_function.id} />

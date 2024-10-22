@@ -1,3 +1,5 @@
+from typing import Optional
+
 import structlog
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import viewsets, permissions
@@ -32,14 +34,15 @@ class PublicHogFunctionTemplateViewSet(viewsets.GenericViewSet):
     permission_classes = [permissions.AllowAny]
     serializer_class = HogFunctionTemplateSerializer
 
-    def _get_templates(self):
+    def _get_templates(self, types: Optional[list[str]] = None):
         data = HOG_FUNCTION_TEMPLATES
-        types = self.request.GET.get("type", "destination").split(",")
-        data = [item for item in data if item.type in types]
+        if types:
+            data = [item for item in data if item.type in types]
         return data
 
     def list(self, request: Request, *args, **kwargs):
-        page = self.paginate_queryset(self._get_templates())
+        types = self.request.GET.get("type", "destination").split(",")
+        page = self.paginate_queryset(self._get_templates(types))
         serializer = self.get_serializer(page, many=True)
         return self.get_paginated_response(serializer.data)
 

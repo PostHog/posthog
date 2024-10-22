@@ -151,6 +151,7 @@ class HogFunction(UUIDModel):
 
 @receiver(post_save, sender=HogFunction)
 def hog_function_saved(sender, instance: HogFunction, created, **kwargs):
+    # TODO: if instance.type == 'destination': ??
     reload_hog_functions_on_workers(team_id=instance.team_id, hog_function_ids=[str(instance.id)])
 
 

@@ -36,7 +36,12 @@ import { HogFunctionTest, HogFunctionTestPlaceholder } from './HogFunctionTest'
 
 const EVENT_THRESHOLD_ALERT_LEVEL = 8000
 
-export function HogFunctionConfiguration({ templateId, id }: { templateId?: string; id?: string }): JSX.Element {
+export interface HogFunctionConfigurationProps {
+    templateId?: string | null
+    id?: string | null
+}
+
+export function HogFunctionConfiguration({ templateId, id }: HogFunctionConfigurationProps): JSX.Element {
     const logicProps = { templateId, id }
     const logic = hogFunctionConfigurationLogic(logicProps)
     const {
@@ -58,6 +63,7 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
         subTemplate,
         templateHasChanged,
         forcedSubTemplateId,
+        type,
     } = useValues(logic)
     const {
         submitConfiguration,
@@ -140,6 +146,9 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
         return <PayGateMini feature={AvailableFeature.DATA_PIPELINES} />
     }
 
+    const showFilters = type === 'destination'
+    const showExpectedVolume = type === 'destination'
+
     return (
         <div className="space-y-3">
             <BindLogic logic={hogFunctionConfigurationLogic} props={logicProps}>
@@ -152,10 +161,13 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                     }
                 />
 
-                <LemonBanner type="info">
-                    Hog Functions are in <b>beta</b> and are the next generation of our data pipeline destinations. You
-                    can use pre-existing templates or modify the source Hog code to create your own custom functions.
-                </LemonBanner>
+                {type === 'destination' ? (
+                    <LemonBanner type="info">
+                        Hog Functions are in <b>beta</b> and are the next generation of our data pipeline destinations.
+                        You can use pre-existing templates or modify the source Hog code to create your own custom
+                        functions.
+                    </LemonBanner>
+                ) : null}
 
                 {hogFunction?.filters?.bytecode_error ? (
                     <div>
@@ -261,45 +273,47 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                                 ) : null}
                             </div>
 
-                            <HogFunctionFilters />
+                            {showFilters && <HogFunctionFilters />}
 
-                            <div className="relative border bg-bg-light rounded p-3 space-y-2">
-                                <LemonLabel>Expected volume</LemonLabel>
-                                {sparkline && !sparklineLoading ? (
-                                    <>
-                                        {sparkline.count > EVENT_THRESHOLD_ALERT_LEVEL ? (
-                                            <LemonBanner type="warning">
-                                                <b>Warning:</b> This destination would have triggered{' '}
-                                                <strong>
-                                                    {sparkline.count ?? 0} time{sparkline.count !== 1 ? 's' : ''}
-                                                </strong>{' '}
-                                                in the last 7 days. Consider the impact of this function on your
-                                                destination.
-                                            </LemonBanner>
-                                        ) : (
-                                            <p>
-                                                This destination would have triggered{' '}
-                                                <strong>
-                                                    {sparkline.count ?? 0} time{sparkline.count !== 1 ? 's' : ''}
-                                                </strong>{' '}
-                                                in the last 7 days.
-                                            </p>
-                                        )}
-                                        <Sparkline
-                                            type="bar"
-                                            className="w-full h-20"
-                                            data={sparkline.data}
-                                            labels={sparkline.labels}
-                                        />
-                                    </>
-                                ) : sparklineLoading ? (
-                                    <div className="min-h-20">
-                                        <SpinnerOverlay />
-                                    </div>
-                                ) : (
-                                    <p>The expected volume could not be calculated</p>
-                                )}
-                            </div>
+                            {showExpectedVolume && (
+                                <div className="relative border bg-bg-light rounded p-3 space-y-2">
+                                    <LemonLabel>Expected volume</LemonLabel>
+                                    {sparkline && !sparklineLoading ? (
+                                        <>
+                                            {sparkline.count > EVENT_THRESHOLD_ALERT_LEVEL ? (
+                                                <LemonBanner type="warning">
+                                                    <b>Warning:</b> This destination would have triggered{' '}
+                                                    <strong>
+                                                        {sparkline.count ?? 0} time{sparkline.count !== 1 ? 's' : ''}
+                                                    </strong>{' '}
+                                                    in the last 7 days. Consider the impact of this function on your
+                                                    destination.
+                                                </LemonBanner>
+                                            ) : (
+                                                <p>
+                                                    This destination would have triggered{' '}
+                                                    <strong>
+                                                        {sparkline.count ?? 0} time{sparkline.count !== 1 ? 's' : ''}
+                                                    </strong>{' '}
+                                                    in the last 7 days.
+                                                </p>
+                                            )}
+                                            <Sparkline
+                                                type="bar"
+                                                className="w-full h-20"
+                                                data={sparkline.data}
+                                                labels={sparkline.labels}
+                                            />
+                                        </>
+                                    ) : sparklineLoading ? (
+                                        <div className="min-h-20">
+                                            <SpinnerOverlay />
+                                        </div>
+                                    ) : (
+                                        <p>The expected volume could not be calculated</p>
+                                    )}
+                                </div>
+                            )}
                         </div>
 
                         <div className="flex-2 min-w-100 space-y-4">

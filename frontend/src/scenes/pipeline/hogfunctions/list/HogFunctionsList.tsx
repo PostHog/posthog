@@ -11,6 +11,7 @@ import { urls } from 'scenes/urls'
 import { HogFunctionType, PipelineNodeTab, PipelineStage } from '~/types'
 
 import { HogFunctionIcon } from '../HogFunctionIcon'
+import { hogFunctionUrl } from '../urls'
 import { hogFunctionListLogic, HogFunctionListLogicProps } from './hogFunctionListLogic'
 
 // TODO: rename to match filename, use template in name
@@ -73,11 +74,7 @@ export function HogFunctionList({
                             render: (_, hogFunction) => {
                                 return (
                                     <LemonTableLink
-                                        to={urls.pipelineNode(
-                                            PipelineStage.Destination,
-                                            `hog-${hogFunction.id}`,
-                                            PipelineNodeTab.Configuration
-                                        )}
+                                        to={hogFunctionUrl(hogFunction.type, hogFunction.id)}
                                         title={
                                             <>
                                                 <Tooltip title="Click to update configuration, view metrics, and more">
@@ -96,11 +93,13 @@ export function HogFunctionList({
                             render: (_, hogFunction) => {
                                 return (
                                     <Link
-                                        to={urls.pipelineNode(
-                                            PipelineStage.Destination,
-                                            `hog-${hogFunction.id}`,
-                                            PipelineNodeTab.Metrics
-                                        )}
+                                        to={
+                                            /* TODO for emails */ urls.pipelineNode(
+                                                PipelineStage.Destination,
+                                                `hog-${hogFunction.id}`,
+                                                PipelineNodeTab.Metrics
+                                            )
+                                        }
                                     >
                                         <AppMetricSparkLineV2 id={hogFunction.id} />
                                     </Link>
