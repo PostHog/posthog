@@ -112,7 +112,7 @@ class TestPersonOptimization(ClickhouseTestMixin, APIBaseTest):
             ),
             self.team,
         )
-        assert "in(persons_where_optimization.id, (SELECT" in response.clickhouse
+        assert response.clickhouse and "in(persons_where_optimization.id, (SELECT" in response.clickhouse
         assert len(response.results) == 1
 
         response = execute_hogql_query(
@@ -123,8 +123,7 @@ class TestPersonOptimization(ClickhouseTestMixin, APIBaseTest):
             ),
             self.team,
         )
-        # Couldn't work out how to make nested persons work yet, hence not in
-        assert "in(persons_where_optimization.id, (SELECT" not in response.clickhouse
+        assert response.clickhouse and "in(persons_where_optimization.id, (SELECT" in response.clickhouse
         assert len(response.results) == 1
 
     @snapshot_clickhouse_queries
