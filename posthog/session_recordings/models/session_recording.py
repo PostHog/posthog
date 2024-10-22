@@ -61,6 +61,7 @@ class SessionRecording(UUIDModel):
     _person: Optional[Person] = None
     matching_events: Optional[RecordingMatchingEvents] = None
     ongoing: Optional[bool] = None
+    activity_score: Optional[float] = None
 
     # Metadata can be loaded from Clickhouse or S3
     _metadata: Optional[RecordingMetadata] = None
@@ -202,6 +203,7 @@ class SessionRecording(UUIDModel):
             recording.console_error_count = ch_recording.get("console_error_count", None)
             recording.set_start_url_from_urls(ch_recording.get("urls", None), ch_recording.get("first_url", None))
             recording.ongoing = bool(ch_recording.get("ongoing", False))
+            recording.activity_score = ch_recording.get("activity_score", None)
 
             recordings.append(recording)
 

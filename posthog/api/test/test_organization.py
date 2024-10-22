@@ -1,7 +1,8 @@
-from asgiref.sync import sync_to_async
 from rest_framework import status
 
 from posthog.models import Organization, OrganizationMembership, Team
+from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+from posthog.models.utils import generate_random_token_personal
 from posthog.test.base import APIBaseTest
 
 
@@ -138,6 +139,26 @@ class TestOrganizationAPI(APIBaseTest):
         self.organization.refresh_from_db()
         self.assertEqual(self.organization.enforce_2fa, True)
 
+    def test_projects_outside_personal_api_key_scoped_organizations_not_listed(self):
+        other_org, _, _ = Organization.objects.bootstrap(self.user)
+        personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="X",
+            user=self.user,
+            last_used_at="2021-08-25T21:09:14",
+            secure_value=hash_key_value(personal_api_key),
+            scoped_organizations=[other_org.id],
+        )
+
+        response = self.client.get("/api/organizations/", HTTP_AUTHORIZATION=f"Bearer {personal_api_key}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            {org["id"] for org in response.json()["results"]},
+            {str(other_org.id)},
+            "Only the scoped organization should be listed, the other one should be excluded",
+        )
+
 
 def create_organization(name: str) -> Organization:
     """
@@ -146,12 +167,3 @@ def create_organization(name: str) -> Organization:
     with real world scenarios.
     """
     return Organization.objects.create(name=name)
-
-
-async def acreate_organization(name: str) -> Organization:
-    """
-    Helper that just creates an organization. It currently uses the orm, but we
-    could use either the api, or django admin to create, to get better parity
-    with real world scenarios.
-    """
-    return await sync_to_async(create_organization)(name)

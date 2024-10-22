@@ -260,7 +260,7 @@ export const teamLogic = kea<teamLogicType>([
         if (switchedTeam) {
             lemonToast.info(
                 <>
-                    You've switched to&nbsp;project
+                    You've switched to&nbsp;project{' '}
                     {values.featureFlags[FEATURE_FLAGS.ENVIRONMENTS]
                         ? `${currentProject?.name}, environment ${currentTeam?.name}`
                         : currentTeam?.name}

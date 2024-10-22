@@ -1,7 +1,15 @@
-import { ActionFilter, FilterLogicalOperator, LogEntryPropertyFilter, RecordingPropertyFilter } from '~/types'
+import {
+    ActionFilter,
+    FeaturePropertyFilter,
+    FilterLogicalOperator,
+    LogEntryPropertyFilter,
+    RecordingPropertyFilter,
+    UniversalFiltersGroup,
+    UniversalFiltersGroupValue,
+    UniversalFilterValue,
+} from '~/types'
 
 import { isCohortPropertyFilter } from '../PropertyFilters/utils'
-import { UniversalFiltersGroup, UniversalFiltersGroupValue, UniversalFilterValue } from './UniversalFilters'
 
 export function isUniversalGroupFilterLike(filter?: UniversalFiltersGroupValue): filter is UniversalFiltersGroup {
     return filter?.type === FilterLogicalOperator.And || filter?.type === FilterLogicalOperator.Or
@@ -14,6 +22,9 @@ export function isEventFilter(filter: UniversalFilterValue): filter is ActionFil
 }
 export function isActionFilter(filter: UniversalFilterValue): filter is ActionFilter {
     return filter.type === 'actions'
+}
+export function isFeatureFlagFilter(filter: UniversalFilterValue): filter is FeaturePropertyFilter {
+    return filter.type === 'feature'
 }
 export function isRecordingPropertyFilter(filter: UniversalFilterValue): filter is RecordingPropertyFilter {
     return filter.type === 'recording'

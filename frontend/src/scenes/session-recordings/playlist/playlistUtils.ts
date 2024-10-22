@@ -2,7 +2,6 @@ import { router } from 'kea-router'
 import api from 'lib/api'
 import { convertPropertyGroupToProperties, isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { UniversalFilterValue } from 'lib/components/UniversalFilters/UniversalFilters'
 import { isActionFilter, isEventFilter } from 'lib/components/UniversalFilters/utils'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { getCoreFilterDefinition } from 'lib/taxonomy'
@@ -16,7 +15,7 @@ import { PLAYLIST_LIMIT_REACHED_MESSAGE } from 'scenes/session-recordings/sessio
 import { urls } from 'scenes/urls'
 
 import { cohortsModelType } from '~/models/cohortsModelType'
-import { PropertyOperator, SessionRecordingPlaylistType } from '~/types'
+import { PropertyOperator, SessionRecordingPlaylistType, UniversalFilterValue } from '~/types'
 
 function getOperatorSymbol(operator: PropertyOperator | null): string {
     if (!operator) {
