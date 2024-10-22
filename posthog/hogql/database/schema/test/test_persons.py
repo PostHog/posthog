@@ -102,6 +102,32 @@ class TestPersonOptimization(ClickhouseTestMixin, APIBaseTest):
         assert len(response.results) == 1
 
     @snapshot_clickhouse_queries
+    def test_in_subquery(self):
+        _create_event(event="$pageview", distinct_id="3", team=self.team)
+        response = execute_hogql_query(
+            parse_select(
+                """
+                    select id, properties from persons where properties.$some_prop = 'something' and id IN (select person_id from person_distinct_ids where distinct_id = '1')
+                """
+            ),
+            self.team,
+        )
+        assert "in(persons_where_optimization.id, (SELECT" in response.clickhouse
+        assert len(response.results) == 1
+
+        response = execute_hogql_query(
+            parse_select(
+                """
+                    select id, properties from persons where properties.$some_prop = 'something' and id IN (select id from persons where properties.$another_prop = 'something1')
+                """
+            ),
+            self.team,
+        )
+        # Couldn't work out how to make nested persons work yet, hence not in
+        assert "in(persons_where_optimization.id, (SELECT" not in response.clickhouse
+        assert len(response.results) == 1
+
+    @snapshot_clickhouse_queries
     def test_join(self):
         response = execute_hogql_query(
             parse_select(
