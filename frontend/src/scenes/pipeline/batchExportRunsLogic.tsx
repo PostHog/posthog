@@ -219,11 +219,17 @@ export const batchExportRunsLogic = kea<batchExportRunsLogicType>([
                 const groupedRuns: Record<string, GroupedBatchExportRuns> = {}
 
                 runs.forEach((run) => {
-                    const key = `${run.data_interval_end}`
+                    if (!run.data_interval_start) {
+                        // For now, don't include backfill runs in here as it gets
+                        // complicated to sort and group.
+                        return
+                    }
+
+                    const key = `${run.data_interval_start}-${run.data_interval_end}`
 
                     if (!groupedRuns[key]) {
                         groupedRuns[key] = {
-                            data_interval_start: run.data_interval_start ? dayjs(run.data_interval_start) : undefined,
+                            data_interval_start: dayjs(run.data_interval_start),
                             data_interval_end: dayjs(run.data_interval_end),
                             runs: [],
                             last_run_at: dayjs(run.created_at),
