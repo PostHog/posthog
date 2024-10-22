@@ -94,6 +94,12 @@ export const replayTemplates: ReplayTemplateType[] = [
                 key: 'feature-event',
                 description: 'The event that indicates a user has interacted with the feature.',
             },
+            {
+                type: 'pageview',
+                name: 'Feature page URL',
+                key: 'feature-page-url',
+                description: 'Complete or partial URL where the feature is located.',
+            },
         ],
         categories: ['B2B', 'B2C'],
         icon: <IconCursorClick />,
