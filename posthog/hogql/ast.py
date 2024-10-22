@@ -803,6 +803,7 @@ class SelectQuery(Expr):
 @dataclass(kw_only=True)
 class SelectUnionQuery(Expr):
     type: Optional[SelectUnionQueryType] = None
+    value: Optional[Literal["UNION ALL", "INTERSECT"]] = None
     select_queries: list[SelectQuery]
 
 

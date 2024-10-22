@@ -277,10 +277,11 @@ class _Printer(Visitor):
     def visit_select_union_query(self, node: ast.SelectUnionQuery):
         self._indent -= 1
         queries = [self.visit(expr) for expr in node.select_queries]
+        value = "INTERSECT" if node.value == "INTERSECT" else "UNION ALL"
         if self.pretty:
-            query = f"\n{self.indent(1)}UNION ALL\n{self.indent(1)}".join([query.strip() for query in queries])
+            query = f"\n{self.indent(1)}{value}\n{self.indent(1)}".join([query.strip() for query in queries])
         else:
-            query = " UNION ALL ".join(queries)
+            query = f" {value} ".join(queries)
         self._indent += 1
         if len(self.stack) > 1:
             return f"({query.strip()})"

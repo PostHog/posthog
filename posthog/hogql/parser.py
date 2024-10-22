@@ -327,9 +327,15 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
     ##### HogQL rules
 
     def visitSelect(self, ctx: HogQLParser.SelectContext):
-        return self.visit(ctx.selectUnionStmt() or ctx.selectStmt() or ctx.hogqlxTagElement())
+        return self.visit(ctx.selectSetStmt() or ctx.selectStmt() or ctx.hogqlxTagElement())
 
-    def visitSelectUnionStmt(self, ctx: HogQLParser.SelectUnionStmtContext):
+    def visitSelectSetStmt(self, ctx: HogQLParser.SelectSetStmtContext):
+        return self.visit(ctx.selectUnionStmt() or ctx.selectIntersectStmt())
+
+    def visitSelectIntersectStmt(self, ctx: HogQLParser.SelectIntersectStmtContext):
+        return self.visitSelectUnionStmt(ctx)
+
+    def visitSelectUnionStmt(self, ctx: HogQLParser.SelectIntersectStmtContext | HogQLParser.SelectUnionStmtContext):
         select_queries: list[ast.SelectQuery | ast.SelectUnionQuery | ast.Placeholder] = [
             self.visit(select) for select in ctx.selectStmtWithParens()
         ]
@@ -345,7 +351,10 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
                 raise Exception(f"Unexpected query node type {type(query).__name__}")
         if len(flattened_queries) == 1:
             return flattened_queries[0]
-        return ast.SelectUnionQuery(select_queries=flattened_queries)
+        return ast.SelectUnionQuery(
+            select_queries=flattened_queries,
+            value="INTERSECT" if isinstance(ctx, HogQLParser.SelectIntersectStmtContext) else "UNION ALL",
+        )
 
     def visitSelectStmtWithParens(self, ctx: HogQLParser.SelectStmtWithParensContext):
         return self.visit(ctx.selectStmt() or ctx.selectUnionStmt() or ctx.placeholder())

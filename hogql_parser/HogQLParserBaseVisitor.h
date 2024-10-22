@@ -107,6 +107,14 @@ public:
     return visitChildren(ctx);
   }
 
+  virtual std::any visitSelectIntersectStmt(HogQLParser::SelectIntersectStmtContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitSelectSetStmt(HogQLParser::SelectSetStmtContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
   virtual std::any visitSelectStmtWithParens(HogQLParser::SelectStmtWithParensContext *ctx) override {
     return visitChildren(ctx);
   }

@@ -65,6 +65,10 @@ public:
 
     virtual std::any visitSelectUnionStmt(HogQLParser::SelectUnionStmtContext *context) = 0;
 
+    virtual std::any visitSelectIntersectStmt(HogQLParser::SelectIntersectStmtContext *context) = 0;
+
+    virtual std::any visitSelectSetStmt(HogQLParser::SelectSetStmtContext *context) = 0;
+
     virtual std::any visitSelectStmtWithParens(HogQLParser::SelectStmtWithParensContext *context) = 0;
 
     virtual std::any visitSelectStmt(HogQLParser::SelectStmtContext *context) = 0;
