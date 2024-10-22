@@ -1057,7 +1057,7 @@ class ClickhouseTestExperimentSecondaryResults(ClickhouseTestMixin, APILicensedT
                     {
                         "event": "$pageleave_funnel",
                         "timestamp": "2020-01-05",
-                        # "properties": {"$feature/a-b-test": "control"},
+                        "properties": {"$feature/a-b-test": "control"},
                     },
                 ],
                 "person3_funnel": [
@@ -1069,7 +1069,7 @@ class ClickhouseTestExperimentSecondaryResults(ClickhouseTestMixin, APILicensedT
                     {
                         "event": "$pageleave_funnel",
                         "timestamp": "2020-01-05",
-                        # "properties": {"$feature/a-b-test": "control"},
+                        "properties": {"$feature/a-b-test": "control"},
                     },
                 ],
                 # doesn't have feature set
@@ -1159,33 +1159,39 @@ class ClickhouseTestExperimentSecondaryResults(ClickhouseTestMixin, APILicensedT
         self.assertAlmostEqual(result_data["result"]["control"], 1)
         self.assertEqual(result_data["result"]["test"], 0)
 
-        assert set(response_data["result"].keys()) == {
-            "result",
-            "insight",
-            "filters",
-            "probability",
-            "significant",
-            "significance_code",
-            "expected_loss",
-            "credible_intervals",
-            "variants",
-        }
-
-        assert response_data["result"]["variants"] == [
+        self.assertEqual(
+            set(response_data["result"].keys()),
             {
-                "failure_count": 2,
-                "key": "control",
-                "success_count": 0,
+                "result",
+                "insight",
+                "filters",
+                "probability",
+                "significant",
+                "significance_code",
+                "expected_loss",
+                "credible_intervals",
+                "variants",
             },
-            {
-                "failure_count": 2,
-                "key": "test",
-                "success_count": 0,
-            },
-        ]
+        )
 
-        assert response_data["result"]["significant"] is False
-        assert response_data["result"]["significance_code"] == "not_enough_exposure"
+        self.assertEqual(
+            response_data["result"]["variants"],
+            [
+                {
+                    "failure_count": 0,
+                    "key": "control",
+                    "success_count": 2,
+                },
+                {
+                    "failure_count": 2,
+                    "key": "test",
+                    "success_count": 0,
+                },
+            ],
+        )
+
+        self.assertFalse(response_data["result"]["significant"])
+        self.assertEqual(response_data["result"]["significance_code"], "not_enough_exposure")
 
     def test_no_metric_validation_errors_for_secondary_metrics(self):
         journeys_for(

@@ -46,7 +46,9 @@ def journeys_for(
     for distinct_id, events in events_by_person.items():
         if create_people:
             # Create the person UUID from the distinct ID and test path, so that SQL snapshots are deterministic
-            derived_uuid = UUID(bytes=md5((os.environ["PYTEST_CURRENT_TEST"] + distinct_id).encode("utf-8")).digest())
+            derived_uuid = UUID(
+                bytes=md5((os.getenv("PYTEST_CURRENT_TEST", "some_test") + distinct_id).encode("utf-8")).digest()
+            )
             people[distinct_id] = update_or_create_person(
                 distinct_ids=[distinct_id], team_id=team.pk, uuid=derived_uuid
             )

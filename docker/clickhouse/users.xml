@@ -10,7 +10,7 @@
             <max_memory_usage>10000000000</max_memory_usage>
 
             <!-- Disable experimental analyzer -->
-            <allow_experimental_analyzer>0</allow_experimental_analyzer>
+            <!-- <allow_experimental_analyzer>0</allow_experimental_analyzer> -->
 
             <!-- How to choose between replicas during distributed query processing.
                  random - choose random replica from set of replicas with minimum number of errors
