@@ -590,6 +590,8 @@ public:
     virtual size_t getRuleIndex() const override;
     std::vector<SelectStmtWithParensContext *> selectStmtWithParens();
     SelectStmtWithParensContext* selectStmtWithParens(size_t i);
+    std::vector<SelectUnionStmtContext *> selectUnionStmt();
+    SelectUnionStmtContext* selectUnionStmt(size_t i);
     std::vector<antlr4::tree::TerminalNode *> INTERSECT();
     antlr4::tree::TerminalNode* INTERSECT(size_t i);
 

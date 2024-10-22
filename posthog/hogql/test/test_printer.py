@@ -183,7 +183,17 @@ class TestPrinter(BaseTest):
         response = to_printed_hogql(expr, self.team)
         self.assertEqual(
             response,
-            f"SELECT\n    1 AS id\nLIMIT 50000\nINTERSECT\nSELECT\n    2 AS id\nLIMIT {MAX_SELECT_RETURNED_ROWS}",
+            (
+                "(SELECT\n"
+                "    1 AS id\n"
+                "UNION ALL\n"
+                "SELECT\n"
+                "    2 AS id)\n"
+                "INTERSECT\n"
+                "SELECT\n"
+                "    3 AS id\n"
+                "LIMIT 50000 WRONG"
+            ),
         )
 
     def test_print_to_string(self):
