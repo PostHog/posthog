@@ -1382,11 +1382,12 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
             self.assertEqual(
                 self._select("select 1 union all select 2 union all select 3"),
                 ast.SelectUnionQuery(
+                    value="UNION ALL",
                     select_queries=[
                         ast.SelectQuery(select=[ast.Constant(value=1)]),
                         ast.SelectQuery(select=[ast.Constant(value=2)]),
                         ast.SelectQuery(select=[ast.Constant(value=3)]),
-                    ]
+                    ],
                 ),
             )
 
