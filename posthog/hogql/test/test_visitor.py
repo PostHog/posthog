@@ -58,7 +58,7 @@ class TestVisitor(BaseTest):
                         args=[
                             ast.Alias(
                                 alias="d",
-                                expr=ast.Placeholder(chain=["e"]),
+                                expr=ast.Placeholder(expr=ast.Field(chain=["e"])),
                             ),
                             ast.OrderExpr(
                                 expr=ast.Field(chain=["c"]),

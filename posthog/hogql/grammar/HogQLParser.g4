@@ -293,7 +293,7 @@ keywordForAlias
 alias: IDENTIFIER | keywordForAlias;  // |interval| can't be an alias, otherwise 'INTERVAL 1 SOMETHING' becomes ambiguous.
 identifier: IDENTIFIER | interval | keyword;
 enumValue: string EQ_SINGLE numberLiteral;
-placeholder: LBRACE nestedIdentifier RBRACE;
+placeholder: LBRACE columnExpr RBRACE;
 
 string: STRING_LITERAL | templateString;
 templateString : QUOTE_SINGLE_TEMPLATE stringContents* QUOTE_SINGLE ;

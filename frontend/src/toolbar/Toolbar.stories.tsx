@@ -12,6 +12,7 @@ import { ToolbarParams } from '~/types'
 import { listActionsAPIResponse } from './__mocks__/list-actions-response'
 import { listHeatmapStatsAPIResponse } from './__mocks__/list-heatmap-stats-response'
 import { listMyFlagsAPIResponse } from './__mocks__/list-my-flags-response'
+import { listExperimentsAPIResponse } from './__mocks__/list-web-experiments-response'
 import { MenuState, toolbarLogic } from './bar/toolbarLogic'
 import { toolbarConfigLogic } from './toolbarConfigLogic'
 import { TOOLBAR_ID } from './utils'
@@ -71,7 +72,9 @@ const BasicTemplate: StoryFn<ToolbarStoryProps> = (props) => {
                 },
                 isAuthenticated: props.unauthenticated ?? true,
                 supportedCompression: ['gzip', 'gzip-js', 'lz64'],
-                featureFlags: {},
+                featureFlags: {
+                    'web-experiments': true,
+                },
                 sessionRecording: {
                     endpoint: '/s/',
                 },
@@ -79,6 +82,7 @@ const BasicTemplate: StoryFn<ToolbarStoryProps> = (props) => {
             '/api/element/stats/': listHeatmapStatsAPIResponse,
             '/api/projects/@current/feature_flags/my_flags': listMyFlagsAPIResponse,
             '/api/projects/@current/actions/': listActionsAPIResponse,
+            '/api/projects/@current/web_experiments/': listExperimentsAPIResponse,
             '/api/users/@me/hedgehog_config/': {},
         },
     })
@@ -134,6 +138,10 @@ export const FeatureFlags = (): JSX.Element => {
 
 export const EventsDebuggerEmpty = (): JSX.Element => {
     return <BasicTemplate menu="debugger" />
+}
+
+export const Experiments = (): JSX.Element => {
+    return <BasicTemplate menu="experiments" />
 }
 
 // Dark theme

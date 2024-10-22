@@ -2,7 +2,7 @@
 # name: TestPropertyTypes.test_data_warehouse_person_property_types
   '''
   
-  SELECT persons__extended_properties.string_prop AS string_prop, persons__extended_properties.int_prop AS int_prop, transform(persons__extended_properties.bool_prop, %(hogql_val_8)s, %(hogql_val_9)s, NULL) AS bool_prop 
+  SELECT persons__extended_properties.string_prop AS string_prop, persons__extended_properties.int_prop AS int_prop, transform(toString(persons__extended_properties.bool_prop), %(hogql_val_8)s, %(hogql_val_9)s, NULL) AS bool_prop 
   FROM (
   SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), person.version) AS persons___properties___email, person.id AS id 
   FROM person 
@@ -19,11 +19,11 @@
 # name: TestPropertyTypes.test_group_boolean_property_types
   '''
   
-  SELECT ifNull(equals(transform(events__group_0.properties___group_boolean, %(hogql_val_2)s, %(hogql_val_3)s, NULL), 1), 0), ifNull(equals(transform(events__group_0.properties___group_boolean, %(hogql_val_4)s, %(hogql_val_5)s, NULL), 0), 0), isNull(transform(events__group_0.properties___group_boolean, %(hogql_val_6)s, %(hogql_val_7)s, NULL)) 
+  SELECT ifNull(equals(transform(toString(events__group_0.properties___group_boolean), %(hogql_val_2)s, %(hogql_val_3)s, NULL), 1), 0), ifNull(equals(transform(toString(events__group_0.properties___group_boolean), %(hogql_val_4)s, %(hogql_val_5)s, NULL), 0), 0), isNull(transform(toString(events__group_0.properties___group_boolean), %(hogql_val_6)s, %(hogql_val_7)s, NULL)) 
   FROM events LEFT JOIN (
   SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, %(hogql_val_1)s)) AS properties___group_boolean, groups.group_type_index AS index, groups.group_key AS key 
   FROM groups 
-  WHERE and(equals(groups.team_id, 420), ifNull(equals(index, 0), 0)) 
+  WHERE and(equals(groups.team_id, 420), equals(index, 0)) 
   GROUP BY groups.group_type_index, groups.group_key) AS events__group_0 ON equals(events.`$group_0`, events__group_0.key) 
   WHERE equals(events.team_id, 420) 
   LIMIT 50000
@@ -36,7 +36,7 @@
   FROM events LEFT JOIN (
   SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, %(hogql_val_1)s)) AS properties___inty, groups.group_type_index AS index, groups.group_key AS key 
   FROM groups 
-  WHERE and(equals(groups.team_id, 420), ifNull(equals(index, 0), 0)) 
+  WHERE and(equals(groups.team_id, 420), equals(index, 0)) 
   GROUP BY groups.group_type_index, groups.group_key) AS events__group_0 ON equals(events.`$group_0`, events__group_0.key) 
   WHERE equals(events.team_id, 420) 
   LIMIT 50000
@@ -66,7 +66,7 @@
 # name: TestPropertyTypes.test_resolve_property_types_event
   '''
   
-  SELECT multiply(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), %(hogql_val_1)s), accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_2)s), ''), 'null'), '^"|"$', ''), %(hogql_val_3)s)), transform(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_4)s), ''), 'null'), '^"|"$', ''), %(hogql_val_5)s, %(hogql_val_6)s, NULL) AS bool 
+  SELECT multiply(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), %(hogql_val_1)s), accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_2)s), ''), 'null'), '^"|"$', ''), %(hogql_val_3)s)), transform(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_4)s), ''), 'null'), '^"|"$', '')), %(hogql_val_5)s, %(hogql_val_6)s, NULL) AS bool 
   FROM events 
   WHERE equals(events.team_id, 420) 
   LIMIT 50000

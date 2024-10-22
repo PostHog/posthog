@@ -9,6 +9,7 @@ from posthog.hogql.filters import replace_filters
 from posthog.hogql.parser import parse_select, parse_program, parse_expr, parse_string_template
 from posthog.hogql.printer import print_ast
 from posthog.hogql.query import create_default_modifiers_for_team
+from posthog.hogql.variables import replace_variables
 from posthog.hogql.visitor import clone_expr
 from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models import Team
@@ -41,10 +42,10 @@ def get_hogql_metadata(
         )
         if query.language == HogLanguage.HOG:
             program = parse_program(query.query)
-            create_bytecode(program, supported_functions={"fetch", "posthogCapture"}, args=[], context=context)
+            create_bytecode(program, supported_functions={"fetch", "postHogCapture"}, args=[], context=context)
         elif query.language == HogLanguage.HOG_TEMPLATE:
             string = parse_string_template(query.query)
-            create_bytecode(string, supported_functions={"fetch", "posthogCapture"}, args=[], context=context)
+            create_bytecode(string, supported_functions={"fetch", "postHogCapture"}, args=[], context=context)
         elif query.language == HogLanguage.HOG_QL_EXPR:
             node = parse_expr(query.query)
             if query.sourceQuery is not None:
@@ -56,6 +57,8 @@ def get_hogql_metadata(
             select_ast = parse_select(query.query)
             if query.filters:
                 select_ast = replace_filters(select_ast, query.filters, team)
+            if query.variables:
+                select_ast = replace_variables(select_ast, list(query.variables.values()), team)
             _is_valid_view = is_valid_view(select_ast)
             response.isValidView = _is_valid_view
             print_ast(

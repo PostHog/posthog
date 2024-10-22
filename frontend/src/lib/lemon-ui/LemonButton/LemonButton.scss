@@ -348,6 +348,10 @@
         width: 100%;
     }
 
+    &--tertiary .LemonButtonWithSideAction__side-button {
+        --lemon-button-chrome-depth: 0px; // Tertiary buttons are flat, no depth
+    }
+
     &:hover > .LemonButton--secondary.LemonButton--status-alt {
         @include secondary-variables;
     }

@@ -36,6 +36,7 @@ from . import (
     hog_function_template,
     hog,
     ingestion_warnings,
+    insight_variable,
     instance_settings,
     instance_status,
     integration,
@@ -86,6 +87,7 @@ router.register(r"feature_flag", feature_flag.LegacyFeatureFlagViewSet)  # Used 
 
 # Nested endpoints shared
 projects_router = router.register(r"projects", project.RootProjectViewSet, "projects")
+projects_router.register(r"environments", team.TeamViewSet, "project_environments", ["project_id"])
 environments_router = router.register(r"environments", team.RootTeamViewSet, "environments")
 
 
@@ -169,8 +171,8 @@ projects_router.register(
     "project_dashboard_templates",
     ["project_id"],
 )
-project_dashboards_router = projects_router.register(
-    r"dashboards", dashboard.DashboardsViewSet, "project_dashboards", ["project_id"]
+environment_dashboards_router, legacy_project_dashboards_router = register_grandfathered_environment_nested_viewset(
+    r"dashboards", dashboard.DashboardsViewSet, "environment_dashboards", ["team_id"]
 )
 
 register_grandfathered_environment_nested_viewset(
@@ -416,44 +418,57 @@ if EE_AVAILABLE:
     projects_router.register(r"experiments", EnterpriseExperimentsViewSet, "project_experiments", ["project_id"])
     register_grandfathered_environment_nested_viewset(r"groups", GroupsViewSet, "environment_groups", ["team_id"])
     projects_router.register(r"groups_types", GroupsTypesViewSet, "project_groups_types", ["project_id"])
-    project_insights_router = projects_router.register(
-        r"insights", EnterpriseInsightsViewSet, "project_insights", ["project_id"]
+    environment_insights_router, legacy_project_insights_router = register_grandfathered_environment_nested_viewset(
+        r"insights", EnterpriseInsightsViewSet, "environment_insights", ["team_id"]
     )
     register_grandfathered_environment_nested_viewset(
         r"persons", EnterprisePersonViewSet, "environment_persons", ["team_id"]
     )
     router.register(r"person", LegacyEnterprisePersonViewSet, "persons")
 else:
-    project_insights_router = projects_router.register(r"insights", InsightViewSet, "project_insights", ["project_id"])
+    environment_insights_router, legacy_project_insights_router = register_grandfathered_environment_nested_viewset(
+        r"insights", InsightViewSet, "environment_insights", ["team_id"]
+    )
     register_grandfathered_environment_nested_viewset(r"persons", PersonViewSet, "environment_persons", ["team_id"])
     router.register(r"person", LegacyPersonViewSet, "persons")
 
 
-project_dashboards_router.register(
+environment_dashboards_router.register(
     r"sharing",
     sharing.SharingConfigurationViewSet,
     "environment_dashboard_sharing",
     ["team_id", "dashboard_id"],
 )
+legacy_project_dashboards_router.register(
+    r"sharing",
+    sharing.SharingConfigurationViewSet,
+    "project_dashboard_sharing",
+    ["team_id", "dashboard_id"],
+)
 
-project_insights_router.register(
+environment_insights_router.register(
     r"sharing",
     sharing.SharingConfigurationViewSet,
     "environment_insight_sharing",
     ["team_id", "insight_id"],
 )
-
-project_insights_router.register(
-    "thresholds",
-    alert.ThresholdViewSet,
-    "project_insight_thresholds",
+legacy_project_insights_router.register(
+    r"sharing",
+    sharing.SharingConfigurationViewSet,
+    "project_insight_sharing",
     ["team_id", "insight_id"],
 )
 
-project_insights_router.register(
-    "alerts",
-    alert.AlertViewSet,
-    "project_insight_alerts",
+environment_insights_router.register(
+    "thresholds",
+    alert.ThresholdViewSet,
+    "environment_insight_thresholds",
+    ["team_id", "insight_id"],
+)
+legacy_project_insights_router.register(
+    "thresholds",
+    alert.ThresholdViewSet,
+    "project_insight_thresholds",
     ["team_id", "insight_id"],
 )
 
@@ -509,6 +524,13 @@ projects_router.register(
     r"hog",
     hog.HogViewSet,
     "hog",
+    ["team_id"],
+)
+
+projects_router.register(
+    r"insight_variables",
+    insight_variable.InsightVariableViewSet,
+    "insight_variables",
     ["team_id"],
 )
 

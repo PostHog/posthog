@@ -3,6 +3,7 @@ import time
 from typing import Optional
 from unittest.mock import patch
 
+from django.db import connection
 from freezegun import freeze_time
 import pytest
 from posthog.models.instance_setting import set_instance_setting
@@ -10,7 +11,60 @@ from posthog.models.integration import Integration, OauthIntegration, SlackInteg
 from posthog.test.base import BaseTest
 
 
+def get_db_field_value(field, model_id):
+    cursor = connection.cursor()
+    cursor.execute(f"select {field} from posthog_integration where id='{model_id}';")
+    return cursor.fetchone()[0]
+
+
+def update_db_field_value(field, model_id, value):
+    cursor = connection.cursor()
+    cursor.execute(f"update posthog_integration set {field}='{value}' where id='{model_id}';")
+
+
 class TestIntegrationModel(BaseTest):
+    def create_integration(
+        self, kind: str, config: Optional[dict] = None, sensitive_config: Optional[dict] = None
+    ) -> Integration:
+        _config = {"refreshed_at": int(time.time()), "expires_in": 3600}
+        _sensitive_config = {"refresh_token": "REFRESH", "id_token": None}
+        _config.update(config or {})
+        _sensitive_config.update(sensitive_config or {})
+
+        return Integration.objects.create(team=self.team, kind=kind, config=_config, sensitive_config=_sensitive_config)
+
+    def test_sensitive_config_encrypted(self):
+        # Fernet encryption is deterministic, but has a temporal component and utilizes os.urandom() for the IV
+        with freeze_time("2024-01-01T00:01:00Z"):
+            with patch("os.urandom", return_value=b"\x00" * 16):
+                integration = self.create_integration("slack")
+
+                assert integration.sensitive_config == {"refresh_token": "REFRESH", "id_token": None}
+                assert (
+                    get_db_field_value("sensitive_config", integration.id)
+                    == '{"id_token": null, "refresh_token": "gAAAAABlkgC8AAAAAAAAAAAAAAAAAAAAAJgmFh-MNX9haUNHNfYLvULI6vSRYVd3o8xd4f8xBkWEWAa5RJ2ikOM2dsW5_9F7Mw=="}'
+                )
+
+                # update the value to non-encrypted and check it still loads
+
+                update_db_field_value(
+                    "sensitive_config", integration.id, '{"id_token": null, "refresh_token": "REFRESH2"}'
+                )
+                integration.refresh_from_db()
+                assert integration.sensitive_config == {"id_token": None, "refresh_token": "REFRESH2"}
+                assert (
+                    get_db_field_value("sensitive_config", integration.id)
+                    == '{"id_token": null, "refresh_token": "REFRESH2"}'
+                )
+
+                integration.save()
+                # The field should now be encrypted
+                assert integration.sensitive_config == {"id_token": None, "refresh_token": "REFRESH2"}
+                assert (
+                    get_db_field_value("sensitive_config", integration.id)
+                    == '{"id_token": null, "refresh_token": "gAAAAABlkgC8AAAAAAAAAAAAAAAAAAAAAHlWz9QOMnXDvmix-z5lNG4v0VcO9lGWejmcE_BXHXPZ1wNkb-38JupntWbshBrfFQ=="}'
+                )
+
     def test_slack_integration_config(self):
         set_instance_setting("SLACK_APP_CLIENT_ID", None)
         set_instance_setting("SLACK_APP_CLIENT_SECRET", None)
@@ -35,6 +89,8 @@ class TestOauthIntegrationModel(BaseTest):
         "SALESFORCE_CONSUMER_SECRET": "salesforce-client-secret",
         "HUBSPOT_APP_CLIENT_ID": "hubspot-client-id",
         "HUBSPOT_APP_CLIENT_SECRET": "hubspot-client-secret",
+        "SOCIAL_AUTH_GOOGLE_OAUTH2_KEY": "google-client-id",
+        "SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET": "google-client-secret",
     }
 
     def create_integration(
@@ -57,6 +113,14 @@ class TestOauthIntegrationModel(BaseTest):
             assert (
                 url
                 == "https://login.salesforce.com/services/oauth2/authorize?client_id=salesforce-client-id&scope=full+refresh_token&redirect_uri=https%3A%2F%2Flocalhost%3A8000%2Fintegrations%2Fsalesforce%2Fcallback&response_type=code&state=next%3D%252Fprojects%252Ftest"
+            )
+
+    def test_authorize_url_with_additional_authorize_params(self):
+        with self.settings(**self.mock_settings):
+            url = OauthIntegration.authorize_url("google-ads", next="/projects/test")
+            assert (
+                url
+                == "https://accounts.google.com/o/oauth2/v2/auth?client_id=google-client-id&scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fadwords+email&redirect_uri=https%3A%2F%2Flocalhost%3A8000%2Fintegrations%2Fgoogle-ads%2Fcallback&response_type=code&state=next%3D%252Fprojects%252Ftest&access_type=offline&prompt=consent"
             )
 
     @patch("posthog.models.integration.requests.post")

@@ -1,6 +1,15 @@
 import './SidePanel.scss'
 
-import { IconEllipsis, IconFeatures, IconGear, IconInfo, IconLock, IconNotebook, IconSupport } from '@posthog/icons'
+import {
+    IconEllipsis,
+    IconFeatures,
+    IconFlag,
+    IconGear,
+    IconInfo,
+    IconLock,
+    IconNotebook,
+    IconSupport,
+} from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonMenuItems, LemonModal } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
@@ -21,6 +30,7 @@ import { SidePanelActivation, SidePanelActivationIcon } from './panels/activatio
 import { SidePanelActivity, SidePanelActivityIcon } from './panels/activity/SidePanelActivity'
 import { SidePanelDiscussion, SidePanelDiscussionIcon } from './panels/discussion/SidePanelDiscussion'
 import { SidePanelDocs } from './panels/SidePanelDocs'
+import { SidePanelExperimentFeatureFlag } from './panels/SidePanelExperimentFeatureFlag'
 import { SidePanelFeaturePreviews } from './panels/SidePanelFeaturePreviews'
 import { SidePanelSettings } from './panels/SidePanelSettings'
 import { SidePanelStatus, SidePanelStatusIcon } from './panels/SidePanelStatus'
@@ -92,6 +102,11 @@ export const SIDE_PANEL_TABS: Record<
         label: 'Access control',
         Icon: IconLock,
         Content: SidePanelAccessControl,
+    },
+    [SidePanelTab.ExperimentFeatureFlag]: {
+        label: 'Release conditions',
+        Icon: IconFlag,
+        Content: SidePanelExperimentFeatureFlag,
     },
 }
 

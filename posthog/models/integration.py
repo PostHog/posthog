@@ -16,6 +16,7 @@ from google.auth.transport.requests import Request as GoogleRequest
 
 from django.conf import settings
 from posthog.cache_utils import cache_for
+from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.instance_setting import get_instance_settings
 from posthog.models.user import User
 import structlog
@@ -44,6 +45,7 @@ class Integration(models.Model):
         HUBSPOT = "hubspot"
         GOOGLE_PUBSUB = "google-pubsub"
         GOOGLE_CLOUD_STORAGE = "google-cloud-storage"
+        GOOGLE_ADS = "google-ads"
 
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
 
@@ -53,8 +55,10 @@ class Integration(models.Model):
     integration_id = models.TextField(null=True, blank=True)
     # Any config that COULD be passed to the frontend
     config = models.JSONField(default=dict)
-    # Any sensitive config that SHOULD NOT be passed to the frontend
-    sensitive_config = models.JSONField(default=dict)
+    sensitive_config = EncryptedJSONField(
+        default=dict,
+        ignore_decrypt_errors=True,  # allows us to load previously unencrypted data
+    )
 
     errors = models.TextField()
 
@@ -104,10 +108,11 @@ class OauthConfig:
     name_path: str
     token_info_url: Optional[str] = None
     token_info_config_fields: Optional[list[str]] = None
+    additional_authorize_params: Optional[dict[str, str]] = None
 
 
 class OauthIntegration:
-    supported_kinds = ["slack", "salesforce", "hubspot"]
+    supported_kinds = ["slack", "salesforce", "hubspot", "google-ads"]
     integration: Integration
 
     def __init__(self, integration: Integration) -> None:
@@ -165,6 +170,23 @@ class OauthIntegration:
                 id_path="hub_id",
                 name_path="hub_domain",
             )
+        elif kind == "google-ads":
+            if not settings.SOCIAL_AUTH_GOOGLE_OAUTH2_KEY or not settings.SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET:
+                raise NotImplementedError("Google Ads app not configured")
+
+            return OauthConfig(
+                authorize_url="https://accounts.google.com/o/oauth2/v2/auth",
+                # forces the consent screen, otherwise we won't receive a refresh token
+                additional_authorize_params={"access_type": "offline", "prompt": "consent"},
+                token_info_url="https://openidconnect.googleapis.com/v1/userinfo",
+                token_info_config_fields=["sub", "email"],
+                token_url="https://oauth2.googleapis.com/token",
+                client_id=settings.SOCIAL_AUTH_GOOGLE_OAUTH2_KEY,
+                client_secret=settings.SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET,
+                scope="https://www.googleapis.com/auth/adwords email",
+                id_path="sub",
+                name_path="email",
+            )
 
         raise NotImplementedError(f"Oauth config for kind {kind} not implemented")
 
@@ -183,6 +205,7 @@ class OauthIntegration:
             "redirect_uri": cls.redirect_uri(kind),
             "response_type": "code",
             "state": urlencode({"next": next}),
+            **(oauth_config.additional_authorize_params or {}),
         }
 
         return f"{oauth_config.authorize_url}?{urlencode(query_params)}"

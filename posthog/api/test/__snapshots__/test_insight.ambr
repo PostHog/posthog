@@ -71,8 +71,8 @@
                         if(notEmpty(arrayFilter(x -> notEmpty(x), prop_vals)), prop_vals, ['']) as prop
                  FROM
                    (SELECT e.timestamp as timestamp,
-                           pdi.person_id as aggregation_target,
-                           pdi.person_id as person_id,
+                           if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                           if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                            person.person_props as person_props,
                            if(event = 'user signed up', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
@@ -82,7 +82,7 @@
                            prop_basic as prop,
                            argMinIf(prop, timestamp, notEmpty(arrayFilter(x -> notEmpty(x), prop))) over (PARTITION by aggregation_target) as prop_vals
                     FROM events e
-                    INNER JOIN
+                    LEFT OUTER JOIN
                       (SELECT distinct_id,
                               argMax(person_id, version) as person_id
                        FROM person_distinct_id2
@@ -149,15 +149,15 @@
                                                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
               FROM
                 (SELECT e.timestamp as timestamp,
-                        pdi.person_id as aggregation_target,
-                        pdi.person_id as person_id,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                         person.person_props as person_props,
                         if(event = 'user signed up', 1, 0) as step_0,
                         if(step_0 = 1, timestamp, null) as latest_0,
                         if(event = 'user did things', 1, 0) as step_1,
                         if(step_1 = 1, timestamp, null) as latest_1
                  FROM events e
-                 INNER JOIN
+                 LEFT OUTER JOIN
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
@@ -223,8 +223,8 @@
                                                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
               FROM
                 (SELECT e.timestamp as timestamp,
-                        pdi.person_id as aggregation_target,
-                        pdi.person_id as person_id,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                         person.person_props as person_props,
                         if(event = 'user signed up'
                            AND (and(ifNull(less(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'int_value'), ''), 'null'), '^"|"$', ''), 'Int64'), 10), 0), 1)
@@ -235,7 +235,7 @@
                                 AND ifNull(like(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_props, 'fish'), ''), 'null'), '^"|"$', ''), '%fish%'), 0)), 1, 0) as step_1,
                         if(step_1 = 1, timestamp, null) as latest_1
                  FROM events e
-                 INNER JOIN
+                 LEFT OUTER JOIN
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
@@ -433,7 +433,7 @@
         UNION ALL SELECT count(*) AS total,
                          toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
         FROM events e
-        INNER JOIN
+        LEFT OUTER JOIN
           (SELECT distinct_id,
                   argMax(person_id, version) as person_id
            FROM person_distinct_id2
@@ -508,7 +508,7 @@
         UNION ALL SELECT count(*) AS total,
                          toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
         FROM events e
-        INNER JOIN
+        LEFT OUTER JOIN
           (SELECT distinct_id,
                   argMax(person_id, version) as person_id
            FROM person_distinct_id2
@@ -557,7 +557,7 @@
         UNION ALL SELECT count(*) AS total,
                          toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
         FROM events e
-        INNER JOIN
+        LEFT OUTER JOIN
           (SELECT distinct_id,
                   argMax(person_id, version) as person_id
            FROM person_distinct_id2
@@ -606,7 +606,7 @@
         UNION ALL SELECT count(*) AS total,
                          toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
         FROM events e
-        INNER JOIN
+        LEFT OUTER JOIN
           (SELECT distinct_id,
                   argMax(person_id, version) as person_id
            FROM person_distinct_id2
@@ -646,7 +646,6 @@
          "posthog_user"."first_name",
          "posthog_user"."last_name",
          "posthog_user"."is_staff",
-         "posthog_user"."is_active",
          "posthog_user"."date_joined",
          "posthog_user"."uuid",
          "posthog_user"."current_organization_id",
@@ -658,6 +657,7 @@
          "posthog_user"."is_email_verified",
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
+         "posthog_user"."is_active",
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
@@ -696,7 +696,9 @@
          "posthog_team"."session_recording_minimum_duration_milliseconds",
          "posthog_team"."session_recording_linked_flag",
          "posthog_team"."session_recording_network_payload_capture_config",
+         "posthog_team"."session_recording_url_trigger_config",
          "posthog_team"."session_replay_config",
+         "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",
@@ -753,7 +755,9 @@
          "posthog_team"."session_recording_minimum_duration_milliseconds",
          "posthog_team"."session_recording_linked_flag",
          "posthog_team"."session_recording_network_payload_capture_config",
+         "posthog_team"."session_recording_url_trigger_config",
          "posthog_team"."session_replay_config",
+         "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",
@@ -969,6 +973,7 @@
          "posthog_dashboard"."deleted",
          "posthog_dashboard"."last_accessed_at",
          "posthog_dashboard"."filters",
+         "posthog_dashboard"."variables",
          "posthog_dashboard"."creation_mode",
          "posthog_dashboard"."restriction_level",
          "posthog_dashboard"."deprecated_tags",
@@ -1006,7 +1011,9 @@
          "posthog_team"."session_recording_minimum_duration_milliseconds",
          "posthog_team"."session_recording_linked_flag",
          "posthog_team"."session_recording_network_payload_capture_config",
+         "posthog_team"."session_recording_url_trigger_config",
          "posthog_team"."session_replay_config",
+         "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",
@@ -1082,6 +1089,7 @@
          "posthog_dashboard"."deleted",
          "posthog_dashboard"."last_accessed_at",
          "posthog_dashboard"."filters",
+         "posthog_dashboard"."variables",
          "posthog_dashboard"."creation_mode",
          "posthog_dashboard"."restriction_level",
          "posthog_dashboard"."deprecated_tags",
@@ -1172,6 +1180,7 @@
          "posthog_dashboard"."deleted",
          "posthog_dashboard"."last_accessed_at",
          "posthog_dashboard"."filters",
+         "posthog_dashboard"."variables",
          "posthog_dashboard"."creation_mode",
          "posthog_dashboard"."restriction_level",
          "posthog_dashboard"."deprecated_tags",
@@ -1234,7 +1243,6 @@
          "posthog_user"."first_name",
          "posthog_user"."last_name",
          "posthog_user"."is_staff",
-         "posthog_user"."is_active",
          "posthog_user"."date_joined",
          "posthog_user"."uuid",
          "posthog_user"."current_organization_id",
@@ -1246,6 +1254,7 @@
          "posthog_user"."is_email_verified",
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
+         "posthog_user"."is_active",
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
@@ -1284,7 +1293,9 @@
          "posthog_team"."session_recording_minimum_duration_milliseconds",
          "posthog_team"."session_recording_linked_flag",
          "posthog_team"."session_recording_network_payload_capture_config",
+         "posthog_team"."session_recording_url_trigger_config",
          "posthog_team"."session_replay_config",
+         "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",
@@ -1458,8 +1469,8 @@
   SELECT COUNT(*) AS "__count"
   FROM "posthog_dashboarditem"
   INNER JOIN "posthog_team" ON ("posthog_dashboarditem"."team_id" = "posthog_team"."id")
-  WHERE (NOT ("posthog_dashboarditem"."deleted")
-         AND "posthog_team"."project_id" = 2)
+  WHERE ("posthog_team"."project_id" = 2
+         AND NOT ("posthog_dashboarditem"."deleted"))
   '''
 # ---
 # name: TestInsight.test_listing_insights_does_not_nplus1.3
@@ -1562,7 +1573,9 @@
          "posthog_team"."session_recording_minimum_duration_milliseconds",
          "posthog_team"."session_recording_linked_flag",
          "posthog_team"."session_recording_network_payload_capture_config",
+         "posthog_team"."session_recording_url_trigger_config",
          "posthog_team"."session_replay_config",
+         "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",
@@ -1601,7 +1614,6 @@
          "posthog_user"."first_name",
          "posthog_user"."last_name",
          "posthog_user"."is_staff",
-         "posthog_user"."is_active",
          "posthog_user"."date_joined",
          "posthog_user"."uuid",
          "posthog_user"."current_organization_id",
@@ -1614,6 +1626,7 @@
          "posthog_user"."requested_password_reset_at",
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
+         "posthog_user"."is_active",
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
@@ -1627,7 +1640,6 @@
          T5."first_name",
          T5."last_name",
          T5."is_staff",
-         T5."is_active",
          T5."date_joined",
          T5."uuid",
          T5."current_organization_id",
@@ -1640,6 +1652,7 @@
          T5."requested_password_reset_at",
          T5."has_seen_product_intro_for",
          T5."strapi_id",
+         T5."is_active",
          T5."theme_mode",
          T5."partial_notification_settings",
          T5."anonymize_data",
@@ -1651,8 +1664,8 @@
   INNER JOIN "posthog_team" ON ("posthog_dashboarditem"."team_id" = "posthog_team"."id")
   LEFT OUTER JOIN "posthog_user" ON ("posthog_dashboarditem"."created_by_id" = "posthog_user"."id")
   LEFT OUTER JOIN "posthog_user" T5 ON ("posthog_dashboarditem"."last_modified_by_id" = T5."id")
-  WHERE (NOT ("posthog_dashboarditem"."deleted")
-         AND "posthog_team"."project_id" = 2)
+  WHERE ("posthog_team"."project_id" = 2
+         AND NOT ("posthog_dashboarditem"."deleted"))
   ORDER BY "posthog_dashboarditem"."order" ASC
   LIMIT 100
   '''
@@ -1670,6 +1683,7 @@
          "posthog_dashboard"."deleted",
          "posthog_dashboard"."last_accessed_at",
          "posthog_dashboard"."filters",
+         "posthog_dashboard"."variables",
          "posthog_dashboard"."creation_mode",
          "posthog_dashboard"."restriction_level",
          "posthog_dashboard"."deprecated_tags",
@@ -1700,7 +1714,9 @@
          "posthog_team"."session_recording_minimum_duration_milliseconds",
          "posthog_team"."session_recording_linked_flag",
          "posthog_team"."session_recording_network_payload_capture_config",
+         "posthog_team"."session_recording_url_trigger_config",
          "posthog_team"."session_replay_config",
+         "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",
@@ -1787,6 +1803,7 @@
          "posthog_dashboard"."deleted",
          "posthog_dashboard"."last_accessed_at",
          "posthog_dashboard"."filters",
+         "posthog_dashboard"."variables",
          "posthog_dashboard"."creation_mode",
          "posthog_dashboard"."restriction_level",
          "posthog_dashboard"."deprecated_tags",
@@ -1817,7 +1834,9 @@
          "posthog_team"."session_recording_minimum_duration_milliseconds",
          "posthog_team"."session_recording_linked_flag",
          "posthog_team"."session_recording_network_payload_capture_config",
+         "posthog_team"."session_recording_url_trigger_config",
          "posthog_team"."session_replay_config",
+         "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",
@@ -1945,6 +1964,7 @@
          "posthog_dashboard"."deleted",
          "posthog_dashboard"."last_accessed_at",
          "posthog_dashboard"."filters",
+         "posthog_dashboard"."variables",
          "posthog_dashboard"."creation_mode",
          "posthog_dashboard"."restriction_level",
          "posthog_dashboard"."deprecated_tags",
@@ -2001,7 +2021,9 @@
          "posthog_team"."session_recording_minimum_duration_milliseconds",
          "posthog_team"."session_recording_linked_flag",
          "posthog_team"."session_recording_network_payload_capture_config",
+         "posthog_team"."session_recording_url_trigger_config",
          "posthog_team"."session_replay_config",
+         "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",
@@ -2093,7 +2115,9 @@
          "posthog_team"."session_recording_minimum_duration_milliseconds",
          "posthog_team"."session_recording_linked_flag",
          "posthog_team"."session_recording_network_payload_capture_config",
+         "posthog_team"."session_recording_url_trigger_config",
          "posthog_team"."session_replay_config",
+         "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",
@@ -2143,6 +2167,7 @@
          "posthog_dashboard"."deleted",
          "posthog_dashboard"."last_accessed_at",
          "posthog_dashboard"."filters",
+         "posthog_dashboard"."variables",
          "posthog_dashboard"."creation_mode",
          "posthog_dashboard"."restriction_level",
          "posthog_dashboard"."deprecated_tags",
@@ -2184,7 +2209,9 @@
          "posthog_team"."session_recording_minimum_duration_milliseconds",
          "posthog_team"."session_recording_linked_flag",
          "posthog_team"."session_recording_network_payload_capture_config",
+         "posthog_team"."session_recording_url_trigger_config",
          "posthog_team"."session_replay_config",
+         "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",
@@ -2248,7 +2275,9 @@
          "posthog_team"."session_recording_minimum_duration_milliseconds",
          "posthog_team"."session_recording_linked_flag",
          "posthog_team"."session_recording_network_payload_capture_config",
+         "posthog_team"."session_recording_url_trigger_config",
          "posthog_team"."session_replay_config",
+         "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",

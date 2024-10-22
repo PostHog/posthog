@@ -1,5 +1,5 @@
 import { lemonToast, Spinner } from '@posthog/lemon-ui'
-import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, connect, events, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { liveEventsHostOrigin } from 'lib/utils/apiHost'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -9,8 +9,13 @@ import type { liveEventsTableLogicType } from './liveEventsTableLogicType'
 
 const ERROR_TOAST_ID = 'live-stream-error'
 
+export interface LiveEventsTableProps {
+    showLiveStreamErrorToast: boolean
+}
+
 export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
     path(['scenes', 'activity', 'live-events', 'liveEventsTableLogic']),
+    props({} as LiveEventsTableProps),
     connect({
         values: [teamLogic, ['currentTeam']],
     }),
@@ -25,7 +30,7 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
         setClientSideFilters: (clientSideFilters) => ({ clientSideFilters }),
         pollStats: true,
         setStats: (stats) => ({ stats }),
-        showLiveStreamErrorToast: true,
+        addEventHost: (eventHost) => ({ eventHost }),
     })),
     reducers({
         events: [
@@ -83,6 +88,17 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
                 },
             },
         ],
+        eventHosts: [
+            [] as string[],
+            {
+                addEventHost: (state, { eventHost }) => {
+                    if (!state.includes(eventHost)) {
+                        return [...state, eventHost]
+                    }
+                    return state
+                },
+            },
+        ],
     }),
     selectors(({ selectors }) => ({
         eventCount: [() => [selectors.events], (events: any) => events.length],
@@ -97,7 +113,7 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
             },
         ],
     })),
-    listeners(({ actions, values, cache }) => ({
+    listeners(({ actions, values, cache, props }) => ({
         setFilters: () => {
             actions.clearEvents()
             actions.updateEventsConnection()
@@ -140,12 +156,13 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
             }
 
             source.onerror = function (e) {
-                console.error('Failed to poll events: ', e)
-                if (!cache.hasShownLiveStreamErrorToast) {
-                    lemonToast.error(
-                        `Cannot connect to the live event stream. Continuing to retry in the background…`,
-                        { icon: <Spinner />, toastId: ERROR_TOAST_ID, autoClose: false }
-                    )
+                if (!cache.hasShownLiveStreamErrorToast && props.showLiveStreamErrorToast) {
+                    console.error('Failed to poll events. You likely have no events coming in.', e)
+                    lemonToast.error(`No live events found. Continuing to retry in the background…`, {
+                        icon: <Spinner />,
+                        toastId: ERROR_TOAST_ID,
+                        autoClose: false,
+                    })
                     cache.hasShownLiveStreamErrorToast = true // Only show once
                 }
             }
@@ -175,6 +192,17 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
                 actions.setStats(data)
             } catch (error) {
                 console.error('Failed to poll stats:', error)
+            }
+        },
+        addEvents: ({ events }) => {
+            if (events.length > 0) {
+                const event = events[0]
+                const eventUrl = event.properties?.$current_url
+                if (eventUrl) {
+                    const eventHost = new URL(eventUrl).host
+                    const eventProtocol = new URL(eventUrl).protocol
+                    actions.addEventHost(`${eventProtocol}//${eventHost}`)
+                }
             }
         },
     })),

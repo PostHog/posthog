@@ -2,10 +2,11 @@ import { IconDashboard, IconEye, IconGear, IconTerminal } from '@posthog/icons'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { IconOffline, IconUnverifiedEvent } from 'lib/lemon-ui/icons'
+import { IconComment, IconOffline, IconUnverifiedEvent } from 'lib/lemon-ui/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { ceilMsToClosestSecond, colonDelimitedDuration } from 'lib/utils'
 import { useEffect } from 'react'
+import { ItemComment } from 'scenes/session-recordings/player/inspector/components/ItemComment'
 import { useDebouncedCallback } from 'use-debounce'
 import useResizeObserver from 'use-resize-observer'
 
@@ -52,6 +53,10 @@ const typeToIconAndDescription = {
     ['doctor']: {
         Icon: undefined,
         tooltip: 'Doctor event',
+    },
+    ['comment']: {
+        Icon: IconComment,
+        tooltip: 'A user commented on this timestamp in the recording',
     },
 }
 const PLAYER_INSPECTOR_LIST_ITEM_MARGIN = 4
@@ -182,6 +187,8 @@ export function PlayerInspectorListItem({
                     <div className="flex items-start p-2 text-xs">Window became {item.status}</div>
                 ) : item.type === SessionRecordingPlayerTab.DOCTOR ? (
                     <ItemDoctor item={item} {...itemProps} />
+                ) : item.type === 'comment' ? (
+                    <ItemComment item={item} {...itemProps} />
                 ) : null}
 
                 {isExpanded ? (

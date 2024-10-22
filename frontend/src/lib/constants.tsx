@@ -153,8 +153,6 @@ export const FEATURE_FLAGS = {
     HEDGEHOG_MODE_DEBUG: 'hedgehog-mode-debug', // owner: @benjackwhite
     HIGH_FREQUENCY_BATCH_EXPORTS: 'high-frequency-batch-exports', // owner: @tomasfarias
     PERSON_BATCH_EXPORTS: 'person-batch-exports', // owner: @tomasfarias
-    // owner: #team-replay, only to be enabled for PostHog team testing
-    EXCEPTION_AUTOCAPTURE: 'exception-autocapture',
     FF_DASHBOARD_TEMPLATES: 'ff-dashboard-templates', // owner: @EDsCODE
     ARTIFICIAL_HOG: 'artificial-hog', // owner: @Twixes
     CS_DASHBOARDS: 'cs-dashboards', // owner: @pauldambra
@@ -186,20 +184,17 @@ export const FEATURE_FLAGS = {
     AUDIT_LOGS_ACCESS: 'audit-logs-access', // owner: #team-growth
     ACCESS_CONTROL: 'access-control', // owner: @benjackwhite
     SUBSCRIBE_FROM_PAYGATE: 'subscribe-from-paygate', // owner: #team-growth
-    SESSION_REPLAY_MOBILE_ONBOARDING: 'session-replay-mobile-onboarding', // owner: #team-replay
     HEATMAPS_UI: 'heatmaps-ui', // owner: @benjackwhite
     THEME: 'theme', // owner: @aprilfools
-    INSIGHT_LOADING_BAR: 'insight-loading-bar', // owner: @aspicer
     PROXY_AS_A_SERVICE: 'proxy-as-a-service', // owner: #team-infrastructure
-    LIVE_EVENTS: 'live-events', // owner: @zach or @jams
     SETTINGS_PERSONS_JOIN_MODE: 'settings-persons-join-mode', // owner: @robbie-c
     SETTINGS_PERSONS_ON_EVENTS_HIDDEN: 'settings-persons-on-events-hidden', // owner: @Twixes
     HOG: 'hog', // owner: @mariusandra
-    HOG_FUNCTIONS: 'hog-functions', // owner: #team-cdp
     HOG_FUNCTIONS_LINKED: 'hog-functions-linked', // owner: #team-cdp
     PERSONLESS_EVENTS_NOT_SUPPORTED: 'personless-events-not-supported', // owner: @raquelmsmith
-    ALERTS: 'alerts', // owner: github.com/nikitaevg
-    ERROR_TRACKING: 'error-tracking', // owner: #team-replay
+    ALERTS: 'alerts', // owner: @anirudhpillai #team-product-analytics
+    ERROR_TRACKING: 'error-tracking', // owner: #team-error-tracking
+    ERROR_TRACKING_GROUP_ACTIONS: 'error-tracking-group-actions', // owner: #team-error-tracking
     SETTINGS_BOUNCE_RATE_PAGE_VIEW_MODE: 'settings-bounce-rate-page-view-mode', // owner: @robbie-c
     ONBOARDING_DASHBOARD_TEMPLATES: 'onboarding-dashboard-templates', // owner: @raquelmsmith
     MULTIPLE_BREAKDOWNS: 'multiple-breakdowns', // owner: @skoob13 #team-product-analytics
@@ -216,8 +211,15 @@ export const FEATURE_FLAGS = {
     DATA_MODELING: 'data-modeling', // owner: @EDsCODE #team-data-warehouse
     WEB_ANALYTICS_CONVERSION_GOALS: 'web-analytics-conversion-goals', // owner: @robbie-c
     WEB_ANALYTICS_LAST_CLICK: 'web-analytics-last-click', // owner: @robbie-c
+    WEB_ANALYTICS_LCP_SCORE: 'web-analytics-lcp-score', // owner: @robbie-c
     HEDGEHOG_SKIN_SPIDERHOG: 'hedgehog-skin-spiderhog', // owner: @benjackwhite
+    INSIGHT_VARIABLES: 'insight_variables', // owner: @Gilbert09 #team-data-warehouse
+    WEB_EXPERIMENTS: 'web-experiments', // owner: @team-feature-success
     BIGQUERY_DWH: 'bigquery-dwh', // owner: @Gilbert09 #team-data-warehouse
+    ENVIRONMENTS: 'environments', // owner: @Twixes #team-product-analytics
+    BILLING_PAYMENT_ENTRY_IN_APP: 'billing-payment-entry-in-app', // owner: @zach
+    LEGACY_ACTION_WEBHOOKS: 'legacy-action-webhooks', // owner: @mariusandra #team-cdp
+    SESSION_REPLAY_URL_TRIGGER: 'session-replay-url-trigger', // owner: @richard-better #team-replay
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 

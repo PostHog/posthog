@@ -8,6 +8,7 @@ from .sendgrid.template_sendgrid import template as sendgrid, TemplateSendGridMi
 from .clearbit.template_clearbit import template as clearbit
 from .posthog.template_posthog import template as posthog, TemplatePostHogMigrator
 from .aws_kinesis.template_aws_kinesis import template as aws_kinesis
+from .discord.template_discord import template as discord
 from .salesforce.template_salesforce import template_create as salesforce_create, template_update as salesforce_update
 from .mailjet.template_mailjet import (
     template_create_contact as mailjet_create_contact,
@@ -23,40 +24,53 @@ from .google_pubsub.template_google_pubsub import template as google_pubsub, Tem
 from .engage.template_engage import template as engage, TemplateEngageMigrator
 from .zendesk.template_zendesk import template as zendesk
 from .knock.template_knock import template as knock
+from .meta_ads.template_meta_ads import template as meta_ads
 from .activecampaign.template_activecampaign import template as activecampaign
+from .google_ads.template_google_ads import template as google_ads
+from .attio.template_attio import template as attio
+from .microsoft_teams.template_microsoft_teams import template as microsoft_teams
+from .klaviyo.template_klaviyo import template_user as klaviyo_user, template_event as klaviyo_event
 from .google_cloud_storage.template_google_cloud_storage import (
     template as google_cloud_storage,
     TemplateGoogleCloudStorageMigrator,
 )
-
+from .airtable.template_airtable import template as airtable
 
 HOG_FUNCTION_TEMPLATES = [
     slack,
     webhook,
-    hubspot,
-    customerio,
-    intercom,
-    posthog,
-    sendgrid,
+    activecampaign,
+    airtable,
+    attio,
+    avo,
     aws_kinesis,
-    zapier,
-    salesforce_create,
-    salesforce_update,
+    braze,
+    clearbit,
+    customerio,
+    discord,
+    engage,
+    gleap,
+    google_ads,
+    google_cloud_storage,
+    google_pubsub,
+    hubspot,
+    intercom,
+    klaviyo_event,
+    klaviyo_user,
+    knock,
+    loops,
+    mailgun,
     mailjet_create_contact,
     mailjet_update_contact_list,
-    clearbit,
-    mailgun,
-    loops,
+    meta_ads,
+    microsoft_teams,
+    posthog,
     rudderstack,
-    avo,
-    gleap,
-    google_pubsub,
-    engage,
+    salesforce_create,
+    salesforce_update,
+    sendgrid,
+    zapier,
     zendesk,
-    google_cloud_storage,
-    braze,
-    knock,
-    activecampaign,
 ]
 
 

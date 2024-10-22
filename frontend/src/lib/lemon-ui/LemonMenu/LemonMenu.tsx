@@ -13,9 +13,12 @@ type KeyboardShortcut = Array<keyof KeyboardShortcutProps>
 export interface LemonMenuItemBase
     extends Pick<
         LemonButtonProps,
-        'icon' | 'sideIcon' | 'disabledReason' | 'tooltip' | 'active' | 'status' | 'data-attr'
+        'icon' | 'sideIcon' | 'sideAction' | 'disabledReason' | 'tooltip' | 'active' | 'status' | 'data-attr'
     > {
     label: string | JSX.Element
+    key?: React.Key
+    /** @deprecated You're probably doing something wrong if you're setting per-item classes. */
+    className?: string
     /** True if the item is a custom element. */
     custom?: boolean
 }
@@ -24,33 +27,29 @@ export interface LemonMenuItemNode extends LemonMenuItemBase {
     placement?: LemonDropdownProps['placement']
     keyboardShortcut?: never
 }
-export type LemonMenuItemLeaf =
-    | (LemonMenuItemBase & {
-          onClick: () => void
-          items?: never
-          placement?: never
-          keyboardShortcut?: KeyboardShortcut
-      })
-    | (LemonMenuItemBase & {
-          to: string
-          disableClientSideRouting?: boolean
-          targetBlank?: boolean
-          items?: never
-          placement?: never
-          keyboardShortcut?: KeyboardShortcut
-      })
-    | (LemonMenuItemBase & {
-          onClick: () => void
-          to: string
-          disableClientSideRouting?: boolean
-          targetBlank?: boolean
-          items?: never
-          placement?: never
-          keyboardShortcut?: KeyboardShortcut
-      })
+
+export interface LemonMenuItemLeafCallback extends LemonMenuItemBase {
+    onClick: () => void
+    items?: never
+    placement?: never
+    keyboardShortcut?: KeyboardShortcut
+}
+export interface LemonMenuItemLeafLink extends LemonMenuItemBase {
+    onClick?: () => void
+    to: string
+    disableClientSideRouting?: boolean
+    targetBlank?: boolean
+    items?: never
+    placement?: never
+    keyboardShortcut?: KeyboardShortcut
+}
+
+export type LemonMenuItemLeaf = LemonMenuItemLeafCallback | LemonMenuItemLeafLink
+
 export interface LemonMenuItemCustom {
     /** A label that's a component means it will be rendered directly, and not wrapped in a button. */
     label: () => JSX.Element
+    key?: React.Key
     active?: never
     items?: never
     keyboardShortcut?: never
@@ -62,6 +61,7 @@ export type LemonMenuItem = LemonMenuItemLeaf | LemonMenuItemCustom | LemonMenuI
 
 export interface LemonMenuSection {
     title?: string | React.ReactNode
+    key?: React.Key
     items: (LemonMenuItem | false | null)[]
     footer?: string | React.ReactNode
 }
@@ -133,7 +133,7 @@ export interface LemonMenuOverlayProps {
 
 export function LemonMenuOverlay({
     items,
-    tooltipPlacement,
+    tooltipPlacement = 'right',
     itemsRef,
     buttonSize = 'small',
 }: LemonMenuOverlayProps): JSX.Element {
@@ -176,7 +176,7 @@ export function LemonMenuSectionList({
         <ul>
             {sections.map((section, i) => {
                 const sectionElement = (
-                    <li key={i}>
+                    <li key={section.key || i}>
                         <section className="space-y-px">
                             {section.title ? (
                                 typeof section.title === 'string' ? (
@@ -226,7 +226,7 @@ export function LemonMenuItemList({
     return (
         <ul className="space-y-px">
             {items.map((item, index) => (
-                <li key={index}>
+                <li key={item.key || index}>
                     <LemonMenuItemButton
                         item={item}
                         size={buttonSize}
@@ -255,6 +255,8 @@ const LemonMenuItemButton: FunctionComponent<LemonMenuItemButtonProps & React.Re
             const button = Label ? (
                 <Label key="x" />
             ) : (
+                // @ts-expect-error - We don't have a type-level guarantee that `sideAction` won't be present
+                // alongside `sideIcon` in one menu item, but that's fine. It'd be horribly complex to implement here.
                 <LemonButton
                     ref={ref}
                     tooltipPlacement={tooltipPlacement}

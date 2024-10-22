@@ -15,6 +15,8 @@ from dlt.common.schema.typing import TColumnSchema
 from dlt.sources.credentials import ConnectionStringCredentials
 from urllib.parse import quote
 
+from posthog.settings.utils import get_from_env
+from posthog.utils import str_to_bool
 from posthog.warehouse.types import IncrementalFieldType
 from posthog.warehouse.models.external_data_source import ExternalDataSource
 from sqlalchemy.sql import text
@@ -63,12 +65,23 @@ def sql_source_for_type(
     else:
         incremental = None
 
+    connect_args = []
+
     if source_type == ExternalDataSource.Type.POSTGRES:
         credentials = ConnectionStringCredentials(
             f"postgresql://{user}:{password}@{host}:{port}/{database}?sslmode={sslmode}"
         )
     elif source_type == ExternalDataSource.Type.MYSQL:
-        credentials = ConnectionStringCredentials(f"mysql+pymysql://{user}:{password}@{host}:{port}/{database}")
+        # We have to get DEBUG in temporal workers cos we're not loading Django in the same way as the app
+        is_debug = get_from_env("DEBUG", False, type_cast=str_to_bool)
+        ssl_ca = "/etc/ssl/cert.pem" if is_debug else "/etc/ssl/certs/ca-certificates.crt"
+        credentials = ConnectionStringCredentials(
+            f"mysql+pymysql://{user}:{password}@{host}:{port}/{database}?ssl_ca={ssl_ca}&ssl_verify_cert=false"
+        )
+
+        # PlanetScale needs this to be set
+        if host.endswith("psdb.cloud"):
+            connect_args = ["SET workload = 'OLAP';"]
     elif source_type == ExternalDataSource.Type.MSSQL:
         credentials = ConnectionStringCredentials(
             f"mssql+pyodbc://{user}:{password}@{host}:{port}/{database}?driver=ODBC+Driver+18+for+SQL+Server&TrustServerCertificate=yes"
@@ -77,7 +90,12 @@ def sql_source_for_type(
         raise Exception("Unsupported source_type")
 
     db_source = sql_database(
-        credentials, schema=schema, table_names=table_names, incremental=incremental, team_id=team_id
+        credentials,
+        schema=schema,
+        table_names=table_names,
+        incremental=incremental,
+        team_id=team_id,
+        connect_args=connect_args,
     )
 
     return db_source
@@ -173,6 +191,7 @@ def sql_database(
     table_names: Optional[List[str]] = dlt.config.value,  # noqa: UP006
     incremental: Optional[dlt.sources.incremental] = None,
     team_id: Optional[int] = None,
+    connect_args: Optional[list[str]] = None,
 ) -> Iterable[DltResource]:
     """
     A DLT source which loads data from an SQL database using SQLAlchemy.
@@ -224,6 +243,7 @@ def sql_database(
                 engine=engine,
                 table=table,
                 incremental=incremental,
+                connect_args=connect_args,
             )
         )
 

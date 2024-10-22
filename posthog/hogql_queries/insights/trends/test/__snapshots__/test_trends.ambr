@@ -52,8 +52,8 @@
 # name: TestTrends.test_action_filtering_with_cohort.5
   '''
   SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-07 23:59:59', 6, 'UTC'))))), 1))) AS date,
-         arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                        and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
     (SELECT sum(total) AS count,
             day_start AS day_start
@@ -148,8 +148,8 @@
 # name: TestTrends.test_action_filtering_with_cohort_poe_v2.5
   '''
   SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-07 23:59:59', 6, 'UTC'))))), 1))) AS date,
-         arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                        and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
     (SELECT sum(total) AS count,
             day_start AS day_start
@@ -184,12 +184,12 @@
 # name: TestTrends.test_breakdown_by_group_props_person_on_events
   '''
   SELECT groupArray(1)(date)[1] AS date,
-                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
+                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))))), 1))) AS date,
-            arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                           and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
+            arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                      and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
             breakdown_value AS breakdown_value,
             rowNumberInAllBlocks() AS row_number
      FROM
@@ -206,7 +206,7 @@
                      groups.group_type_index AS index,
                      groups.group_key AS key
               FROM groups
-              WHERE and(equals(groups.team_id, 2), ifNull(equals(index, 0), 0))
+              WHERE and(equals(groups.team_id, 2), equals(index, 0))
               GROUP BY groups.group_type_index,
                        groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
            WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'))
@@ -251,10 +251,10 @@
                   groups.group_type_index AS index,
                   groups.group_key AS key
            FROM groups
-           WHERE and(equals(groups.team_id, 2), ifNull(equals(index, 0), 0))
+           WHERE and(equals(groups.team_id, 2), equals(index, 0))
            GROUP BY groups.group_type_index,
                     groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-        WHERE and(equals(e.team_id, 2), ifNull(greaterOrEquals(timestamp, toDateTime64('2020-01-02 00:00:00.000000', 6, 'UTC')), 0), ifNull(less(timestamp, toDateTime64('2020-01-03 00:00:00.000000', 6, 'UTC')), 0), ifNull(equals(ifNull(nullIf(toString(e__group_0.properties___industry), ''), '$$_posthog_breakdown_null_$$'), 'technology'), 0), equals(e.event, 'sign up')))
+        WHERE and(equals(e.team_id, 2), greaterOrEquals(timestamp, toDateTime64('2020-01-02 00:00:00.000000', 6, 'UTC')), less(timestamp, toDateTime64('2020-01-03 00:00:00.000000', 6, 'UTC')), ifNull(equals(ifNull(nullIf(toString(e__group_0.properties___industry), ''), '$$_posthog_breakdown_null_$$'), 'technology'), 0), equals(e.event, 'sign up')))
      GROUP BY actor_id) AS source
   INNER JOIN
     (SELECT argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
@@ -270,9 +270,9 @@
                                                       LEFT JOIN
                                                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry, groups.group_type_index AS index, groups.group_key AS key
                                                          FROM groups
-                                                         WHERE and(equals(groups.team_id, 2), ifNull(equals(index, 0), 0))
+                                                         WHERE and(equals(groups.team_id, 2), equals(index, 0))
                                                          GROUP BY groups.group_type_index, groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-                                                      WHERE and(equals(e.team_id, 2), ifNull(greaterOrEquals(timestamp, toDateTime64('2020-01-02 00:00:00.000000', 6, 'UTC')), 0), ifNull(less(timestamp, toDateTime64('2020-01-03 00:00:00.000000', 6, 'UTC')), 0), ifNull(equals(ifNull(nullIf(toString(e__group_0.properties___industry), ''), '$$_posthog_breakdown_null_$$'), 'technology'), 0), equals(e.event, 'sign up')))
+                                                      WHERE and(equals(e.team_id, 2), greaterOrEquals(timestamp, toDateTime64('2020-01-02 00:00:00.000000', 6, 'UTC')), less(timestamp, toDateTime64('2020-01-03 00:00:00.000000', 6, 'UTC')), ifNull(equals(ifNull(nullIf(toString(e__group_0.properties___industry), ''), '$$_posthog_breakdown_null_$$'), 'technology'), 0), equals(e.event, 'sign up')))
                                                    GROUP BY actor_id) AS source)))
      GROUP BY person.id
      HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
@@ -304,12 +304,12 @@
 # name: TestTrends.test_breakdown_by_group_props_with_person_filter_person_on_events
   '''
   SELECT groupArray(1)(date)[1] AS date,
-                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
+                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))))), 1))) AS date,
-            arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                           and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
+            arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                      and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
             breakdown_value AS breakdown_value,
             rowNumberInAllBlocks() AS row_number
      FROM
@@ -326,7 +326,7 @@
                      groups.group_type_index AS index,
                      groups.group_key AS key
               FROM groups
-              WHERE and(equals(groups.team_id, 2), ifNull(equals(index, 0), 0))
+              WHERE and(equals(groups.team_id, 2), equals(index, 0))
               GROUP BY groups.group_type_index,
                        groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
            WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.person_properties, 'key'), ''), 'null'), '^"|"$', ''), 'value'), 0))
@@ -352,12 +352,12 @@
 # name: TestTrends.test_breakdown_filtering_with_properties_in_new_format
   '''
   SELECT groupArray(1)(date)[1] AS date,
-                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
+                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-22 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-22 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'UTC'))))), 1))) AS date,
-            arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                           and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
+            arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                      and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
             breakdown_value AS breakdown_value,
             rowNumberInAllBlocks() AS row_number
      FROM
@@ -392,12 +392,12 @@
 # name: TestTrends.test_breakdown_filtering_with_properties_in_new_format.1
   '''
   SELECT groupArray(1)(date)[1] AS date,
-                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
+                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-22 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-22 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'UTC'))))), 1))) AS date,
-            arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                           and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
+            arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                      and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
             breakdown_value AS breakdown_value,
             rowNumberInAllBlocks() AS row_number
      FROM
@@ -432,12 +432,12 @@
 # name: TestTrends.test_breakdown_filtering_with_properties_in_new_format.2
   '''
   SELECT groupArray(1)(date)[1] AS date,
-                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
+                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       arrayMap(i -> if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', i), breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-22 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-22 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'UTC'))))), 1))) AS date,
-            arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                           and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
+            arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                      and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
             breakdown_value AS breakdown_value,
             rowNumberInAllBlocks() AS row_number
      FROM
@@ -472,12 +472,12 @@
 # name: TestTrends.test_breakdown_filtering_with_properties_in_new_format.3
   '''
   SELECT groupArray(1)(date)[1] AS date,
-                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
+                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       arrayMap(i -> if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', i), breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-22 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-22 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'UTC'))))), 1))) AS date,
-            arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                           and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
+            arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                      and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
             breakdown_value AS breakdown_value,
             rowNumberInAllBlocks() AS row_number
      FROM
@@ -652,12 +652,12 @@
 # name: TestTrends.test_breakdown_weekly_active_users_daily_based_on_action.2
   '''
   SELECT groupArray(1)(date)[1] AS date,
-                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
+                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))))), 1))) AS date,
-            arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                           and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
+            arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                      and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
             breakdown_value AS breakdown_value,
             rowNumberInAllBlocks() AS row_number
      FROM
@@ -728,12 +728,12 @@
 # name: TestTrends.test_breakdown_with_filter_groups_person_on_events
   '''
   SELECT groupArray(1)(date)[1] AS date,
-                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
+                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))))), 1))) AS date,
-            arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                           and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
+            arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                      and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
             breakdown_value AS breakdown_value,
             rowNumberInAllBlocks() AS row_number
      FROM
@@ -750,7 +750,7 @@
                      groups.group_type_index AS index,
                      groups.group_key AS key
               FROM groups
-              WHERE and(equals(groups.team_id, 2), ifNull(equals(index, 0), 0))
+              WHERE and(equals(groups.team_id, 2), equals(index, 0))
               GROUP BY groups.group_type_index,
                        groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
            WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), ifNull(equals(e__group_0.properties___industry, 'finance'), 0))
@@ -785,12 +785,12 @@
 # name: TestTrends.test_breakdown_with_filter_groups_person_on_events_v2.1
   '''
   SELECT groupArray(1)(date)[1] AS date,
-                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
+                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))))), 1))) AS date,
-            arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                           and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
+            arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                      and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
             breakdown_value AS breakdown_value,
             rowNumberInAllBlocks() AS row_number
      FROM
@@ -814,7 +814,7 @@
                      groups.group_type_index AS index,
                      groups.group_key AS key
               FROM groups
-              WHERE and(equals(groups.team_id, 2), ifNull(equals(index, 0), 0))
+              WHERE and(equals(groups.team_id, 2), equals(index, 0))
               GROUP BY groups.group_type_index,
                        groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
            WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), ifNull(equals(e__group_0.properties___industry, 'finance'), 0))
@@ -852,12 +852,12 @@
 # name: TestTrends.test_dau_with_breakdown_filtering_with_sampling.1
   '''
   SELECT groupArray(1)(date)[1] AS date,
-                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
+                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))))), 1))) AS date,
-            arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                           and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
+            arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                      and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
             breakdown_value AS breakdown_value,
             rowNumberInAllBlocks() AS row_number
      FROM
@@ -1111,12 +1111,12 @@
 # name: TestTrends.test_dau_with_breakdown_filtering_with_sampling.2
   '''
   SELECT groupArray(1)(date)[1] AS date,
-                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
+                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))))), 1))) AS date,
-            arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                           and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
+            arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                      and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
             breakdown_value AS breakdown_value,
             rowNumberInAllBlocks() AS row_number
      FROM
@@ -1158,12 +1158,12 @@
 # name: TestTrends.test_dau_with_breakdown_filtering_with_sampling.3
   '''
   SELECT groupArray(1)(date)[1] AS date,
-                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
+                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       arrayMap(i -> if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', i), breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))))), 1))) AS date,
-            arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                           and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
+            arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                      and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
             breakdown_value AS breakdown_value,
             rowNumberInAllBlocks() AS row_number
      FROM
@@ -1205,12 +1205,12 @@
 # name: TestTrends.test_dau_with_breakdown_filtering_with_sampling.4
   '''
   SELECT groupArray(1)(date)[1] AS date,
-                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
+                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       arrayMap(i -> if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', i), breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))))), 1))) AS date,
-            arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                           and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
+            arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                      and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
             breakdown_value AS breakdown_value,
             rowNumberInAllBlocks() AS row_number
      FROM
@@ -1352,8 +1352,8 @@
 # name: TestTrends.test_filter_events_by_precalculated_cohort.4
   '''
   SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-26 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-26 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-02 23:59:59', 6, 'UTC'))))), 1))) AS date,
-         arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                        and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
     (SELECT sum(total) AS count,
             day_start AS day_start
@@ -1435,8 +1435,8 @@
 # name: TestTrends.test_filter_events_by_precalculated_cohort_poe_v2.4
   '''
   SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-26 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-26 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-02 23:59:59', 6, 'UTC'))))), 1))) AS date,
-         arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                        and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
     (SELECT sum(total) AS count,
             day_start AS day_start
@@ -1461,8 +1461,8 @@
 # name: TestTrends.test_filtering_by_multiple_groups_person_on_events
   '''
   SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))))), 1))) AS date,
-         arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                        and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
     (SELECT sum(total) AS count,
             day_start AS day_start
@@ -1475,7 +1475,7 @@
                   groups.group_type_index AS index,
                   groups.group_key AS key
            FROM groups
-           WHERE and(equals(groups.team_id, 2), ifNull(equals(index, 2), 0))
+           WHERE and(equals(groups.team_id, 2), equals(index, 2))
            GROUP BY groups.group_type_index,
                     groups.group_key) AS e__group_2 ON equals(e.`$group_2`, e__group_2.key)
         LEFT JOIN
@@ -1483,7 +1483,7 @@
                   groups.group_type_index AS index,
                   groups.group_key AS key
            FROM groups
-           WHERE and(equals(groups.team_id, 2), ifNull(equals(index, 0), 0))
+           WHERE and(equals(groups.team_id, 2), equals(index, 0))
            GROUP BY groups.group_type_index,
                     groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
         WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), and(ifNull(equals(e__group_0.properties___industry, 'finance'), 0), ifNull(equals(e__group_2.properties___name, 'six'), 0)))
@@ -1522,7 +1522,7 @@
                   groups.group_type_index AS index,
                   groups.group_key AS key
            FROM groups
-           WHERE and(equals(groups.team_id, 2), ifNull(equals(index, 2), 0))
+           WHERE and(equals(groups.team_id, 2), equals(index, 2))
            GROUP BY groups.group_type_index,
                     groups.group_key) AS e__group_2 ON equals(e.`$group_2`, e__group_2.key)
         LEFT JOIN
@@ -1530,10 +1530,10 @@
                   groups.group_type_index AS index,
                   groups.group_key AS key
            FROM groups
-           WHERE and(equals(groups.team_id, 2), ifNull(equals(index, 0), 0))
+           WHERE and(equals(groups.team_id, 2), equals(index, 0))
            GROUP BY groups.group_type_index,
                     groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-        WHERE and(equals(e.team_id, 2), and(ifNull(equals(e__group_0.properties___industry, 'finance'), 0), ifNull(equals(e__group_2.properties___name, 'six'), 0)), ifNull(greaterOrEquals(timestamp, toDateTime64('2020-01-02 00:00:00.000000', 6, 'UTC')), 0), ifNull(less(timestamp, toDateTime64('2020-01-03 00:00:00.000000', 6, 'UTC')), 0), equals(e.event, 'sign up')))
+        WHERE and(equals(e.team_id, 2), and(ifNull(equals(e__group_0.properties___industry, 'finance'), 0), ifNull(equals(e__group_2.properties___name, 'six'), 0)), greaterOrEquals(timestamp, toDateTime64('2020-01-02 00:00:00.000000', 6, 'UTC')), less(timestamp, toDateTime64('2020-01-03 00:00:00.000000', 6, 'UTC')), equals(e.event, 'sign up')))
      GROUP BY actor_id) AS source
   INNER JOIN
     (SELECT argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
@@ -1549,14 +1549,14 @@
                                                       LEFT JOIN
                                                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___name, groups.group_type_index AS index, groups.group_key AS key
                                                          FROM groups
-                                                         WHERE and(equals(groups.team_id, 2), ifNull(equals(index, 2), 0))
+                                                         WHERE and(equals(groups.team_id, 2), equals(index, 2))
                                                          GROUP BY groups.group_type_index, groups.group_key) AS e__group_2 ON equals(e.`$group_2`, e__group_2.key)
                                                       LEFT JOIN
                                                         (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry, groups.group_type_index AS index, groups.group_key AS key
                                                          FROM groups
-                                                         WHERE and(equals(groups.team_id, 2), ifNull(equals(index, 0), 0))
+                                                         WHERE and(equals(groups.team_id, 2), equals(index, 0))
                                                          GROUP BY groups.group_type_index, groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-                                                      WHERE and(equals(e.team_id, 2), and(ifNull(equals(e__group_0.properties___industry, 'finance'), 0), ifNull(equals(e__group_2.properties___name, 'six'), 0)), ifNull(greaterOrEquals(timestamp, toDateTime64('2020-01-02 00:00:00.000000', 6, 'UTC')), 0), ifNull(less(timestamp, toDateTime64('2020-01-03 00:00:00.000000', 6, 'UTC')), 0), equals(e.event, 'sign up')))
+                                                      WHERE and(equals(e.team_id, 2), and(ifNull(equals(e__group_0.properties___industry, 'finance'), 0), ifNull(equals(e__group_2.properties___name, 'six'), 0)), greaterOrEquals(timestamp, toDateTime64('2020-01-02 00:00:00.000000', 6, 'UTC')), less(timestamp, toDateTime64('2020-01-03 00:00:00.000000', 6, 'UTC')), equals(e.event, 'sign up')))
                                                    GROUP BY actor_id) AS source)))
      GROUP BY person.id
      HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
@@ -1588,8 +1588,8 @@
 # name: TestTrends.test_filtering_with_group_props_person_on_events
   '''
   SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))))), 1))) AS date,
-         arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                        and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
     (SELECT sum(total) AS count,
             day_start AS day_start
@@ -1602,7 +1602,7 @@
                   groups.group_type_index AS index,
                   groups.group_key AS key
            FROM groups
-           WHERE and(equals(groups.team_id, 2), ifNull(equals(index, 0), 0))
+           WHERE and(equals(groups.team_id, 2), equals(index, 0))
            GROUP BY groups.group_type_index,
                     groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
         WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))), equals(e.event, '$pageview'), and(ifNull(equals(e__group_0.properties___industry, 'finance'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.person_properties, 'key'), ''), 'null'), '^"|"$', ''), 'value'), 0)))
@@ -1622,12 +1622,12 @@
 # name: TestTrends.test_mau_with_breakdown_filtering_and_prop_filter
   '''
   SELECT groupArray(1)(date)[1] AS date,
-                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
+                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))))), 1))) AS date,
-            arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                           and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
+            arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                      and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
             breakdown_value AS breakdown_value,
             rowNumberInAllBlocks() AS row_number
      FROM
@@ -1696,12 +1696,12 @@
 # name: TestTrends.test_mau_with_breakdown_filtering_and_prop_filter.1
   '''
   SELECT groupArray(1)(date)[1] AS date,
-                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
+                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       arrayMap(i -> if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', i), breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))))), 1))) AS date,
-            arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                           and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
+            arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                      and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
             breakdown_value AS breakdown_value,
             rowNumberInAllBlocks() AS row_number
      FROM
@@ -1770,12 +1770,12 @@
 # name: TestTrends.test_mau_with_breakdown_filtering_and_prop_filter_poe_v2
   '''
   SELECT groupArray(1)(date)[1] AS date,
-                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
+                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))))), 1))) AS date,
-            arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                           and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
+            arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                      and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
             breakdown_value AS breakdown_value,
             rowNumberInAllBlocks() AS row_number
      FROM
@@ -1833,12 +1833,12 @@
 # name: TestTrends.test_mau_with_breakdown_filtering_and_prop_filter_poe_v2.1
   '''
   SELECT groupArray(1)(date)[1] AS date,
-                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
+                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       arrayMap(i -> if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', i), breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))))), 1))) AS date,
-            arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                           and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
+            arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                      and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
             breakdown_value AS breakdown_value,
             rowNumberInAllBlocks() AS row_number
      FROM
@@ -1896,8 +1896,8 @@
 # name: TestTrends.test_non_deterministic_timezones
   '''
   SELECT arrayMap(number -> plus(toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2022-10-31 00:00:00', 6, 'US/Pacific')), 0), toIntervalWeek(number)), range(0, plus(coalesce(dateDiff('week', toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2022-10-31 00:00:00', 6, 'US/Pacific')), 0), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2022-11-30 23:59:59', 6, 'US/Pacific')), 0))), 1))) AS date,
-         arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                        and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
     (SELECT sum(total) AS count,
             day_start AS day_start
@@ -1954,12 +1954,12 @@
 # name: TestTrends.test_person_filtering_in_cohort_in_action.3
   '''
   SELECT groupArray(1)(date)[1] AS date,
-                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
+                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))))), 1))) AS date,
-            arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                           and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
+            arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                      and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
             breakdown_value AS breakdown_value,
             rowNumberInAllBlocks() AS row_number
      FROM
@@ -2036,12 +2036,12 @@
 # name: TestTrends.test_person_filtering_in_cohort_in_action_poe_v2.3
   '''
   SELECT groupArray(1)(date)[1] AS date,
-                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
+                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))))), 1))) AS date,
-            arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                           and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
+            arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                      and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
             breakdown_value AS breakdown_value,
             rowNumberInAllBlocks() AS row_number
      FROM
@@ -2086,8 +2086,8 @@
 # name: TestTrends.test_person_property_filtering
   '''
   SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))))), 1))) AS date,
-         arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                        and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
     (SELECT sum(total) AS count,
             day_start AS day_start
@@ -2129,8 +2129,8 @@
 # name: TestTrends.test_person_property_filtering_clashing_with_event_property
   '''
   SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))))), 1))) AS date,
-         arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                        and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
     (SELECT sum(total) AS count,
             day_start AS day_start
@@ -2172,8 +2172,8 @@
 # name: TestTrends.test_person_property_filtering_clashing_with_event_property.1
   '''
   SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))))), 1))) AS date,
-         arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                        and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
     (SELECT sum(total) AS count,
             day_start AS day_start
@@ -2198,8 +2198,8 @@
 # name: TestTrends.test_person_property_filtering_clashing_with_event_property_materialized
   '''
   SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))))), 1))) AS date,
-         arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                        and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
     (SELECT sum(total) AS count,
             day_start AS day_start
@@ -2241,8 +2241,8 @@
 # name: TestTrends.test_person_property_filtering_clashing_with_event_property_materialized.1
   '''
   SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))))), 1))) AS date,
-         arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                        and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
     (SELECT sum(total) AS count,
             day_start AS day_start
@@ -2267,8 +2267,8 @@
 # name: TestTrends.test_person_property_filtering_materialized
   '''
   SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))))), 1))) AS date,
-         arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                        and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
     (SELECT sum(total) AS count,
             day_start AS day_start
@@ -2319,8 +2319,8 @@
 # name: TestTrends.test_same_day_with_person_on_events_v2.1
   '''
   SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-03 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-03 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-03 23:59:59', 6, 'UTC'))))), 1))) AS date,
-         arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                        and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
     (SELECT sum(total) AS count,
             day_start AS day_start
@@ -2345,8 +2345,8 @@
 # name: TestTrends.test_same_day_with_person_on_events_v2.2
   '''
   SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-03 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-03 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-03 23:59:59', 6, 'UTC'))))), 1))) AS date,
-         arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                        and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
     (SELECT sum(total) AS count,
             day_start AS day_start
@@ -2387,8 +2387,8 @@
 # name: TestTrends.test_same_day_with_person_on_events_v2_latest_override.1
   '''
   SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-03 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-03 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-03 23:59:59', 6, 'UTC'))))), 1))) AS date,
-         arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                        and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
     (SELECT sum(total) AS count,
             day_start AS day_start
@@ -2429,8 +2429,8 @@
 # name: TestTrends.test_same_day_with_person_on_events_v2_latest_override.3
   '''
   SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-03 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-03 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-03 23:59:59', 6, 'UTC'))))), 1))) AS date,
-         arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                        and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
     (SELECT sum(total) AS count,
             day_start AS day_start
@@ -2471,8 +2471,8 @@
 # name: TestTrends.test_same_day_with_person_on_events_v2_latest_override.5
   '''
   SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-03 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-03 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-03 23:59:59', 6, 'UTC'))))), 1))) AS date,
-         arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                        and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
     (SELECT sum(total) AS count,
             day_start AS day_start
@@ -2504,8 +2504,8 @@
 # name: TestTrends.test_timezones_daily
   '''
   SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'UTC'))))), 1))) AS date,
-         arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                        and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
     (SELECT sum(total) AS count,
             day_start AS day_start
@@ -2530,8 +2530,8 @@
 # name: TestTrends.test_timezones_daily.1
   '''
   SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-22 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-22 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'UTC'))))), 1))) AS date,
-         arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                        and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
     (SELECT sum(total) AS count,
             day_start AS day_start
@@ -2563,8 +2563,8 @@
 # name: TestTrends.test_timezones_daily.2
   '''
   SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'UTC'))))), 1))) AS date,
-         arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                        and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
     (SELECT sum(total) AS count,
             day_start AS day_start
@@ -2609,8 +2609,8 @@
 # name: TestTrends.test_timezones_daily.3
   '''
   SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'UTC'))))), 1))) AS date,
-         arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                        and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
     (SELECT sum(total) AS count,
             day_start AS day_start
@@ -2635,12 +2635,12 @@
 # name: TestTrends.test_timezones_daily.4
   '''
   SELECT groupArray(1)(date)[1] AS date,
-                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
+                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'UTC'))))), 1))) AS date,
-            arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                           and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
+            arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                      and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
             breakdown_value AS breakdown_value,
             rowNumberInAllBlocks() AS row_number
      FROM
@@ -2682,8 +2682,8 @@
 # name: TestTrends.test_timezones_daily_minus_utc
   '''
   SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 00:00:00', 6, 'America/Phoenix'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 00:00:00', 6, 'America/Phoenix'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'America/Phoenix'))))), 1))) AS date,
-         arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                        and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
     (SELECT sum(total) AS count,
             day_start AS day_start
@@ -2708,8 +2708,8 @@
 # name: TestTrends.test_timezones_daily_minus_utc.1
   '''
   SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-22 00:00:00', 6, 'America/Phoenix'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-22 00:00:00', 6, 'America/Phoenix'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'America/Phoenix'))))), 1))) AS date,
-         arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                        and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
     (SELECT sum(total) AS count,
             day_start AS day_start
@@ -2741,8 +2741,8 @@
 # name: TestTrends.test_timezones_daily_minus_utc.2
   '''
   SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 00:00:00', 6, 'America/Phoenix'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 00:00:00', 6, 'America/Phoenix'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'America/Phoenix'))))), 1))) AS date,
-         arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                        and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
     (SELECT sum(total) AS count,
             day_start AS day_start
@@ -2787,8 +2787,8 @@
 # name: TestTrends.test_timezones_daily_minus_utc.3
   '''
   SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 00:00:00', 6, 'America/Phoenix'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 00:00:00', 6, 'America/Phoenix'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'America/Phoenix'))))), 1))) AS date,
-         arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                        and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
     (SELECT sum(total) AS count,
             day_start AS day_start
@@ -2813,12 +2813,12 @@
 # name: TestTrends.test_timezones_daily_minus_utc.4
   '''
   SELECT groupArray(1)(date)[1] AS date,
-                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
+                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 00:00:00', 6, 'America/Phoenix'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 00:00:00', 6, 'America/Phoenix'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'America/Phoenix'))))), 1))) AS date,
-            arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                           and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
+            arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                      and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
             breakdown_value AS breakdown_value,
             rowNumberInAllBlocks() AS row_number
      FROM
@@ -2860,8 +2860,8 @@
 # name: TestTrends.test_timezones_daily_plus_utc
   '''
   SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 00:00:00', 6, 'Asia/Tokyo'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 00:00:00', 6, 'Asia/Tokyo'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'Asia/Tokyo'))))), 1))) AS date,
-         arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                        and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
     (SELECT sum(total) AS count,
             day_start AS day_start
@@ -2886,8 +2886,8 @@
 # name: TestTrends.test_timezones_daily_plus_utc.1
   '''
   SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-22 00:00:00', 6, 'Asia/Tokyo'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-22 00:00:00', 6, 'Asia/Tokyo'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'Asia/Tokyo'))))), 1))) AS date,
-         arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                        and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
     (SELECT sum(total) AS count,
             day_start AS day_start
@@ -2919,8 +2919,8 @@
 # name: TestTrends.test_timezones_daily_plus_utc.2
   '''
   SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 00:00:00', 6, 'Asia/Tokyo'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 00:00:00', 6, 'Asia/Tokyo'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'Asia/Tokyo'))))), 1))) AS date,
-         arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                        and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
     (SELECT sum(total) AS count,
             day_start AS day_start
@@ -2965,8 +2965,8 @@
 # name: TestTrends.test_timezones_daily_plus_utc.3
   '''
   SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 00:00:00', 6, 'Asia/Tokyo'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 00:00:00', 6, 'Asia/Tokyo'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'Asia/Tokyo'))))), 1))) AS date,
-         arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                        and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
     (SELECT sum(total) AS count,
             day_start AS day_start
@@ -2991,12 +2991,12 @@
 # name: TestTrends.test_timezones_daily_plus_utc.4
   '''
   SELECT groupArray(1)(date)[1] AS date,
-                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
+                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 00:00:00', 6, 'Asia/Tokyo'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 00:00:00', 6, 'Asia/Tokyo'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'Asia/Tokyo'))))), 1))) AS date,
-            arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                           and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
+            arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                      and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
             breakdown_value AS breakdown_value,
             rowNumberInAllBlocks() AS row_number
      FROM
@@ -3038,8 +3038,8 @@
 # name: TestTrends.test_timezones_hourly_relative_from
   '''
   SELECT arrayMap(number -> plus(toStartOfHour(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 00:00:00', 6, 'UTC'))), toIntervalHour(number)), range(0, plus(coalesce(dateDiff('hour', toStartOfHour(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 00:00:00', 6, 'UTC'))), toStartOfHour(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 10:59:59', 6, 'UTC'))))), 1))) AS date,
-         arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                        and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
     (SELECT sum(total) AS count,
             day_start AS day_start
@@ -3071,8 +3071,8 @@
 # name: TestTrends.test_timezones_hourly_relative_from.1
   '''
   SELECT arrayMap(number -> plus(toStartOfHour(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 00:00:00', 6, 'UTC'))), toIntervalHour(number)), range(0, plus(coalesce(dateDiff('hour', toStartOfHour(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 00:00:00', 6, 'UTC'))), toStartOfHour(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 10:59:59', 6, 'UTC'))))), 1))) AS date,
-         arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                        and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
     (SELECT sum(total) AS count,
             day_start AS day_start
@@ -3097,8 +3097,8 @@
 # name: TestTrends.test_timezones_hourly_relative_from_minus_utc
   '''
   SELECT arrayMap(number -> plus(toStartOfHour(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 00:00:00', 6, 'America/Phoenix'))), toIntervalHour(number)), range(0, plus(coalesce(dateDiff('hour', toStartOfHour(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 00:00:00', 6, 'America/Phoenix'))), toStartOfHour(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 10:59:59', 6, 'America/Phoenix'))))), 1))) AS date,
-         arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                        and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
     (SELECT sum(total) AS count,
             day_start AS day_start
@@ -3130,8 +3130,8 @@
 # name: TestTrends.test_timezones_hourly_relative_from_minus_utc.1
   '''
   SELECT arrayMap(number -> plus(toStartOfHour(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 00:00:00', 6, 'America/Phoenix'))), toIntervalHour(number)), range(0, plus(coalesce(dateDiff('hour', toStartOfHour(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 00:00:00', 6, 'America/Phoenix'))), toStartOfHour(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 10:59:59', 6, 'America/Phoenix'))))), 1))) AS date,
-         arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                        and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
     (SELECT sum(total) AS count,
             day_start AS day_start
@@ -3156,8 +3156,8 @@
 # name: TestTrends.test_timezones_hourly_relative_from_plus_utc
   '''
   SELECT arrayMap(number -> plus(toStartOfHour(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 00:00:00', 6, 'Asia/Tokyo'))), toIntervalHour(number)), range(0, plus(coalesce(dateDiff('hour', toStartOfHour(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 00:00:00', 6, 'Asia/Tokyo'))), toStartOfHour(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 10:59:59', 6, 'Asia/Tokyo'))))), 1))) AS date,
-         arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                        and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
     (SELECT sum(total) AS count,
             day_start AS day_start
@@ -3189,8 +3189,8 @@
 # name: TestTrends.test_timezones_hourly_relative_from_plus_utc.1
   '''
   SELECT arrayMap(number -> plus(toStartOfHour(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 00:00:00', 6, 'Asia/Tokyo'))), toIntervalHour(number)), range(0, plus(coalesce(dateDiff('hour', toStartOfHour(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 00:00:00', 6, 'Asia/Tokyo'))), toStartOfHour(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 10:59:59', 6, 'Asia/Tokyo'))))), 1))) AS date,
-         arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                        and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
     (SELECT sum(total) AS count,
             day_start AS day_start
@@ -3215,8 +3215,8 @@
 # name: TestTrends.test_timezones_weekly
   '''
   SELECT arrayMap(number -> plus(toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 00:00:00', 6, 'UTC')), 0), toIntervalWeek(number)), range(0, plus(coalesce(dateDiff('week', toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 00:00:00', 6, 'UTC')), 0), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-26 23:59:59', 6, 'UTC')), 0))), 1))) AS date,
-         arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                        and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
     (SELECT sum(total) AS count,
             day_start AS day_start
@@ -3241,8 +3241,8 @@
 # name: TestTrends.test_timezones_weekly.1
   '''
   SELECT arrayMap(number -> plus(toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 00:00:00', 6, 'UTC')), 3), toIntervalWeek(number)), range(0, plus(coalesce(dateDiff('week', toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 00:00:00', 6, 'UTC')), 3), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-26 23:59:59', 6, 'UTC')), 3))), 1))) AS date,
-         arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                        and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
     (SELECT sum(total) AS count,
             day_start AS day_start
@@ -3267,8 +3267,8 @@
 # name: TestTrends.test_timezones_weekly_minus_utc
   '''
   SELECT arrayMap(number -> plus(toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 00:00:00', 6, 'America/Phoenix')), 0), toIntervalWeek(number)), range(0, plus(coalesce(dateDiff('week', toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 00:00:00', 6, 'America/Phoenix')), 0), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-26 23:59:59', 6, 'America/Phoenix')), 0))), 1))) AS date,
-         arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                        and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
     (SELECT sum(total) AS count,
             day_start AS day_start
@@ -3293,8 +3293,8 @@
 # name: TestTrends.test_timezones_weekly_minus_utc.1
   '''
   SELECT arrayMap(number -> plus(toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 00:00:00', 6, 'America/Phoenix')), 3), toIntervalWeek(number)), range(0, plus(coalesce(dateDiff('week', toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 00:00:00', 6, 'America/Phoenix')), 3), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-26 23:59:59', 6, 'America/Phoenix')), 3))), 1))) AS date,
-         arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                        and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
     (SELECT sum(total) AS count,
             day_start AS day_start
@@ -3319,8 +3319,8 @@
 # name: TestTrends.test_timezones_weekly_plus_utc
   '''
   SELECT arrayMap(number -> plus(toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 00:00:00', 6, 'Asia/Tokyo')), 0), toIntervalWeek(number)), range(0, plus(coalesce(dateDiff('week', toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 00:00:00', 6, 'Asia/Tokyo')), 0), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-26 23:59:59', 6, 'Asia/Tokyo')), 0))), 1))) AS date,
-         arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                        and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
     (SELECT sum(total) AS count,
             day_start AS day_start
@@ -3345,8 +3345,8 @@
 # name: TestTrends.test_timezones_weekly_plus_utc.1
   '''
   SELECT arrayMap(number -> plus(toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 00:00:00', 6, 'Asia/Tokyo')), 3), toIntervalWeek(number)), range(0, plus(coalesce(dateDiff('week', toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 00:00:00', 6, 'Asia/Tokyo')), 3), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-26 23:59:59', 6, 'Asia/Tokyo')), 3))), 1))) AS date,
-         arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                        and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
     (SELECT sum(total) AS count,
             day_start AS day_start
@@ -3371,12 +3371,12 @@
 # name: TestTrends.test_trend_breakdown_user_props_with_filter_with_partial_property_pushdowns
   '''
   SELECT groupArray(1)(date)[1] AS date,
-                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
+                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-07-01 23:59:59', 6, 'UTC'))))), 1))) AS date,
-            arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                           and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
+            arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                      and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
             breakdown_value AS breakdown_value,
             rowNumberInAllBlocks() AS row_number
      FROM
@@ -3430,12 +3430,12 @@
 # name: TestTrends.test_trend_breakdown_user_props_with_filter_with_partial_property_pushdowns.1
   '''
   SELECT groupArray(1)(date)[1] AS date,
-                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
+                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-07-01 23:59:59', 6, 'UTC'))))), 1))) AS date,
-            arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                           and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
+            arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                      and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
             breakdown_value AS breakdown_value,
             rowNumberInAllBlocks() AS row_number
      FROM
@@ -3489,8 +3489,8 @@
 # name: TestTrends.test_trends_aggregate_by_distinct_id
   '''
   SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-24 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-24 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-31 23:59:59', 6, 'UTC'))))), 1))) AS date,
-         arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                        and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
     (SELECT sum(total) AS count,
             day_start AS day_start
@@ -3515,8 +3515,8 @@
 # name: TestTrends.test_trends_aggregate_by_distinct_id.1
   '''
   SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-24 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-24 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-31 23:59:59', 6, 'UTC'))))), 1))) AS date,
-         arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                        and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
     (SELECT sum(total) AS count,
             day_start AS day_start
@@ -3558,12 +3558,12 @@
 # name: TestTrends.test_trends_aggregate_by_distinct_id.2
   '''
   SELECT groupArray(1)(date)[1] AS date,
-                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
+                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-24 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-24 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-31 23:59:59', 6, 'UTC'))))), 1))) AS date,
-            arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                           and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
+            arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                      and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
             breakdown_value AS breakdown_value,
             rowNumberInAllBlocks() AS row_number
      FROM
@@ -3615,12 +3615,12 @@
 # name: TestTrends.test_trends_aggregate_by_distinct_id.3
   '''
   SELECT groupArray(1)(date)[1] AS date,
-                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
+                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       arrayMap(i -> if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', i), breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-24 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-24 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-31 23:59:59', 6, 'UTC'))))), 1))) AS date,
-            arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                           and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
+            arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                      and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
             breakdown_value AS breakdown_value,
             rowNumberInAllBlocks() AS row_number
      FROM
@@ -3672,8 +3672,8 @@
 # name: TestTrends.test_trends_aggregate_by_distinct_id.4
   '''
   SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-24 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-24 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-31 23:59:59', 6, 'UTC'))))), 1))) AS date,
-         arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                        and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
     (SELECT sum(total) AS count,
             day_start AS day_start
@@ -3711,8 +3711,8 @@
 # name: TestTrends.test_trends_aggregate_by_distinct_id.5
   '''
   SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-24 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-24 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-31 23:59:59', 6, 'UTC'))))), 1))) AS date,
-         arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                        and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
     (SELECT sum(total) AS count,
             day_start AS day_start
@@ -3750,12 +3750,12 @@
 # name: TestTrends.test_trends_aggregate_by_distinct_id.6
   '''
   SELECT groupArray(1)(date)[1] AS date,
-                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
+                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-24 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-24 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-31 23:59:59', 6, 'UTC'))))), 1))) AS date,
-            arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                           and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
+            arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                      and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
             breakdown_value AS breakdown_value,
             rowNumberInAllBlocks() AS row_number
      FROM
@@ -3802,8 +3802,8 @@
 # name: TestTrends.test_trends_any_event_total_count.1
   '''
   SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))))), 1))) AS date,
-         arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                        and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
     (SELECT sum(total) AS count,
             day_start AS day_start
@@ -3828,8 +3828,8 @@
 # name: TestTrends.test_trends_any_event_total_count.2
   '''
   SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))))), 1))) AS date,
-         arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                        and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
     (SELECT sum(total) AS count,
             day_start AS day_start
@@ -3866,12 +3866,12 @@
 # name: TestTrends.test_trends_breakdown_cumulative.1
   '''
   SELECT groupArray(1)(date)[1] AS date,
-                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
+                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))))), 1))) AS date,
-            arrayFill(x -> ifNull(greater(x, 0), 0), arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                                                                    and isNull(_match_date)), _days_for_count), _index), 1))), date)) AS total,
+            arrayFill(x -> ifNull(greater(x, 0), 0), arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                                                               and isNull(_match_date)), _days_for_count), _index), 1))), date)) AS total,
             breakdown_value AS breakdown_value,
             rowNumberInAllBlocks() AS row_number
      FROM
@@ -3931,12 +3931,12 @@
 # name: TestTrends.test_trends_breakdown_cumulative_poe_v2.1
   '''
   SELECT groupArray(1)(date)[1] AS date,
-                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
+                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))))), 1))) AS date,
-            arrayFill(x -> ifNull(greater(x, 0), 0), arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                                                                    and isNull(_match_date)), _days_for_count), _index), 1))), date)) AS total,
+            arrayFill(x -> ifNull(greater(x, 0), 0), arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                                                               and isNull(_match_date)), _days_for_count), _index), 1))), date)) AS total,
             breakdown_value AS breakdown_value,
             rowNumberInAllBlocks() AS row_number
      FROM
@@ -3984,12 +3984,12 @@
 # name: TestTrends.test_trends_breakdown_normalize_url
   '''
   SELECT groupArray(1)(date)[1] AS date,
-                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
+                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))))), 1))) AS date,
-            arrayFill(x -> ifNull(greater(x, 0), 0), arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                                                                    and isNull(_match_date)), _days_for_count), _index), 1))), date)) AS total,
+            arrayFill(x -> ifNull(greater(x, 0), 0), arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                                                               and isNull(_match_date)), _days_for_count), _index), 1))), date)) AS total,
             breakdown_value AS breakdown_value,
             rowNumberInAllBlocks() AS row_number
      FROM
@@ -4235,8 +4235,8 @@
 # name: TestTrends.test_trends_compare_day_interval_relative_range.1
   '''
   SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))))), 1))) AS date,
-         arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                        and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
     (SELECT sum(total) AS count,
             day_start AS day_start
@@ -4261,8 +4261,8 @@
 # name: TestTrends.test_trends_compare_day_interval_relative_range.2
   '''
   SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-21 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-21 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 23:59:59', 6, 'UTC'))))), 1))) AS date,
-         arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                        and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
     (SELECT sum(total) AS count,
             day_start AS day_start
@@ -4287,8 +4287,8 @@
 # name: TestTrends.test_trends_compare_day_interval_relative_range.3
   '''
   SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))))), 1))) AS date,
-         arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                        and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
     (SELECT sum(total) AS count,
             day_start AS day_start
@@ -4414,8 +4414,8 @@
 # name: TestTrends.test_trends_count_per_user_average_daily
   '''
   SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-07 23:59:59', 6, 'UTC'))))), 1))) AS date,
-         arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                        and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
     (SELECT sum(total) AS count,
             day_start AS day_start
@@ -4455,8 +4455,8 @@
 # name: TestTrends.test_trends_count_per_user_average_daily_poe_v2
   '''
   SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-07 23:59:59', 6, 'UTC'))))), 1))) AS date,
-         arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                        and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
     (SELECT sum(total) AS count,
             day_start AS day_start
@@ -4496,8 +4496,8 @@
 # name: TestTrends.test_trends_groups_per_day
   '''
   SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-30 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-30 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-06 23:59:59', 6, 'UTC'))))), 1))) AS date,
-         arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                        and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
     (SELECT sum(total) AS count,
             day_start AS day_start
@@ -4522,8 +4522,8 @@
 # name: TestTrends.test_trends_groups_per_day_cumulative
   '''
   SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-30 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-30 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-06 23:59:59', 6, 'UTC'))))), 1))) AS date,
-         arrayFill(x -> ifNull(greater(x, 0), 0), arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                                                                 and isNull(_match_date)), _days_for_count), _index), 1))), date)) AS total
+         arrayFill(x -> ifNull(greater(x, 0), 0), arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                                                            and isNull(_match_date)), _days_for_count), _index), 1))), date)) AS total
   FROM
     (SELECT day_start AS day_start,
             sum(count) OVER (
@@ -4565,8 +4565,8 @@
 # name: TestTrends.test_trends_per_day_cumulative.1
   '''
   SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))))), 1))) AS date,
-         arrayFill(x -> ifNull(greater(x, 0), 0), arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                                                                 and isNull(_match_date)), _days_for_count), _index), 1))), date)) AS total
+         arrayFill(x -> ifNull(greater(x, 0), 0), arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                                                            and isNull(_match_date)), _days_for_count), _index), 1))), date)) AS total
   FROM
     (SELECT day_start AS day_start,
             sum(count) OVER (
@@ -4608,8 +4608,8 @@
 # name: TestTrends.test_trends_per_day_dau_cumulative.1
   '''
   SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))))), 1))) AS date,
-         arrayFill(x -> ifNull(greater(x, 0), 0), arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                                                                 and isNull(_match_date)), _days_for_count), _index), 1))), date)) AS total
+         arrayFill(x -> ifNull(greater(x, 0), 0), arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                                                            and isNull(_match_date)), _days_for_count), _index), 1))), date)) AS total
   FROM
     (SELECT day_start AS day_start,
             sum(count) OVER (
@@ -4772,8 +4772,8 @@
 # name: TestTrends.test_trends_with_hogql_math
   '''
   SELECT arrayMap(number -> plus(toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0), toIntervalWeek(number)), range(0, plus(coalesce(dateDiff('week', toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC')), 0))), 1))) AS date,
-         arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                        and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
     (SELECT sum(total) AS count,
             day_start AS day_start
@@ -4848,8 +4848,8 @@
 # name: TestTrends.test_trends_with_session_property_total_volume_math
   '''
   SELECT arrayMap(number -> plus(toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0), toIntervalWeek(number)), range(0, plus(coalesce(dateDiff('week', toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC')), 0))), 1))) AS date,
-         arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                        and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
     (SELECT sum(total) AS count,
             day_start AS day_start
@@ -4887,8 +4887,8 @@
 # name: TestTrends.test_trends_with_session_property_total_volume_math.1
   '''
   SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))))), 1))) AS date,
-         arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                        and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
     (SELECT sum(total) AS count,
             day_start AS day_start
@@ -4926,12 +4926,12 @@
 # name: TestTrends.test_trends_with_session_property_total_volume_math_with_breakdowns
   '''
   SELECT groupArray(1)(date)[1] AS date,
-                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
+                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0), toIntervalWeek(number)), range(0, plus(coalesce(dateDiff('week', toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC')), 0))), 1))) AS date,
-            arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                           and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
+            arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                      and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
             breakdown_value AS breakdown_value,
             rowNumberInAllBlocks() AS row_number
      FROM
@@ -4981,12 +4981,12 @@
 # name: TestTrends.test_trends_with_session_property_total_volume_math_with_breakdowns.1
   '''
   SELECT groupArray(1)(date)[1] AS date,
-                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
+                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))))), 1))) AS date,
-            arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                           and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
+            arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                      and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
             breakdown_value AS breakdown_value,
             rowNumberInAllBlocks() AS row_number
      FROM
@@ -5036,12 +5036,12 @@
 # name: TestTrends.test_trends_with_session_property_total_volume_math_with_breakdowns.2
   '''
   SELECT groupArray(1)(date)[1] AS date,
-                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
+                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       arrayMap(i -> if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', i), breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0), toIntervalWeek(number)), range(0, plus(coalesce(dateDiff('week', toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC')), 0))), 1))) AS date,
-            arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                           and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
+            arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                      and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
             breakdown_value AS breakdown_value,
             rowNumberInAllBlocks() AS row_number
      FROM
@@ -5091,12 +5091,12 @@
 # name: TestTrends.test_trends_with_session_property_total_volume_math_with_breakdowns.3
   '''
   SELECT groupArray(1)(date)[1] AS date,
-                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(total), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
+                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       arrayMap(i -> if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', i), breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))))), 1))) AS date,
-            arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                           and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
+            arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                      and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
             breakdown_value AS breakdown_value,
             rowNumberInAllBlocks() AS row_number
      FROM
@@ -5254,8 +5254,8 @@
 # name: TestTrends.test_weekly_active_users_daily
   '''
   SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-08 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-08 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-19 23:59:59', 6, 'UTC'))))), 1))) AS date,
-         arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                        and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
     (SELECT sum(total) AS count,
             day_start AS day_start
@@ -5300,8 +5300,8 @@
 # name: TestTrends.test_weekly_active_users_daily_minus_utc
   '''
   SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-08 00:00:00', 6, 'America/Phoenix'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-08 00:00:00', 6, 'America/Phoenix'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-19 23:59:59', 6, 'America/Phoenix'))))), 1))) AS date,
-         arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                        and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
     (SELECT sum(total) AS count,
             day_start AS day_start
@@ -5346,8 +5346,8 @@
 # name: TestTrends.test_weekly_active_users_daily_plus_utc
   '''
   SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-08 00:00:00', 6, 'Asia/Tokyo'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-08 00:00:00', 6, 'Asia/Tokyo'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-19 23:59:59', 6, 'Asia/Tokyo'))))), 1))) AS date,
-         arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                        and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
     (SELECT sum(total) AS count,
             day_start AS day_start
@@ -5392,8 +5392,8 @@
 # name: TestTrends.test_weekly_active_users_filtering
   '''
   SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))))), 1))) AS date,
-         arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                        and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
     (SELECT sum(total) AS count,
             day_start AS day_start
@@ -5448,8 +5448,8 @@
 # name: TestTrends.test_weekly_active_users_filtering_materialized
   '''
   SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))))), 1))) AS date,
-         arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                        and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
     (SELECT sum(total) AS count,
             day_start AS day_start
@@ -5504,8 +5504,8 @@
 # name: TestTrends.test_weekly_active_users_hourly
   '''
   SELECT arrayMap(number -> plus(toStartOfHour(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-09 06:00:00', 6, 'UTC'))), toIntervalHour(number)), range(0, plus(coalesce(dateDiff('hour', toStartOfHour(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-09 06:00:00', 6, 'UTC'))), toStartOfHour(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-09 17:00:00', 6, 'UTC'))))), 1))) AS date,
-         arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                        and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
     (SELECT sum(total) AS count,
             day_start AS day_start
@@ -5550,8 +5550,8 @@
 # name: TestTrends.test_weekly_active_users_weekly
   '''
   SELECT arrayMap(number -> plus(toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 00:00:00', 6, 'UTC')), 0), toIntervalWeek(number)), range(0, plus(coalesce(dateDiff('week', toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 00:00:00', 6, 'UTC')), 0), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-18 23:59:59', 6, 'UTC')), 0))), 1))) AS date,
-         arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                        and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
     (SELECT sum(total) AS count,
             day_start AS day_start
@@ -5596,8 +5596,8 @@
 # name: TestTrends.test_weekly_active_users_weekly_minus_utc
   '''
   SELECT arrayMap(number -> plus(toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 00:00:00', 6, 'America/Phoenix')), 0), toIntervalWeek(number)), range(0, plus(coalesce(dateDiff('week', toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 00:00:00', 6, 'America/Phoenix')), 0), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-18 23:59:59', 6, 'America/Phoenix')), 0))), 1))) AS date,
-         arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                        and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
     (SELECT sum(total) AS count,
             day_start AS day_start
@@ -5642,8 +5642,8 @@
 # name: TestTrends.test_weekly_active_users_weekly_plus_utc
   '''
   SELECT arrayMap(number -> plus(toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 00:00:00', 6, 'Asia/Tokyo')), 0), toIntervalWeek(number)), range(0, plus(coalesce(dateDiff('week', toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 00:00:00', 6, 'Asia/Tokyo')), 0), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-18 23:59:59', 6, 'Asia/Tokyo')), 0))), 1))) AS date,
-         arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
-                                                                                                                                                                                        and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
   FROM
     (SELECT sum(total) AS count,
             day_start AS day_start

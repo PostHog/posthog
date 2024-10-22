@@ -238,15 +238,15 @@
                                                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
               FROM
                 (SELECT e.timestamp as timestamp,
-                        pdi.person_id as aggregation_target,
-                        pdi.person_id as person_id,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                         if(event = 'user signed up'
                            AND (has(['org:5'], "$group_0")), 1, 0) as step_0,
                         if(step_0 = 1, timestamp, null) as latest_0,
                         if(event = 'paid', 1, 0) as step_1,
                         if(step_1 = 1, timestamp, null) as latest_1
                  FROM events e
-                 INNER JOIN
+                 LEFT OUTER JOIN
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
@@ -300,15 +300,15 @@
                                                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
               FROM
                 (SELECT e.timestamp as timestamp,
-                        pdi.person_id as aggregation_target,
-                        pdi.person_id as person_id,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                         if(event = 'user signed up'
                            AND (has(['org:5'], "$group_0")), 1, 0) as step_0,
                         if(step_0 = 1, timestamp, null) as latest_0,
                         if(event = 'paid', 1, 0) as step_1,
                         if(step_1 = 1, timestamp, null) as latest_1
                  FROM events e
-                 INNER JOIN
+                 LEFT OUTER JOIN
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
@@ -370,14 +370,14 @@
                                                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
               FROM
                 (SELECT e.timestamp as timestamp,
-                        pdi.person_id as aggregation_target,
-                        pdi.person_id as person_id,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                         if(event = 'user signed up', 1, 0) as step_0,
                         if(step_0 = 1, timestamp, null) as latest_0,
                         if(event = 'paid', 1, 0) as step_1,
                         if(step_1 = 1, timestamp, null) as latest_1
                  FROM events e
-                 INNER JOIN
+                 LEFT OUTER JOIN
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2
@@ -439,14 +439,14 @@
                                                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
               FROM
                 (SELECT e.timestamp as timestamp,
-                        pdi.person_id as aggregation_target,
-                        pdi.person_id as person_id,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
                         if(event = 'user signed up', 1, 0) as step_0,
                         if(step_0 = 1, timestamp, null) as latest_0,
                         if(event = 'paid', 1, 0) as step_1,
                         if(step_1 = 1, timestamp, null) as latest_1
                  FROM events e
-                 INNER JOIN
+                 LEFT OUTER JOIN
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
                     FROM person_distinct_id2

@@ -6,6 +6,10 @@ from rest_framework import status
 
 from posthog.test.base import APIBaseTest, QueryMatchingTest
 from posthog.models.team import Team
+from posthog.schema import InsightThresholdType, AlertState
+from posthog.models import AlertConfiguration
+from posthog.models.alert import AlertCheck
+from datetime import datetime
 
 
 class TestAlert(APIBaseTest, QueryMatchingTest):
@@ -31,12 +35,15 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             "subscribed_users": [
                 self.user.id,
             ],
+            "config": {"type": "TrendsAlertConfig", "series_index": 0},
             "name": "alert name",
-            "threshold": {"configuration": {}},
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
+            "calculation_interval": "daily",
         }
         response = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request)
 
         expected_alert_json = {
+            "calculation_interval": "daily",
             "condition": {},
             "created_at": mock.ANY,
             "created_by": mock.ANY,
@@ -46,13 +53,17 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             "last_notified_at": None,
             "name": "alert name",
             "subscribed_users": mock.ANY,
-            "state": "inactive",
+            "state": "Not firing",
+            "config": {"type": "TrendsAlertConfig", "series_index": 0},
             "threshold": {
-                "configuration": {},
+                "configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}},
                 "created_at": mock.ANY,
                 "id": mock.ANY,
                 "name": "",
             },
+            "last_checked_at": None,
+            "next_check_at": None,
+            "snoozed_until": None,
         }
         assert response.status_code == status.HTTP_201_CREATED, response.content
         assert response.json() == expected_alert_json
@@ -101,7 +112,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             "subscribed_users": [
                 self.user.id,
             ],
-            "threshold": {"configuration": {}},
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
             "name": "alert name",
         }
         alert = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request).json()
@@ -127,7 +138,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
                 "subscribed_users": [
                     self.user.id,
                 ],
-                "threshold": {"configuration": {}},
+                "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
                 "name": "alert name",
             }
             self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request)
@@ -145,7 +156,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             "subscribed_users": [
                 self.user.id,
             ],
-            "threshold": {"configuration": {}},
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
             "name": "alert name",
         }
         alert = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request).json()
@@ -162,7 +173,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         assert response.status_code == status.HTTP_200_OK
 
         insight_without_alert_support = deepcopy(self.default_insight_data)
-        insight_without_alert_support["query"]["trendsFilter"]["display"] = "ActionsLineGraph"
+        insight_without_alert_support["query"] = {"kind": "FunnelsQuery", "series": []}
         self.client.patch(
             f"/api/projects/{self.team.id}/insights/{another_insight['id']}",
             data=insight_without_alert_support,
@@ -170,3 +181,33 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
 
         response = self.client.get(f"/api/projects/{self.team.id}/alerts/{alert['id']}")
         assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_snooze_alert(self) -> None:
+        creation_request = {
+            "insight": self.insight["id"],
+            "subscribed_users": [
+                self.user.id,
+            ],
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
+            "name": "alert name",
+            "state": AlertState.FIRING,
+        }
+
+        alert = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request).json()
+        assert alert["state"] == AlertState.NOT_FIRING
+
+        alert = AlertConfiguration.objects.get(pk=alert["id"])
+        alert.state = AlertState.FIRING
+        alert.save()
+
+        firing_alert = AlertConfiguration.objects.get(pk=alert.id)
+        assert firing_alert.state == AlertState.FIRING
+
+        resolved_alert = self.client.patch(
+            f"/api/projects/{self.team.id}/alerts/{firing_alert.id}", {"snoozed_until": datetime.now()}
+        ).json()
+        assert resolved_alert["state"] == AlertState.SNOOZED
+
+        # should also create a new alert check with resolution
+        check = AlertCheck.objects.filter(alert_configuration=firing_alert.id).latest("created_at")
+        assert check.state == AlertState.SNOOZED

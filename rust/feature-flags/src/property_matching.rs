@@ -53,9 +53,12 @@ pub fn match_property(
             let compute_exact_match = |value: &Value, override_value: &Value| -> bool {
                 if is_truthy_or_falsy_property_value(value) {
                     // Do boolean handling, such that passing in "true" or "True" or "false" or "False" as matching value is equivalent
-                    let truthy = is_truthy_property_value(value);
-                    return override_value.to_string().to_lowercase()
-                        == truthy.to_string().to_lowercase();
+                    let (truthy_value, truthy_override_value) = (
+                        is_truthy_property_value(value),
+                        is_truthy_property_value(override_value),
+                    );
+                    return truthy_override_value.to_string().to_lowercase()
+                        == truthy_value.to_string().to_lowercase();
                 }
 
                 if value.is_array() {

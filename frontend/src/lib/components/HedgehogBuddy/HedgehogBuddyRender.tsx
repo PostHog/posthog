@@ -19,12 +19,11 @@ export function HedgehogBuddyStatic({
 
     return (
         <div
-            className="relative overflow-hidden select-none flex-none"
+            className="relative overflow-hidden select-none flex-none m-[-2px]"
             // eslint-disable-next-line react/forbid-dom-props
             style={{
                 width: imgSize,
                 height: imgSize,
-                margin: -2,
             }}
         >
             <div
@@ -63,13 +62,7 @@ export function HedgehogBuddyProfile({ size, ...props }: HedgehogBuddyStaticProp
                 height: size,
             }}
         >
-            <div
-                className="absolute top-0 left-0 w-full h-full"
-                // eslint-disable-next-line react/forbid-dom-props
-                style={{
-                    transform: 'translate(-3%, 10%) scale(1.8)',
-                }}
-            >
+            <div className="absolute top-0 left-0 w-full h-full transform translate-x-[-3%] translate-y-[10%] scale-[1.8]">
                 <HedgehogBuddyStatic {...props} size={size} />
             </div>
         </div>

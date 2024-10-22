@@ -20,7 +20,7 @@ describe('the authorized urls list logic', () => {
     beforeEach(() => {
         useMocks({
             get: {
-                '/api/projects/:team/insights/trend/': (req) => {
+                '/api/environments/:team_id/insights/trend/': (req) => {
                     if (JSON.parse(req.url.searchParams.get('events') || '[]')?.[0]?.throw) {
                         return [500, { status: 0, detail: 'error from the API' }]
                     }
@@ -85,6 +85,14 @@ describe('the authorized urls list logic', () => {
                 proposedUrl: 'https://not.*.valid.*',
                 validityMessage: 'Wildcards can only be used for subdomains',
             },
+            {
+                proposedUrl: 'http://localhost:*',
+                validityMessage: 'Wildcards are not allowed in the port position',
+            },
+            {
+                proposedUrl: 'http://valid.example.com:*',
+                validityMessage: 'Wildcards are not allowed in the port position',
+            },
         ]
 
         testCases.forEach((testCase) => {
@@ -124,7 +132,7 @@ describe('the authorized urls list logic', () => {
 
             expectLogic(logic, () => logic.actions.addUrl('http://*.example.com')).toFinishAllListeners()
 
-            expect(api.update).toHaveBeenCalledWith(`api/projects/${MOCK_TEAM_ID}`, {
+            expect(api.update).toHaveBeenCalledWith(`api/environments/${MOCK_TEAM_ID}`, {
                 recording_domains: ['https://recordings.posthog.com/', 'http://*.example.com'],
             })
         })

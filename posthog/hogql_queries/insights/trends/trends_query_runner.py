@@ -16,7 +16,7 @@ from posthog.caching.insights_api import (
 )
 from posthog.clickhouse import query_tagging
 from posthog.hogql import ast
-from posthog.hogql.constants import BREAKDOWN_VALUES_LIMIT, MAX_SELECT_RETURNED_ROWS, LimitContext
+from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, LimitContext
 from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
@@ -70,7 +70,7 @@ from posthog.schema import (
     TrendsQueryResponse,
 )
 from posthog.utils import format_label_date, multisort
-from posthog.warehouse.models import DataWarehouseTable
+from posthog.warehouse.models.util import get_view_or_table_by_name
 
 
 class TrendsQueryRunner(QueryRunner):
@@ -641,7 +641,7 @@ class TrendsQueryRunner(QueryRunner):
             return series.event
         if isinstance(series, ActionsNode):
             # TODO: Can we load the Action in more efficiently?
-            action = Action.objects.get(pk=int(series.id), team=self.team)
+            action = Action.objects.get(pk=int(series.id), team__project_id=self.team.project_id)
             return action.name
 
         if isinstance(series, DataWarehouseNode):
@@ -879,14 +879,13 @@ class TrendsQueryRunner(QueryRunner):
             and self.query.breakdownFilter.breakdown_type == "data_warehouse"
         ):
             series = self.query.series[0]  # only one series when data warehouse is active
-            table_model = (
-                DataWarehouseTable.objects.filter(name=series.table_name, team=self.team).exclude(deleted=True).first()
-            )
 
-            if not table_model:
+            table_or_view = get_view_or_table_by_name(self.team, series.table_name)
+
+            if not table_or_view:
                 raise ValueError(f"Table {series.table_name} not found")
 
-            field_type = dict(table_model.columns)[self.query.breakdownFilter.breakdown]["clickhouse"]
+            field_type = dict(table_or_view.columns)[self.query.breakdownFilter.breakdown]["clickhouse"]
 
             if field_type.startswith("Nullable("):
                 field_type = field_type.replace("Nullable(", "")[:-1]
@@ -980,13 +979,6 @@ class TrendsQueryRunner(QueryRunner):
 
     def apply_dashboard_filters(self, dashboard_filter: DashboardFilter):
         super().apply_dashboard_filters(dashboard_filter=dashboard_filter)
-        if (
-            self.query.breakdownFilter
-            and self.query.breakdownFilter.breakdown_limit
-            and self.query.breakdownFilter.breakdown_limit > BREAKDOWN_VALUES_LIMIT
-        ):
-            # Remove too high breakdown limit for display on the dashboard
-            self.query.breakdownFilter.breakdown_limit = None
 
         if (
             self.query.compareFilter is not None

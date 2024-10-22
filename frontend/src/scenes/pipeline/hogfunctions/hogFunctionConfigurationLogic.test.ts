@@ -183,8 +183,11 @@ describe('hogFunctionConfigurationLogic', () => {
                             person: '{person}',
                         },
                     },
+                    debug: {
+                        value: false,
+                    },
                 },
-                enabled: false,
+                enabled: true,
             })
         })
 

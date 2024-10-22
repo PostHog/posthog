@@ -6,7 +6,6 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { base64Decode } from 'lib/utils'
 import { useEffect } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
-import { SessionPlayerModal } from 'scenes/session-recordings/player/modal/SessionPlayerModal'
 
 import { ErrorTrackingGroup } from '~/queries/schema'
 
@@ -31,7 +30,7 @@ const STATUS_LABEL: Record<ErrorTrackingGroup['status'], string> = {
 }
 
 export function ErrorTrackingGroupScene(): JSX.Element {
-    const { group, groupLoading } = useValues(errorTrackingGroupSceneLogic)
+    const { group, groupLoading, hasGroupActions } = useValues(errorTrackingGroupSceneLogic)
     const { updateGroup, loadGroup } = useActions(errorTrackingGroupSceneLogic)
 
     useEffect(() => {
@@ -46,7 +45,7 @@ export function ErrorTrackingGroupScene(): JSX.Element {
         <>
             <PageHeader
                 buttons={
-                    group ? (
+                    group && hasGroupActions ? (
                         group.status === 'active' ? (
                             <div className="flex divide-x gap-x-2">
                                 <AssigneeSelect
@@ -79,13 +78,10 @@ export function ErrorTrackingGroupScene(): JSX.Element {
                     )
                 }
             />
-            <SessionPlayerModal />
             <ErrorTrackingFilters.FilterGroup />
             <LemonDivider className="mt-2" />
-            <ErrorTrackingFilters.Options showOrder={false} />
-            <div className="pt-2">
-                <OverviewTab />
-            </div>
+            <ErrorTrackingFilters.Options isGroup />
+            <OverviewTab />
         </>
     )
 }

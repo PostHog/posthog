@@ -1,19 +1,16 @@
 import './Billing.scss'
 
-import { IconCheckCircle } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonInput, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Field, Form } from 'kea-forms'
 import { router } from 'kea-router'
-import { SurprisedHog } from 'lib/components/hedgehogs'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { dayjs } from 'lib/dayjs'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyCurrency } from 'lib/utils'
 import { useEffect } from 'react'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -32,16 +29,8 @@ export const scene: SceneExport = {
 }
 
 export function Billing(): JSX.Element {
-    const {
-        billing,
-        billingLoading,
-        isOnboarding,
-        showLicenseDirectInput,
-        isActivateLicenseSubmitting,
-        over20kAnnual,
-        isAnnualPlan,
-        billingError,
-    } = useValues(billingLogic)
+    const { billing, billingLoading, isOnboarding, showLicenseDirectInput, isActivateLicenseSubmitting, billingError } =
+        useValues(billingLogic)
     const { reportBillingShown } = useActions(billingLogic)
     const { preflight, isCloudOrDev } = useValues(preflightLogic)
     const { openSupportForm } = useActions(supportLogic)
@@ -126,7 +115,7 @@ export function Billing(): JSX.Element {
             ) : null}
 
             {!billing?.has_active_subscription && platformAndSupportProduct && (
-                <div className="mb-6">
+                <div className="mb-4">
                     <BillingCTAHero product={platformAndSupportProduct} />
                 </div>
             )}
@@ -141,53 +130,67 @@ export function Billing(): JSX.Element {
             >
                 <div>
                     <div
-                        className={clsx('flex flex-wrap gap-4 w-fit', {
+                        className={clsx('flex flex-wrap gap-6 w-fit mb-4', {
                             'flex-col items-stretch': size === 'small',
                             'items-center': size !== 'small',
                         })}
                     >
                         {!isOnboarding && billing?.billing_period && (
                             <div className="flex-1 pt-2">
-                                <div className="space-y-2">
+                                <div className="space-y-4">
                                     {billing?.has_active_subscription && (
                                         <>
-                                            <LemonLabel
-                                                info={`This is the current amount you have been billed for this ${billing.billing_period.interval} so far. This number updates once daily.`}
-                                            >
-                                                Current bill total
-                                            </LemonLabel>
-                                            <div className="font-bold text-6xl">
-                                                {humanFriendlyCurrency(billing.current_total_amount_usd_after_discount)}
-                                            </div>
-                                            {billing.discount_percent && (
+                                            <div className="flex flex-row gap-10 items-end">
                                                 <div>
-                                                    <p className="ml-0">
-                                                        <strong>{billing.discount_percent}%</strong> off discount
-                                                        applied
-                                                    </p>
+                                                    <LemonLabel
+                                                        info={`This is the current amount you have been billed for this ${billing.billing_period.interval} so far. This number updates once daily.`}
+                                                    >
+                                                        Current bill total
+                                                    </LemonLabel>
+                                                    <div className="font-bold text-6xl">
+                                                        {billing.discount_percent
+                                                            ? // if they have a discount percent, we want to show the amount they are due - so the total after discount
+                                                              humanFriendlyCurrency(
+                                                                  billing.current_total_amount_usd_after_discount
+                                                              )
+                                                            : // but if they have credits, we want to show the amount they are due before credits,
+                                                              // so they know what their total deduction will be
+                                                              // We don't let people have credits and discounts at the same time
+                                                              humanFriendlyCurrency(billing.current_total_amount_usd)}
+                                                    </div>
                                                 </div>
-                                            )}
-                                            {billing.discount_amount_usd && (
-                                                <div>
-                                                    <p className="ml-0">
-                                                        <Tooltip
-                                                            title={
+                                                {billing?.discount_amount_usd && (
+                                                    <div>
+                                                        <LemonLabel
+                                                            info={`The total credits remaining in your account. ${
                                                                 billing?.amount_off_expires_at
-                                                                    ? `Expires on ${billing?.amount_off_expires_at?.format(
-                                                                          'LL'
-                                                                      )}`
+                                                                    ? 'Your credits expire on ' +
+                                                                      billing?.amount_off_expires_at?.format('LL')
                                                                     : null
-                                                            }
-                                                            placement="bottom-start"
+                                                            }`}
+                                                            className="text-muted"
                                                         >
-                                                            <strong>
-                                                                {humanFriendlyCurrency(billing.discount_amount_usd)}
-                                                            </strong>
-                                                        </Tooltip>{' '}
-                                                        remaining credits applied to your bill.
-                                                    </p>
-                                                </div>
-                                            )}
+                                                            Available credits
+                                                        </LemonLabel>
+                                                        <div className="font-semibold text-2xl text-muted">
+                                                            {humanFriendlyCurrency(billing?.discount_amount_usd, 0)}
+                                                        </div>
+                                                    </div>
+                                                )}
+                                                {billing?.discount_percent && (
+                                                    <div>
+                                                        <LemonLabel
+                                                            info="The discount applied to your current bill, reflected in the total amount."
+                                                            className="text-muted"
+                                                        >
+                                                            Applied discount
+                                                        </LemonLabel>
+                                                        <div className="font-semibold text-2xl text-muted">
+                                                            {billing.discount_percent}%
+                                                        </div>
+                                                    </div>
+                                                )}
+                                            </div>
                                         </>
                                     )}
                                     <div>
@@ -199,7 +202,7 @@ export function Billing(): JSX.Element {
                                             remaining)
                                         </p>
                                         {!billing.has_active_subscription && (
-                                            <p className="italic ml-0 text-muted">
+                                            <p className="italic ml-0 text-muted mb-0">
                                                 Monthly free allocation resets at the end of the cycle.
                                             </p>
                                         )}
@@ -209,8 +212,8 @@ export function Billing(): JSX.Element {
                         )}
                     </div>
 
-                    {!isOnboarding && billing?.has_active_subscription && (
-                        <div className="w-fit mt-2">
+                    {!isOnboarding && billing?.customer_id && billing?.stripe_portal_url && (
+                        <div className="w-fit">
                             <LemonButton
                                 type="primary"
                                 htmlType="submit"
@@ -220,58 +223,13 @@ export function Billing(): JSX.Element {
                                 center
                                 data-attr="manage-billing"
                             >
-                                Manage card details and view past invoices
+                                {billing.has_active_subscription
+                                    ? 'Manage card details and invoices'
+                                    : 'View past invoices'}
                             </LemonButton>
                         </div>
                     )}
                 </div>
-                {!isOnboarding && !isAnnualPlan && over20kAnnual && (
-                    <div className="bg-[var(--glass-bg-3000)] flex flex-row gap-2 relative pl-6 p-4 border rounded min-w-120 w-fit">
-                        <div className="flex flex-col pl-2 ">
-                            <h3>You've unlocked enterprise-grade perks:</h3>
-                            <ul className="pl-4">
-                                <li className="flex gap-2 items-center">
-                                    <IconCheckCircle className="text-success shrink-0" />
-                                    <span>
-                                        <strong>Save 20%</strong> by switching to up-front annual billing
-                                    </span>
-                                </li>
-                                <li className="flex gap-2 items-center">
-                                    <IconCheckCircle className="text-success shrink-0" />
-                                    <span>
-                                        Get <strong>discounts on bundled subscriptions</strong> to multiple products
-                                    </span>
-                                </li>
-                                <li className="flex gap-2 items-center">
-                                    <IconCheckCircle className="text-success shrink-0" />
-                                    <span>
-                                        Get <strong>customized training</strong> for you and your team
-                                    </span>
-                                </li>
-                                <li className="flex gap-2 items-center">
-                                    <IconCheckCircle className="text-success shrink-0" />
-                                    <span>
-                                        Get dedicated support via <strong>private Slack channel</strong>
-                                    </span>
-                                </li>
-                                <li className="flex gap-2 items-center">
-                                    <IconCheckCircle className="text-success shrink-0" />
-                                    <span>
-                                        We'll even send you <strong>awesome free merch</strong>
-                                    </span>
-                                </li>
-                            </ul>
-                            <div className="pt-1 self-start flex flex-row gap-1 mt-2">
-                                <LemonButton type="secondary" to="mailto:sales@posthog.com">
-                                    Let's chat
-                                </LemonButton>
-                            </div>
-                        </div>
-                        <div className="h-24 self-end -scale-x-100 -ml-20 -mb-2">
-                            <SurprisedHog className="max-h-full w-auto object-contain" />
-                        </div>
-                    </div>
-                )}
             </div>
 
             <LemonDivider className="mt-6 mb-8" />

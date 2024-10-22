@@ -1,6 +1,6 @@
 import { EitherMembershipLevel, FEATURE_FLAGS } from 'lib/constants'
 
-import { AvailableFeature } from '~/types'
+import { AvailableFeature, Realm } from '~/types'
 
 export type SettingsLogicProps = {
     logicKey?: string
@@ -12,19 +12,28 @@ export type SettingsLogicProps = {
     settingId?: SettingId
 }
 
-export type SettingLevelId = 'user' | 'project' | 'organization'
-export const SettingLevelIds: SettingLevelId[] = ['project', 'organization', 'user']
+export const SettingLevelIds = ['environment', 'project', 'organization', 'user'] as const
+export type SettingLevelId = (typeof SettingLevelIds)[number]
 
 export type SettingSectionId =
+    | 'environment-details'
+    | 'environment-autocapture'
+    | 'environment-product-analytics'
+    | 'environment-replay'
+    | 'environment-surveys'
+    | 'environment-toolbar'
+    | 'environment-integrations'
+    | 'environment-rbac'
+    | 'environment-danger-zone'
     | 'project-details'
-    | 'project-autocapture'
-    | 'project-product-analytics'
-    | 'project-replay'
-    | 'project-surveys'
-    | 'project-toolbar'
-    | 'project-integrations'
-    | 'project-access-control'
-    | 'project-role-based-access-control'
+    | 'project-autocapture' // TODO: This section is for backward compat – remove when Environments are rolled out
+    | 'project-product-analytics' // TODO: This section is for backward compat – remove when Environments are rolled out
+    | 'project-replay' // TODO: This section is for backward compat – remove when Environments are rolled out
+    | 'project-surveys' // TODO: This section is for backward compat – remove when Environments are rolled out
+    | 'project-toolbar' // TODO: This section is for backward compat – remove when Environments are rolled out
+    | 'project-integrations' // TODO: This section is for backward compat – remove when Environments are rolled out
+    | 'project-access-control' // TODO: This section is for backward compat – remove when Environments are rolled out
+    | 'project-role-based-access-control' // TODO: This section is for backward compat – remove when Environments are rolled out
     | 'project-danger-zone'
     | 'organization-details'
     | 'organization-members'
@@ -64,6 +73,8 @@ export type SettingId =
     | 'integration-ip-allowlist'
     | 'project-access-control'
     | 'project-role-based-access-control'
+    | 'environment-rbac'
+    | 'environment-delete'
     | 'project-delete'
     | 'organization-logo'
     | 'organization-display-name'
@@ -102,6 +113,7 @@ export type Setting = {
      */
     flag?: FeatureFlagKey | `!${FeatureFlagKey}`
     features?: AvailableFeature[]
+    hideOn?: Realm[]
 }
 
 export type SettingSection = {

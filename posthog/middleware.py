@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+from posthog.geoip import get_geoip_properties
 import time
 from ipaddress import ip_address, ip_network
 from typing import Any, Optional, cast
@@ -73,7 +74,7 @@ class AllowIPMiddleware:
     trusted_proxies: list[str] = []
 
     def __init__(self, get_response):
-        if not settings.ALLOWED_IP_BLOCKS:
+        if not settings.ALLOWED_IP_BLOCKS and not settings.BLOCKED_GEOIP_REGIONS:
             # this will make Django skip this middleware for all future requests
             raise MiddlewareNotUsed()
         self.ip_blocks = settings.ALLOWED_IP_BLOCKS
@@ -109,10 +110,15 @@ class AllowIPMiddleware:
         if request.path.split("/")[1] in ALWAYS_ALLOWED_ENDPOINTS:
             return response
         ip = self.extract_client_ip(request)
-        if ip and any(ip_address(ip) in ip_network(block, strict=False) for block in self.ip_blocks):
-            return response
+        if ip:
+            if settings.ALLOWED_IP_BLOCKS:
+                if any(ip_address(ip) in ip_network(block, strict=False) for block in self.ip_blocks):
+                    return response
+            elif settings.BLOCKED_GEOIP_REGIONS:
+                if get_geoip_properties(ip).get("$geoip_country_code", None) not in settings.BLOCKED_GEOIP_REGIONS:
+                    return response
         return HttpResponse(
-            "Your IP is not allowed. Check your ALLOWED_IP_BLOCKS settings. If you are behind a proxy, you need to set TRUSTED_PROXIES. See https://posthog.com/docs/deployment/running-behind-proxy",
+            "PostHog is not available in your region. If you think this is in error, please contact tim@posthog.com.",
             status=403,
         )
 

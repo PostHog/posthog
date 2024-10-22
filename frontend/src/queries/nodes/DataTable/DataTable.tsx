@@ -4,18 +4,14 @@ import clsx from 'clsx'
 import { BindLogic, useValues } from 'kea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useCallback, useState } from 'react'
 import { EventDetails } from 'scenes/activity/explore/EventDetails'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 import { PersonDeleteModal } from 'scenes/persons/PersonDeleteModal'
-import { SessionPlayerModal } from 'scenes/session-recordings/player/modal/SessionPlayerModal'
 
-import { AutoLoad } from '~/queries/nodes/DataNode/AutoLoad'
 import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { DateRange } from '~/queries/nodes/DataNode/DateRange'
 import { ElapsedTime } from '~/queries/nodes/DataNode/ElapsedTime'
@@ -72,7 +68,7 @@ import { DataTableOpenEditor } from './DataTableOpenEditor'
 interface DataTableProps {
     uniqueKey?: string | number
     query: DataTableNode
-    setQuery?: (query: DataTableNode) => void
+    setQuery: (query: DataTableNode) => void
     /** Custom table columns */
     context?: QueryContext<DataTableNode>
     /* Cached Results are provided when shared or exported,
@@ -80,6 +76,7 @@ interface DataTableProps {
     cachedResults?: AnyResponseType
     // Override the data logic node key if needed
     dataNodeLogicKey?: string
+    readOnly?: boolean
 }
 
 const eventGroupTypes = [
@@ -92,7 +89,14 @@ const personGroupTypes = [TaxonomicFilterGroupType.HogQLExpression, TaxonomicFil
 
 let uniqueNode = 0
 
-export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }: DataTableProps): JSX.Element {
+export function DataTable({
+    uniqueKey,
+    query,
+    setQuery,
+    context,
+    cachedResults,
+    readOnly,
+}: DataTableProps): JSX.Element {
     const [uniqueNodeKey] = useState(() => uniqueNode++)
     const [dataKey] = useState(() => `DataNode.${uniqueKey || uniqueNodeKey}`)
     const insightProps: InsightLogicProps<DataTableNode> = context?.insightProps || {
@@ -114,7 +118,6 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
         responseLoading,
         responseError,
         queryCancelled,
-        canLoadNewData,
         nextDataLoading,
         newDataLoading,
         highlightedRows,
@@ -123,15 +126,14 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
 
     const dataTableLogicProps: DataTableLogicProps = {
         query,
-        vizKey: vizKey,
-        dataKey: dataKey,
+        vizKey,
+        dataKey,
         dataNodeLogicKey: dataNodeLogicProps.key,
         context,
     }
     const { dataTableRows, columnsInQuery, columnsInResponse, queryWithDefaults, canSort, sourceFeatures } = useValues(
         dataTableLogic(dataTableLogicProps)
     )
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const {
         showActions,
@@ -154,7 +156,7 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
         showTimings,
     } = queryWithDefaults
 
-    const isReadOnly = setQuery === undefined
+    const isReadOnly = !!readOnly
 
     const eventActionsColumnShown =
         showActions && sourceFeatures.has(QueryFeature.eventActionsColumn) && columnsInResponse?.includes('*')
@@ -388,7 +390,7 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
     const setQuerySource = useCallback(
         (source: EventsNode | EventsQuery | PersonsNode | ActorsQuery | HogQLQuery | SessionAttributionExplorerQuery) =>
             setQuery?.({ ...query, source }),
-        [setQuery]
+        [setQuery, query]
     )
 
     const firstRowLeft = [
@@ -444,10 +446,8 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
         ) : null,
     ].filter((x) => !!x)
 
-    const isAutoReloadAvailable = !featureFlags[FEATURE_FLAGS.LIVE_EVENTS]
     const secondRowLeft = [
         showReload ? <Reload key="reload" /> : null,
-        showReload && canLoadNewData && isAutoReloadAvailable ? <AutoLoad key="auto-load" /> : null,
         showElapsedTime ? <ElapsedTime key="elapsed-time" showTimings={showTimings} /> : null,
     ].filter((x) => !!x)
 
@@ -458,7 +458,7 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
         ) : null,
         showExport ? <DataTableExport key="data-table-export" query={query} setQuery={setQuery} /> : null,
         showExport && showOpenEditorButton ? (
-            <DataTableOpenEditor key="data-table-export" query={query} setQuery={setQuery} />
+            <DataTableOpenEditor key="data-table-open-editor" query={query} setQuery={setQuery} />
         ) : null,
     ].filter((x) => !!x)
 
@@ -591,7 +591,6 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
                         />
                     )}
                     {/* TODO: this doesn't seem like the right solution... */}
-                    <SessionPlayerModal />
                     <PersonDeleteModal />
                 </div>
             </BindLogic>

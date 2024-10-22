@@ -44,7 +44,7 @@ interface InsightMetaProps
         | 'showEditingControls'
         | 'showDetailsControls'
         | 'moreButtons'
-        | 'filtersOverride'
+        | 'variablesOverride'
     > {
     insight: QueryBasedInsightModel
     areDetailsShown?: boolean
@@ -56,7 +56,7 @@ export function InsightMeta({
     ribbonColor,
     dashboardId,
     updateColor,
-    filtersOverride,
+    variablesOverride,
     removeFromDashboard,
     deleteWithUndo,
     refresh,
@@ -97,10 +97,10 @@ export function InsightMeta({
             refreshDisabledReason={refreshDisabledReason}
             setAreDetailsShown={setAreDetailsShown}
             areDetailsShown={areDetailsShown}
-            topHeading={<TopHeading insight={insight} />}
+            topHeading={<TopHeading query={insight.query} />}
             meta={
                 <>
-                    <Link to={urls.insightView(short_id, filtersOverride)}>
+                    <Link to={urls.insightView(short_id, dashboardId, variablesOverride)}>
                         <h4 title={name} data-attr="insight-card-title">
                             {name || <i>{summary}</i>}
                             {loading && (
@@ -108,8 +108,8 @@ export function InsightMeta({
                                     title="This insight is queued to check for newer results. It will be updated soon."
                                     placement="top-end"
                                 >
-                                    <span className="text-primary text-sm font-medium">
-                                        <Spinner className="mx-1" />
+                                    <span className="text-primary text-sm font-medium ml-1.5">
+                                        <Spinner className="mr-1.5 text-base" />
                                         Refreshing
                                     </span>
                                 </Tooltip>
@@ -132,7 +132,7 @@ export function InsightMeta({
             moreButtons={
                 <>
                     <>
-                        <LemonButton to={urls.insightView(short_id, filtersOverride)} fullWidth>
+                        <LemonButton to={urls.insightView(short_id, dashboardId, variablesOverride)} fullWidth>
                             View
                         </LemonButton>
                         {refresh && (

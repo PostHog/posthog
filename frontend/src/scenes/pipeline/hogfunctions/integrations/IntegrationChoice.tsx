@@ -12,6 +12,7 @@ export type IntegrationConfigureProps = {
     onChange?: (value: number | null) => void
     redirectUrl?: string
     integration?: string
+    beforeRedirect?: () => void
 }
 
 export function IntegrationChoice({
@@ -19,6 +20,7 @@ export function IntegrationChoice({
     value,
     integration,
     redirectUrl,
+    beforeRedirect,
 }: IntegrationConfigureProps): JSX.Element | null {
     const { integrationsLoading, integrations } = useValues(integrationsLogic)
     const { newGoogleCloudKey } = useActions(integrationsLogic)
@@ -39,6 +41,8 @@ export function IntegrationChoice({
             ? 'Google Cloud Pub/Sub'
             : kind == 'google-cloud-storage'
             ? 'Google Cloud Storage'
+            : kind == 'google-ads'
+            ? 'Google Ads'
             : capitalizeFirstLetter(kind)
 
     function uploadKey(kind: string): void {
@@ -70,7 +74,7 @@ export function IntegrationChoice({
                           ],
                       }
                     : null,
-                kind.startsWith('google-')
+                ['google-pubsub', 'google-cloud-storage'].includes(kind)
                     ? {
                           items: [
                               {
@@ -87,6 +91,7 @@ export function IntegrationChoice({
                                       next: redirectUrl,
                                   }),
                                   disableClientSideRouting: true,
+                                  onClick: beforeRedirect,
                                   label: integrationsOfKind?.length
                                       ? `Connect to a different ${kind} integration`
                                       : `Connect to ${kind}`,

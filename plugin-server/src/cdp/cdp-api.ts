@@ -115,7 +115,7 @@ export class CdpApi {
             await this.hogFunctionManager.enrichWithIntegrations([compoundConfiguration])
 
             let lastResponse: HogFunctionInvocationResult | null = null
-            const logs: LogEntry[] = []
+            let logs: LogEntry[] = []
 
             let count = 0
 
@@ -177,7 +177,7 @@ export class CdpApi {
                     response = this.hogExecutor.execute(invocation)
                 }
 
-                logs.push(...response.logs)
+                logs = logs.concat(response.logs)
                 lastResponse = response
             }
 

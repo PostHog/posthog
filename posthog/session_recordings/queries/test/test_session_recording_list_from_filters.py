@@ -144,6 +144,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         assert session_recordings == [
             {
                 "session_id": session_id_two,
+                "activity_score": 40.16,
                 "team_id": self.team.pk,
                 "distinct_id": user,
                 "click_count": 2,
@@ -158,9 +159,11 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
                 "console_log_count": 0,
                 "console_warn_count": 0,
                 "console_error_count": 0,
+                "ongoing": 1,
             },
             {
                 "session_id": session_id_one,
+                "activity_score": 61.11,
                 "team_id": self.team.pk,
                 "distinct_id": user,
                 "click_count": 4,
@@ -175,6 +178,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
                 "console_log_count": 0,
                 "console_warn_count": 0,
                 "console_error_count": 0,
+                "ongoing": 1,
             },
         ]
 
@@ -268,6 +272,53 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         ]
 
     @snapshot_clickhouse_queries
+    def test_sessions_with_current_data(
+        self,
+    ):
+        user = "test_sessions_with_current_data-user"
+        Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
+
+        session_id_inactive = f"test_sessions_with_current_data-inactive-{str(uuid4())}"
+        session_id_active = f"test_sessions_with_current_data-active-{str(uuid4())}"
+
+        produce_replay_summary(
+            session_id=session_id_inactive,
+            team_id=self.team.pk,
+            first_timestamp=self.an_hour_ago,
+            last_timestamp=self.an_hour_ago + relativedelta(seconds=60),
+            distinct_id=user,
+            first_url="https://example.io/home",
+            click_count=2,
+            keypress_count=2,
+            mouse_activity_count=2,
+            active_milliseconds=59000,
+            kafka_timestamp=(datetime.utcnow() - relativedelta(minutes=6)),
+        )
+
+        produce_replay_summary(
+            session_id=session_id_active,
+            team_id=self.team.pk,
+            first_timestamp=self.an_hour_ago,
+            last_timestamp=self.an_hour_ago + relativedelta(seconds=60),
+            distinct_id=user,
+            first_url="https://a-different-url.com",
+            click_count=2,
+            keypress_count=2,
+            mouse_activity_count=2,
+            active_milliseconds=61000,
+            kafka_timestamp=(datetime.utcnow() - relativedelta(minutes=3)),
+        )
+
+        (session_recordings, _, _) = self._filter_recordings_by({})
+        assert sorted(
+            [(s["session_id"], s["ongoing"]) for s in session_recordings],
+            key=lambda x: x[0],
+        ) == [
+            (session_id_active, 1),
+            (session_id_inactive, 0),
+        ]
+
+    @snapshot_clickhouse_queries
     def test_basic_query_with_paging(self):
         user = "test_basic_query_with_paging-user"
         Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
@@ -323,6 +374,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
 
         assert session_recordings == [
             {
+                "activity_score": 40.16,
                 "session_id": session_id_two,
                 "team_id": self.team.pk,
                 "distinct_id": user,
@@ -338,6 +390,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
                 "console_log_count": 0,
                 "console_warn_count": 0,
                 "console_error_count": 0,
+                "ongoing": 1,
             }
         ]
 
@@ -350,6 +403,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         assert session_recordings == [
             {
                 "session_id": session_id_one,
+                "activity_score": 61.11,
                 "team_id": self.team.pk,
                 "distinct_id": user,
                 "click_count": 4,
@@ -364,6 +418,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
                 "console_log_count": 0,
                 "console_warn_count": 0,
                 "console_error_count": 0,
+                "ongoing": 1,
             },
         ]
 
@@ -1347,6 +1402,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
 
         assert session_recordings == [
             {
+                "activity_score": 0,
                 "session_id": session_id,
                 "distinct_id": user,
                 "duration": 60,
@@ -1362,6 +1418,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
                 "console_log_count": 0,
                 "console_warn_count": 0,
                 "console_error_count": 0,
+                "ongoing": 1,
             }
         ]
 
@@ -2109,15 +2166,141 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
                             {
                                 "key": "id",
                                 "value": cohort.pk,
-                                "operator": None,
+                                "operator": "in",
                                 "type": "cohort",
                             }
                         ]
                     }
                 )
 
-                assert len(session_recordings) == 1
-                assert session_recordings[0]["session_id"] == session_id_two
+                assert [x["session_id"] for x in session_recordings] == [session_id_two]
+
+    @snapshot_clickhouse_queries
+    @also_test_with_materialized_columns(person_properties=["$some_prop"])
+    def test_filter_with_static_and_dynamic_cohort_properties(self):
+        with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
+            with freeze_time("2021-08-21T20:00:00.000Z"):
+                user_one = "test_filter_with_cohort_properties-user-in-static-cohort"
+                user_two = "test_filter_with_cohort_properties-user2-in-dynamic-cohort"
+                user_three = "test_filter_with_cohort_properties-user3-in-both-cohort"
+
+                session_id_one = (
+                    f"in-static-cohort-test_filter_with_static_and_dynamic_cohort_properties-1-{str(uuid4())}"
+                )
+                session_id_two = (
+                    f"in-dynamic-cohort-test_filter_with_static_and_dynamic_cohort_properties-2-{str(uuid4())}"
+                )
+                session_id_three = (
+                    f"in-both-cohort-test_filter_with_static_and_dynamic_cohort_properties-3-{str(uuid4())}"
+                )
+
+                Person.objects.create(team=self.team, distinct_ids=[user_one], properties={"email": "in@static.cohort"})
+                Person.objects.create(
+                    team=self.team,
+                    distinct_ids=[user_two],
+                    properties={"email": "in@dynamic.cohort", "$some_prop": "some_val"},
+                )
+                Person.objects.create(
+                    team=self.team,
+                    distinct_ids=[user_three],
+                    properties={"email": "in@both.cohorts", "$some_prop": "some_val"},
+                )
+
+                dynamic_cohort = Cohort.objects.create(
+                    team=self.team,
+                    name="cohort1",
+                    groups=[
+                        {
+                            "properties": [
+                                {
+                                    "key": "$some_prop",
+                                    "value": "some_val",
+                                    "type": "person",
+                                }
+                            ]
+                        }
+                    ],
+                )
+
+                static_cohort = Cohort.objects.create(team=self.team, name="a static cohort", groups=[], is_static=True)
+                static_cohort.insert_users_by_list([user_one, user_three])
+
+                dynamic_cohort.calculate_people_ch(pending_version=0)
+                static_cohort.calculate_people_ch(pending_version=0)
+
+                replay_summaries = [
+                    (user_one, session_id_one),
+                    (user_two, session_id_two),
+                    (user_three, session_id_three),
+                ]
+                for distinct_id, session_id in replay_summaries:
+                    produce_replay_summary(
+                        distinct_id=distinct_id,
+                        session_id=session_id,
+                        first_timestamp=self.an_hour_ago,
+                        team_id=self.team.id,
+                    )
+                    produce_replay_summary(
+                        distinct_id=distinct_id,
+                        session_id=session_id,
+                        first_timestamp=self.an_hour_ago + relativedelta(seconds=30),
+                        team_id=self.team.id,
+                    )
+
+                (session_recordings, _, _) = self._filter_recordings_by(
+                    {
+                        "properties": [
+                            {
+                                "key": "id",
+                                "value": static_cohort.pk,
+                                "operator": "in",
+                                "type": "cohort",
+                            },
+                        ]
+                    }
+                )
+
+                assert sorted([x["session_id"] for x in session_recordings]) == sorted(
+                    [session_id_one, session_id_three]
+                )
+
+                (session_recordings, _, _) = self._filter_recordings_by(
+                    {
+                        "properties": [
+                            {
+                                "key": "id",
+                                "value": dynamic_cohort.pk,
+                                "operator": "in",
+                                "type": "cohort",
+                            },
+                        ]
+                    }
+                )
+
+                assert sorted([x["session_id"] for x in session_recordings]) == sorted(
+                    [session_id_two, session_id_three]
+                )
+
+                (session_recordings, _, _) = self._filter_recordings_by(
+                    {
+                        "properties": [
+                            {
+                                "key": "id",
+                                "value": dynamic_cohort.pk,
+                                "operator": "in",
+                                "type": "cohort",
+                            },
+                            {
+                                "key": "id",
+                                "value": static_cohort.pk,
+                                "operator": "in",
+                                "type": "cohort",
+                            },
+                        ]
+                    }
+                )
+
+                assert sorted([x["session_id"] for x in session_recordings]) == [session_id_three]
 
     @snapshot_clickhouse_queries
     @also_test_with_materialized_columns(person_properties=["$some_prop"])
@@ -2199,7 +2382,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
                             {
                                 "key": "id",
                                 "value": cohort.pk,
-                                "operator": None,
+                                "operator": "in",
                                 "type": "cohort",
                             }
                         ],
@@ -2222,7 +2405,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
                             {
                                 "key": "id",
                                 "value": cohort.pk,
-                                "operator": None,
+                                "operator": "in",
                                 "type": "cohort",
                             }
                         ],
@@ -2237,8 +2420,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
                     }
                 )
 
-                assert len(session_recordings) == 1
-                assert session_recordings[0]["session_id"] == session_id_two
+                assert [x["session_id"] for x in session_recordings] == [session_id_two]
 
     @snapshot_clickhouse_queries
     @also_test_with_materialized_columns(["$current_url"])
@@ -3906,6 +4088,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         assert session_recordings == [
             {
                 "active_seconds": 0.0,
+                "activity_score": 0.28,
                 "click_count": 10,  # in the bug this value was 10 X number of events in the session
                 "console_error_count": 0,
                 "console_log_count": 0,
@@ -3920,5 +4103,6 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
                 "session_id": "2",
                 "start_time": ANY,
                 "team_id": self.team.id,
+                "ongoing": 1,
             }
         ]

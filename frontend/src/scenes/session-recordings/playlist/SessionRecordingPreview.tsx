@@ -1,18 +1,13 @@
-import { IconBug, IconCursorClick, IconKeyboard, IconMagicWand, IconPinFilled } from '@posthog/icons'
+import { IconBug, IconCursorClick, IconKeyboard, IconLive, IconPinFilled } from '@posthog/icons'
 import clsx from 'clsx'
 import { useValues } from 'kea'
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { PropertyIcon } from 'lib/components/PropertyIcon'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { Popover } from 'lib/lemon-ui/Popover'
-import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { colonDelimitedDuration } from 'lib/utils'
-import { useState } from 'react'
 import { countryCodeToName } from 'scenes/insights/views/WorldMap'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { asDisplay } from 'scenes/persons/person-utils'
@@ -22,15 +17,13 @@ import { RecordingsQuery } from '~/queries/schema'
 import { SessionRecordingType } from '~/types'
 
 import { sessionRecordingsListPropertiesLogic } from './sessionRecordingsListPropertiesLogic'
-import { sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
+import { DEFAULT_RECORDING_FILTERS_ORDER_BY, sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
 
 export interface SessionRecordingPreviewProps {
     recording: SessionRecordingType
     isActive?: boolean
     onClick?: () => void
     pinned?: boolean
-    summariseFn?: (recording: SessionRecordingType) => void
-    sessionSummaryLoading?: boolean
 }
 
 function RecordingDuration({ recordingDuration }: { recordingDuration: number | undefined }): JSX.Element {
@@ -153,7 +146,15 @@ function PinnedIndicator(): JSX.Element | null {
     )
 }
 
-function ViewedIndicator(): JSX.Element {
+function RecordingOngoingIndicator(): JSX.Element {
+    return (
+        <Tooltip title="This recording is still ongoing - we received data within the last 5 minutes.">
+            <IconLive className="animate-[pulse_1s_ease-out_infinite] text-primary-3000" />
+        </Tooltip>
+    )
+}
+
+function UnwatchedIndicator(): JSX.Element {
     return (
         <Tooltip title="Indicates the recording has not been watched yet">
             <div className="w-2 h-2 rounded-full bg-primary-3000" aria-label="unwatched-recording-label" />
@@ -174,10 +175,8 @@ export function SessionRecordingPreview({
     isActive,
     onClick,
     pinned,
-    summariseFn,
-    sessionSummaryLoading,
 }: SessionRecordingPreviewProps): JSX.Element {
-    const { orderBy } = useValues(sessionRecordingsPlaylistLogic)
+    const { filters } = useValues(sessionRecordingsPlaylistLogic)
 
     const { recordingPropertiesById, recordingPropertiesLoading } = useValues(sessionRecordingsListPropertiesLogic)
     const recordingProperties = recordingPropertiesById[recording.id]
@@ -185,10 +184,6 @@ export function SessionRecordingPreview({
     const iconProperties = gatherIconProperties(recordingProperties, recording)
 
     const iconClassNames = 'text-muted-alt shrink-0'
-
-    const [summaryPopoverIsVisible, setSummaryPopoverIsVisible] = useState<boolean>(false)
-
-    const [summaryButtonIsVisible, setSummaryButtonIsVisible] = useState<boolean>(false)
 
     return (
         <DraggableToNotebook href={urls.replaySingle(recording.id)}>
@@ -199,44 +194,7 @@ export function SessionRecordingPreview({
                     isActive && 'SessionRecordingPreview--active'
                 )}
                 onClick={() => onClick?.()}
-                onMouseEnter={() => setSummaryButtonIsVisible(true)}
-                onMouseLeave={() => setSummaryButtonIsVisible(false)}
             >
-                <FlaggedFeature flag={FEATURE_FLAGS.AI_SESSION_SUMMARY} match={true}>
-                    {summariseFn && (
-                        <Popover
-                            showArrow={true}
-                            visible={summaryPopoverIsVisible && summaryButtonIsVisible}
-                            placement="right"
-                            onClickOutside={() => setSummaryPopoverIsVisible(false)}
-                            overlay={
-                                sessionSummaryLoading ? (
-                                    <Spinner />
-                                ) : (
-                                    <div className="text-xl max-w-auto lg:max-w-3/5">{recording.summary}</div>
-                                )
-                            }
-                        >
-                            <LemonButton
-                                size="small"
-                                type="primary"
-                                className={clsx(
-                                    summaryButtonIsVisible ? 'block' : 'hidden',
-                                    'absolute right-px top-px'
-                                )}
-                                icon={<IconMagicWand />}
-                                onClick={(e) => {
-                                    e.preventDefault()
-                                    e.stopPropagation()
-                                    setSummaryPopoverIsVisible(!summaryPopoverIsVisible)
-                                    if (!recording.summary) {
-                                        summariseFn(recording)
-                                    }
-                                }}
-                            />
-                        </Popover>
-                    )}
-                </FlaggedFeature>
                 <div className="grow overflow-hidden space-y-1">
                     <div className="flex items-center justify-between gap-2">
                         <div className="flex overflow-hidden font-medium text-link ph-no-capture">
@@ -250,7 +208,7 @@ export function SessionRecordingPreview({
                         />
                     </div>
 
-                    <div className="flex items-center justify-between items-center gap-2">
+                    <div className="flex justify-between items-center gap-2">
                         <div className="flex space-x-2 text-muted text-xs">
                             <PropertyIcons
                                 recordingProperties={iconProperties}
@@ -274,19 +232,31 @@ export function SessionRecordingPreview({
                             </div>
                         </div>
 
-                        {orderBy === 'console_error_count' ? (
+                        {filters.order === 'console_error_count' ? (
                             <ErrorCount iconClassNames={iconClassNames} errorCount={recording.console_error_count} />
                         ) : (
-                            <RecordingDuration recordingDuration={durationToShow(recording, orderBy)} />
+                            <RecordingDuration
+                                recordingDuration={durationToShow(
+                                    recording,
+                                    filters.order || DEFAULT_RECORDING_FILTERS_ORDER_BY
+                                )}
+                            />
                         )}
                     </div>
 
                     <FirstURL startUrl={recording.start_url} />
                 </div>
 
-                <div className="min-w-6 flex flex-col items-center mt-2">
-                    {!recording.viewed ? <ViewedIndicator /> : null}
+                <div
+                    className={clsx(
+                        'min-w-6 flex flex-col gap-0.5 items-center',
+                        // need different margin if the first item is an icon
+                        recording.ongoing || pinned ? 'mt-1' : 'mt-2'
+                    )}
+                >
+                    {recording.ongoing ? <RecordingOngoingIndicator /> : null}
                     {pinned ? <PinnedIndicator /> : null}
+                    {!recording.viewed ? <UnwatchedIndicator /> : null}
                 </div>
             </div>
         </DraggableToNotebook>

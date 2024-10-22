@@ -8,7 +8,7 @@ from rest_framework.request import Request
 
 from posthog import settings
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.shared import TeamBasicSerializer
+from posthog.api.shared import ProjectBasicSerializer, TeamBasicSerializer
 from posthog.cloud_utils import is_cloud
 from posthog.constants import INTERNAL_BOT_EMAIL_SUFFIX, AvailableFeature
 from posthog.event_usage import report_organization_deleted
@@ -70,6 +70,7 @@ class OrganizationSerializer(
 ):
     membership_level = serializers.SerializerMethodField()
     teams = serializers.SerializerMethodField()
+    projects = serializers.SerializerMethodField()
     metadata = serializers.SerializerMethodField()
     member_count = serializers.SerializerMethodField()
     logo_media_id = serializers.PrimaryKeyRelatedField(
@@ -88,6 +89,7 @@ class OrganizationSerializer(
             "membership_level",
             "plugins_access_level",
             "teams",
+            "projects",
             "available_product_features",
             "is_member_join_email_enabled",
             "metadata",
@@ -103,6 +105,7 @@ class OrganizationSerializer(
             "membership_level",
             "plugins_access_level",
             "teams",
+            "projects",
             "available_product_features",
             "metadata",
             "customer_id",
@@ -135,6 +138,10 @@ class OrganizationSerializer(
         # Support old access control system
         visible_teams = visible_teams.filter(id__in=self.user_permissions.team_ids_visible_for_user)
         return TeamBasicSerializer(visible_teams, context=self.context, many=True).data  # type: ignore
+
+    def get_projects(self, instance: Organization) -> list[dict[str, Any]]:
+        visible_projects = instance.projects.filter(id__in=self.user_permissions.project_ids_visible_for_user)
+        return ProjectBasicSerializer(visible_projects, context=self.context, many=True).data  # type: ignore
 
     def get_metadata(self, instance: Organization) -> dict[str, Union[str, int, object]]:
         return {

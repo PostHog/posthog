@@ -16,6 +16,7 @@ import {
     ChartSettingsFormatting,
     ConditionalFormattingRule,
     DataVisualizationNode,
+    HogQLVariable,
 } from '~/queries/schema'
 import { QueryContext } from '~/queries/types'
 import { ChartDisplayType, InsightLogicProps, ItemMode } from '~/types'
@@ -67,6 +68,9 @@ export interface DataVisualizationLogicProps {
     insightLogicProps: InsightLogicProps<DataVisualizationNode>
     context?: QueryContext<DataVisualizationNode>
     cachedResults?: AnyResponseType
+    insightLoading?: boolean
+    /** Dashboard variables to override the ones in the query */
+    variablesOverride?: Record<string, HogQLVariable> | null
 }
 
 export interface SelectedYAxis {
@@ -221,13 +225,25 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 query: props.query.source,
                 dataNodeCollectionId: insightVizDataCollectionId(props.insightLogicProps, props.key),
                 loadPriority: props.insightLogicProps.loadPriority,
+                variablesOverride: props.variablesOverride,
             }),
             ['response', 'responseLoading', 'responseError', 'queryCancelled'],
             themeLogic,
             ['isDarkModeOn'],
         ],
+        actions: [
+            dataNodeLogic({
+                cachedResults: props.cachedResults,
+                key: props.key,
+                query: props.query.source,
+                dataNodeCollectionId: insightVizDataCollectionId(props.insightLogicProps, props.key),
+                loadPriority: props.insightLogicProps.loadPriority,
+                variablesOverride: props.variablesOverride,
+            }),
+            ['loadData'],
+        ],
     })),
-    props({ query: {} } as DataVisualizationLogicProps),
+    props({ query: { source: {} } } as DataVisualizationLogicProps),
     actions(({ values }) => ({
         setVisualizationType: (visualizationType: ChartDisplayType) => ({ visualizationType }),
         updateXSeries: (columnName: string) => ({
@@ -548,6 +564,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 return insightMode == ItemMode.Edit
             },
         ],
+        insightLogicProps: [(_state, props) => [props.insightLogicProps], (insightLogicProps) => insightLogicProps],
         showResultControls: [
             (state, props) => [state.insightMode, props.insightLogicProps],
             (insightMode, insightLogicProps) => {

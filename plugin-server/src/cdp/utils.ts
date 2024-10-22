@@ -61,7 +61,6 @@ export function convertToHogFunctionInvocationGlobals(
         person = {
             id: event.person_id,
             properties: personProperties,
-            uuid: event.person_id,
             name: personDisplayName,
             url: `${projectUrl}/person/${encodeURIComponent(event.distinct_id)}`,
         }
@@ -82,7 +81,6 @@ export function convertToHogFunctionInvocationGlobals(
             distinct_id: event.distinct_id,
             properties,
             timestamp: eventTimestamp,
-            name: event.event!,
             url: `${projectUrl}/events/${encodeURIComponent(event.uuid)}/${encodeURIComponent(eventTimestamp)}`,
         },
         person,
@@ -142,7 +140,7 @@ export function convertToHogFunctionFilterGlobal(globals: HogFunctionInvocationG
 
     const elementsChain = globals.event.elements_chain ?? globals.event.properties['$elements_chain']
     const response = {
-        event: globals.event.name,
+        event: globals.event.event,
         elements_chain: elementsChain,
         elements_chain_href: '',
         elements_chain_texts: [] as string[],
@@ -150,12 +148,12 @@ export function convertToHogFunctionFilterGlobal(globals: HogFunctionInvocationG
         elements_chain_elements: [] as string[],
         timestamp: globals.event.timestamp,
         properties: globals.event.properties,
-        person: globals.person ? { id: globals.person.uuid, properties: globals.person.properties } : undefined,
+        person: globals.person ? { id: globals.person.id, properties: globals.person.properties } : undefined,
         pdi: globals.person
             ? {
                   distinct_id: globals.event.distinct_id,
-                  person_id: globals.person.uuid,
-                  person: { id: globals.person.uuid, properties: globals.person.properties },
+                  person_id: globals.person.id,
+                  person: { id: globals.person.id, properties: globals.person.properties },
               }
             : undefined,
         distinct_id: globals.event.distinct_id,

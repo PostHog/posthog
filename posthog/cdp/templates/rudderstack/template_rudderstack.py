@@ -6,9 +6,10 @@ from posthog.cdp.templates.hog_function_template import HogFunctionTemplate, Hog
 template: HogFunctionTemplate = HogFunctionTemplate(
     status="alpha",
     id="template-rudderstack",
-    name="Send data to RudderStack",
+    name="RudderStack",
     description="Send data to RudderStack",
     icon_url="/static/services/rudderstack.png",
+    category=["Custom"],
     hog="""
 fun getPayload() {
     let rudderPayload := {

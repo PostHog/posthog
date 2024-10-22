@@ -13,6 +13,11 @@ from posthog.models.alert import (
     AlertSubscription,
     are_alerts_supported_for_insight,
 )
+from posthog.schema import AlertState
+from posthog.api.insight import InsightBasicSerializer
+
+from posthog.utils import relative_date_parse
+from zoneinfo import ZoneInfo
 
 
 class ThresholdSerializer(serializers.ModelSerializer):
@@ -71,6 +76,11 @@ class AlertSubscriptionSerializer(serializers.ModelSerializer):
         return data
 
 
+class RelativeDateTimeField(serializers.DateTimeField):
+    def to_internal_value(self, data):
+        return data
+
+
 class AlertSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     checks = AlertCheckSerializer(many=True, read_only=True)
@@ -82,6 +92,7 @@ class AlertSerializer(serializers.ModelSerializer):
         write_only=True,
         allow_empty=False,
     )
+    snoozed_until = RelativeDateTimeField(allow_null=True, required=False)
 
     class Meta:
         model = AlertConfiguration
@@ -97,18 +108,26 @@ class AlertSerializer(serializers.ModelSerializer):
             "state",
             "enabled",
             "last_notified_at",
+            "last_checked_at",
+            "next_check_at",
             "checks",
+            "config",
+            "calculation_interval",
+            "snoozed_until",
         ]
         read_only_fields = [
             "id",
             "created_at",
             "state",
             "last_notified_at",
+            "last_checked_at",
+            "next_check_at",
         ]
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
         data["subscribed_users"] = UserBasicSerializer(instance.subscribed_users.all(), many=True, read_only=True).data
+        data["insight"] = InsightBasicSerializer(instance.insight).data
         return data
 
     def add_threshold(self, threshold_data, validated_data):
@@ -140,6 +159,30 @@ class AlertSerializer(serializers.ModelSerializer):
         return instance
 
     def update(self, instance, validated_data):
+        if "snoozed_until" in validated_data:
+            snoozed_until_param = validated_data.pop("snoozed_until")
+
+            if snoozed_until_param is None:
+                instance.state = AlertState.NOT_FIRING
+                instance.snoozed_until = None
+            else:
+                # always store snoozed_until as UTC time
+                # as we look at current UTC time to check when to run alerts
+                snoozed_until = relative_date_parse(
+                    snoozed_until_param, ZoneInfo("UTC"), increase=True, always_truncate=True
+                )
+                instance.state = AlertState.SNOOZED
+                instance.snoozed_until = snoozed_until
+
+            AlertCheck.objects.create(
+                alert_configuration=instance,
+                calculated_value=None,
+                condition=instance.condition,
+                targets_notified={},
+                state=instance.state,
+                error=None,
+            )
+
         conditions_or_threshold_changed = False
 
         threshold_data = validated_data.pop("threshold", None)
@@ -169,10 +212,16 @@ class AlertSerializer(serializers.ModelSerializer):
                 )
 
         if conditions_or_threshold_changed:
-            # If anything changed we set inactive, so it's firing and notifying with the new settings
-            instance.state = "inactive"
+            # If anything changed we set to NOT_FIRING, so it's firing and notifying with the new settings
+            instance.state = AlertState.NOT_FIRING
 
         return super().update(instance, validated_data)
+
+    def validate_snoozed_until(self, value):
+        if value is not None and not isinstance(value, str):
+            raise ValidationError("snoozed_until has to be passed in string format")
+
+        return value
 
     def validate_insight(self, value):
         if value and not are_alerts_supported_for_insight(value):
@@ -215,6 +264,21 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         instance = self.get_object()
         instance.checks = instance.alertcheck_set.all().order_by("-created_at")[:5]
         serializer = self.get_serializer(instance)
+        return Response(serializer.data)
+
+    def list(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset())
+
+        insight_id = request.GET.get("insight_id")
+        if insight_id is not None:
+            queryset = queryset.filter(insight=insight_id)
+
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+
+        serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
 
 

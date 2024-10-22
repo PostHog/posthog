@@ -3,9 +3,10 @@ from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
 template: HogFunctionTemplate = HogFunctionTemplate(
     status="beta",
     id="template-gleap",
-    name="Add contacts to Gleap",
+    name="Gleap",
     description="Updates a contact in Gleap",
     icon_url="/static/services/gleap.png",
+    category=["Customer Success"],
     hog="""
 let action := inputs.action
 let name := event.event
@@ -36,7 +37,7 @@ let res := fetch(f'https://api.gleap.io/admin/identify', {
 })
 
 if (res.status >= 400) {
-    print('Error from gleap.io api:', res.status, res.body)
+    throw Error(f'Error from gleap.io (status {res.status}): {res.body}')
 }
 
 """.strip(),

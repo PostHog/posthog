@@ -12,6 +12,7 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     name="Google Cloud Storage",
     description="Send data to GCS. This creates a file per event.",
     icon_url="/static/services/google-cloud-storage.png",
+    category=["Custom"],
     hog="""
 let res := fetch(f'https://storage.googleapis.com/upload/storage/v1/b/{encodeURLComponent(inputs.bucketName)}/o?uploadType=media&name={encodeURLComponent(inputs.filename)}', {
   'method': 'POST',

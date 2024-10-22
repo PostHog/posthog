@@ -21,7 +21,7 @@ export function PersonPreview(props: PersonPreviewProps): JSX.Element | null {
     if (!props.distinctId) {
         return null
     }
-
+    // eslint-disable-next-line react-hooks/rules-of-hooks
     const { person, personLoading } = useValues(personLogic({ id: props.distinctId }))
 
     if (personLoading) {

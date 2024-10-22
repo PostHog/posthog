@@ -141,7 +141,7 @@ export const TARGET_AREA_TO_NAME = [
             {
                 value: 'data_warehouse',
                 'data-attr': `support-form-target-area-data_warehouse`,
-                label: 'Data warehouse (beta)',
+                label: 'Data warehouse',
             },
             {
                 value: 'feature_flags',
@@ -171,7 +171,7 @@ export const TARGET_AREA_TO_NAME = [
             {
                 value: 'web_analytics',
                 'data-attr': `support-form-target-area-web_analytics`,
-                label: 'Web Analytics (beta)',
+                label: 'Web Analytics',
             },
         ],
     },
@@ -544,7 +544,7 @@ export const supportLogic = kea<supportLogicType>([
 
                 actions.openSupportForm({
                     kind: Object.keys(SUPPORT_KIND_TO_SUBJECT).includes(kind) ? kind : null,
-                    target_area: Object.keys(TARGET_AREA_TO_NAME).includes(area) ? area : null,
+                    target_area: getLabelBasedOnTargetArea(area) ? area : null,
                     severity_level: Object.keys(SEVERITY_LEVEL_TO_NAME).includes(severity) ? severity : null,
                     isEmailFormOpen: isEmailFormOpen ?? 'false',
                 })

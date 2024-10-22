@@ -21,6 +21,13 @@ const HIGH_WATERMARK_KEY = 'session_replay_events_ingester'
 const replayEventsCounter = new Counter({
     name: 'replay_events_ingested',
     help: 'Number of Replay events successfully ingested',
+    labelNames: ['snapshot_source'],
+})
+
+const dataIngestedCounter = new Counter({
+    name: 'replay_data_ingested',
+    help: 'Amount of data being ingested',
+    labelNames: ['snapshot_source'],
 })
 
 export class ReplayEventsIngester {
@@ -35,7 +42,9 @@ export class ReplayEventsIngester {
         for (const message of messages) {
             const results = await retryOnDependencyUnavailableError(() => this.consume(message))
             if (results) {
-                pendingProduceRequests.push(...results)
+                results.forEach((result) => {
+                    pendingProduceRequests.push(result)
+                })
             }
         }
 
@@ -175,7 +184,8 @@ export class ReplayEventsIngester {
                 return drop('session_replay_summarizer_error')
             }
 
-            replayEventsCounter.inc()
+            replayEventsCounter.inc({ snapshot_source: replayRecord.snapshot_source ?? undefined })
+            dataIngestedCounter.inc({ snapshot_source: replayRecord.snapshot_source ?? undefined }, replayRecord.size)
 
             return [
                 produce({

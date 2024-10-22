@@ -255,11 +255,14 @@ export class HogFunctionManager {
 
         const integrationConfigsByTeamAndId: Record<string, Record<string, any>> = integrations.reduce(
             (acc, integration) => {
+                // Decrypt the sensitive config here
                 return {
                     ...acc,
                     [`${integration.team_id}:${integration.id}`]: {
                         ...integration.config,
-                        ...integration.sensitive_config,
+                        ...this.hub.encryptedFields.decryptObject(integration.sensitive_config || {}, {
+                            ignoreDecryptionErrors: true,
+                        }),
                     },
                 }
             },

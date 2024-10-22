@@ -4,6 +4,7 @@ from uuid import UUID
 
 from posthog.hogql import ast
 from posthog.hogql.ast import ConstantType, FieldTraverserType
+from posthog.hogql.base import _T_AST
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import (
     FunctionCallTable,
@@ -19,6 +20,7 @@ from posthog.hogql.functions import find_hogql_posthog_function
 from posthog.hogql.functions.action import matches_action
 from posthog.hogql.functions.cohort import cohort_query_node
 from posthog.hogql.functions.mapping import HOGQL_CLICKHOUSE_FUNCTIONS, compare_types, validate_function_args
+from posthog.hogql.functions.recording_button import recording_button
 from posthog.hogql.functions.sparkline import sparkline
 from posthog.hogql.hogqlx import HOGQLX_COMPONENTS, convert_to_hx
 from posthog.hogql.parser import parse_select
@@ -76,11 +78,11 @@ def resolve_types_from_table(
 
 
 def resolve_types(
-    node: ast.Expr | ast.SelectQuery,
+    node: _T_AST,
     context: HogQLContext,
     dialect: Literal["hogql", "clickhouse"],
     scopes: Optional[list[ast.SelectQueryType]] = None,
-) -> ast.Expr:
+) -> _T_AST:
     return Resolver(scopes=scopes, context=context, dialect=dialect).visit(node)
 
 
@@ -460,6 +462,8 @@ class Resolver(CloningVisitor):
             validate_function_args(node.args, func_meta.min_args, func_meta.max_args, node.name)
             if node.name == "sparkline":
                 return self.visit(sparkline(node=node, args=node.args))
+            if node.name == "recording_button":
+                return self.visit(recording_button(node=node, args=node.args))
             if node.name == "matchesAction":
                 return self.visit(matches_action(node=node, args=node.args, context=self.context))
 

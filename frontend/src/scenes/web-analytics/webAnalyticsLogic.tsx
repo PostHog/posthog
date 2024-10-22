@@ -7,13 +7,15 @@ import { FEATURE_FLAGS, RETENTION_FIRST_TIME, STALE_EVENT_SECONDS } from 'lib/co
 import { dayjs } from 'lib/dayjs'
 import { Link, PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { getDefaultInterval, isNotNil, updateDatesWithInterval } from 'lib/utils'
+import { getDefaultInterval, isNotNil, objectsEqual, updateDatesWithInterval } from 'lib/utils'
 import { errorTrackingQuery } from 'scenes/error-tracking/queries'
 import { urls } from 'scenes/urls'
 
 import {
+    ActionConversionGoal,
     ActionsNode,
     AnyEntityNode,
+    CustomEventConversionGoal,
     EventsNode,
     NodeKind,
     QuerySchema,
@@ -654,6 +656,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             compare,
                             filterTestAccounts,
                             conversionGoal,
+                            includeLCPScore: featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LCP_SCORE] ? true : undefined,
                         },
                         insightProps: createInsightProps(TileId.OVERVIEW),
                         canOpenModal: false,
@@ -678,7 +681,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                       ])
                                     : null,
                                 !conversionGoal
-                                    ? createGraphsTrendsTab(GraphsTab.NUM_SESSION, 'Unique visitors', 'Visitors', [
+                                    ? createGraphsTrendsTab(GraphsTab.NUM_SESSION, 'Unique sessions', 'Sessions', [
                                           sessionsSeries,
                                       ])
                                     : null,
@@ -698,15 +701,15 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                           [totalConversionSeries]
                                       )
                                     : null,
-                                conversionGoal && totalConversionSeries && uniqueConversionsSeries
+                                conversionGoal && uniqueUserSeries && uniqueConversionsSeries
                                     ? createGraphsTrendsTab(
                                           GraphsTab.CONVERSION_RATE,
                                           'Conversion rate',
                                           'Conversion rate',
-                                          [totalConversionSeries, uniqueConversionsSeries],
+                                          [uniqueConversionsSeries, uniqueUserSeries],
                                           {
                                               formula: 'A / B',
-                                              aggregationAxisFormat: 'percentage',
+                                              aggregationAxisFormat: 'percentage_scaled',
                                           }
                                       )
                                     : null,
@@ -1085,7 +1088,12 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 }
 
                 const extendQuery = (query: QuerySchema): QuerySchema => {
-                    if (query.kind === NodeKind.DataTableNode && query.source.kind === NodeKind.WebStatsTableQuery) {
+                    if (
+                        query.kind === NodeKind.DataTableNode &&
+                        (query.source.kind === NodeKind.WebStatsTableQuery ||
+                            query.source.kind === NodeKind.WebExternalClicksTableQuery ||
+                            query.source.kind === NodeKind.WebGoalsQuery)
+                    ) {
                         return {
                             ...query,
                             source: {
@@ -1339,7 +1347,11 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 urlParams.set('filters', JSON.stringify(webAnalyticsFilters))
             }
             if (conversionGoal) {
-                urlParams.set('conversionGoal', JSON.stringify(conversionGoal))
+                if ('actionId' in conversionGoal) {
+                    urlParams.set('conversionGoal.actionId', conversionGoal.actionId.toString())
+                } else {
+                    urlParams.set('conversionGoal.customEventName', conversionGoal.customEventName)
+                }
             }
             if (dateFrom !== initialDateFrom || dateTo !== initialDateTo || interval !== initialInterval) {
                 urlParams.set('date_from', dateFrom ?? '')
@@ -1384,12 +1396,13 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         }
     }),
 
-    urlToAction(({ actions }) => ({
+    urlToAction(({ actions, values }) => ({
         '/web': (
             _,
             {
                 filters,
-                conversionGoal,
+                'conversionGoal.actionId': conversionGoalActionId,
+                'conversionGoal.customEventName': conversionGoalCustomEventName,
                 date_from,
                 date_to,
                 interval,
@@ -1404,34 +1417,46 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         ) => {
             const parsedFilters = isWebAnalyticsPropertyFilters(filters) ? filters : undefined
 
-            if (parsedFilters) {
+            if (parsedFilters && !objectsEqual(parsedFilters, values.webAnalyticsFilters)) {
                 actions.setWebAnalyticsFilters(parsedFilters)
             }
-            if (conversionGoal) {
-                actions.setConversionGoal(conversionGoal)
+            if (
+                conversionGoalActionId &&
+                conversionGoalActionId !== (values.conversionGoal as ActionConversionGoal)?.actionId
+            ) {
+                actions.setConversionGoal({ actionId: parseInt(conversionGoalActionId, 10) })
+            } else if (
+                conversionGoalCustomEventName &&
+                conversionGoalCustomEventName !== (values.conversionGoal as CustomEventConversionGoal)?.customEventName
+            ) {
+                actions.setConversionGoal({ customEventName: conversionGoalCustomEventName })
             }
-            if (date_from || date_to || interval) {
+            if (
+                (date_from && date_from !== values.dateFilter.dateFrom) ||
+                (date_to && date_to !== values.dateFilter.dateTo) ||
+                (interval && interval !== values.dateFilter.interval)
+            ) {
                 actions.setDatesAndInterval(date_from, date_to, interval)
             }
-            if (device_tab) {
+            if (device_tab && device_tab !== values._deviceTab) {
                 actions.setDeviceTab(device_tab)
             }
-            if (source_tab) {
+            if (source_tab && source_tab !== values._sourceTab) {
                 actions.setSourceTab(source_tab)
             }
-            if (graphs_tab) {
+            if (graphs_tab && graphs_tab !== values._graphsTab) {
                 actions.setGraphsTab(graphs_tab)
             }
-            if (path_tab) {
+            if (path_tab && path_tab !== values._pathTab) {
                 actions.setPathTab(path_tab)
             }
-            if (geography_tab) {
+            if (geography_tab && geography_tab !== values._geographyTab) {
                 actions.setGeographyTab(geography_tab)
             }
-            if (path_cleaning) {
+            if (path_cleaning && path_cleaning !== values.isPathCleaningEnabled) {
                 actions.setIsPathCleaningEnabled([true, 'true', 1, '1'].includes(path_cleaning))
             }
-            if (filter_test_accounts) {
+            if (filter_test_accounts && filter_test_accounts !== values.shouldFilterTestAccounts) {
                 actions.setShouldFilterTestAccounts([true, 'true', 1, '1'].includes(filter_test_accounts))
             }
         },

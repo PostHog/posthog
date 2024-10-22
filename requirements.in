@@ -32,7 +32,6 @@ django-revproxy==0.12.0
 djangorestframework==3.15.1
 djangorestframework-csv==2.1.1
 djangorestframework-dataclasses==1.2.0
-django-fernet-encrypted-fields==0.1.3
 dlt==0.5.4
 dlt[deltalake]==0.5.4
 dnspython==2.2.1
@@ -40,7 +39,7 @@ drf-exceptions-hog==0.4.0
 drf-extensions==0.7.0
 drf-spectacular==0.27.2
 geoip2==4.6.0
-google-cloud-bigquery==3.11.4
+google-cloud-bigquery==3.26
 gunicorn==20.1.0
 infi-clickhouse-orm@ git+https://github.com/PostHog/infi.clickhouse_orm@9578c79f29635ee2c1d01b7979e89adab8383de2
 kafka-python==2.0.2
@@ -92,7 +91,7 @@ sshtunnel==0.4.0
 statshog==1.0.6
 structlog==23.2.0
 sqlparse==0.4.4
-temporalio==1.7.0
+temporalio==1.7.1
 token-bucket==0.3.0
 toronado==0.1.0
 webdriver_manager==4.0.1
@@ -104,7 +103,7 @@ phonenumberslite==8.13.6
 openai==1.43.0
 tiktoken==0.7.0
 nh3==0.2.14
-hogql-parser==1.0.40
+hogql-parser==1.0.45
 zxcvbn==4.4.28
 zstd==1.5.5.1
 xmlsec==1.3.13 # Do not change this version - it will break SAML

@@ -185,7 +185,7 @@ class FeatureFlagSerializer(
             exclude_kwargs = {"pk": cast(FeatureFlag, self.instance).pk}
 
         if (
-            FeatureFlag.objects.filter(key=value, team_id=self.context["team_id"], deleted=False)
+            FeatureFlag.objects.filter(key=value, team__project_id=self.context["project_id"], deleted=False)
             .exclude(**exclude_kwargs)
             .exists()
         ):
@@ -287,6 +287,17 @@ class FeatureFlagSerializer(
 
         if not isinstance(payloads, dict):
             raise serializers.ValidationError("Payloads must be passed as a dictionary")
+
+        for value in payloads.values():
+            try:
+                if isinstance(value, str):
+                    json_value = json.loads(value)
+                else:
+                    json_value = value
+                json.dumps(json_value)
+
+            except json.JSONDecodeError:
+                raise serializers.ValidationError("Payload value is not valid JSON")
 
         if filters.get("multivariate"):
             if not all(key in variants for key in payloads):

@@ -114,6 +114,11 @@ class TestPrinter(BaseTest):
             repsponse, f"SELECT\n    plus(1, 2),\n    3\nFROM\n    events\nLIMIT {MAX_SELECT_RETURNED_ROWS}"
         )
 
+    def test_print_to_string(self):
+        assert str(parse_select("select 1 + 2, 3 from events")) == "sql(SELECT plus(1, 2), 3 FROM events)"
+        assert str(parse_expr("1 + 2")) == "sql(plus(1, 2))"
+        assert str(parse_expr("unknown_field")) == "sql(unknown_field)"
+
     def test_literals(self):
         self.assertEqual(self._expr("1 + 2"), "plus(1, 2)")
         self.assertEqual(self._expr("-1 + 2"), "plus(-1, 2)")
@@ -455,6 +460,9 @@ class TestPrinter(BaseTest):
             expected_skip_indexes_used={"properties_group_custom_keys_bf", "properties_group_custom_values_bf"},
         )
 
+        # Don't optimize comparisons to types that require non-trivial type conversions.
+        self._test_property_group_comparison("properties.key = 1", None)
+
         # TODO: We'll want to eventually support this type of expression where the right hand side is a non-``Nullable``
         # value, since this would allow expressions that only reference constant values to also use the appropriate
         # index, but for right now we only want to optimize comparisons to constant values directly for simplicity.
@@ -620,6 +628,12 @@ class TestPrinter(BaseTest):
             expected_skip_indexes_used={"properties_group_custom_keys_bf"},
         )
 
+        # Don't optimize comparisons to types that require additional type conversions.
+        self._test_property_group_comparison("properties.key in true", None)
+        self._test_property_group_comparison("properties.key in (true, false)", None)
+        self._test_property_group_comparison("properties.key in 1", None)
+        self._test_property_group_comparison("properties.key in (1, 2, 3)", None)
+
         # Only direct constant comparison is supported for now -- see above.
         self._test_property_group_comparison("properties.key in lower('value')", None)
         self._test_property_group_comparison("properties.key in (lower('a'), lower('b'))", None)
@@ -745,7 +759,7 @@ class TestPrinter(BaseTest):
         self._assert_expr_error("this makes little sense", "mismatched input 'makes' expecting <EOF>")
         self._assert_expr_error("1;2", "mismatched input ';' expecting <EOF>")
         self._assert_expr_error("b.a(bla)", "You can only call simple functions in HogQL, not expressions")
-        self._assert_expr_error("a -> { print(2) }", "You can not use blocks in HogQL")
+        self._assert_expr_error("a -> { print(2) }", "You can not use expressions inside placeholders")
 
     def test_logic(self):
         self.assertEqual(
@@ -1461,9 +1475,9 @@ class TestPrinter(BaseTest):
         )
         assert generated_sql_statements1 == (
             f"SELECT "
-            "ifNull(equals(transform(nullIf(nullIf(events.mat_is_boolean, ''), 'null'), %(hogql_val_0)s, %(hogql_val_1)s, NULL), 1), 0), "
-            "ifNull(equals(transform(nullIf(nullIf(events.mat_is_boolean, ''), 'null'), %(hogql_val_2)s, %(hogql_val_3)s, NULL), 0), 0), "
-            "isNull(transform(nullIf(nullIf(events.mat_is_boolean, ''), 'null'), %(hogql_val_4)s, %(hogql_val_5)s, NULL)) "
+            "ifNull(equals(transform(toString(nullIf(nullIf(events.mat_is_boolean, ''), 'null')), %(hogql_val_0)s, %(hogql_val_1)s, NULL), 1), 0), "
+            "ifNull(equals(transform(toString(nullIf(nullIf(events.mat_is_boolean, ''), 'null')), %(hogql_val_2)s, %(hogql_val_3)s, NULL), 0), 0), "
+            "isNull(transform(toString(nullIf(nullIf(events.mat_is_boolean, ''), 'null')), %(hogql_val_4)s, %(hogql_val_5)s, NULL)) "
             f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}"
         )
         assert context.values == {
@@ -1952,10 +1966,7 @@ class TestPrinter(BaseTest):
             dialect="clickhouse",
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
-        assert (
-            f"AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), ifNull(in(id, tuple(1, 2, 3)), 0))"
-            in printed
-        )
+        assert f"AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), in(id, tuple(1, 2, 3)))" in printed
 
     def test_dont_inline_persons(self):
         query = parse_select(
@@ -1982,10 +1993,7 @@ class TestPrinter(BaseTest):
             dialect="clickhouse",
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
-        assert (
-            f"AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), ifNull(in(id, tuple(1, 2, 3)), 0))"
-            in printed
-        )
+        assert f"AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), in(id, tuple(1, 2, 3)))" in printed
 
     def test_two_joins(self):
         query = parse_select(
@@ -2001,14 +2009,8 @@ class TestPrinter(BaseTest):
             dialect="clickhouse",
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
-        assert (
-            f"AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), ifNull(in(id, tuple(1, 2, 3)), 0))"
-            in printed
-        )
-        assert (
-            f"AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), ifNull(in(id, tuple(4, 5, 6)), 0))"
-            in printed
-        )
+        assert f"AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), in(id, tuple(1, 2, 3)))" in printed
+        assert f"AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), in(id, tuple(4, 5, 6)))" in printed
 
     def test_two_clauses(self):
         query = parse_select(
@@ -2025,10 +2027,7 @@ class TestPrinter(BaseTest):
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
         assert (
-            f"AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), ifNull(in(id, tuple(7, 8, 9)), 0), ifNull(in(id, tuple(1, 2, 3)), 0))"
+            f"AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), in(id, tuple(7, 8, 9)), in(id, tuple(1, 2, 3)))"
             in printed
         )
-        assert (
-            f"AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), ifNull(in(id, tuple(4, 5, 6)), 0))"
-            in printed
-        )
+        assert f"AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), in(id, tuple(4, 5, 6)))" in printed

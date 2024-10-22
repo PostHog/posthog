@@ -48,12 +48,11 @@ export function SurveyEditQuestionHeader({
 
     return (
         <div
-            className="flex flex-row w-full items-center justify-between"
+            className="flex flex-row w-full items-center justify-between relative"
             ref={setNodeRef}
             {...attributes}
             // eslint-disable-next-line react/forbid-dom-props
             style={{
-                position: 'relative',
                 zIndex: isDragging ? 1 : undefined,
                 transform: CSS.Translate.toString(transform),
                 transition,

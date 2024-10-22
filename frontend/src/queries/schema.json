@@ -189,6 +189,80 @@
             "required": ["id", "kind"],
             "type": "object"
         },
+        "ActorsPropertyTaxonomyQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "group_type_index": {
+                    "type": "integer"
+                },
+                "kind": {
+                    "const": "ActorsPropertyTaxonomyQuery",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "property": {
+                    "type": "string"
+                },
+                "response": {
+                    "$ref": "#/definitions/ActorsPropertyTaxonomyQueryResponse"
+                }
+            },
+            "required": ["kind", "property"],
+            "type": "object"
+        },
+        "ActorsPropertyTaxonomyQueryResponse": {
+            "additionalProperties": false,
+            "description": "All analytics query responses must inherit from this.",
+            "properties": {
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "results": {
+                    "$ref": "#/definitions/ActorsPropertyTaxonomyResponse"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["results"],
+            "type": "object"
+        },
+        "ActorsPropertyTaxonomyResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "sample_count": {
+                    "type": "integer"
+                },
+                "sample_values": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["sample_values", "sample_count"],
+            "type": "object"
+        },
         "ActorsQuery": {
             "additionalProperties": false,
             "properties": {
@@ -321,144 +395,27 @@
             "enum": ["numeric", "duration", "duration_ms", "percentage", "percentage_scaled"],
             "type": "string"
         },
-        "AlertCheck": {
-            "additionalProperties": false,
-            "properties": {
-                "calculated_value": {
-                    "type": "number"
-                },
-                "created_at": {
-                    "type": "string"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "state": {
-                    "type": "string"
-                },
-                "targets_notified": {
-                    "type": "boolean"
-                }
-            },
-            "required": ["id", "created_at", "calculated_value", "state", "targets_notified"],
-            "type": "object"
+        "AlertCalculationInterval": {
+            "enum": ["hourly", "daily", "weekly", "monthly"],
+            "type": "string"
         },
         "AlertCondition": {
             "additionalProperties": false,
-            "type": "object"
-        },
-        "AlertType": {
-            "additionalProperties": false,
             "properties": {
-                "checks": {
-                    "items": {
-                        "$ref": "#/definitions/AlertCheck"
-                    },
-                    "type": "array"
-                },
-                "condition": {
-                    "$ref": "#/definitions/AlertCondition"
-                },
-                "created_at": {
-                    "type": "string"
-                },
-                "created_by": {
-                    "$ref": "#/definitions/UserBasicType"
-                },
-                "enabled": {
-                    "type": "boolean"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "insight": {
-                    "type": "number"
-                },
-                "last_notified_at": {
-                    "type": "string"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "state": {
-                    "type": "string"
-                },
-                "subscribed_users": {
-                    "items": {
-                        "$ref": "#/definitions/UserBasicType"
-                    },
-                    "type": "array"
-                },
-                "threshold": {
-                    "additionalProperties": false,
-                    "properties": {
-                        "configuration": {
-                            "$ref": "#/definitions/InsightThreshold"
-                        }
-                    },
-                    "required": ["configuration"],
-                    "type": "object"
+                "type": {
+                    "$ref": "#/definitions/AlertConditionType"
                 }
             },
-            "required": [
-                "checks",
-                "condition",
-                "created_at",
-                "created_by",
-                "enabled",
-                "id",
-                "insight",
-                "last_notified_at",
-                "name",
-                "state",
-                "subscribed_users",
-                "threshold"
-            ],
+            "required": ["type"],
             "type": "object"
         },
-        "AlertTypeBase": {
-            "additionalProperties": false,
-            "properties": {
-                "condition": {
-                    "$ref": "#/definitions/AlertCondition"
-                },
-                "enabled": {
-                    "type": "boolean"
-                },
-                "insight": {
-                    "type": "number"
-                },
-                "name": {
-                    "type": "string"
-                }
-            },
-            "required": ["name", "condition", "enabled", "insight"],
-            "type": "object"
+        "AlertConditionType": {
+            "enum": ["absolute_value", "relative_increase", "relative_decrease"],
+            "type": "string"
         },
-        "AlertTypeWrite": {
-            "additionalProperties": false,
-            "properties": {
-                "condition": {
-                    "$ref": "#/definitions/AlertCondition"
-                },
-                "enabled": {
-                    "type": "boolean"
-                },
-                "insight": {
-                    "type": "number"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "subscribed_users": {
-                    "items": {
-                        "type": "integer"
-                    },
-                    "type": "array"
-                }
-            },
-            "required": ["condition", "enabled", "insight", "name", "subscribed_users"],
-            "type": "object"
+        "AlertState": {
+            "enum": ["Firing", "Not firing", "Errored", "Snoozed"],
+            "type": "string"
         },
         "AnyDataNode": {
             "anyOf": [
@@ -520,10 +477,10 @@
                     "$ref": "#/definitions/ErrorTrackingQuery"
                 },
                 {
-                    "$ref": "#/definitions/ExperimentFunnelQuery"
+                    "$ref": "#/definitions/ExperimentFunnelsQuery"
                 },
                 {
-                    "$ref": "#/definitions/ExperimentTrendQuery"
+                    "$ref": "#/definitions/ExperimentTrendsQuery"
                 }
             ]
         },
@@ -893,6 +850,71 @@
             "required": ["cache_key"],
             "type": "object"
         },
+        "CachedActorsPropertyTaxonomyQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "cache_key": {
+                    "type": "string"
+                },
+                "cache_target_age": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "calculation_trigger": {
+                    "description": "What triggered the calculation of the query, leave empty if user/immediate",
+                    "type": "string"
+                },
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "next_allowed_client_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "results": {
+                    "$ref": "#/definitions/ActorsPropertyTaxonomyResponse"
+                },
+                "timezone": {
+                    "type": "string"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": [
+                "cache_key",
+                "is_cached",
+                "last_refresh",
+                "next_allowed_client_refresh",
+                "results",
+                "timezone"
+            ],
+            "type": "object"
+        },
         "CachedActorsQueryResponse": {
             "additionalProperties": false,
             "properties": {
@@ -1072,6 +1094,71 @@
             ],
             "type": "object"
         },
+        "CachedEventTaxonomyQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "cache_key": {
+                    "type": "string"
+                },
+                "cache_target_age": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "calculation_trigger": {
+                    "description": "What triggered the calculation of the query, leave empty if user/immediate",
+                    "type": "string"
+                },
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "next_allowed_client_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "results": {
+                    "$ref": "#/definitions/EventTaxonomyResponse"
+                },
+                "timezone": {
+                    "type": "string"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": [
+                "cache_key",
+                "is_cached",
+                "last_refresh",
+                "next_allowed_client_refresh",
+                "results",
+                "timezone"
+            ],
+            "type": "object"
+        },
         "CachedEventsQueryResponse": {
             "additionalProperties": false,
             "properties": {
@@ -1160,6 +1247,174 @@
                 "results",
                 "timezone",
                 "types"
+            ],
+            "type": "object"
+        },
+        "CachedExperimentFunnelsQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "cache_key": {
+                    "type": "string"
+                },
+                "cache_target_age": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "calculation_trigger": {
+                    "description": "What triggered the calculation of the query, leave empty if user/immediate",
+                    "type": "string"
+                },
+                "credible_intervals": {
+                    "additionalProperties": {
+                        "items": {
+                            "type": "number"
+                        },
+                        "maxItems": 2,
+                        "minItems": 2,
+                        "type": "array"
+                    },
+                    "type": "object"
+                },
+                "expected_loss": {
+                    "type": "number"
+                },
+                "insight": {
+                    "$ref": "#/definitions/FunnelsQueryResponse"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "next_allowed_client_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "probability": {
+                    "additionalProperties": {
+                        "type": "number"
+                    },
+                    "type": "object"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "significance_code": {
+                    "$ref": "#/definitions/ExperimentSignificanceCode"
+                },
+                "significant": {
+                    "type": "boolean"
+                },
+                "timezone": {
+                    "type": "string"
+                },
+                "variants": {
+                    "items": {
+                        "$ref": "#/definitions/ExperimentVariantFunnelsBaseStats"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": [
+                "cache_key",
+                "credible_intervals",
+                "expected_loss",
+                "insight",
+                "is_cached",
+                "last_refresh",
+                "next_allowed_client_refresh",
+                "probability",
+                "significance_code",
+                "significant",
+                "timezone",
+                "variants"
+            ],
+            "type": "object"
+        },
+        "CachedExperimentTrendsQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "cache_key": {
+                    "type": "string"
+                },
+                "cache_target_age": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "calculation_trigger": {
+                    "description": "What triggered the calculation of the query, leave empty if user/immediate",
+                    "type": "string"
+                },
+                "credible_intervals": {
+                    "additionalProperties": {
+                        "items": {
+                            "type": "number"
+                        },
+                        "maxItems": 2,
+                        "minItems": 2,
+                        "type": "array"
+                    },
+                    "type": "object"
+                },
+                "insight": {
+                    "$ref": "#/definitions/TrendsQueryResponse"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "next_allowed_client_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "p_value": {
+                    "type": "number"
+                },
+                "probability": {
+                    "additionalProperties": {
+                        "type": "number"
+                    },
+                    "type": "object"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "significance_code": {
+                    "$ref": "#/definitions/ExperimentSignificanceCode"
+                },
+                "significant": {
+                    "type": "boolean"
+                },
+                "timezone": {
+                    "type": "string"
+                },
+                "variants": {
+                    "items": {
+                        "$ref": "#/definitions/ExperimentVariantTrendsBaseStats"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": [
+                "cache_key",
+                "credible_intervals",
+                "insight",
+                "is_cached",
+                "last_refresh",
+                "next_allowed_client_refresh",
+                "p_value",
+                "probability",
+                "significance_code",
+                "significant",
+                "timezone",
+                "variants"
             ],
             "type": "object"
         },
@@ -1970,6 +2225,120 @@
                         "type": "object"
                     },
                     "type": "array"
+                },
+                "timezone": {
+                    "type": "string"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": [
+                "cache_key",
+                "is_cached",
+                "last_refresh",
+                "next_allowed_client_refresh",
+                "results",
+                "timezone"
+            ],
+            "type": "object"
+        },
+        "CachedSuggestedQuestionsQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "cache_key": {
+                    "type": "string"
+                },
+                "cache_target_age": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "calculation_trigger": {
+                    "description": "What triggered the calculation of the query, leave empty if user/immediate",
+                    "type": "string"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "next_allowed_client_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "questions": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "timezone": {
+                    "type": "string"
+                }
+            },
+            "required": [
+                "cache_key",
+                "is_cached",
+                "last_refresh",
+                "next_allowed_client_refresh",
+                "questions",
+                "timezone"
+            ],
+            "type": "object"
+        },
+        "CachedTeamTaxonomyQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "cache_key": {
+                    "type": "string"
+                },
+                "cache_target_age": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "calculation_trigger": {
+                    "description": "What triggered the calculation of the query, leave empty if user/immediate",
+                    "type": "string"
+                },
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "next_allowed_client_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "results": {
+                    "$ref": "#/definitions/TeamTaxonomyResponse"
                 },
                 "timezone": {
                     "type": "string"
@@ -3312,35 +3681,101 @@
                         {
                             "additionalProperties": false,
                             "properties": {
-                                "insight": {
-                                    "const": "FUNNELS",
-                                    "type": "string"
-                                },
-                                "results": {
+                                "credible_intervals": {
                                     "additionalProperties": {
-                                        "$ref": "#/definitions/ExperimentVariantFunnelResult"
+                                        "items": {
+                                            "type": "number"
+                                        },
+                                        "maxItems": 2,
+                                        "minItems": 2,
+                                        "type": "array"
                                     },
                                     "type": "object"
+                                },
+                                "expected_loss": {
+                                    "type": "number"
+                                },
+                                "insight": {
+                                    "$ref": "#/definitions/FunnelsQueryResponse"
+                                },
+                                "probability": {
+                                    "additionalProperties": {
+                                        "type": "number"
+                                    },
+                                    "type": "object"
+                                },
+                                "significance_code": {
+                                    "$ref": "#/definitions/ExperimentSignificanceCode"
+                                },
+                                "significant": {
+                                    "type": "boolean"
+                                },
+                                "variants": {
+                                    "items": {
+                                        "$ref": "#/definitions/ExperimentVariantFunnelsBaseStats"
+                                    },
+                                    "type": "array"
                                 }
                             },
-                            "required": ["insight", "results"],
+                            "required": [
+                                "credible_intervals",
+                                "expected_loss",
+                                "insight",
+                                "probability",
+                                "significance_code",
+                                "significant",
+                                "variants"
+                            ],
                             "type": "object"
                         },
                         {
                             "additionalProperties": false,
                             "properties": {
-                                "insight": {
-                                    "const": "TRENDS",
-                                    "type": "string"
-                                },
-                                "results": {
+                                "credible_intervals": {
                                     "additionalProperties": {
-                                        "$ref": "#/definitions/ExperimentVariantTrendResult"
+                                        "items": {
+                                            "type": "number"
+                                        },
+                                        "maxItems": 2,
+                                        "minItems": 2,
+                                        "type": "array"
                                     },
                                     "type": "object"
+                                },
+                                "insight": {
+                                    "$ref": "#/definitions/TrendsQueryResponse"
+                                },
+                                "p_value": {
+                                    "type": "number"
+                                },
+                                "probability": {
+                                    "additionalProperties": {
+                                        "type": "number"
+                                    },
+                                    "type": "object"
+                                },
+                                "significance_code": {
+                                    "$ref": "#/definitions/ExperimentSignificanceCode"
+                                },
+                                "significant": {
+                                    "type": "boolean"
+                                },
+                                "variants": {
+                                    "items": {
+                                        "$ref": "#/definitions/ExperimentVariantTrendsBaseStats"
+                                    },
+                                    "type": "array"
                                 }
                             },
-                            "required": ["insight", "results"],
+                            "required": [
+                                "credible_intervals",
+                                "insight",
+                                "p_value",
+                                "probability",
+                                "significance_code",
+                                "significant",
+                                "variants"
+                            ],
                             "type": "object"
                         }
                     ]
@@ -3458,10 +3893,10 @@
                             "$ref": "#/definitions/ErrorTrackingQuery"
                         },
                         {
-                            "$ref": "#/definitions/ExperimentFunnelQuery"
+                            "$ref": "#/definitions/ExperimentFunnelsQuery"
                         },
                         {
-                            "$ref": "#/definitions/ExperimentTrendQuery"
+                            "$ref": "#/definitions/ExperimentTrendsQuery"
                         }
                     ],
                     "description": "Source of the events"
@@ -3722,6 +4157,38 @@
             "required": ["name", "hogql_value", "type", "schema_valid"],
             "type": "object"
         },
+        "DatabaseSchemaMaterializedViewTable": {
+            "additionalProperties": false,
+            "properties": {
+                "fields": {
+                    "additionalProperties": {
+                        "$ref": "#/definitions/DatabaseSchemaField"
+                    },
+                    "type": "object"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "last_run_at": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "query": {
+                    "$ref": "#/definitions/HogQLQuery"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "type": {
+                    "const": "materialized_view",
+                    "type": "string"
+                }
+            },
+            "required": ["fields", "id", "name", "query", "type"],
+            "type": "object"
+        },
         "DatabaseSchemaPostHogTable": {
             "additionalProperties": false,
             "properties": {
@@ -3836,6 +4303,9 @@
                 },
                 {
                     "$ref": "#/definitions/DatabaseSchemaBatchExportTable"
+                },
+                {
+                    "$ref": "#/definitions/DatabaseSchemaMaterializedViewTable"
                 }
             ]
         },
@@ -3855,7 +4325,7 @@
                     "type": "string"
                 },
                 "type": {
-                    "enum": ["posthog", "data_warehouse", "view", "batch_export"],
+                    "enum": ["posthog", "data_warehouse", "view", "batch_export", "materialized_view"],
                     "type": "string"
                 }
             },
@@ -3902,7 +4372,8 @@
                 "virtual_table",
                 "field_traverser",
                 "expression",
-                "view"
+                "view",
+                "materialized_view"
             ],
             "type": "string"
         },
@@ -4164,6 +4635,9 @@
                 "response": {
                     "$ref": "#/definitions/ErrorTrackingQueryResponse"
                 },
+                "searchQuery": {
+                    "type": "string"
+                },
                 "select": {
                     "items": {
                         "$ref": "#/definitions/HogQLExpression"
@@ -4290,6 +4764,86 @@
             },
             "required": ["key", "operator", "type"],
             "type": "object"
+        },
+        "EventTaxonomyItem": {
+            "additionalProperties": false,
+            "properties": {
+                "property": {
+                    "type": "string"
+                },
+                "sample_count": {
+                    "type": "integer"
+                },
+                "sample_values": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["property", "sample_values", "sample_count"],
+            "type": "object"
+        },
+        "EventTaxonomyQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "event": {
+                    "type": "string"
+                },
+                "kind": {
+                    "const": "EventTaxonomyQuery",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "response": {
+                    "$ref": "#/definitions/EventTaxonomyQueryResponse"
+                }
+            },
+            "required": ["event", "kind"],
+            "type": "object"
+        },
+        "EventTaxonomyQueryResponse": {
+            "additionalProperties": false,
+            "description": "All analytics query responses must inherit from this.",
+            "properties": {
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "results": {
+                    "$ref": "#/definitions/EventTaxonomyResponse"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["results"],
+            "type": "object"
+        },
+        "EventTaxonomyResponse": {
+            "items": {
+                "$ref": "#/definitions/EventTaxonomyItem"
+            },
+            "type": "array"
         },
         "EventType": {
             "additionalProperties": false,
@@ -4574,14 +5128,14 @@
             "required": ["columns", "hogql", "results", "types"],
             "type": "object"
         },
-        "ExperimentFunnelQuery": {
+        "ExperimentFunnelsQuery": {
             "additionalProperties": false,
             "properties": {
                 "experiment_id": {
                     "type": "integer"
                 },
                 "kind": {
-                    "const": "ExperimentFunnelQuery",
+                    "const": "ExperimentFunnelsQuery",
                     "type": "string"
                 },
                 "modifiers": {
@@ -4589,7 +5143,7 @@
                     "description": "Modifiers used when performing the query"
                 },
                 "response": {
-                    "$ref": "#/definitions/ExperimentFunnelQueryResponse"
+                    "$ref": "#/definitions/ExperimentFunnelsQueryResponse"
                 },
                 "source": {
                     "$ref": "#/definitions/FunnelsQuery"
@@ -4598,37 +5152,74 @@
             "required": ["experiment_id", "kind", "source"],
             "type": "object"
         },
-        "ExperimentFunnelQueryResponse": {
+        "ExperimentFunnelsQueryResponse": {
             "additionalProperties": false,
             "properties": {
-                "insight": {
-                    "const": "FUNNELS",
-                    "type": "string"
-                },
-                "results": {
+                "credible_intervals": {
                     "additionalProperties": {
-                        "$ref": "#/definitions/ExperimentVariantFunnelResult"
+                        "items": {
+                            "type": "number"
+                        },
+                        "maxItems": 2,
+                        "minItems": 2,
+                        "type": "array"
                     },
                     "type": "object"
+                },
+                "expected_loss": {
+                    "type": "number"
+                },
+                "insight": {
+                    "$ref": "#/definitions/FunnelsQueryResponse"
+                },
+                "probability": {
+                    "additionalProperties": {
+                        "type": "number"
+                    },
+                    "type": "object"
+                },
+                "significance_code": {
+                    "$ref": "#/definitions/ExperimentSignificanceCode"
+                },
+                "significant": {
+                    "type": "boolean"
+                },
+                "variants": {
+                    "items": {
+                        "$ref": "#/definitions/ExperimentVariantFunnelsBaseStats"
+                    },
+                    "type": "array"
                 }
             },
-            "required": ["insight", "results"],
+            "required": [
+                "insight",
+                "variants",
+                "probability",
+                "significant",
+                "significance_code",
+                "expected_loss",
+                "credible_intervals"
+            ],
             "type": "object"
         },
-        "ExperimentTrendQuery": {
+        "ExperimentSignificanceCode": {
+            "enum": ["significant", "not_enough_exposure", "low_win_probability", "high_loss", "high_p_value"],
+            "type": "string"
+        },
+        "ExperimentTrendsQuery": {
             "additionalProperties": false,
             "properties": {
-                "count_source": {
+                "count_query": {
                     "$ref": "#/definitions/TrendsQuery"
                 },
                 "experiment_id": {
                     "type": "integer"
                 },
-                "exposure_source": {
+                "exposure_query": {
                     "$ref": "#/definitions/TrendsQuery"
                 },
                 "kind": {
-                    "const": "ExperimentTrendQuery",
+                    "const": "ExperimentTrendsQuery",
                     "type": "string"
                 },
                 "modifiers": {
@@ -4636,53 +5227,95 @@
                     "description": "Modifiers used when performing the query"
                 },
                 "response": {
-                    "$ref": "#/definitions/ExperimentTrendQueryResponse"
+                    "$ref": "#/definitions/ExperimentTrendsQueryResponse"
                 }
             },
-            "required": ["count_source", "experiment_id", "exposure_source", "kind"],
+            "required": ["count_query", "experiment_id", "kind"],
             "type": "object"
         },
-        "ExperimentTrendQueryResponse": {
+        "ExperimentTrendsQueryResponse": {
             "additionalProperties": false,
             "properties": {
-                "insight": {
-                    "const": "TRENDS",
-                    "type": "string"
-                },
-                "results": {
+                "credible_intervals": {
                     "additionalProperties": {
-                        "$ref": "#/definitions/ExperimentVariantTrendResult"
+                        "items": {
+                            "type": "number"
+                        },
+                        "maxItems": 2,
+                        "minItems": 2,
+                        "type": "array"
                     },
                     "type": "object"
+                },
+                "insight": {
+                    "$ref": "#/definitions/TrendsQueryResponse"
+                },
+                "p_value": {
+                    "type": "number"
+                },
+                "probability": {
+                    "additionalProperties": {
+                        "type": "number"
+                    },
+                    "type": "object"
+                },
+                "significance_code": {
+                    "$ref": "#/definitions/ExperimentSignificanceCode"
+                },
+                "significant": {
+                    "type": "boolean"
+                },
+                "variants": {
+                    "items": {
+                        "$ref": "#/definitions/ExperimentVariantTrendsBaseStats"
+                    },
+                    "type": "array"
                 }
             },
-            "required": ["insight", "results"],
+            "required": [
+                "insight",
+                "variants",
+                "probability",
+                "significant",
+                "significance_code",
+                "p_value",
+                "credible_intervals"
+            ],
             "type": "object"
         },
-        "ExperimentVariantFunnelResult": {
+        "ExperimentVariantFunnelsBaseStats": {
             "additionalProperties": false,
             "properties": {
                 "failure_count": {
                     "type": "number"
                 },
+                "key": {
+                    "type": "string"
+                },
                 "success_count": {
                     "type": "number"
                 }
             },
-            "required": ["success_count", "failure_count"],
+            "required": ["key", "success_count", "failure_count"],
             "type": "object"
         },
-        "ExperimentVariantTrendResult": {
+        "ExperimentVariantTrendsBaseStats": {
             "additionalProperties": false,
             "properties": {
+                "absolute_exposure": {
+                    "type": "number"
+                },
                 "count": {
                     "type": "number"
                 },
                 "exposure": {
                     "type": "number"
+                },
+                "key": {
+                    "type": "string"
                 }
             },
-            "required": ["count", "exposure"],
+            "required": ["key", "count", "exposure", "absolute_exposure"],
             "type": "object"
         },
         "ExperimentalAITrendsQuery": {
@@ -5138,6 +5771,10 @@
         },
         "FunnelLayout": {
             "enum": ["horizontal", "vertical"],
+            "type": "string"
+        },
+        "FunnelMathType": {
+            "enum": ["total", "first_time_for_user", "first_time_for_user_with_filters"],
             "type": "string"
         },
         "FunnelPathType": {
@@ -5599,10 +6236,6 @@
                 }
             ]
         },
-        "HedgehogColorOptions": {
-            "enum": ["green", "red", "blue", "purple", "dark", "light", "sepia", "invert", "invert-hue", "greyscale"],
-            "type": "string"
-        },
         "HogCompileResponse": {
             "additionalProperties": false,
             "properties": {
@@ -5751,6 +6384,13 @@
                 "sourceQuery": {
                     "$ref": "#/definitions/AnyDataNode",
                     "description": "Query within which \"expr\" and \"template\" are validated. Defaults to \"select * from events\""
+                },
+                "variables": {
+                    "additionalProperties": {
+                        "$ref": "#/definitions/HogQLVariable"
+                    },
+                    "description": "Variables to be subsituted into the query",
+                    "type": "object"
                 }
             },
             "required": ["kind", "language", "query"],
@@ -5856,6 +6496,13 @@
                 "values": {
                     "description": "Constant values that can be referenced with the {placeholder} syntax in the query",
                     "type": "object"
+                },
+                "variables": {
+                    "additionalProperties": {
+                        "$ref": "#/definitions/HogQLVariable"
+                    },
+                    "description": "Variables to be subsituted into the query",
+                    "type": "object"
                 }
             },
             "required": ["kind", "query"],
@@ -5916,6 +6563,9 @@
                 "sessionTableVersion": {
                     "enum": ["auto", "v1", "v2"],
                     "type": "string"
+                },
+                "useMaterializedViews": {
+                    "type": "boolean"
                 }
             },
             "type": "object"
@@ -5990,6 +6640,20 @@
                 }
             },
             "required": ["results"],
+            "type": "object"
+        },
+        "HogQLVariable": {
+            "additionalProperties": false,
+            "properties": {
+                "code_name": {
+                    "type": "string"
+                },
+                "value": {},
+                "variableId": {
+                    "type": "string"
+                }
+            },
+            "required": ["variableId", "code_name"],
             "type": "object"
         },
         "HogQuery": {
@@ -6350,11 +7014,19 @@
         "InsightThreshold": {
             "additionalProperties": false,
             "properties": {
-                "absoluteThreshold": {
-                    "$ref": "#/definitions/InsightsThresholdAbsolute"
+                "bounds": {
+                    "$ref": "#/definitions/InsightsThresholdBounds"
+                },
+                "type": {
+                    "$ref": "#/definitions/InsightThresholdType"
                 }
             },
+            "required": ["type"],
             "type": "object"
+        },
+        "InsightThresholdType": {
+            "enum": ["absolute", "percentage"],
+            "type": "string"
         },
         "InsightVizNode": {
             "additionalProperties": false,
@@ -6658,7 +7330,7 @@
             "required": ["kind"],
             "type": "object"
         },
-        "InsightsThresholdAbsolute": {
+        "InsightsThresholdBounds": {
             "additionalProperties": false,
             "properties": {
                 "lower": {
@@ -6873,6 +7545,9 @@
                     "$ref": "#/definitions/BaseMathType"
                 },
                 {
+                    "$ref": "#/definitions/FunnelMathType"
+                },
+                {
                     "$ref": "#/definitions/PropertyMathType"
                 },
                 {
@@ -6885,32 +7560,6 @@
                     "$ref": "#/definitions/HogQLMathType"
                 }
             ]
-        },
-        "MinimalHedgehogConfig": {
-            "additionalProperties": false,
-            "properties": {
-                "accessories": {
-                    "items": {
-                        "type": "string"
-                    },
-                    "type": "array"
-                },
-                "color": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/HedgehogColorOptions"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ]
-                },
-                "use_as_profile": {
-                    "type": "boolean"
-                }
-            },
-            "required": ["use_as_profile", "color", "accessories"],
-            "type": "object"
         },
         "MultipleBreakdownOptions": {
             "additionalProperties": false,
@@ -6966,9 +7615,13 @@
                 "WebStatsTableQuery",
                 "WebExternalClicksTableQuery",
                 "WebGoalsQuery",
-                "ExperimentFunnelQuery",
-                "ExperimentTrendQuery",
-                "DatabaseSchemaQuery"
+                "ExperimentFunnelsQuery",
+                "ExperimentTrendsQuery",
+                "DatabaseSchemaQuery",
+                "SuggestedQuestionsQuery",
+                "TeamTaxonomyQuery",
+                "EventTaxonomyQuery",
+                "ActorsPropertyTaxonomyQuery"
             ],
             "type": "string"
         },
@@ -7430,8 +8083,6 @@
             "properties": {
                 "async": {
                     "deprecated": "Use `refresh` instead.",
-                    "description": "(Experimental) Whether to run the query asynchronously. Defaults to False. If True, the `id` of the query can be used to check the status and to cancel it.",
-                    "examples": [true],
                     "type": "boolean"
                 },
                 "client_query_id": {
@@ -7446,7 +8097,15 @@
                     "description": "Submit a JSON string representing a query for PostHog data analysis, for example a HogQL query.\n\nExample payload:\n\n```\n\n{\"query\": {\"kind\": \"HogQLQuery\", \"query\": \"select * from events limit 100\"}}\n\n```\n\nFor more details on HogQL queries, see the [PostHog HogQL documentation](/docs/hogql#api-access)."
                 },
                 "refresh": {
-                    "$ref": "#/definitions/RefreshType"
+                    "$ref": "#/definitions/RefreshType",
+                    "default": "blocking",
+                    "description": "Whether results should be calculated sync or async, and how much to rely on the cache:\n- `'blocking'` - calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in the cache\n- `'async'` - kick off background calculation (returning immediately with a query status), UNLESS there are very fresh results in the cache\n- `'lazy_async'` - kick off background calculation, UNLESS there are somewhat fresh results in the cache\n- `'force_blocking'` - calculate synchronously, even if fresh results are already cached\n- `'force_async'` - kick off background calculation, even if fresh results are already cached\n- `'force_cache'` - return cached data or a cache miss; always completes immediately as it never calculates Background calculation can be tracked using the `query_status` response field."
+                },
+                "variables_override": {
+                    "additionalProperties": {
+                        "type": "object"
+                    },
+                    "type": "object"
                 }
             },
             "required": ["query"],
@@ -8223,35 +8882,101 @@
                 {
                     "additionalProperties": false,
                     "properties": {
-                        "insight": {
-                            "const": "FUNNELS",
-                            "type": "string"
-                        },
-                        "results": {
+                        "credible_intervals": {
                             "additionalProperties": {
-                                "$ref": "#/definitions/ExperimentVariantFunnelResult"
+                                "items": {
+                                    "type": "number"
+                                },
+                                "maxItems": 2,
+                                "minItems": 2,
+                                "type": "array"
                             },
                             "type": "object"
+                        },
+                        "expected_loss": {
+                            "type": "number"
+                        },
+                        "insight": {
+                            "$ref": "#/definitions/FunnelsQueryResponse"
+                        },
+                        "probability": {
+                            "additionalProperties": {
+                                "type": "number"
+                            },
+                            "type": "object"
+                        },
+                        "significance_code": {
+                            "$ref": "#/definitions/ExperimentSignificanceCode"
+                        },
+                        "significant": {
+                            "type": "boolean"
+                        },
+                        "variants": {
+                            "items": {
+                                "$ref": "#/definitions/ExperimentVariantFunnelsBaseStats"
+                            },
+                            "type": "array"
                         }
                     },
-                    "required": ["insight", "results"],
+                    "required": [
+                        "insight",
+                        "variants",
+                        "probability",
+                        "significant",
+                        "significance_code",
+                        "expected_loss",
+                        "credible_intervals"
+                    ],
                     "type": "object"
                 },
                 {
                     "additionalProperties": false,
                     "properties": {
-                        "insight": {
-                            "const": "TRENDS",
-                            "type": "string"
-                        },
-                        "results": {
+                        "credible_intervals": {
                             "additionalProperties": {
-                                "$ref": "#/definitions/ExperimentVariantTrendResult"
+                                "items": {
+                                    "type": "number"
+                                },
+                                "maxItems": 2,
+                                "minItems": 2,
+                                "type": "array"
                             },
                             "type": "object"
+                        },
+                        "insight": {
+                            "$ref": "#/definitions/TrendsQueryResponse"
+                        },
+                        "p_value": {
+                            "type": "number"
+                        },
+                        "probability": {
+                            "additionalProperties": {
+                                "type": "number"
+                            },
+                            "type": "object"
+                        },
+                        "significance_code": {
+                            "$ref": "#/definitions/ExperimentSignificanceCode"
+                        },
+                        "significant": {
+                            "type": "boolean"
+                        },
+                        "variants": {
+                            "items": {
+                                "$ref": "#/definitions/ExperimentVariantTrendsBaseStats"
+                            },
+                            "type": "array"
                         }
                     },
-                    "required": ["insight", "results"],
+                    "required": [
+                        "insight",
+                        "variants",
+                        "probability",
+                        "significant",
+                        "significance_code",
+                        "p_value",
+                        "credible_intervals"
+                    ],
                     "type": "object"
                 },
                 {
@@ -8802,35 +9527,101 @@
                 {
                     "additionalProperties": false,
                     "properties": {
-                        "insight": {
-                            "const": "FUNNELS",
-                            "type": "string"
-                        },
-                        "results": {
+                        "credible_intervals": {
                             "additionalProperties": {
-                                "$ref": "#/definitions/ExperimentVariantFunnelResult"
+                                "items": {
+                                    "type": "number"
+                                },
+                                "maxItems": 2,
+                                "minItems": 2,
+                                "type": "array"
                             },
                             "type": "object"
+                        },
+                        "expected_loss": {
+                            "type": "number"
+                        },
+                        "insight": {
+                            "$ref": "#/definitions/FunnelsQueryResponse"
+                        },
+                        "probability": {
+                            "additionalProperties": {
+                                "type": "number"
+                            },
+                            "type": "object"
+                        },
+                        "significance_code": {
+                            "$ref": "#/definitions/ExperimentSignificanceCode"
+                        },
+                        "significant": {
+                            "type": "boolean"
+                        },
+                        "variants": {
+                            "items": {
+                                "$ref": "#/definitions/ExperimentVariantFunnelsBaseStats"
+                            },
+                            "type": "array"
                         }
                     },
-                    "required": ["insight", "results"],
+                    "required": [
+                        "credible_intervals",
+                        "expected_loss",
+                        "insight",
+                        "probability",
+                        "significance_code",
+                        "significant",
+                        "variants"
+                    ],
                     "type": "object"
                 },
                 {
                     "additionalProperties": false,
                     "properties": {
-                        "insight": {
-                            "const": "TRENDS",
-                            "type": "string"
-                        },
-                        "results": {
+                        "credible_intervals": {
                             "additionalProperties": {
-                                "$ref": "#/definitions/ExperimentVariantTrendResult"
+                                "items": {
+                                    "type": "number"
+                                },
+                                "maxItems": 2,
+                                "minItems": 2,
+                                "type": "array"
                             },
                             "type": "object"
+                        },
+                        "insight": {
+                            "$ref": "#/definitions/TrendsQueryResponse"
+                        },
+                        "p_value": {
+                            "type": "number"
+                        },
+                        "probability": {
+                            "additionalProperties": {
+                                "type": "number"
+                            },
+                            "type": "object"
+                        },
+                        "significance_code": {
+                            "$ref": "#/definitions/ExperimentSignificanceCode"
+                        },
+                        "significant": {
+                            "type": "boolean"
+                        },
+                        "variants": {
+                            "items": {
+                                "$ref": "#/definitions/ExperimentVariantTrendsBaseStats"
+                            },
+                            "type": "array"
                         }
                     },
-                    "required": ["insight", "results"],
+                    "required": [
+                        "credible_intervals",
+                        "insight",
+                        "p_value",
+                        "probability",
+                        "significance_code",
+                        "significant",
+                        "variants"
+                    ],
                     "type": "object"
                 },
                 {
@@ -9128,6 +9919,19 @@
                     },
                     "required": ["tables"],
                     "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "questions": {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["questions"],
+                    "type": "object"
                 }
             ]
         },
@@ -9197,10 +10001,10 @@
                     "$ref": "#/definitions/ErrorTrackingQuery"
                 },
                 {
-                    "$ref": "#/definitions/ExperimentFunnelQuery"
+                    "$ref": "#/definitions/ExperimentFunnelsQuery"
                 },
                 {
-                    "$ref": "#/definitions/ExperimentTrendQuery"
+                    "$ref": "#/definitions/ExperimentTrendsQuery"
                 },
                 {
                     "$ref": "#/definitions/DataVisualizationNode"
@@ -9237,6 +10041,9 @@
                 },
                 {
                     "$ref": "#/definitions/DatabaseSchemaQuery"
+                },
+                {
+                    "$ref": "#/definitions/SuggestedQuestionsQuery"
                 }
             ],
             "required": ["kind"],
@@ -9453,6 +10260,10 @@
                         {
                             "const": "mouse_activity_count",
                             "type": "string"
+                        },
+                        {
+                            "const": "activity_score",
+                            "type": "string"
                         }
                     ]
                 },
@@ -9473,6 +10284,9 @@
                         "type": "string"
                     },
                     "type": "array"
+                },
+                "user_modified_filters": {
+                    "type": "object"
                 }
             },
             "required": ["kind", "order"],
@@ -10023,6 +10837,10 @@
                 "active_seconds": {
                     "type": "number"
                 },
+                "activity_score": {
+                    "description": "calculated on the backend so that we can sort by it, definition may change over time",
+                    "type": "number"
+                },
                 "click_count": {
                     "type": "number"
                 },
@@ -10064,6 +10882,10 @@
                 "mouse_activity_count": {
                     "description": "count of all mouse activity in the recording, not just clicks",
                     "type": "number"
+                },
+                "ongoing": {
+                    "description": "whether we have received data for this recording in the last 5 minutes (assumes the recording was loaded from ClickHouse)\n*",
+                    "type": "boolean"
                 },
                 "person": {
                     "$ref": "#/definitions/PersonType"
@@ -10330,6 +11152,37 @@
             "required": ["results"],
             "type": "object"
         },
+        "SuggestedQuestionsQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "kind": {
+                    "const": "SuggestedQuestionsQuery",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "response": {
+                    "$ref": "#/definitions/SuggestedQuestionsQueryResponse"
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
+        },
+        "SuggestedQuestionsQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "questions": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["questions"],
+            "type": "object"
+        },
         "TableSettings": {
             "additionalProperties": false,
             "properties": {
@@ -10382,6 +11235,77 @@
                 "replay"
             ],
             "type": "string"
+        },
+        "TeamTaxonomyItem": {
+            "additionalProperties": false,
+            "properties": {
+                "count": {
+                    "type": "integer"
+                },
+                "event": {
+                    "type": "string"
+                }
+            },
+            "required": ["event", "count"],
+            "type": "object"
+        },
+        "TeamTaxonomyQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "kind": {
+                    "const": "TeamTaxonomyQuery",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "response": {
+                    "$ref": "#/definitions/TeamTaxonomyQueryResponse"
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
+        },
+        "TeamTaxonomyQueryResponse": {
+            "additionalProperties": false,
+            "description": "All analytics query responses must inherit from this.",
+            "properties": {
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "results": {
+                    "$ref": "#/definitions/TeamTaxonomyResponse"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["results"],
+            "type": "object"
+        },
+        "TeamTaxonomyResponse": {
+            "items": {
+                "$ref": "#/definitions/TeamTaxonomyItem"
+            },
+            "type": "array"
         },
         "TestBasicQueryResponse": {
             "additionalProperties": false,
@@ -10506,6 +11430,20 @@
             "required": ["events"],
             "type": "object"
         },
+        "TrendsAlertConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "series_index": {
+                    "type": "integer"
+                },
+                "type": {
+                    "const": "TrendsAlertConfig",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "series_index"],
+            "type": "object"
+        },
         "TrendsFilter": {
             "additionalProperties": false,
             "properties": {
@@ -10537,6 +11475,10 @@
                         "type": "integer"
                     },
                     "type": "array"
+                },
+                "showAlertThresholdLines": {
+                    "default": false,
+                    "type": "boolean"
                 },
                 "showLabelsOnSeries": {
                     "type": "boolean"
@@ -10607,6 +11549,9 @@
                         ]
                     },
                     "type": "object"
+                },
+                "show_alert_threshold_lines": {
+                    "type": "boolean"
                 },
                 "show_labels_on_series": {
                     "type": "boolean"
@@ -10742,35 +11687,6 @@
                 }
             },
             "required": ["results"],
-            "type": "object"
-        },
-        "UserBasicType": {
-            "additionalProperties": false,
-            "properties": {
-                "distinct_id": {
-                    "type": "string"
-                },
-                "email": {
-                    "type": "string"
-                },
-                "first_name": {
-                    "type": "string"
-                },
-                "hedgehog_config": {
-                    "$ref": "#/definitions/MinimalHedgehogConfig"
-                },
-                "id": {
-                    "type": "number"
-                },
-                "is_email_verified": {},
-                "last_name": {
-                    "type": "string"
-                },
-                "uuid": {
-                    "type": "string"
-                }
-            },
-            "required": ["distinct_id", "email", "first_name", "id", "uuid"],
             "type": "object"
         },
         "VizSpecificOptions": {
@@ -11105,6 +12021,9 @@
                     "$ref": "#/definitions/DateRange"
                 },
                 "filterTestAccounts": {
+                    "type": "boolean"
+                },
+                "includeLCPScore": {
                     "type": "boolean"
                 },
                 "kind": {

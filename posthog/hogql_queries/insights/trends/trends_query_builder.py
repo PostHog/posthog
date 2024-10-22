@@ -319,7 +319,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                 _match_date ->
                     arraySum(
                         arraySlice(
-                            groupArray(count),
+                            groupArray(ifNull(count, 0)),
                             indexOf(groupArray(day_start) as _days_for_count, _match_date) as _index,
                             arrayLastIndex(x -> x = _match_date, _days_for_count) - _index + 1
                         )
@@ -418,7 +418,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                             i -> acc[i] + x[i],
                             range(1, length(date) + 1)
                         ),
-                        groupArray(total),
+                        groupArray(ifNull(total, 0)),
                         arrayWithConstant(length(date), reinterpretAsFloat64(0))
                     ) as total,
                     {breakdown_select}
@@ -629,9 +629,11 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             query.select.append(
                 ast.Alias(
                     alias="breakdown_value",
-                    expr=breakdown_array
-                    if breakdown.is_multiple_breakdown
-                    else parse_expr("{arr}[1]", placeholders={"arr": breakdown_array}),
+                    expr=(
+                        breakdown_array
+                        if breakdown.is_multiple_breakdown
+                        else parse_expr("{arr}[1]", placeholders={"arr": breakdown_array})
+                    ),
                 )
             )
 
@@ -737,7 +739,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         # Actions
         if isinstance(self.series, ActionsNode):
             try:
-                action = Action.objects.get(pk=int(self.series.id), team=self.team)
+                action = Action.objects.get(pk=int(self.series.id), team__project_id=self.team.project_id)
                 return action_to_expr(action)
             except Action.DoesNotExist:
                 # If an action doesn't exist, we want to return no events

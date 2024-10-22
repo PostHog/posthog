@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 from typing import Any, Optional
 from unittest import mock
 from unittest.case import skip
-from unittest.mock import patch
+from unittest.mock import ANY, patch
 from zoneinfo import ZoneInfo
 
 from django.test import override_settings
@@ -33,6 +33,8 @@ from posthog.models import (
     User,
 )
 from posthog.models.insight_caching_state import InsightCachingState
+from posthog.models.insight_variable import InsightVariable
+from posthog.models.project import Project
 from posthog.schema import (
     DataTableNode,
     DataVisualizationNode,
@@ -91,7 +93,45 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         self.assertEqual(len(response["results"]), 1)
 
-    def test_created_updated_and_last_modified(self) -> None:
+    def test_get_insight_items_all_environments_included(self) -> None:
+        filter_dict = {
+            "events": [{"id": "$pageview"}],
+            "properties": [{"key": "$browser", "value": "Mac OS X"}],
+        }
+
+        other_team_in_project = Team.objects.create(organization=self.organization, project=self.project)
+        _, team_in_other_project = Project.objects.create_with_team(
+            organization=self.organization, initiating_user=self.user
+        )
+
+        insight_a = Insight.objects.create(
+            filters=Filter(data=filter_dict).to_dict(),
+            team=self.team,
+            created_by=self.user,
+        )
+        insight_b = Insight.objects.create(
+            filters=Filter(data=filter_dict).to_dict(),
+            team=other_team_in_project,
+            created_by=self.user,
+        )
+        Insight.objects.create(
+            filters=Filter(data=filter_dict).to_dict(),
+            team=team_in_other_project,
+            created_by=self.user,
+        )
+
+        # All of these three ways should return the same set of insights,
+        # i.e. all insights in the test project regardless of environment
+        response_project = self.client.get(f"/api/projects/{self.project.id}/insights/").json()
+        response_env_current = self.client.get(f"/api/environments/{self.team.id}/insights/").json()
+        response_env_other = self.client.get(f"/api/environments/{other_team_in_project.id}/insights/").json()
+
+        self.assertEqual({insight["id"] for insight in response_project["results"]}, {insight_a.id, insight_b.id})
+        self.assertEqual({insight["id"] for insight in response_env_current["results"]}, {insight_a.id, insight_b.id})
+        self.assertEqual({insight["id"] for insight in response_env_other["results"]}, {insight_a.id, insight_b.id})
+
+    @patch("posthoganalytics.capture")
+    def test_created_updated_and_last_modified(self, mock_capture: mock.Mock) -> None:
         alt_user = User.objects.create_and_join(self.organization, "team2@posthog.com", None)
         self_user_basic_serialized = {
             "id": self.user.id,
@@ -117,7 +157,11 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         # Newly created insight should have created_at being the current time, and same last_modified_at
         # Fields created_by and last_modified_by should be set to the current user
         with freeze_time("2021-08-23T12:00:00Z"):
-            response_1 = self.client.post(f"/api/projects/{self.team.id}/insights/")
+            response_1 = self.client.post(
+                f"/api/projects/{self.team.id}/insights/",
+                {"name": "test"},
+                headers={"Referer": "https://posthog.com/my-referer", "X-Posthog-Session-Id": "my-session-id"},
+            )
             self.assertEqual(response_1.status_code, status.HTTP_201_CREATED)
             self.assertDictContainsSubset(
                 {
@@ -129,6 +173,17 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 },
                 response_1.json(),
             )
+            mock_capture.assert_called_once_with(
+                self.user.distinct_id,
+                "insight created",
+                {
+                    "insight_id": response_1.json()["short_id"],
+                    "$current_url": "https://posthog.com/my-referer",
+                    "$session_id": "my-session-id",
+                },
+                groups=ANY,
+            )
+            mock_capture.reset_mock()
 
         insight_id = response_1.json()["id"]
 
@@ -138,6 +193,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             response_2 = self.client.patch(
                 f"/api/projects/{self.team.id}/insights/{insight_id}",
                 {"favorited": True},
+                headers={"Referer": "https://posthog.com/my-referer", "X-Posthog-Session-Id": "my-session-id"},
             )
             self.assertEqual(response_2.status_code, status.HTTP_200_OK)
             self.assertDictContainsSubset(
@@ -150,6 +206,18 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 },
                 response_2.json(),
             )
+            insight_short_id = response_2.json()["short_id"]
+            mock_capture.assert_called_once_with(
+                self.user.distinct_id,
+                "insight updated",
+                {
+                    "insight_id": insight_short_id,
+                    "$current_url": "https://posthog.com/my-referer",
+                    "$session_id": "my-session-id",
+                },
+                groups=ANY,
+            )
+            mock_capture.reset_mock()
 
         # Updating fields that DO change the substance of the insight should affect updated_at
         # AND last_modified_at plus last_modified_by
@@ -310,8 +378,10 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 mock.ANY,
                 dashboard=mock.ANY,
                 execution_mode=ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE,
+                team=self.team,
                 user=mock.ANY,
                 filters_override=None,
+                variables_override=None,
             )
 
         with patch(
@@ -322,8 +392,10 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 mock.ANY,
                 dashboard=mock.ANY,
                 execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+                team=self.team,
                 user=mock.ANY,
                 filters_override=None,
+                variables_override=None,
             )
 
     def test_get_insight_by_short_id(self) -> None:
@@ -2852,7 +2924,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             )
             self.assertEqual(
                 response_placeholder.json(),
-                self.validation_error_response("Placeholders, such as {team_id}, are not supported in this context"),
+                self.validation_error_response("Unresolved placeholder: {team_id}"),
             )
 
     @also_test_with_materialized_columns(event_properties=["int_value"], person_properties=["fish"])
@@ -3527,3 +3599,60 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         self.assertNotIn("code", response)
         self.assertIsNotNone(response["results"][0]["types"])
+
+    def test_insight_variables_overrides(self):
+        dashboard = Dashboard.objects.create(
+            team=self.team,
+            name="dashboard 1",
+            created_by=self.user,
+        )
+        variable = InsightVariable.objects.create(
+            team=self.team, name="Test 1", code_name="test_1", default_value="some_default_value", type="String"
+        )
+        insight = Insight.objects.create(
+            filters={},
+            query={
+                "kind": "DataVisualizationNode",
+                "source": {
+                    "kind": "HogQLQuery",
+                    "query": "select {variables.test_1}",
+                    "variables": {
+                        str(variable.id): {
+                            "code_name": variable.code_name,
+                            "variableId": str(variable.id),
+                        }
+                    },
+                },
+                "chartSettings": {},
+                "tableSettings": {},
+            },
+            team=self.team,
+        )
+        DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/insights/{insight.pk}",
+            data={
+                "from_dashboard": dashboard.pk,
+                "variables_override": json.dumps(
+                    {
+                        str(variable.id): {
+                            "code_name": variable.code_name,
+                            "variableId": str(variable.id),
+                            "value": "override value!",
+                        }
+                    }
+                ),
+            },
+        ).json()
+
+        assert isinstance(response["query"], dict)
+        assert isinstance(response["query"]["source"], dict)
+        assert isinstance(response["query"]["source"]["variables"], dict)
+
+        assert len(response["query"]["source"]["variables"].keys()) == 1
+        for key, value in response["query"]["source"]["variables"].items():
+            assert key == str(variable.id)
+            assert value["code_name"] == variable.code_name
+            assert value["variableId"] == str(variable.id)
+            assert value["value"] == "override value!"

@@ -6,6 +6,7 @@ import { dashboardTemplateVariablesLogic } from 'scenes/dashboard/dashboardTempl
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { urls } from 'scenes/urls'
 
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { DashboardTemplateType, DashboardType } from '~/types'
 
 import { onboardingLogic, OnboardingStepKey } from '../onboardingLogic'
@@ -30,6 +31,8 @@ export const onboardingTemplateConfigLogic = kea<onboardingTemplateConfigLogicTy
             ],
             onboardingLogic,
             ['goToPreviousStep', 'setOnCompleteOnboardingRedirectUrl', 'goToNextStep'],
+            sidePanelStateLogic,
+            ['closeSidePanel'],
         ],
     }),
     actions({
@@ -135,6 +138,9 @@ export const onboardingTemplateConfigLogic = kea<onboardingTemplateConfigLogicTy
                 ) {
                     actions.goToPreviousStep()
                 }
+            }
+            if (step === OnboardingStepKey.DASHBOARD_TEMPLATE) {
+                actions.closeSidePanel()
             }
             actions.setIsLoading(false)
         },

@@ -1,14 +1,21 @@
 use std::{collections::HashMap, sync::Arc};
 
 use bytes::Bytes;
+use common_metrics::inc;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tracing::instrument;
 
 use crate::{
     api::FlagError, database::Client as DatabaseClient, flag_definitions::FeatureFlagList,
-    redis::Client as RedisClient, team::Team,
+    metrics_consts::FLAG_CACHE_HIT_COUNTER, redis::Client as RedisClient, team::Team,
 };
+
+#[derive(Debug, Clone, Copy)]
+pub enum FlagRequestType {
+    Decide,
+    LocalEvaluation,
+}
 
 #[derive(Default, Debug, Deserialize, Serialize)]
 pub struct FlagRequest {
@@ -154,24 +161,38 @@ impl FlagRequest {
         redis_client: Arc<dyn RedisClient + Send + Sync>,
         pg_client: Arc<dyn DatabaseClient + Send + Sync>,
     ) -> Result<FeatureFlagList, FlagError> {
-        match FeatureFlagList::from_redis(redis_client.clone(), team_id).await {
-            Ok(flags) => Ok(flags),
+        let mut cache_hit = false;
+        let flags = match FeatureFlagList::from_redis(redis_client.clone(), team_id).await {
+            Ok(flags) => {
+                cache_hit = true;
+                Ok(flags)
+            }
             Err(_) => match FeatureFlagList::from_pg(pg_client, team_id).await {
                 Ok(flags) => {
-                    // If we have the flags in postgres, but not redis, update redis so we're faster next time
-                    // TODO: we have some counters in django for tracking these cache misses
-                    // we should probably do the same here
                     if let Err(e) =
                         FeatureFlagList::update_flags_in_redis(redis_client, team_id, &flags).await
                     {
                         tracing::warn!("Failed to update Redis cache: {}", e);
+                        // TODO add new metric category for this
                     }
                     Ok(flags)
                 }
-                // TODO what kind of error should we return here?
+                // TODO what kind of error should we return here?  This should be postgres
+                // I guess it can be whatever the FlagError is
                 Err(e) => Err(e),
             },
-        }
+        };
+
+        inc(
+            FLAG_CACHE_HIT_COUNTER,
+            &[
+                ("team_id".to_string(), team_id.to_string()),
+                ("cache_hit".to_string(), cache_hit.to_string()),
+            ],
+            1,
+        );
+
+        flags
     }
 }
 
@@ -187,7 +208,7 @@ mod tests {
     use crate::flag_request::FlagRequest;
     use crate::redis::Client as RedisClient;
     use crate::team::Team;
-    use crate::test_utils::{insert_new_team_in_redis, setup_pg_client, setup_redis_client};
+    use crate::test_utils::{insert_new_team_in_redis, setup_pg_reader_client, setup_redis_client};
     use bytes::Bytes;
     use serde_json::json;
 
@@ -239,7 +260,7 @@ mod tests {
     #[tokio::test]
     async fn token_is_returned_correctly() {
         let redis_client = setup_redis_client(None);
-        let pg_client = setup_pg_client(None).await;
+        let pg_client = setup_pg_reader_client(None).await;
         let team = insert_new_team_in_redis(redis_client.clone())
             .await
             .expect("Failed to insert new team in Redis");
@@ -264,7 +285,7 @@ mod tests {
     #[tokio::test]
     async fn test_get_team_from_cache_or_pg() {
         let redis_client = setup_redis_client(None);
-        let pg_client = setup_pg_client(None).await;
+        let pg_client = setup_pg_reader_client(None).await;
         let team = insert_new_team_in_redis(redis_client.clone())
             .await
             .expect("Failed to insert new team in Redis");
@@ -318,7 +339,7 @@ mod tests {
     #[tokio::test]
     async fn test_get_flags_from_cache_or_pg() {
         let redis_client = setup_redis_client(None);
-        let pg_client = setup_pg_client(None).await;
+        let pg_client = setup_pg_reader_client(None).await;
         let team = insert_new_team_in_redis(redis_client.clone())
             .await
             .expect("Failed to insert new team in Redis");
@@ -474,7 +495,7 @@ mod tests {
     #[tokio::test]
     async fn test_error_cases() {
         let redis_client = setup_redis_client(None);
-        let pg_client = setup_pg_client(None).await;
+        let pg_client = setup_pg_reader_client(None).await;
 
         // Test invalid token
         let flag_request = FlagRequest {

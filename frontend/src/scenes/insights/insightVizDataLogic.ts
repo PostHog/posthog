@@ -14,7 +14,7 @@ import { databaseTableListLogic } from 'scenes/data-management/database/database
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { sceneLogic } from 'scenes/sceneLogic'
-import { filterTestAccountsDefaultsLogic } from 'scenes/settings/project/filterTestAccountDefaultsLogic'
+import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
 import { BASE_MATH_DEFINITIONS } from 'scenes/trends/mathsLogic'
 
 import { actionsModel } from '~/models/actionsModel'
@@ -44,6 +44,7 @@ import {
     getFormula,
     getInterval,
     getSeries,
+    getShowAlertThresholdLines,
     getShowLabelsOnSeries,
     getShowLegend,
     getShowPercentStackView,
@@ -158,6 +159,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         interval: [(s) => [s.querySource], (q) => (q ? getInterval(q) : null)],
         properties: [(s) => [s.querySource], (q) => (q ? q.properties : null)],
         samplingFactor: [(s) => [s.querySource], (q) => (q ? q.samplingFactor : null)],
+        showAlertThresholdLines: [(s) => [s.querySource], (q) => (q ? getShowAlertThresholdLines(q) : null)],
         showLegend: [(s) => [s.querySource], (q) => (q ? getShowLegend(q) : null)],
         showValuesOnSeries: [(s) => [s.querySource], (q) => (q ? getShowValuesOnSeries(q) : null)],
         showLabelOnSeries: [(s) => [s.querySource], (q) => (q ? getShowLabelsOnSeries(q) : null)],

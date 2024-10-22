@@ -1,5 +1,5 @@
 import { IconGear } from '@posthog/icons'
-import { LemonButton, Link, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonSelect, LemonSelectSection, Link, Spinner } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { Playlist, PlaylistSection } from 'lib/components/Playlist/Playlist'
@@ -10,7 +10,8 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 import { urls } from 'scenes/urls'
 
-import { ReplayTabs, SessionRecordingType } from '~/types'
+import { RecordingsQuery } from '~/queries/schema'
+import { RecordingUniversalFilters, ReplayTabs, SessionRecordingType } from '~/types'
 
 import { RecordingsUniversalFilters } from '../filters/RecordingsUniversalFilters'
 import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
@@ -22,6 +23,81 @@ import {
 } from './sessionRecordingsPlaylistLogic'
 import { SessionRecordingsPlaylistSettings } from './SessionRecordingsPlaylistSettings'
 import { SessionRecordingsPlaylistTroubleshooting } from './SessionRecordingsPlaylistTroubleshooting'
+
+function SortedBy({
+    filters,
+    setFilters,
+}: {
+    filters: RecordingUniversalFilters
+    setFilters: (filters: Partial<RecordingUniversalFilters>) => void
+}): JSX.Element {
+    const simpleSortingOptions: LemonSelectSection<RecordingsQuery['order']> = {
+        options: [
+            {
+                value: 'start_time',
+                label: 'Latest',
+            },
+            {
+                value: 'activity_score',
+                label: 'Activity score',
+            },
+            {
+                value: 'console_error_count',
+                label: 'Most errors',
+            },
+        ],
+    }
+    const detailedSortingOptions: LemonSelectSection<RecordingsQuery['order']> = {
+        options: [
+            {
+                label: 'Longest',
+                options: [
+                    {
+                        value: 'duration',
+                        label: 'Total duration',
+                    },
+                    {
+                        value: 'active_seconds',
+                        label: 'Active duration',
+                    },
+                    {
+                        value: 'inactive_seconds',
+                        label: 'Inactive duration',
+                    },
+                ],
+            },
+            {
+                label: 'Most active',
+                options: [
+                    {
+                        value: 'click_count',
+                        label: 'Clicks',
+                    },
+                    {
+                        value: 'keypress_count',
+                        label: 'Key presses',
+                    },
+                    {
+                        value: 'mouse_activity_count',
+                        label: 'Mouse activity',
+                    },
+                ],
+            },
+        ],
+    }
+    return (
+        <div className="px-2 py-1 justify-end flex flex-row gap-2 w-full items-center">
+            <span className="font-medium">sorted by</span>
+            <LemonSelect
+                allowClear={false}
+                options={[simpleSortingOptions, detailedSortingOptions]}
+                size="xsmall"
+                value={filters.order}
+                onChange={(order) => setFilters({ order })}
+            />
+        </div>
+    )
+}
 
 export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicProps): JSX.Element {
     const logicProps: SessionRecordingPlaylistLogicProps = {
@@ -35,11 +111,10 @@ export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicPr
         matchingEventsMatchType,
         sessionRecordingsResponseLoading,
         otherRecordings,
-        sessionSummaryLoading,
         activeSessionRecordingId,
         hasNext,
     } = useValues(logic)
-    const { maybeLoadSessionRecordings, summarizeSession, setSelectedRecordingId, setFilters } = useActions(logic)
+    const { maybeLoadSessionRecordings, setSelectedRecordingId, setFilters, setShowOtherRecordings } = useActions(logic)
 
     const { featureFlags } = useValues(featureFlagLogic)
     const isTestingSaved = featureFlags[FEATURE_FLAGS.SAVED_NOT_PINNED] === 'test'
@@ -49,10 +124,6 @@ export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicPr
     const notebookNode = useNotebookNode()
 
     const sections: PlaylistSection<SessionRecordingType>[] = []
-
-    const onSummarizeClick = (recording: SessionRecordingType): void => {
-        summarizeSession(recording.id)
-    }
 
     if (pinnedRecordings.length) {
         sections.push({
@@ -70,15 +141,7 @@ export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicPr
         key: 'other',
         title: 'Other recordings',
         items: otherRecordings,
-        render: ({ item, isActive }) => (
-            <SessionRecordingPreview
-                recording={item}
-                isActive={isActive}
-                pinned={false}
-                summariseFn={onSummarizeClick}
-                sessionSummaryLoading={sessionSummaryLoading}
-            />
-        ),
+        render: ({ item, isActive }) => <SessionRecordingPreview recording={item} isActive={isActive} pinned={false} />,
         footer: (
             <div className="p-4">
                 <div className="h-10 flex items-center justify-center gap-2 text-muted-alt">
@@ -104,10 +167,12 @@ export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicPr
                 )}
                 <Playlist
                     data-attr="session-recordings-playlist"
+                    controls={filters && setFilters ? <SortedBy filters={filters} setFilters={setFilters} /> : null}
                     notebooksHref={urls.replay(ReplayTabs.Home, filters)}
                     title="Recordings"
                     embedded={!!notebookNode}
                     sections={sections}
+                    onChangeSections={(activeSections) => setShowOtherRecordings(activeSections.includes('other'))}
                     headerActions={[
                         {
                             key: 'settings',

@@ -7,11 +7,12 @@ from dateutil import parser
 from django.conf import settings
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
-
+from posthog.queries.util import PersonPropertiesMode
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.client import sync_execute
 from posthog.constants import PropertyOperatorType
+from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.hogql import HogQLContext
 from posthog.hogql.modifiers import create_default_modifiers_for_team
@@ -64,6 +65,7 @@ def format_person_query(cohort: Cohort, index: int, hogql_context: HogQLContext)
         ),
         cohort.team,
         cohort_pk=cohort.pk,
+        persons_on_events_mode=cohort.team.person_on_events_mode,
     )
 
     query, params = query_builder.get_query()
@@ -74,11 +76,35 @@ def format_person_query(cohort: Cohort, index: int, hogql_context: HogQLContext)
 def print_cohort_hogql_query(cohort: Cohort, hogql_context: HogQLContext) -> str:
     from posthog.hogql_queries.query_runner import get_query_runner
 
-    persons_query = cast(dict, cohort.query)
-    persons_query["select"] = ["id as actor_id"]
+    if not cohort.query:
+        raise ValueError("Cohort has no query")
+
     query = get_query_runner(
-        persons_query, team=cast(Team, cohort.team), limit_context=LimitContext.COHORT_CALCULATION
+        cast(dict, cohort.query), team=cast(Team, cohort.team), limit_context=LimitContext.COHORT_CALCULATION
     ).to_query()
+
+    select_queries: list[ast.SelectQuery] = [query] if isinstance(query, ast.SelectQuery) else query.select_queries
+    for select_query in select_queries:
+        columns: dict[str, ast.Expr] = {}
+        for expr in select_query.select:
+            if isinstance(expr, ast.Alias):
+                columns[expr.alias] = expr.expr
+            elif isinstance(expr, ast.Field):
+                columns[str(expr.chain[-1])] = expr
+        column: ast.Expr | None = columns.get("person_id") or columns.get("actor_id") or columns.get("id")
+        if isinstance(column, ast.Alias):
+            select_query.select = [ast.Alias(expr=column.expr, alias="actor_id")]
+        elif isinstance(column, ast.Field):
+            select_query.select = [ast.Alias(expr=column, alias="actor_id")]
+        else:
+            # Support the most common use cases
+            table = select_query.select_from.table if select_query.select_from else None
+            if isinstance(table, ast.Field) and table.chain[-1] == "events":
+                select_query.select = [ast.Alias(expr=ast.Field(chain=["person", "id"]), alias="actor_id")]
+            elif isinstance(table, ast.Field) and table.chain[-1] == "persons":
+                select_query.select = [ast.Alias(expr=ast.Field(chain=["id"]), alias="actor_id")]
+            else:
+                raise ValueError("Could not find a person_id, actor_id, or id column in the query")
 
     hogql_context.enable_select_queries = True
     hogql_context.limit_top_select = False
@@ -126,6 +152,7 @@ def get_entity_query(
     team_id: int,
     group_idx: Union[int, str],
     hogql_context: HogQLContext,
+    person_properties_mode: Optional[PersonPropertiesMode] = None,
 ) -> tuple[str, dict[str, str]]:
     if event_id:
         return f"event = %({f'event_{group_idx}'})s", {f"event_{group_idx}": event_id}
@@ -136,6 +163,9 @@ def get_entity_query(
             action=action,
             prepend="_{}_action".format(group_idx),
             hogql_context=hogql_context,
+            person_properties_mode=person_properties_mode
+            if person_properties_mode
+            else PersonPropertiesMode.USING_SUBQUERY,
         )
         return action_filter_query, action_params
     else:
@@ -325,7 +355,9 @@ def recalculate_cohortpeople(
             "new_version": pending_version,
         },
         settings={
-            "max_execution_time": 240,
+            "max_execution_time": 600,
+            "send_timeout": 600,
+            "receive_timeout": 600,
             "optimize_on_insert": 0,
         },
         workload=Workload.OFFLINE,

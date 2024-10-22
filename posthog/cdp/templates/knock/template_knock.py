@@ -3,9 +3,10 @@ from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
 template: HogFunctionTemplate = HogFunctionTemplate(
     status="beta",
     id="template-knock",
-    name="Send events to Knock",
+    name="Knock",
     description="Send events to Knock",
     icon_url="/static/services/knock.png",
+    category=["SMS & Push Notifications"],
     hog="""
 if (empty(inputs.userId)) {
     print('No User ID set. Skipping...')
@@ -39,7 +40,7 @@ let res := fetch(inputs.webhookUrl, {
 })
 
 if (res.status >= 400) {
-    print('Error from knock.app api:', res.status, res.body)
+    throw Error(f'Error from knock.app (status {res.status}): {res.body}')
 }
 
 """.strip(),

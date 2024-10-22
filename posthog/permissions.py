@@ -157,10 +157,12 @@ class OrganizationAdminWritePermissions(BasePermission):
         # TODO: Optimize so that this computation is only done once, on `OrganizationMemberPermissions`
         organization = get_organization_from_view(view)
 
-        return (
-            OrganizationMembership.objects.get(user=cast(User, request.user), organization=organization).level
-            >= OrganizationMembership.Level.ADMIN
-        )
+        try:
+            membership = OrganizationMembership.objects.get(user=cast(User, request.user), organization=organization)
+        except OrganizationMembership.DoesNotExist:
+            raise NotFound("Organization not found.")
+
+        return membership.level >= OrganizationMembership.Level.ADMIN
 
     def has_object_permission(self, request: Request, view, object: Model) -> bool:
         if request.method in SAFE_METHODS:
@@ -169,10 +171,12 @@ class OrganizationAdminWritePermissions(BasePermission):
         # TODO: Optimize so that this computation is only done once, on `OrganizationMemberPermissions`
         organization = extract_organization(object, view)
 
-        return (
-            OrganizationMembership.objects.get(user=cast(User, request.user), organization=organization).level
-            >= OrganizationMembership.Level.ADMIN
-        )
+        try:
+            membership = OrganizationMembership.objects.get(user=cast(User, request.user), organization=organization)
+        except OrganizationMembership.DoesNotExist:
+            raise NotFound("Organization not found.")
+
+        return membership.level >= OrganizationMembership.Level.ADMIN
 
 
 class TeamMemberAccessPermission(BasePermission):

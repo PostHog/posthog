@@ -2,7 +2,7 @@ import { actions, connect, kea, key, listeners, path, props, propsChanged, reduc
 import { objectsEqual } from 'lib/utils'
 import { DATAWAREHOUSE_EDITOR_ITEM_ID } from 'scenes/data-warehouse/external/dataWarehouseExternalSceneLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
-import { filterTestAccountsDefaultsLogic } from 'scenes/settings/project/filterTestAccountDefaultsLogic'
+import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
 
 import { examples } from '~/queries/examples'
 import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
@@ -32,6 +32,8 @@ export const insightDataLogic = kea<insightDataLogicType>([
             dataNodeLogic({
                 key: insightVizDataNodeKey(props),
                 loadPriority: props.loadPriority,
+                filtersOverride: props.filtersOverride,
+                variablesOverride: props.variablesOverride,
             } as DataNodeLogicProps),
             [
                 'query as insightQuery',

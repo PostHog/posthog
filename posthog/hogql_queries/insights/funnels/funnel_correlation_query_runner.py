@@ -4,10 +4,11 @@ from typing import Literal, Optional, Any, TypedDict, cast
 from posthog.constants import AUTOCAPTURE_EVENT
 from posthog.hogql.parser import parse_select
 from posthog.hogql.property import property_to_expr
+from posthog.hogql_queries.insights.funnels import FunnelUDF
 from posthog.hogql_queries.insights.funnels.funnel_event_query import FunnelEventQuery
 from posthog.hogql_queries.insights.funnels.funnel_persons import FunnelActors
-from posthog.hogql_queries.insights.funnels.funnel_strict_persons import FunnelStrictActors
-from posthog.hogql_queries.insights.funnels.funnel_unordered_persons import FunnelUnorderedActors
+from posthog.hogql_queries.insights.funnels.funnel_strict_actors import FunnelStrictActors
+from posthog.hogql_queries.insights.funnels.funnel_unordered_actors import FunnelUnorderedActors
 from posthog.models.action.action import Action
 from posthog.models.element.element import chain_to_elements
 from posthog.models.event.util import ElementSerializer
@@ -19,7 +20,11 @@ from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
-from posthog.hogql_queries.insights.funnels.utils import funnel_window_interval_unit_to_sql, get_funnel_actor_class
+from posthog.hogql_queries.insights.funnels.utils import (
+    funnel_window_interval_unit_to_sql,
+    get_funnel_actor_class,
+    use_udf,
+)
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.models import Team
 from posthog.models.property.util import get_property_string_expr
@@ -93,7 +98,7 @@ class FunnelCorrelationQueryRunner(QueryRunner):
     actors_query: FunnelsActorsQuery
     correlation_actors_query: Optional[FunnelCorrelationActorsQuery]
 
-    _funnel_actors_generator: FunnelActors | FunnelStrictActors | FunnelUnorderedActors
+    _funnel_actors_generator: FunnelActors | FunnelStrictActors | FunnelUnorderedActors | FunnelUDF
 
     def __init__(
         self,
@@ -132,9 +137,11 @@ class FunnelCorrelationQueryRunner(QueryRunner):
         self.context.actorsQuery = self.actors_query
 
         # Used for generating the funnel persons cte
-        funnel_order_actor_class = get_funnel_actor_class(self.context.funnelsFilter)(context=self.context)
+        funnel_order_actor_class = get_funnel_actor_class(
+            self.context.funnelsFilter, use_udf(self.context.funnelsFilter, self.team)
+        )(context=self.context)
         assert isinstance(
-            funnel_order_actor_class, FunnelActors | FunnelStrictActors | FunnelUnorderedActors
+            funnel_order_actor_class, FunnelActors | FunnelStrictActors | FunnelUnorderedActors | FunnelUDF
         )  # for typings
         self._funnel_actors_generator = funnel_order_actor_class
 
@@ -823,7 +830,7 @@ class FunnelCorrelationQueryRunner(QueryRunner):
         events: set[str] = set()
         for entity in self.funnels_query.series:
             if isinstance(entity, ActionsNode):
-                action = Action.objects.get(pk=int(entity.id), team=self.context.team)
+                action = Action.objects.get(pk=int(entity.id), team__project_id=self.context.team.project_id)
                 events.update([x for x in action.get_step_events() if x])
             elif isinstance(entity, EventsNode):
                 if entity.event is not None:

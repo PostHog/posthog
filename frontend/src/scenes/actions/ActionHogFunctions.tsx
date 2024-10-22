@@ -1,5 +1,6 @@
+import { LemonBanner } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { actionEditLogic } from 'scenes/actions/actionEditLogic'
 import { actionLogic } from 'scenes/actions/actionLogic'
 import { LinkedHogFunctions } from 'scenes/pipeline/hogfunctions/list/LinkedHogFunctions'
 
@@ -7,9 +8,10 @@ import { HogFunctionFiltersType } from '~/types'
 
 export function ActionHogFunctions(): JSX.Element | null {
     const { action } = useValues(actionLogic)
-    const hogFunctionsEnabled = useFeatureFlag('HOG_FUNCTIONS')
-
-    if (!action || !hogFunctionsEnabled) {
+    const { hasCohortFilters, actionChanged, showCohortDisablesFunctionsWarning } = useValues(
+        actionEditLogic({ id: action?.id, action })
+    )
+    if (!action) {
         return null
     }
 
@@ -28,7 +30,20 @@ export function ActionHogFunctions(): JSX.Element | null {
             <h2 className="flex-1 subtitle">Connected destinations</h2>
             <p>Actions can be used a filters for destinations such as Slack or Webhook delivery</p>
 
-            <LinkedHogFunctions filters={filters} />
+            {showCohortDisablesFunctionsWarning ? (
+                <LemonBanner type="error">Adding a cohort filter will disable all connected destinations!</LemonBanner>
+            ) : null}
+
+            <LinkedHogFunctions
+                filters={filters}
+                newDisabledReason={
+                    hasCohortFilters
+                        ? "Action with cohort filters can't be used in realtime destinations"
+                        : actionChanged
+                        ? 'Please first save the action to create a destination'
+                        : undefined
+                }
+            />
         </div>
     )
 }

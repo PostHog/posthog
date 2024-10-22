@@ -130,10 +130,19 @@ pub fn create_flag_from_json(json_value: Option<String>) -> Vec<FeatureFlag> {
     flags
 }
 
-pub async fn setup_pg_client(config: Option<&Config>) -> Arc<PgPool> {
+pub async fn setup_pg_reader_client(config: Option<&Config>) -> Arc<PgPool> {
     let config = config.unwrap_or(&DEFAULT_TEST_CONFIG);
     Arc::new(
         get_pool(&config.read_database_url, config.max_pg_connections)
+            .await
+            .expect("Failed to create Postgres client"),
+    )
+}
+
+pub async fn setup_pg_writer_client(config: Option<&Config>) -> Arc<PgPool> {
+    let config = config.unwrap_or(&DEFAULT_TEST_CONFIG);
+    Arc::new(
+        get_pool(&config.write_database_url, config.max_pg_connections)
             .await
             .expect("Failed to create Postgres client"),
     )
@@ -163,7 +172,10 @@ pub async fn setup_invalid_pg_client() -> Arc<dyn Client + Send + Sync> {
     Arc::new(MockPgClient)
 }
 
-pub async fn insert_new_team_in_pg(client: Arc<PgPool>) -> Result<Team, Error> {
+pub async fn insert_new_team_in_pg(
+    client: Arc<dyn Client + Send + Sync>,
+    team_id: Option<i32>,
+) -> Result<Team, Error> {
     const ORG_ID: &str = "019026a4be8000005bf3171d00629163";
 
     client.run_query(
@@ -189,7 +201,10 @@ pub async fn insert_new_team_in_pg(client: Arc<PgPool>) -> Result<Team, Error> {
         )
         .await?;
 
-    let id = rand::thread_rng().gen_range(0..10_000_000);
+    let id = match team_id {
+        Some(value) => value,
+        None => rand::thread_rng().gen_range(0..10_000_000),
+    };
     let token = random_string("phc_", 12);
     let team = Team {
         id,
@@ -199,12 +214,24 @@ pub async fn insert_new_team_in_pg(client: Arc<PgPool>) -> Result<Team, Error> {
     let uuid = Uuid::now_v7();
 
     let mut conn = client.get_connection().await?;
+
+    let res = sqlx::query(
+        r#"INSERT INTO posthog_project
+        (id, organization_id, name, created_at) VALUES
+        ($1, $2::uuid, $3, '2024-06-17 14:40:51.332036+00:00')"#,
+    )
+    .bind(team.id)
+    .bind(ORG_ID)
+    .bind(&team.name)
+    .execute(&mut *conn)
+    .await?;
+    assert_eq!(res.rows_affected(), 1);
+
     let res = sqlx::query(
         r#"INSERT INTO posthog_team 
         (id, uuid, organization_id, project_id, api_token, name, created_at, updated_at, app_urls, anonymize_ips, completed_snippet_onboarding, ingested_event, session_recording_opt_in, is_demo, access_control, test_account_filters, timezone, data_attributes, plugins_opt_in, opt_out_capture, event_names, event_names_with_usage, event_properties, event_properties_with_usage, event_properties_numerical) VALUES
-        ($1, $5, $2::uuid, 1, $3, $4, '2024-06-17 14:40:51.332036+00:00', '2024-06-17', '{}', false, false, false, false, false, false, '{}', 'UTC', '["data-attr"]', false, false, '[]', '[]', '[]', '[]', '[]')"#
+        ($1, $5, $2::uuid, $1, $3, $4, '2024-06-17 14:40:51.332036+00:00', '2024-06-17', '{}', false, false, false, false, false, false, '{}', 'UTC', '["data-attr"]', false, false, '[]', '[]', '[]', '[]', '[]')"#
     ).bind(team.id).bind(ORG_ID).bind(&team.api_token).bind(&team.name).bind(uuid).execute(&mut *conn).await?;
-
     assert_eq!(res.rows_affected(), 1);
 
     // Insert group type mappings
@@ -228,7 +255,6 @@ pub async fn insert_new_team_in_pg(client: Arc<PgPool>) -> Result<Team, Error> {
         .bind(team.id)
         .execute(&mut *conn)
         .await?;
-
         assert_eq!(res.rows_affected(), 1);
     }
     Ok(team)

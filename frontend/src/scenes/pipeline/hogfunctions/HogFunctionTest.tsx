@@ -56,7 +56,7 @@ export function HogFunctionTestPlaceholder(): JSX.Element {
 }
 
 export function HogFunctionTest(props: HogFunctionTestLogicProps): JSX.Element {
-    const { isTestInvocationSubmitting, testResult, expanded, sampleGlobalsLoading } = useValues(
+    const { isTestInvocationSubmitting, testResult, expanded, sampleGlobalsLoading, sampleGlobalsError } = useValues(
         hogFunctionTestLogic(props)
     )
     const { submitTestInvocation, setTestResult, toggleExpanded, loadSampleGlobals } = useActions(
@@ -94,8 +94,9 @@ export function HogFunctionTest(props: HogFunctionTestLogicProps): JSX.Element {
                                         type="secondary"
                                         onClick={loadSampleGlobals}
                                         loading={sampleGlobalsLoading}
+                                        tooltip="Find the last event matching filters, and use it to populate the globals below."
                                     >
-                                        Reload context
+                                        Refresh globals
                                     </LemonButton>
                                     <LemonField name="mock_async_functions">
                                         {({ value, onChange }) => (
@@ -178,17 +179,15 @@ export function HogFunctionTest(props: HogFunctionTestLogicProps): JSX.Element {
                             </div>
                         ) : (
                             <div className="space-y-2">
-                                <LemonField name="globals" label="Test invocation context">
+                                <LemonField name="globals">
                                     {({ value, onChange }) => (
                                         <>
-                                            <div className="flex items-start justify-end">
-                                                <p className="flex-1">
-                                                    The globals object is the context in which your function will be
-                                                    tested. It should contain all the data that your function will need
-                                                    to run
-                                                </p>
+                                            <div className="space-y-2">
+                                                <div>Here are all the global variables you can use in your code:</div>
+                                                {sampleGlobalsError ? (
+                                                    <div className="text-warning">{sampleGlobalsError}</div>
+                                                ) : null}
                                             </div>
-
                                             <HogFunctionTestEditor value={value} onChange={onChange} />
                                         </>
                                     )}

@@ -92,7 +92,7 @@ export const dashboardsModel = kea<dashboardsModelType>([
                         return { count: 0, next: null, previous: null, results: [] }
                     }
                     const dashboards: PaginatedResponse<DashboardType> = await api.get(
-                        url || `api/projects/${teamLogic.values.currentTeamId}/dashboards/?limit=2000`
+                        url || `api/environments/${teamLogic.values.currentTeamId}/dashboards/?limit=2000`
                     )
 
                     return {
@@ -115,7 +115,7 @@ export const dashboardsModel = kea<dashboardsModelType>([
                 const beforeChange = { ...values.rawDashboards[id] }
 
                 const response = await api.update<DashboardType>(
-                    `api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}`,
+                    `api/environments/${teamLogic.values.currentTeamId}/dashboards/${id}`,
                     payload
                 )
                 const updatedAttribute = Object.keys(payload)[0]
@@ -135,7 +135,7 @@ export const dashboardsModel = kea<dashboardsModelType>([
                             label: 'Undo',
                             action: async () => {
                                 const reverted = await api.update<DashboardType>(
-                                    `api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}`,
+                                    `api/environments/${teamLogic.values.currentTeamId}/dashboards/${id}`,
                                     beforeChange
                                 )
                                 actions.updateDashboardSuccess(getQueryBasedDashboard(reverted))
@@ -148,20 +148,20 @@ export const dashboardsModel = kea<dashboardsModelType>([
             },
             deleteDashboard: async ({ id, deleteInsights }) =>
                 getQueryBasedDashboard(
-                    await api.update(`api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}`, {
+                    await api.update(`api/environments/${teamLogic.values.currentTeamId}/dashboards/${id}`, {
                         deleted: true,
                         delete_insights: deleteInsights,
                     })
                 ) as DashboardType<QueryBasedInsightModel>,
             restoreDashboard: async ({ id }) =>
                 getQueryBasedDashboard(
-                    await api.update(`api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}`, {
+                    await api.update(`api/environments/${teamLogic.values.currentTeamId}/dashboards/${id}`, {
                         deleted: false,
                     })
                 ) as DashboardType<QueryBasedInsightModel>,
             pinDashboard: async ({ id, source }) => {
                 const response = await api.update<DashboardType>(
-                    `api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}`,
+                    `api/environments/${teamLogic.values.currentTeamId}/dashboards/${id}`,
                     {
                         pinned: true,
                     }
@@ -171,7 +171,7 @@ export const dashboardsModel = kea<dashboardsModelType>([
             },
             unpinDashboard: async ({ id, source }) => {
                 const response = await api.update<DashboardType>(
-                    `api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}`,
+                    `api/environments/${teamLogic.values.currentTeamId}/dashboards/${id}`,
                     {
                         pinned: false,
                     }
@@ -181,7 +181,7 @@ export const dashboardsModel = kea<dashboardsModelType>([
             },
             duplicateDashboard: async ({ id, name, show, duplicateTiles }) => {
                 const result = await api.create<DashboardType>(
-                    `api/projects/${teamLogic.values.currentTeamId}/dashboards/`,
+                    `api/environments/${teamLogic.values.currentTeamId}/dashboards/`,
                     {
                         use_dashboard: id,
                         name: `${name} (Copy)`,

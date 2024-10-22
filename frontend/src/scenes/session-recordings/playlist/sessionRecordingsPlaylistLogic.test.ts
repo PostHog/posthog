@@ -1,5 +1,6 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -41,7 +42,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
     beforeEach(() => {
         useMocks({
             get: {
-                '/api/projects/:team/session_recordings/properties': {
+                '/api/environments/:team_id/session_recordings/properties': {
                     results: [
                         { id: 's1', properties: { blah: 'blah1' } },
                         { id: 's2', properties: { blah: 'blah2' } },
@@ -50,7 +51,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
 
                 'api/projects/:team/property_definitions/seen_together': { $pageview: true },
 
-                '/api/projects/:team/session_recordings': (req) => {
+                '/api/environments/:team_id/session_recordings': (req) => {
                     const { searchParams } = req.url
                     if (
                         (searchParams.get('events')?.length || 0) > 0 &&
@@ -115,6 +116,11 @@ describe('sessionRecordingsPlaylistLogic', () => {
             },
         })
         initKeaTests()
+        featureFlagLogic.mount()
+    })
+
+    afterEach(() => {
+        localStorage.clear()
     })
 
     describe('global logic', () => {
@@ -187,17 +193,17 @@ describe('sessionRecordingsPlaylistLogic', () => {
 
         describe('ordering', () => {
             afterEach(() => {
-                logic.actions.setOrderBy('start_time')
+                logic.actions.setFilters({ order: 'start_time' })
                 logic.actions.loadSessionRecordings()
             })
 
             it('is set by setOrderBy, loads filtered results and orders the non pinned recordings', async () => {
                 await expectLogic(logic, () => {
-                    logic.actions.setOrderBy('console_error_count')
+                    logic.actions.setFilters({ order: 'console_error_count' })
                 })
-                    .toDispatchActions(['setOrderBy', 'loadSessionRecordings', 'loadSessionRecordingsSuccess'])
+                    .toDispatchActions(['loadSessionRecordings', 'loadSessionRecordingsSuccess'])
                     .toMatchValues({
-                        orderBy: 'console_error_count',
+                        filters: expect.objectContaining({ order: 'console_error_count' }),
                     })
 
                 expect(logic.values.otherRecordings.map((r) => r.console_error_count)).toEqual([100, 50])
@@ -493,6 +499,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
                             ],
                         },
                         filter_test_accounts: false,
+                        order: 'start_time',
                     },
                 })
         })
@@ -529,6 +536,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
                             ],
                         },
                         filter_test_accounts: false,
+                        order: 'start_time',
                     },
                 })
         })
@@ -759,18 +767,43 @@ describe('sessionRecordingsPlaylistLogic', () => {
                         },
                     ],
                 },
+                order: 'console_error_count',
             })
 
-            expect(result.events).toEqual([
-                {
-                    id: '$pageview',
-                    name: '$pageview',
-                    properties: [
-                        { key: '$current_url', operator: 'exact', type: 'event', value: ['https://example-url.com'] },
-                    ],
-                    type: 'events',
-                },
-            ])
+            expect(result).toEqual({
+                actions: [],
+                console_log_filters: [],
+                date_from: '-3d',
+                date_to: null,
+                events: [
+                    {
+                        id: '$pageview',
+                        name: '$pageview',
+                        properties: [
+                            {
+                                key: '$current_url',
+                                operator: 'exact',
+                                type: 'event',
+                                value: ['https://example-url.com'],
+                            },
+                        ],
+                        type: 'events',
+                    },
+                ],
+                filter_test_accounts: false,
+                having_predicates: [
+                    {
+                        key: 'duration',
+                        operator: 'gt',
+                        type: 'recording',
+                        value: 1,
+                    },
+                ],
+                kind: 'RecordingsQuery',
+                operand: 'AND',
+                order: 'console_error_count',
+                properties: [],
+            })
         })
     })
 
@@ -798,6 +831,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
                     ],
                 },
                 filter_test_accounts: false,
+                order: 'start_time',
             })
         })
         it('should parse even the most complex queries', () => {
@@ -856,6 +890,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
                     ],
                 },
                 filter_test_accounts: true,
+                order: 'start_time',
             })
         })
     })

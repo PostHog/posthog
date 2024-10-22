@@ -37,9 +37,11 @@ import type {
     DatabaseSchemaField,
     HogQLQuery,
     HogQLQueryModifiers,
+    HogQLVariable,
     InsightVizNode,
     Node,
     QueryStatus,
+    RecordingsQuery,
 } from './queries/schema'
 import { NodeKind } from './queries/schema'
 
@@ -167,6 +169,7 @@ type AvailableFeatureUnion = `${AvailableFeature}`
 export enum ProductKey {
     COHORTS = 'cohorts',
     ACTIONS = 'actions',
+    ALERTS = 'alerts',
     EXPERIMENTS = 'experiments',
     FEATURE_FLAGS = 'feature_flags',
     ANNOTATIONS = 'annotations',
@@ -188,6 +191,7 @@ export enum ProductKey {
     INTEGRATIONS = 'integrations',
     PLATFORM_AND_SUPPORT = 'platform_and_support',
     TEAMS = 'teams',
+    WEB_ANALYTICS = 'web_analytics',
 }
 
 type ProductKeyUnion = `${ProductKey}`
@@ -353,6 +357,7 @@ export interface OrganizationType extends OrganizationBasicType {
     updated_at: string
     plugins_access_level: PluginsAccessLevel
     teams: TeamBasicType[]
+    projects: ProjectBasicType[]
     available_product_features: BillingFeatureType[]
     is_member_join_email_enabled: boolean
     customer_id: string | null
@@ -379,6 +384,7 @@ export interface OrganizationDomainType {
 export interface BaseMemberType {
     id: string
     user: UserBasicType
+    last_login: string | null
     joined_at: string
     updated_at: string
     is_2fa_enabled: boolean
@@ -444,10 +450,17 @@ export interface PropertyUsageType {
     volume: number
 }
 
+export interface ProjectBasicType {
+    id: number
+    organization_id: string
+    name: string
+}
+
 export interface TeamBasicType {
     id: number
     uuid: string
     organization: string // Organization ID
+    project_id: number
     api_token: string
     name: string
     completed_snippet_onboarding: boolean
@@ -473,14 +486,15 @@ export interface SessionRecordingAIConfig {
     important_user_properties: string[]
 }
 
-export interface ProjectType {
-    id: number
-    name: string
-    organization_id: string
+export interface ProjectType extends ProjectBasicType {
     created_at: string
 }
 
-export interface TeamType extends TeamBasicType, WithAccessControl {
+export interface TeamSurveyConfigType {
+    appearance?: SurveyAppearance
+}
+
+export interface TeamType extends TeamBasicType {
     created_at: string
     updated_at: string
     anonymize_ips: boolean
@@ -501,9 +515,11 @@ export interface TeamType extends TeamBasicType, WithAccessControl {
         | undefined
         | null
     session_replay_config: { record_canvas?: boolean; ai_config?: SessionRecordingAIConfig } | undefined | null
+    survey_config?: TeamSurveyConfigType
     autocapture_exceptions_opt_in: boolean
     autocapture_web_vitals_opt_in?: boolean
     autocapture_web_vitals_allowed_metrics?: SupportedWebVitalsMetrics[]
+    session_recording_url_trigger_config?: SessionReplayUrlTriggerConfig[]
     surveys_opt_in?: boolean
     heatmaps_opt_in?: boolean
     autocapture_exceptions_errors_to_ignore: string[]
@@ -594,7 +610,7 @@ export interface ElementType {
     text?: string
 }
 
-export type ToolbarUserIntent = 'add-action' | 'edit-action' | 'heatmaps'
+export type ToolbarUserIntent = 'add-action' | 'edit-action' | 'heatmaps' | 'add-experiment' | 'edit-experiment'
 export type ToolbarSource = 'url' | 'localstorage'
 export type ToolbarVersion = 'toolbar'
 
@@ -654,6 +670,7 @@ export enum SavedInsightsTabs {
     Yours = 'yours',
     Favorites = 'favorites',
     History = 'history',
+    Alerts = 'alerts',
 }
 
 export enum ReplayTabs {
@@ -700,6 +717,7 @@ export enum PipelineNodeTab {
     History = 'history',
     Schemas = 'schemas',
     Syncs = 'syncs',
+    SourceConfiguration = 'source configuration',
 }
 
 export enum ProgressStatus {
@@ -954,7 +972,7 @@ export enum SessionRecordingUsageType {
 }
 
 export enum SessionRecordingSidebarTab {
-    PERSON = 'person',
+    OVERVIEW = 'overview',
     INSPECTOR = 'inspector',
     DEBUGGER = 'debugger',
 }
@@ -1045,6 +1063,7 @@ export interface RecordingUniversalFilters {
     duration: RecordingDurationFilter[]
     filter_test_accounts?: boolean
     filter_group: UniversalFiltersGroup
+    order?: RecordingsQuery['order']
 }
 
 export type ErrorCluster = {
@@ -1395,6 +1414,21 @@ export interface SessionRecordingType {
     storage?: 'object_storage_lts' | 'object_storage'
     summary?: string
     snapshot_source: 'web' | 'mobile' | 'unknown'
+    /** whether we have received data for this recording in the last 5 minutes
+     * (assumes the recording was loaded from ClickHouse)
+     * **/
+    ongoing?: boolean
+    /**
+     * calculated on the backend so that we can sort by it, definition may change over time
+     */
+    activity_score?: number
+}
+
+export interface SessionRecordingUpdateType {
+    viewed?: boolean
+    analyzed?: boolean
+    player_metadata?: Record<string, any> | null
+    durations?: Record<string, any> | null
 }
 
 export interface SessionRecordingPropertiesType {
@@ -1551,6 +1585,7 @@ export type BillingFeatureType = {
         dark: string
     } | null
     icon_key?: string | null
+    entitlement_only?: boolean
     type?: 'primary' | 'secondary' | null
 }
 
@@ -1802,6 +1837,7 @@ export type DashboardTemplateScope = 'team' | 'global' | 'feature_flag'
 export interface DashboardType<T = InsightModel> extends DashboardBasicType {
     tiles: DashboardTile<T>[]
     filters: DashboardFilter
+    variables?: Record<string, HogQLVariable>
 }
 
 export enum TemplateAvailabilityContext {
@@ -2217,6 +2253,7 @@ export interface TrendsFilterType extends FilterType {
     breakdown_histogram_bin_count?: number // trends breakdown histogram bin count
 
     // frontend only
+    show_alert_threshold_lines?: boolean // used to show/hide horizontal lines on insight representing alert thresholds set on the insight
     show_legend?: boolean // used to show/hide legend next to insights graph
     hidden_legend_keys?: Record<string, boolean | undefined> // used to toggle visibilities in table and legend
     aggregation_axis_format?: AggregationAxisFormat // a fixed format like duration that needs calculation
@@ -2640,6 +2677,8 @@ export interface InsightLogicProps<T = InsightVizNode> {
 
     /** Dashboard filters to override the ones in the query */
     filtersOverride?: DashboardFilter | null
+    /** Dashboard variables to override the ones in the query */
+    variablesOverride?: Record<string, HogQLVariable> | null
 }
 
 export interface SetInsightOptions {
@@ -2730,6 +2769,7 @@ export interface SurveyAppearance {
     thankYouMessageCloseButtonText?: string
     autoDisappear?: boolean
     position?: string
+    zIndex?: string
     shuffleQuestions?: boolean
     surveyPopupDelaySeconds?: number
     // widget only
@@ -3201,6 +3241,7 @@ export interface Experiment {
         feature_flag_variants: MultivariateFlagVariant[]
         custom_exposure_filter?: FilterType
         aggregation_group_type_index?: integer
+        variant_screenshot_media_ids?: Record<string, string>
     }
     start_date?: string | null
     end_date?: string | null
@@ -3344,7 +3385,6 @@ export interface AppContext {
     year_in_hog_url?: string
     /** Support flow aid: a staff-only list of users who may be impersonated to access this resource. */
     suggested_users_with_access?: UserBasicType[]
-    is_region_blocked?: boolean
 }
 
 export type StoredMetricMathOperations = 'max' | 'min' | 'sum'
@@ -3392,6 +3432,8 @@ interface LinkBreadcrumb extends BreadcrumbBase {
     symbol?: never
     /** Path to link to. */
     path?: string
+    /** Extra tag shown next to name. */
+    tag?: string | null
     onRename?: never
 }
 interface RenamableBreadcrumb extends BreadcrumbBase {
@@ -3492,6 +3534,12 @@ export interface InstanceSetting {
     description?: string
     editable: boolean
     is_secret: boolean
+}
+
+export enum FunnelMathType {
+    AnyMatch = 'total',
+    FirstTimeForUser = 'first_time_for_user',
+    FirstTimeForUserWithFilters = 'first_time_for_user_with_filters',
 }
 
 export enum BaseMathType {
@@ -3624,7 +3672,13 @@ export enum EventDefinitionType {
     EventPostHog = 'event_posthog',
 }
 
-export type IntegrationKind = 'slack' | 'salesforce' | 'hubspot' | 'google-pubsub' | 'google-cloud-storage'
+export type IntegrationKind =
+    | 'slack'
+    | 'salesforce'
+    | 'hubspot'
+    | 'google-pubsub'
+    | 'google-cloud-storage'
+    | 'google-ads'
 
 export interface IntegrationType {
     id: number
@@ -3861,6 +3915,7 @@ export enum ActivityScope {
     INSIGHT = 'Insight',
     PLUGIN = 'Plugin',
     PLUGIN_CONFIG = 'PluginConfig',
+    HOG_FUNCTION = 'HogFunction',
     DATA_MANAGEMENT = 'DataManagement',
     EVENT_DEFINITION = 'EventDefinition',
     PROPERTY_DEFINITION = 'PropertyDefinition',
@@ -3953,7 +4008,7 @@ export interface DataWarehouseTable {
     format: DataWarehouseTableTypes
     url_pattern: string
     credential: DataWarehouseCredential
-    external_data_source?: ExternalDataStripeSource
+    external_data_source?: ExternalDataSource
     external_schema?: SimpleExternalDataSourceSchema
 }
 
@@ -3965,6 +4020,8 @@ export interface DataWarehouseSavedQuery {
     name: string
     query: HogQLQuery
     columns: DatabaseSchemaField[]
+    last_run_at?: string
+    status?: string
 }
 
 export interface DataWarehouseViewLink {
@@ -4007,7 +4064,7 @@ export interface ExternalDataSourceCreatePayload {
     prefix: string
     payload: Record<string, any>
 }
-export interface ExternalDataStripeSource {
+export interface ExternalDataSource {
     id: string
     source_id: string
     connection_id: string
@@ -4017,6 +4074,7 @@ export interface ExternalDataStripeSource {
     last_run_at?: Dayjs
     schemas: ExternalDataSourceSchema[]
     sync_frequency: DataWarehouseSyncInterval
+    job_inputs: Record<string, any>
 }
 export interface SimpleExternalDataSourceSchema {
     id: string
@@ -4345,6 +4403,7 @@ export enum SidePanelTab {
     Status = 'status',
     Exports = 'exports',
     AccessControl = 'access-control',
+    ExperimentFeatureFlag = 'experiment-feature-flag',
 }
 
 export interface SourceFieldOauthConfig {
@@ -4400,8 +4459,6 @@ export interface SourceConfig {
     caption: string | React.ReactNode
     fields: SourceFieldConfig[]
     disabledReason?: string | null
-    showPrefix?: (payload: Record<string, any>) => boolean
-    showSourceForm?: (payload: Record<string, any>) => boolean
     oauthPayload?: string[]
 }
 
@@ -4437,6 +4494,7 @@ export type AvailableOnboardingProducts = Pick<
     | ProductKey.FEATURE_FLAGS
     | ProductKey.SURVEYS
     | ProductKey.DATA_WAREHOUSE
+    | ProductKey.WEB_ANALYTICS
 >
 
 export type OnboardingProduct = {
@@ -4589,13 +4647,11 @@ export type HogFunctionInvocationGlobals = {
         distinct_id: string
         properties: Record<string, any>
         timestamp: string
-        name: string
         url: string
     }
     person?: {
         id: string
         properties: Record<string, any>
-        uuid: string
         name: string
         url: string
     }
@@ -4631,4 +4687,9 @@ export type AppMetricsV2RequestParams = {
     kind?: string
     interval?: 'hour' | 'day' | 'week'
     breakdown_by?: 'name' | 'kind'
+}
+
+export type SessionReplayUrlTriggerConfig = {
+    url: string
+    matching: 'regex'
 }
