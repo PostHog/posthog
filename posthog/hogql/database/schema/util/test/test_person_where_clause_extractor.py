@@ -1,4 +1,4 @@
-from typing import Union, Optional
+from typing import Union, Optional, cast
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
@@ -62,10 +62,10 @@ class TestPersonWhereClauseExtractor(ClickhouseTestMixin, APIBaseTest):
         assert new_select.select_from.next_join.alias == "events__pdi"
         assert new_select.select_from.next_join.next_join.alias == "events__pdi__person"
 
-        where = new_select.select_from.next_join.next_join.table.where
-        if where is None:
+        outer_where = new_select.select_from.next_join.next_join.table.where
+        if outer_where is None:
             return None
-        where = where.exprs[0].right.where
+        where = cast(ast.SelectQuery, cast(ast.CompareOperation, cast(ast.And, outer_where).exprs[0]).right).where
 
         where = RemoveHiddenAliases().visit(where)
         assert isinstance(where, ast.Expr)
