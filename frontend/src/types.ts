@@ -4212,7 +4212,7 @@ export type RawBatchExportRun = {
         | 'Running'
         | 'Starting'
     created_at: string
-    data_interval_start: string
+    data_interval_start?: string
     data_interval_end: string
     last_updated_at?: string
 }
@@ -4231,7 +4231,7 @@ export type BatchExportRun = {
         | 'Starting'
     created_at: Dayjs
     data_interval_start?: Dayjs
-    data_interval_end?: Dayjs
+    data_interval_end: Dayjs
     last_updated_at?: Dayjs
 }
 
