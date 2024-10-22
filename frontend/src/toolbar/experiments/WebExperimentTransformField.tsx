@@ -45,41 +45,17 @@ export function WebExperimentTransformField({
                     {
                         value: 'html',
                         label: 'HTML',
-                        icon:
-                            transform.html && transform.html.length > 0 ? (
-                                <>
-                                    {' '}
-                                    <IconCheck /> <IconCode />{' '}
-                                </>
-                            ) : (
-                                <IconCode />
-                            ),
+                        icon: transform.html && transform.html.length > 0 ? <IconCheck /> : <IconCode />,
                     },
                     {
                         value: 'text',
                         label: 'Text',
-                        icon:
-                            transform.text && transform.text.length > 0 ? (
-                                <>
-                                    {' '}
-                                    <IconCheck /> <IconMessage />{' '}
-                                </>
-                            ) : (
-                                <IconMessage />
-                            ),
+                        icon: transform.text && transform.text.length > 0 ? <IconCheck /> : <IconMessage />,
                     },
                     {
                         value: 'css',
                         label: 'CSS',
-                        icon:
-                            transform.css && transform.css.length > 0 ? (
-                                <>
-                                    {' '}
-                                    <IconCheck /> <IconAIText />{' '}
-                                </>
-                            ) : (
-                                <IconAIText />
-                            ),
+                        icon: transform.css && transform.css.length > 0 ? <IconCheck /> : <IconAIText />,
                     },
                 ]}
                 onChange={(e) => {
