@@ -1,5 +1,6 @@
 import { IconCollapse, IconGear } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonInputSelect, LemonSkeleton, Spinner, Tooltip } from '@posthog/lemon-ui'
+import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { appEditorUrl, AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
@@ -152,7 +153,7 @@ function FilterPanel(): JSX.Element {
     } = useActions(logic)
 
     return (
-        <div className="flex flex-col gap-y-2 px-2 py-1 border-r w-100">
+        <div className={clsx('flex flex-col gap-y-2 px-2 py-1 border-r', !filterPanelCollapsed && 'w-100')}>
             {filterPanelCollapsed ? (
                 <Tooltip title="Expand heatmap settings">
                     <LemonButton
