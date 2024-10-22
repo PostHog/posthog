@@ -114,6 +114,15 @@ class TestPrinter(BaseTest):
             repsponse, f"SELECT\n    plus(1, 2),\n    3\nFROM\n    events\nLIMIT {MAX_SELECT_RETURNED_ROWS}"
         )
 
+    # INTERSECT has higher priority than union
+    def test_intersect_and_union(self):
+        expr = parse_select("""select 1 as id union all select 2 as id union all select 3 as id""", backend="python")
+        response = to_printed_hogql(expr, self.team)
+        self.assertEqual(
+            response,
+            f"SELECT\n    1 AS id\nLIMIT 50000\nINTERSECT\nSELECT\n    2 AS id\nLIMIT {MAX_SELECT_RETURNED_ROWS}",
+        )
+
     def test_literals(self):
         self.assertEqual(self._expr("1 + 2"), "plus(1, 2)")
         self.assertEqual(self._expr("-1 + 2"), "plus(-1, 2)")

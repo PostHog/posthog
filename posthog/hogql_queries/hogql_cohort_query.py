@@ -1,5 +1,7 @@
 from typing import Literal, Optional, Union, Any
 
+from posthog.constants import PropertyOperatorType
+from posthog.hogql import ast
 from posthog.hogql.ast import SelectQuery
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_select
@@ -19,14 +21,12 @@ class TestWrapperCohortQuery(CohortQuery):
         cohort_query = CohortQuery(filter=filter, team=team)
         hogql_cohort_query = HogQLCohortQuery(cohort_query=cohort_query)
         hogql_query = hogql_cohort_query.query_str("hogql")
-        cohort_query_result = execute_hogql_query(hogql_query, team)
+        self.result = execute_hogql_query(hogql_query, team)
         super().__init__(filter=filter, team=team)
 
 
 class HogQLCohortQuery:
     def __init__(self, cohort_query: CohortQuery, cohort: Cohort = None):
-        # self.cohort = cohort
-
         self.hogql_context = HogQLContext(team_id=cohort_query._team_id, enable_select_queries=True)
 
         if cohort is not None:
@@ -42,7 +42,9 @@ class HogQLCohortQuery:
         else:
             self.cohort_query = cohort_query
 
-        self.properties = clean_global_properties(self.cohort_query._filter._data["properties"])
+        # self.properties = clean_global_properties(self.cohort_query._filter._data["properties"])
+        self._inner_property_groups = self.cohort_query._inner_property_groups
+        self._outer_property_groups = self.cohort_query._outer_property_groups
         self.team = self.cohort_query._team
 
     def get_query(self) -> SelectQuery:
@@ -61,10 +63,25 @@ class HogQLCohortQuery:
             query_runner = ActorsQueryRunner(team=self.team, query=actors_query)
             return query_runner.to_query()
 
+        # self._get_conditions()
+        # self.get_performed_event_condition()
+
         # Work on getting testing passing
         # current test: test_performed_event
         # special code this for test_performed_event
         # self.properties["values"][0]["values"][0]
+
+        # self.get_performed_event_condition()
+        # property = self._outer_property_groups.values[0].values[0]
+        # self.get_performed_event_condition(property)
+        select_query = self._get_conditions()
+        return select_query
+
+    def query_str(self, dialect: Literal["hogql", "clickhouse"]):
+        return print_ast(self.get_query(), self.hogql_context, dialect, pretty=True)
+
+    # Get this working first
+    def get_performed_event_condition(self, prop: Property) -> ast.SelectQuery:
         return parse_select(
             """select * from (
                     <ActorsQuery select={['id']}>
@@ -80,34 +97,16 @@ class HogQLCohortQuery:
                 )"""
         )
 
-    def query_str(self, dialect: Literal["hogql", "clickhouse"]):
-        return print_ast(self.get_query(), self.hogql_context, dialect, pretty=True)
-
-    def get_performed_event_condition(self, prop: Property, prepend: str, idx: int) -> tuple[str, dict[str, Any]]:
-        event = (prop.event_type, prop.key)
-        column_name = f"performed_event_condition_{prepend}_{idx}"
-
-        entity_query, entity_params = self._get_entity(event, prepend, idx)
-        entity_filters, entity_filters_params = self._get_entity_event_filters(prop, prepend, idx)
-        date_filter, date_params = self._get_entity_datetime_filters(prop, prepend, idx)
-
-        field = f"countIf({date_filter} AND timestamp < now() AND {entity_query} {entity_filters}) > 0 AS {column_name}"
-        self._fields.append(field)
-
-        # Negation is handled in the where clause to ensure the right result if a full join occurs where the joined person did not perform the event
-        return f"{'NOT' if prop.negation else ''} {column_name}", {
-            **date_params,
-            **entity_params,
-            **entity_filters_params,
-        }
-
-    def _get_condition_for_property(self, prop: Property, prepend: str, idx: int) -> tuple[str, dict[str, Any]]:
+    def _get_condition_for_property(self, prop: Property) -> ast.SelectQuery | ast.SelectUnionQuery:
         res: str = ""
         params: dict[str, Any] = {}
 
+        prepend = ""
+        idx = 0
+
         if prop.type == "behavioral":
             if prop.value == "performed_event":
-                res, params = self.get_performed_event_condition(prop, prepend, idx)
+                return self.get_performed_event_condition(prop)
             elif prop.value == "performed_event_multiple":
                 res, params = self.get_performed_event_multiple(prop, prepend, idx)
             elif prop.value == "stopped_performing_event":
@@ -129,25 +128,30 @@ class HogQLCohortQuery:
         else:
             raise ValueError(f"Invalid property type for Cohort queries: {prop.type}")
 
-        return res, params
+        return res
 
-    def _get_conditions(self) -> tuple[str, dict[str, Any]]:
-        def build_conditions(prop: Optional[Union[PropertyGroup, Property]], prepend="level", num=0):
+    def _get_conditions(self) -> ast.SelectQuery | ast.SelectUnionQuery:
+        def build_conditions(
+            prop: Optional[Union[PropertyGroup, Property]]
+        ) -> None | ast.SelectQuery | ast.SelectUnionQuery:
             if not prop:
-                return "", {}
+                # What do we do here?
+                return None
 
             if isinstance(prop, PropertyGroup):
-                params = {}
-                conditions = []
-                for idx, p in enumerate(prop.values):
-                    q, q_params = build_conditions(p, f"{prepend}_level_{num}", idx)  # type: ignore
-                    if q != "":
-                        conditions.append(q)
-                        params.update(q_params)
+                queries = []
+                for idx, property in enumerate(prop.values):
+                    query = build_conditions(property)  # type: ignore
+                    if query is not None:
+                        queries.append(query)
+                        # params.update(q_params)
 
-                return f"({f' {prop.type} '.join(conditions)})", params
+                # TODO: make this do union or intersection based on prop.type
+                if prop.type == PropertyOperatorType.OR:
+                    return ast.SelectUnionQuery(select_queries=queries)  # UNION ALL
+                return ast.SelectUnionQuery(select_queries=queries)  # INTERSECTION
             else:
-                return self._get_condition_for_property(prop, prepend, num)
+                return self._get_condition_for_property(prop)
 
-        conditions, params = build_conditions(self._outer_property_groups, prepend=f"{self._cohort_pk}_level", num=0)
-        return f"AND ({conditions})" if conditions else "", params
+        conditions = build_conditions(self._outer_property_groups)
+        return conditions

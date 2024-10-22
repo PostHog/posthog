@@ -5,6 +5,7 @@ from ee.clickhouse.queries.enterprise_cohort_query import check_negation_clause
 from posthog.client import sync_execute
 from posthog.constants import PropertyOperatorType
 from posthog.hogql_queries.hogql_cohort_query import TestWrapperCohortQuery as CohortQuery
+from posthog.models import Team
 from posthog.models.action import Action
 from posthog.models.cohort import Cohort
 from posthog.models.filters.filter import Filter
@@ -51,6 +52,14 @@ def _create_cohort(**kwargs):
     is_static = kwargs.pop("is_static", False)
     cohort = Cohort.objects.create(team=team, name=name, groups=groups, is_static=is_static)
     return cohort
+
+
+def execute(filter: Filter, team: Team):
+    cohort_query = CohortQuery(filter=filter, team=team)
+    q, params = cohort_query.get_query()
+    res = sync_execute(q, {**params, **filter.hogql_context.values})
+    assert res == cohort_query.result.results
+    return res
 
 
 class TestCohortQuery(ClickhouseTestMixin, BaseTest):
@@ -234,8 +243,9 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
             }
         )
 
-        q, params = CohortQuery(filter=filter, team=self.team).get_query()
-        res = sync_execute(q, {**params, **filter.hogql_context.values})
+        res = execute(filter, self.team)
+        # q, params = CohortQuery(filter=filter, team=self.team).get_query()
+        # res = sync_execute(q, {**params, **filter.hogql_context.values})
 
         self.assertEqual([p1.uuid], [r[0] for r in res])
 
