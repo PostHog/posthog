@@ -148,8 +148,8 @@ class HogQLCohortQuery:
 
                 # TODO: make this do union or intersection based on prop.type
                 if prop.type == PropertyOperatorType.OR:
-                    return ast.SelectUnionQuery(select_queries=queries)  # UNION ALL
-                return ast.SelectUnionQuery(select_queries=queries)  # INTERSECTION
+                    return ast.SelectUnionQuery(select_queries=queries, value="UNION ALL")
+                return ast.SelectUnionQuery(select_queries=queries, value="INTERSECT")
             else:
                 return self._get_condition_for_property(prop)
 
