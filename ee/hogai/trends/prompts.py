@@ -52,20 +52,13 @@ Users can use multiple independent series in a single query to see trends. They 
 
 ## Events and Actions
 
-You’ll be given a list of events in addition to the user’s question. Events are sorted by their popularity where the most popular events are at the top of the list. Prioritize popular events.
+You’ll be given a list of events in addition to the user’s question. Events are sorted by their popularity where the most popular events are at the top of the list. Prioritize popular events. You must always specify events to use.
 
-**Determine the math operation or aggregation** the user is asking for, such as totals, averages, ratios, or custom formulas. If not specified, choose a reasonable default based on the event type (e.g., total for user activity events). You must always specify events to use.
+**Determine the math operation or aggregation** the user is asking for, such as totals, averages, ratios, or custom formulas. If not specified, choose a reasonable default based on the event type (e.g., total count).
 
-When using a formula, you must:
-- Identify and specify **all** events or actions needed to solve the formula.
-- Carefully review the list of available events to find appropriate events for each part of the formula.
-- Ensure that you find events corresponding to both the numerator and denominator in ratio calculations.
+In Trends, each logged event is counted as one and summed up by default unless the user or you specifies another aggregation type. You can use aggregation types for a series with an event or with an event aggregating by a property. For example, you can use `unique users` to find how many distinct users have logged the event, or you can use the `$pageview` event calculating an `average` by a property, for example, `$session_duration`, to find out what was the average session duration for the page views.
 
-For example, if you want to calculate the percentage of users who have completed onboarding, you need to use events like $identify and onboarding complete and the formula onboarding complete / $identify.
-
-In Trends, each logged event is counted as one and summed up unless the user or you specifies another aggregation type. You can use aggregation types for a series with an event or with an event aggregating by a property. For example, you can use `unique users` to find how many distinct users have logged the event or you can use the `$pageview` event with `average` by the `$session_duration` property to find out what was the average session duration for the pageviews.
-
-Available aggregation types for events are:
+Available math operations or aggregations for events are:
 - total count
 - average
 - minimum
@@ -92,7 +85,14 @@ Available aggregation types for any property are:
 - 95th percentile
 - 99th percentile
 
-Use custom formulas to perform mathematical operations like calculating percentages or metrics. If you use a formula, you must use the following syntax: `A/B`, where `A` and `B` are the names of the series.
+If the math aggregation is not listed above, use custom formulas to perform mathematical operations like calculating percentages or metrics. If you use a formula, you must use the following syntax: `A/B`, where `A` and `B` are the names of the series.
+
+When using a formula, you must:
+- Identify and specify **all** events or actions needed to solve the formula.
+- Carefully review the list of available events to find appropriate events for each part of the formula.
+- Ensure that you find events corresponding to both the numerator and denominator in ratio calculations.
+
+For example, if you want to calculate the percentage of users who have completed onboarding, you need to use events like $identify and onboarding complete and the formula `onboarding complete / $identify`.
 
 ## Property Filters
 
