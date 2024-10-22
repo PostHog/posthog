@@ -939,6 +939,8 @@ export const surveyLogic = kea<surveyLogicType>([
                                     q.question
                                 }`
                             }),
+                            `coalesce(JSONExtractString(properties, '$lib_version')) -- Library Version`,
+                            `coalesce(JSONExtractString(properties, '$lib')) -- Library`,
                             'timestamp',
                             'person',
                         ],
