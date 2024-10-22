@@ -65,6 +65,7 @@ class TestPersonWhereClauseExtractor(ClickhouseTestMixin, APIBaseTest):
         where = new_select.select_from.next_join.next_join.table.where
         if where is None:
             return None
+        where = where.exprs[0].right.where
 
         where = RemoveHiddenAliases().visit(where)
         assert isinstance(where, ast.Expr)
@@ -148,6 +149,11 @@ class TestPersonWhereClauseExtractor(ClickhouseTestMixin, APIBaseTest):
         expected = _expr("properties.email = 'jimmy@posthog.com'")
         assert expected in actual.exprs
 
+    def test_person_array(self):
+        actual = self.get_clause("SELECT * FROM events WHERE person.properties.email IN ['jimmy@posthog.com']")
+        expected = _expr("properties.email IN ['jimmy@posthog.com']")
+        assert expected in actual.exprs
+
     def test_person_properties_function_calls(self):
         actual = self.get_clause(
             "SELECT * FROM events WHERE properties.email = 'bla@posthog.com' and toString(person.properties.email) = 'jimmy@posthog.com'"
@@ -177,7 +183,7 @@ class TestPersonWhereClauseExtractor(ClickhouseTestMixin, APIBaseTest):
         )
         actual = self.print_query("SELECT * FROM events WHERE person.properties.person_boolean = false")
         assert (
-            f"ifNull(equals(transform(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties"
+            f"ifNull(equals(transform(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(persons_where_optimization.properties"
             in actual
         )
 
