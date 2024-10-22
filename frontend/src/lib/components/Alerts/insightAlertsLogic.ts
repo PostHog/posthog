@@ -35,6 +35,7 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
 
     connect((props: InsightAlertsLogicProps) => ({
         actions: [insightVizDataLogic(props.insightLogicProps), ['setQuery']],
+        values: [insightVizDataLogic(props.insightLogicProps), ['showAlertThresholdLines']],
     })),
 
     loaders(({ props }) => ({
@@ -62,10 +63,11 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
 
     selectors({
         alertThresholdLines: [
-            (s) => [s.alerts],
-            (alerts: AlertType[]): GoalLine[] =>
+            (s) => [s.alerts, s.showAlertThresholdLines],
+            (alerts: AlertType[], showAlertThresholdLines: boolean): GoalLine[] =>
                 alerts.flatMap((alert) => {
                     if (
+                        !showAlertThresholdLines ||
                         alert.threshold.configuration.type !== InsightThresholdType.ABSOLUTE ||
                         alert.condition.type !== AlertConditionType.ABSOLUTE_VALUE ||
                         !alert.threshold.configuration.bounds
@@ -76,14 +78,14 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
                     const bounds = alert.threshold.configuration.bounds
 
                     const thresholds = []
-                    if (bounds?.upper !== undefined) {
+                    if (bounds?.upper != null) {
                         thresholds.push({
                             label: `${alert.name} Upper Threshold`,
                             value: bounds?.upper,
                         })
                     }
 
-                    if (bounds?.lower !== undefined) {
+                    if (bounds?.lower != null) {
                         thresholds.push({
                             label: `${alert.name} Lower Threshold`,
                             value: bounds?.lower,

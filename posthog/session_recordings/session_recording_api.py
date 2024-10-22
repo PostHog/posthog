@@ -6,7 +6,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 
 from prometheus_client import Histogram
-from typing import Any, cast
+from typing import Any, cast, Optional
 
 import posthoganalytics
 import requests
@@ -142,6 +142,7 @@ class SessionRecordingSerializer(serializers.ModelSerializer):
 
     ongoing = serializers.SerializerMethodField()
     viewed = serializers.SerializerMethodField()
+    activity_score = serializers.SerializerMethodField()
 
     def get_ongoing(self, obj: SessionRecording) -> bool:
         # ongoing is a custom field that we add if loading from ClickHouse
@@ -150,6 +151,9 @@ class SessionRecordingSerializer(serializers.ModelSerializer):
     def get_viewed(self, obj: SessionRecording) -> bool:
         # viewed is a custom field that we load from PG Sql and merge into the model
         return getattr(obj, "viewed", False)
+
+    def get_activity_score(self, obj: SessionRecording) -> Optional[float]:
+        return getattr(obj, "activity_score", None)
 
     class Meta:
         model = SessionRecording
@@ -173,6 +177,7 @@ class SessionRecordingSerializer(serializers.ModelSerializer):
             "storage",
             "snapshot_source",
             "ongoing",
+            "activity_score",
         ]
 
         read_only_fields = [
@@ -194,6 +199,7 @@ class SessionRecordingSerializer(serializers.ModelSerializer):
             "storage",
             "snapshot_source",
             "ongoing",
+            "activity_score",
         ]
 
 
