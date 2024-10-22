@@ -370,7 +370,7 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
         if should_resume is True and details is not None:
             data_interval_start: str | None = details.last_inserted_at.isoformat()
         else:
-            data_interval_start: str | None = inputs.data_interval_start
+            data_interval_start = inputs.data_interval_start
 
         model: BatchExportModel | BatchExportSchema | None = None
         if inputs.batch_export_schema is None and "batch_export_model" in {
