@@ -4,7 +4,7 @@ use sourcemap::{SourceMap, Token};
 
 use crate::{
     error::{Error, JsResolveErr, ResolutionError},
-    symbol_store::SymbolCatlog,
+    symbol_store::SymbolCatalog,
     types::frames::Frame,
 };
 
@@ -27,7 +27,7 @@ pub struct RawJSFrame {
 impl RawJSFrame {
     pub async fn resolve<C>(&self, team_id: i32, catalog: &C) -> Result<Frame, Error>
     where
-        C: SymbolCatlog<Url, SourceMap>,
+        C: SymbolCatalog<Url, SourceMap>,
     {
         match self.resolve_impl(team_id, catalog).await {
             Ok(frame) => Ok(frame),
@@ -40,7 +40,7 @@ impl RawJSFrame {
 
     async fn resolve_impl<C>(&self, team_id: i32, catalog: &C) -> Result<Frame, Error>
     where
-        C: SymbolCatlog<Url, SourceMap>,
+        C: SymbolCatalog<Url, SourceMap>,
     {
         let store = catalog.get();
         let url = self.source_url()?;
