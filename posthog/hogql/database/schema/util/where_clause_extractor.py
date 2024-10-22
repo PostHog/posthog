@@ -125,7 +125,6 @@ class WhereClauseExtractor(CloningVisitor):
                 right = clone_expr(
                     node.right, clear_types=False, clear_locations=False, inline_subquery_field_names=True
                 )
-                # right = self.visit(node.right)
             else:
                 right = self.visit(node.right)
 
@@ -134,11 +133,6 @@ class WhereClauseExtractor(CloningVisitor):
             return ast.CompareOperation(op=node.op, left=left, right=right)
 
         return ast.Constant(value=True)
-
-    # def visit_select_query(self, node: ast.SelectQuery) -> ast.Expr:
-    #     import ipdb;ipdb.set_trace()
-    #     # going too deep, bail
-    #     return ast.Constant(value=True)
 
     def visit_arithmetic_operation(self, node: ast.ArithmeticOperation) -> ast.Expr:
         # don't even try to handle complex logic
