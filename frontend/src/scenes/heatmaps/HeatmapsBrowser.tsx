@@ -210,14 +210,12 @@ function IframeErrorOverlay(): JSX.Element | null {
     ) : null
 }
 
-function LoadingOverlay(): JSX.Element | null {
-    const logic = heatmapsBrowserLogic()
-    const { loading } = useValues(logic)
-    return loading ? (
+function LoadingOverlay(): JSX.Element {
+    return (
         <div className="absolute flex flex-col w-full h-full items-center justify-center pointer-events-none">
             <Spinner className="text-5xl" textColored={true} />
         </div>
-    ) : null
+    )
 }
 
 function EmbeddedHeatmapBrowser({
@@ -227,7 +225,7 @@ function EmbeddedHeatmapBrowser({
 }): JSX.Element | null {
     const logic = heatmapsBrowserLogic()
 
-    const { browserUrl } = useValues(logic)
+    const { browserUrl, loading, iframeBanner } = useValues(logic)
     const { onIframeLoad, setIframeWidth } = useActions(logic)
 
     const { width: iframeWidth } = useResizeObserver<HTMLIFrameElement>({ ref: iframeRef })
@@ -239,8 +237,8 @@ function EmbeddedHeatmapBrowser({
         <div className="flex flex-row gap-x-2 w-full">
             <FilterPanel />
             <div className="relative flex-1 w-full h-full">
-                <IframeErrorOverlay />
-                <LoadingOverlay />
+                {loading ? <LoadingOverlay /> : null}
+                {!loading && iframeBanner ? <IframeErrorOverlay /> : null}
                 <iframe
                     ref={iframeRef}
                     className="w-full h-full bg-white"
