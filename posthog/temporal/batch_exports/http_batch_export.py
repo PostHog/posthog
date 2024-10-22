@@ -111,7 +111,7 @@ class HttpInsertInputs:
     batch_export_schema: BatchExportSchema | None = None
 
 
-async def maybe_resume_from_heartbeat(inputs: HttpInsertInputs) -> str:
+async def maybe_resume_from_heartbeat(inputs: HttpInsertInputs) -> str | None:
     """Returns the `interval_start` to use, either resuming from previous heartbeat data or
     using the `data_interval_start` from the inputs."""
     logger = await bind_temporal_worker_logger(team_id=inputs.team_id, destination="HTTP")
@@ -168,8 +168,8 @@ async def insert_into_http_activity(inputs: HttpInsertInputs) -> RecordsComplete
     logger = await bind_temporal_worker_logger(team_id=inputs.team_id, destination="HTTP")
     logger.info(
         "Batch exporting range %s - %s to HTTP endpoint: %s",
-        inputs.data_interval_start,
-        inputs.data_interval_end,
+        inputs.data_interval_start or "START",
+        inputs.data_interval_end or "END",
         inputs.url,
     )
 

@@ -514,8 +514,8 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
     logger = await bind_temporal_worker_logger(team_id=inputs.team_id, destination="S3")
     await logger.ainfo(
         "Batch exporting range %s - %s to S3: %s",
-        inputs.data_interval_start,
-        inputs.data_interval_end,
+        inputs.data_interval_start or "START",
+        inputs.data_interval_end or "END",
         get_s3_key(inputs),
     )
 

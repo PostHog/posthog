@@ -350,8 +350,8 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
     )
     await logger.ainfo(
         "Batch exporting range %s - %s to BigQuery: %s.%s.%s",
-        inputs.data_interval_start,
-        inputs.data_interval_end,
+        inputs.data_interval_start or "START",
+        inputs.data_interval_end or "END",
         inputs.project_id,
         inputs.dataset_id,
         inputs.table_id,
@@ -368,9 +368,9 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
         should_resume, details = await should_resume_from_activity_heartbeat(activity, BigQueryHeartbeatDetails, logger)
 
         if should_resume is True and details is not None:
-            data_interval_start = details.last_inserted_at.isoformat()
+            data_interval_start: str | None = details.last_inserted_at.isoformat()
         else:
-            data_interval_start = inputs.data_interval_start
+            data_interval_start: str | None = inputs.data_interval_start
 
         model: BatchExportModel | BatchExportSchema | None = None
         if inputs.batch_export_schema is None and "batch_export_model" in {

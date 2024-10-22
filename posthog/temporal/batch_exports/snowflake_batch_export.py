@@ -542,8 +542,8 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Recor
     logger = await bind_temporal_worker_logger(team_id=inputs.team_id, destination="Snowflake")
     await logger.ainfo(
         "Batch exporting range %s - %s to Snowflake: %s.%s.%s",
-        inputs.data_interval_start,
-        inputs.data_interval_end,
+        inputs.data_interval_start or "START",
+        inputs.data_interval_end or "END",
         inputs.database,
         inputs.schema,
         inputs.table_name,
@@ -562,7 +562,7 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Recor
         )
 
         if should_resume is True and details is not None:
-            data_interval_start = details.last_inserted_at.isoformat()
+            data_interval_start: str | None = details.last_inserted_at.isoformat()
             current_flush_counter = details.file_no
         else:
             data_interval_start = inputs.data_interval_start

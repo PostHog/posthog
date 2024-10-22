@@ -381,8 +381,8 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> Records
     logger = await bind_temporal_worker_logger(team_id=inputs.team_id, destination="Redshift")
     await logger.ainfo(
         "Batch exporting range %s - %s to Redshift: %s.%s.%s",
-        inputs.data_interval_start,
-        inputs.data_interval_end,
+        inputs.data_interval_start or "START",
+        inputs.data_interval_end or "END",
         inputs.database,
         inputs.schema,
         inputs.table_name,
