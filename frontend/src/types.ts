@@ -41,6 +41,7 @@ import type {
     InsightVizNode,
     Node,
     QueryStatus,
+    RecordingsQuery,
 } from './queries/schema'
 import { NodeKind } from './queries/schema'
 
@@ -1057,6 +1058,7 @@ export interface RecordingUniversalFilters {
     duration: RecordingDurationFilter[]
     filter_test_accounts?: boolean
     filter_group: UniversalFiltersGroup
+    order?: RecordingsQuery['order']
 }
 
 export type ErrorCluster = {
@@ -1411,6 +1413,10 @@ export interface SessionRecordingType {
      * (assumes the recording was loaded from ClickHouse)
      * **/
     ongoing?: boolean
+    /**
+     * calculated on the backend so that we can sort by it, definition may change over time
+     */
+    activity_score?: number
 }
 
 export interface SessionRecordingUpdateType {
@@ -2242,6 +2248,7 @@ export interface TrendsFilterType extends FilterType {
     breakdown_histogram_bin_count?: number // trends breakdown histogram bin count
 
     // frontend only
+    show_alert_threshold_lines?: boolean // used to show/hide horizontal lines on insight representing alert thresholds set on the insight
     show_legend?: boolean // used to show/hide legend next to insights graph
     hidden_legend_keys?: Record<string, boolean | undefined> // used to toggle visibilities in table and legend
     aggregation_axis_format?: AggregationAxisFormat // a fixed format like duration that needs calculation

@@ -54,9 +54,8 @@ export const haveVariablesOrFiltersChanged = (a: Node, b: Node): boolean => {
         return false
     }
 
-    // If neither queries use variables, then don't submit the query when variables change
-    if (!getVariablesFromQuery(a.query).length && !getVariablesFromQuery(b.query).length) {
-        return false
+    if ((a.variables && !b.variables) || (!a.variables && b.variables)) {
+        return true
     }
 
     if (a.variables && b.variables) {
