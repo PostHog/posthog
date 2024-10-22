@@ -13,7 +13,7 @@ pub mod caching;
 pub mod internal;
 pub mod sourcemap;
 
-pub trait SymbolCatlog<Ref, Set>: Send + Sync + 'static {
+pub trait SymbolCatalog<Ref, Set>: Send + Sync + 'static {
     fn get(&self) -> &dyn SymbolProvider<Ref = Ref, Set = Set>;
 }
 
@@ -39,7 +39,7 @@ impl Catalog {
     }
 }
 
-impl SymbolCatlog<Url, SourceMap> for Catalog {
+impl SymbolCatalog<Url, SourceMap> for Catalog {
     fn get(&self) -> &dyn SymbolProvider<Ref = Url, Set = SourceMap> {
         &self.sourcemap
     }
