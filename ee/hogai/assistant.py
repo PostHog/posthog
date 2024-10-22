@@ -2,13 +2,19 @@ from collections.abc import Generator
 from typing import cast
 
 from langchain_core.messages import AIMessageChunk
+from langfuse.callback import CallbackHandler
 from langgraph.graph.state import StateGraph
 
+from ee import settings
 from ee.hogai.trends.nodes import CreateTrendsPlanNode, CreateTrendsPlanToolsNode, GenerateTrendsNode
 from ee.hogai.utils import AssistantMessage, AssistantNodeName, AssistantState
 from posthog.models.team.team import Team
 from posthog.schema import AssistantMessage as FrontendAssistantMessage
 from posthog.schema import VisualizationMessagePayload
+
+langfuse_handler = CallbackHandler(
+    public_key=settings.LANGFUSE_PUBLIC_KEY, secret_key=settings.LANGFUSE_SECRET_KEY, host=settings.LANGFUSE_HOST
+)
 
 
 class Assistant:
@@ -42,7 +48,7 @@ class Assistant:
         assistant_graph = self._compile_graph()
         generator = assistant_graph.stream(
             {"messages": messages},
-            config={"recursion_limit": 24},
+            config={"recursion_limit": 24, "callbacks": [langfuse_handler]},
             stream_mode="messages",
         )
 

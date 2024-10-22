@@ -46,6 +46,7 @@ kafka-python==2.0.2
 kombu==5.3.2
 langchain==0.3.3
 langchain-openai==0.2.2
+langfuse==2.52.1
 langgraph==0.2.34
 langsmith==0.1.132
 lzstring==1.0.4
