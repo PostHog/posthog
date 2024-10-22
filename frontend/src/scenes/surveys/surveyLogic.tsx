@@ -939,10 +939,11 @@ export const surveyLogic = kea<surveyLogicType>([
                                     q.question
                                 }`
                             }),
-                            `coalesce(JSONExtractString(properties, '$lib_version')) -- Library Version`,
-                            `coalesce(JSONExtractString(properties, '$lib')) -- Library`,
                             'timestamp',
                             'person',
+                            `coalesce(JSONExtractString(properties, '$lib_version')) -- Library Version`,
+                            `coalesce(JSONExtractString(properties, '$lib')) -- Library`,
+                            `coalesce(JSONExtractString(properties, '$current_url')) -- URL`,
                         ],
                         orderBy: ['timestamp DESC'],
                         where: [`event == 'survey sent'`],
