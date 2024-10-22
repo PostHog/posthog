@@ -6,6 +6,7 @@ from django.urls import include
 from django.urls.conf import path
 
 from ee.api import integration
+from .api.rbac import organization_resource_access, role
 
 from .api import (
     authentication,
@@ -15,8 +16,6 @@ from .api import (
     feature_flag_role_access,
     hooks,
     license,
-    organization_resource_access,
-    role,
     sentry_stats,
     subscription,
 )
