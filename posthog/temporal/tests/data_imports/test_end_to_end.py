@@ -730,7 +730,7 @@ async def test_sql_database_missing_incremental_values(team, postgres_config, po
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_sql_database_incremental_initual_value(team, postgres_config, postgres_connection):
+async def test_sql_database_incremental_initial_value(team, postgres_config, postgres_connection):
     await postgres_connection.execute(
         "CREATE TABLE IF NOT EXISTS {schema}.test_table (id integer)".format(schema=postgres_config["schema"])
     )

@@ -65,6 +65,7 @@ DEFAULT_DEAL_PROPS = [
     "hs_lastmodifieddate",
     "hs_object_id",
     "pipeline",
+    "hs_mrr",
 ]
 
 DEFAULT_COMPANY_PROPS = [
@@ -72,6 +73,7 @@ DEFAULT_COMPANY_PROPS = [
     "domain",
     "hs_lastmodifieddate",
     "hs_object_id",
+    "hs_csm_sentiment",
     "name",
 ]
 
