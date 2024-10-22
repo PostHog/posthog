@@ -24,6 +24,34 @@ const getPageviewFilterValue = (pageview: string): UniversalFiltersGroupValue =>
     }
 }
 
+const getFlagFilterValue = (flag: string): UniversalFiltersGroupValue => {
+    return {
+        id: '$feature_flag_called',
+        name: '$feature_flag_called',
+        type: 'events',
+        properties: [
+            {
+                key: `$feature/${flag}`,
+                type: PropertyFilterType.Event,
+                value: ['false'],
+                operator: PropertyOperator.IsNot,
+            },
+            {
+                key: `$feature/${flag}`,
+                type: PropertyFilterType.Event,
+                value: 'is_set',
+                operator: PropertyOperator.IsSet,
+            },
+            {
+                key: '$feature_flag',
+                type: PropertyFilterType.Event,
+                value: flag,
+                operator: PropertyOperator.Exact,
+            },
+        ],
+    }
+}
+
 export interface ReplayTemplateLogicPropsType {
     template: ReplayTemplateType
 }
@@ -64,6 +92,9 @@ export const sessionReplayTemplatesLogic = kea<sessionReplayTemplatesLogicType>(
                     .map((variable) => {
                         if (variable.type === 'pageview' && variable.value) {
                             return getPageviewFilterValue(variable.value)
+                        }
+                        if (variable.type === 'flag' && variable.value) {
+                            return getFlagFilterValue(variable.value)
                         }
                         if (variable.type === 'event' && variable.filterGroup) {
                             return variable.filterGroup

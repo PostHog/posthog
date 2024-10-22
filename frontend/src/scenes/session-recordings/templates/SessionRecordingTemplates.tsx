@@ -6,7 +6,13 @@ import { universalFiltersLogic } from 'lib/components/UniversalFilters/universal
 import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
 
 import { actionsModel } from '~/models/actionsModel'
-import { FilterLogicalOperator, ReplayTemplateCategory, ReplayTemplateType, ReplayTemplateVariableType } from '~/types'
+import {
+    FeatureFlagFilter,
+    FilterLogicalOperator,
+    ReplayTemplateCategory,
+    ReplayTemplateType,
+    ReplayTemplateVariableType,
+} from '~/types'
 
 import { replayTemplates } from './availableTemplates'
 import { sessionReplayTemplatesLogic } from './sessionRecordingTemplatesLogic'
@@ -83,7 +89,9 @@ const SingleTemplateVariable = ({
                         : []
                 }
                 onChange={(thisFilterGroup) => {
-                    setVariable({ ...variable, filterGroup: thisFilterGroup.values[0] })
+                    variable.type === 'flag'
+                        ? setVariable({ ...variable, value: (thisFilterGroup.values[0] as FeatureFlagFilter).key })
+                        : setVariable({ ...variable, filterGroup: thisFilterGroup.values[0] })
                 }}
             >
                 <NestedFilterGroup
