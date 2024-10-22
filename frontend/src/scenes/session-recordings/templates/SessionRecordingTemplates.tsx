@@ -56,11 +56,11 @@ const NestedFilterGroup = ({
                         />
                     )
                 })}
-                {selectOne && filterGroup.values.length === 0 && (
+                {!selectOne || (selectOne && filterGroup.values.length === 0) ? (
                     <div>
                         <UniversalFilters.AddFilterButton title={buttonTitle} type="secondary" size="xsmall" />
                     </div>
-                )}
+                ) : null}
             </div>
         </div>
     )
