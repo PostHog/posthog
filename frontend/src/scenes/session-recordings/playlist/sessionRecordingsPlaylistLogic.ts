@@ -696,7 +696,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         ] => {
             const params: Params = objectClean({
                 ...router.values.searchParams,
-                filters: values.filters ?? undefined,
+                filters: objectsEqual(values.filters, getDefaultFilters(props.personUUID)) ? undefined : values.filters,
                 sessionRecordingId: values.selectedRecordingId ?? undefined,
             })
 
