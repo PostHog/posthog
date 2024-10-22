@@ -31,7 +31,7 @@ function getConfigurationFromBatchExportConfig(batchExportConfig: BatchExportCon
     }
 }
 
-function getDefaultConfiguration(service: BatchExportService['type']): Record<string, any> {
+export function getDefaultConfiguration(service: BatchExportService['type']): Record<string, any> {
     return {
         name: humanizeBatchExportName(service),
         destination: service,
@@ -309,6 +309,26 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
                     if (!batchExportConfig) {
                         return state
                     }
+
+                    return getConfigurationFromBatchExportConfig(batchExportConfig)
+                },
+            },
+        ],
+        savedConfiguration: [
+            {} as BatchExportConfigurationForm,
+            {
+                loadBatchExportConfigSuccess: (state, { batchExportConfig }) => {
+                    if (!batchExportConfig) {
+                        return state
+                    }
+
+                    return getConfigurationFromBatchExportConfig(batchExportConfig)
+                },
+                updateBatchExportConfigSuccess: (state, { batchExportConfig }) => {
+                    if (!batchExportConfig) {
+                        return state
+                    }
+
                     return getConfigurationFromBatchExportConfig(batchExportConfig)
                 },
             },
@@ -316,21 +336,6 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
     })),
     selectors(() => ({
         service: [(s, p) => [s.batchExportConfig, p.service], (config, service) => config?.destination.type || service],
-        savedConfiguration: [
-            (s, p) => [s.batchExportConfig, p.service],
-            (batchExportConfig, service) => {
-                if (!batchExportConfig || !service) {
-                    return {}
-                }
-                if (batchExportConfig) {
-                    return getConfigurationFromBatchExportConfig(batchExportConfig)
-                }
-                if (service) {
-                    return getDefaultConfiguration(service)
-                }
-                return {} as Record<string, any>
-            },
-        ],
         isNew: [(_, p) => [p.id], (id): boolean => !id],
         requiredFields: [
             (s) => [s.service, s.isNew],
@@ -393,6 +398,11 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
             if (!batchExportConfig) {
                 return
             }
+            lemonToast.success('Batch export configuration updated successfully')
+
+            // Reset so that form doesn't think there are unsaved changes.
+            actions.resetConfiguration(getConfigurationFromBatchExportConfig(batchExportConfig))
+
             pipelineDestinationsLogic.findMounted()?.actions.updateBatchExportConfig(batchExportConfig)
         },
         setConfigurationValue: async ({ name, value }) => {
