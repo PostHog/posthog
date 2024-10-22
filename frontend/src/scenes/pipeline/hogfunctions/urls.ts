@@ -17,6 +17,10 @@ export function hogFunctionUrl(type: HogFunctionTypeType, id?: string): string {
         return id ? urls.messagingBroadcast(id) : urls.messagingBroadcasts()
     }
     return id
-        ? urls.pipelineNode(PipelineStage.Destination, `hog-${id}`, PipelineNodeTab.Configuration)
+        ? urls.pipelineNode(
+              PipelineStage.Destination,
+              id.startsWith('hog-') ? id : `hog-${id}`,
+              PipelineNodeTab.Configuration
+          )
         : urls.pipeline(PipelineTab.Destinations)
 }
