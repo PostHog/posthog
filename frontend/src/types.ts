@@ -4640,4 +4640,5 @@ export type ReplayTemplateVariableType = {
     value?: string
     description?: string
     filterGroup?: UniversalFiltersGroupValue
+    noTouch?: boolean
 }
