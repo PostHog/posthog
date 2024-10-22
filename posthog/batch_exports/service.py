@@ -100,6 +100,7 @@ class S3BatchExportInputs:
     endpoint_url: str | None = None
     file_format: str = "JSONLines"
     is_backfill: bool = False
+    is_earliest_backfill: bool = False
     batch_export_model: BatchExportModel | None = None
     batch_export_schema: BatchExportSchema | None = None
 
@@ -123,6 +124,7 @@ class SnowflakeBatchExportInputs:
     exclude_events: list[str] | None = None
     include_events: list[str] | None = None
     is_backfill: bool = False
+    is_earliest_backfill: bool = False
     batch_export_model: BatchExportModel | None = None
     batch_export_schema: BatchExportSchema | None = None
 
@@ -146,6 +148,7 @@ class PostgresBatchExportInputs:
     exclude_events: list[str] | None = None
     include_events: list[str] | None = None
     is_backfill: bool = False
+    is_earliest_backfill: bool = False
     batch_export_model: BatchExportModel | None = None
     batch_export_schema: BatchExportSchema | None = None
 
@@ -176,6 +179,8 @@ class BigQueryBatchExportInputs:
     include_events: list[str] | None = None
     use_json_type: bool = False
     is_backfill: bool = False
+    is_earliest_backfill: bool = False
+
     batch_export_model: BatchExportModel | None = None
     batch_export_schema: BatchExportSchema | None = None
 
@@ -193,6 +198,7 @@ class HttpBatchExportInputs:
     exclude_events: list[str] | None = None
     include_events: list[str] | None = None
     is_backfill: bool = False
+    is_earliest_backfill: bool = False
     batch_export_model: BatchExportModel | None = None
     batch_export_schema: BatchExportSchema | None = None
 
@@ -435,7 +441,7 @@ def backfill_export(
     temporal: Client,
     batch_export_id: str,
     team_id: int,
-    start_at: dt.datetime,
+    start_at: dt.datetime | None,
     end_at: dt.datetime | None,
 ) -> str:
     """Starts a backfill for given team and batch export covering given date range.
@@ -463,13 +469,13 @@ def backfill_export(
     inputs = BackfillBatchExportInputs(
         batch_export_id=batch_export_id,
         team_id=team_id,
-        start_at=start_at.isoformat(),
+        start_at=start_at.isoformat() if start_at else None,
         end_at=end_at.isoformat() if end_at else None,
     )
-    start_at_utc_str = start_at.astimezone(tz=dt.UTC).isoformat()
+    start_at_utc_str = start_at.astimezone(tz=dt.UTC).isoformat() if start_at else "START"
     # TODO: Should we use another signal besides "None"? i.e. "Inf" or "END".
     # Keeping it like this for now for backwards compatibility.
-    end_at_utc_str = end_at.astimezone(tz=dt.UTC).isoformat() if end_at else "None"
+    end_at_utc_str = end_at.astimezone(tz=dt.UTC).isoformat() if end_at else "END"
 
     workflow_id = f"{inputs.batch_export_id}-Backfill-{start_at_utc_str}-{end_at_utc_str}"
 
