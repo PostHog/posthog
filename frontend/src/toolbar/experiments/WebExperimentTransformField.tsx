@@ -1,4 +1,4 @@
-import { IconAIText, IconCheck, IconCode, IconMessage } from '@posthog/icons'
+import { IconAIText, IconCheckCircle, IconCode, IconMessage } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
@@ -45,17 +45,32 @@ export function WebExperimentTransformField({
                     {
                         value: 'html',
                         label: 'HTML',
-                        icon: transform.html && transform.html.length > 0 ? <IconCheck /> : <IconCode />,
+                        icon:
+                            transform.html && transform.html.length > 0 ? (
+                                <IconCheckCircle className="text-success" />
+                            ) : (
+                                <IconCode />
+                            ),
                     },
                     {
                         value: 'text',
                         label: 'Text',
-                        icon: transform.text && transform.text.length > 0 ? <IconCheck /> : <IconMessage />,
+                        icon:
+                            transform.text && transform.text.length > 0 ? (
+                                <IconCheckCircle className="text-success" />
+                            ) : (
+                                <IconMessage />
+                            ),
                     },
                     {
                         value: 'css',
                         label: 'CSS',
-                        icon: transform.css && transform.css.length > 0 ? <IconCheck /> : <IconAIText />,
+                        icon:
+                            transform.css && transform.css.length > 0 ? (
+                                <IconCheckCircle className="text-success" />
+                            ) : (
+                                <IconAIText />
+                            ),
                     },
                 ]}
                 onChange={(e) => {
