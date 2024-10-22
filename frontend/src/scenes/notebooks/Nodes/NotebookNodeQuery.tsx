@@ -97,7 +97,7 @@ const Component = ({
     }
 
     return (
-        <div className="flex flex-1 flex-col h-full">
+        <div className="flex flex-1 flex-col h-full" data-attr="notebook-node-query">
             <BindLogic logic={insightLogic} props={insightLogicProps}>
                 <Query
                     // use separate keys for the settings and visualization to avoid conflicts with insightProps
@@ -111,6 +111,8 @@ const Component = ({
                             } as QuerySchema,
                         })
                     }}
+                    embedded
+                    readOnly
                 />
             </BindLogic>
         </div>
