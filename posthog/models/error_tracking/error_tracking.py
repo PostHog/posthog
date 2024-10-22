@@ -1,6 +1,6 @@
 from django.db import models
 from django.contrib.postgres.fields import ArrayField
-from posthog.models.utils import UUIDT, UUIDModel
+from posthog.models.utils import UUIDModel
 from django.db import transaction
 from django.db.models import Q, QuerySet
 
@@ -60,13 +60,13 @@ class ErrorTrackingGroup(UUIDModel):
         self.save()
 
 
-class ErrorTrackingSymbolSet(UUIDT):
+class ErrorTrackingSymbolSet(UUIDModel):
     class StorageMethod(models.TextChoices):
         S3 = "s3", "s3"
         FILE = "file", "file"
 
     # Derived from the symbol set reference
-    id = models.TextField(null=False, blank=False)
+    ref = models.TextField(null=False, blank=False)
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -87,7 +87,7 @@ class ErrorTrackingSymbolSet(UUIDT):
         ]
 
 
-class ErrorTrackingStackFrame(UUIDT):
+class ErrorTrackingStackFrame(UUIDModel):
     # Produced by a raw frame
     raw_id = models.TextField(null=False, blank=False)
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
