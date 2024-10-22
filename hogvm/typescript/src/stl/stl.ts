@@ -1,6 +1,15 @@
 import { DateTime } from 'luxon'
 
-import { isHogCallable, isHogClosure, isHogDate, isHogDateTime, isHogError, newHogError } from '../objects'
+import {
+    isHogCallable,
+    isHogClosure,
+    isHogDate,
+    isHogDateTime,
+    isHogError,
+    newHogCallable,
+    newHogClosure,
+    newHogError,
+} from '../objects'
 import { AsyncSTLFunction, STLFunction } from '../types'
 import { getNestedValue, like } from '../utils'
 import { md5Hex, sha256Hex, sha256HmacChainHex } from './crypto'
@@ -774,6 +783,21 @@ export const STL: Record<string, STLFunction> = {
         },
         minArgs: 1,
         maxArgs: 1,
+    },
+    getCallableChunk: {
+        fn: ([chunk]) => {
+            return newHogClosure(
+                newHogCallable('chunk', {
+                    name: chunk,
+                    argCount: 0,
+                    upvalueCount: 0,
+                    ip: 0,
+                    chunk,
+                })
+            )
+        },
+        minArgs: 4,
+        maxArgs: 4,
     },
 }
 

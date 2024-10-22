@@ -1,8 +1,15 @@
 import type crypto from 'crypto'
 
+export interface BytecodeEntry {
+    bytecode: any[]
+    globals?: Record<string, any>
+}
+
 export interface VMState {
     /** Bytecode running in the VM */
-    bytecode: any[]
+    bytecodes: Record<string, BytecodeEntry>
+    /** TODO: Legacy bytecode running in the VM (kept around for inflight jobs) */
+    bytecode?: any[]
     /** Stack of the VM */
     stack: any[]
     /** Values hoisted from the stack */
@@ -30,6 +37,7 @@ export interface ExecOptions {
     globals?: Record<string, any>
     functions?: Record<string, (...args: any[]) => any>
     asyncFunctions?: Record<string, (...args: any[]) => Promise<any>>
+    getChunkBytecode?: (chunk: string) => BytecodeEntry | undefined
     /** Timeout in milliseconds */
     timeout?: number
     /** Max number of async function that can happen. When reached the function will throw */
@@ -108,7 +116,7 @@ export interface HogError {
 }
 
 export interface HogCallable {
-    __hogCallable__: 'local' | 'stl' | 'async' | 'main'
+    __hogCallable__: 'local' | 'stl' | 'async' | 'chunk'
     name?: string
     argCount: number
     upvalueCount: number
