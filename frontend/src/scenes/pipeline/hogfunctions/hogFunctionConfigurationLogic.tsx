@@ -124,7 +124,7 @@ const templateToConfiguration = (
         hog: template.hog,
         icon_url: template.icon_url,
         inputs,
-        enabled: true,
+        enabled: template.type !== 'broadcast',
     }
 }
 
@@ -253,7 +253,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             null as HogFunctionType | null,
             {
                 loadHogFunction: async () => {
-                    if (!props.id) {
+                    if (!props.id || props.id === 'new') {
                         return null
                     }
 
@@ -261,9 +261,10 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 },
 
                 upsertHogFunction: async ({ configuration }) => {
-                    const res = props.id
-                        ? await api.hogFunctions.update(props.id, configuration)
-                        : await api.hogFunctions.create(configuration)
+                    const res =
+                        props.id && props.id !== 'new'
+                            ? await api.hogFunctions.update(props.id, configuration)
+                            : await api.hogFunctions.create(configuration)
 
                     posthog.capture('hog function saved', {
                         id: res.id,
@@ -286,6 +287,9 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             },
             {
                 sparklineQueryChanged: async ({ sparklineQuery }, breakpoint) => {
+                    if (values.type !== 'destination') {
+                        return null
+                    }
                     if (values.sparkline === null) {
                         await breakpoint(100)
                     } else {
@@ -857,7 +861,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 actions.setSubTemplateId(router.values.searchParams.sub_template)
             }
             actions.loadTemplate() // comes with plugin info
-        } else if (props.id) {
+        } else if (props.id && props.id !== 'new') {
             actions.loadHogFunction()
         }
 

@@ -23,7 +23,7 @@ export function DestinationsFilters({
     const { type } = useValues(pipelineDestinationsLogic)
 
     const hideKind = _hideKind || type !== 'destination'
-    const hideShowPaused = _hideShowPaused || type === 'broadcast'
+    const hideShowPaused = _hideShowPaused || type === 'broadcast' || type === 'email'
     const hideFeedback = _hideFeedback || type === 'broadcast'
 
     return (

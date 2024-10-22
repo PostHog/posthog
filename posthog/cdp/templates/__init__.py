@@ -33,8 +33,10 @@ from .google_cloud_storage.template_google_cloud_storage import (
     TemplateGoogleCloudStorageMigrator,
 )
 from .airtable.template_airtable import template as airtable
+from ._internal.template_broadcast import template_new_broadcast
 
 HOG_FUNCTION_TEMPLATES = [
+    template_new_broadcast,
     slack,
     webhook,
     activecampaign,

@@ -46,11 +46,17 @@ const HogFunctionTestEditor = ({
     )
 }
 
-export function HogFunctionTestPlaceholder(): JSX.Element {
+export function HogFunctionTestPlaceholder({
+    title,
+    description,
+}: {
+    title?: string | JSX.Element
+    description?: string | JSX.Element
+}): JSX.Element {
     return (
         <div className="border bg-accent-3000 rounded p-3 space-y-2">
-            <h2 className="flex-1 m-0">Testing</h2>
-            <p>Save your configuration to enable testing</p>
+            <h2 className="flex-1 m-0">{title || 'Testing'}</h2>
+            <p>{description || 'Save your configuration to enable testing'}</p>
         </div>
     )
 }

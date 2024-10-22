@@ -1,4 +1,5 @@
-import { kea, path, reducers, selectors } from 'kea'
+import { actions, kea, path, reducers, selectors } from 'kea'
+import { urlToAction } from 'kea-router'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -8,14 +9,16 @@ import type { broadcastsLogicType } from './broadcastsLogicType'
 
 export const broadcastsLogic = kea<broadcastsLogicType>([
     path(['scenes', 'messaging', 'broadcastsLogic']),
-    reducers({
-        counter: [1, {}],
+    actions({
+        editBroadcast: (id: string | null) => ({ id }),
     }),
-
+    reducers({
+        broadcastId: [null as string | null, { editBroadcast: (_, { id }) => id }],
+    }),
     selectors({
         breadcrumbs: [
-            () => [],
-            (): Breadcrumb[] => {
+            (s) => [s.broadcastId],
+            (broadcastId): Breadcrumb[] => {
                 return [
                     {
                         key: Scene.MessagingBroadcasts,
@@ -27,8 +30,36 @@ export const broadcastsLogic = kea<broadcastsLogicType>([
                         name: 'Broadcasts',
                         path: urls.messagingBroadcasts(),
                     },
+                    ...(broadcastId === 'new'
+                        ? [
+                              {
+                                  key: 'new-broadcast',
+                                  name: 'New broadcast',
+                                  path: urls.messagingBroadcastNew(),
+                              },
+                          ]
+                        : broadcastId
+                        ? [
+                              {
+                                  key: 'edit-broadcast',
+                                  name: 'Edit broadcast',
+                                  path: urls.messagingBroadcast(broadcastId),
+                              },
+                          ]
+                        : []),
                 ]
             },
         ],
     }),
+    urlToAction(({ actions }) => ({
+        '/messaging/broadcasts/new': () => {
+            actions.editBroadcast('new')
+        },
+        '/messaging/broadcasts/:id': ({ id }) => {
+            actions.editBroadcast(id ?? null)
+        },
+        '/messaging/broadcasts': () => {
+            actions.editBroadcast(null)
+        },
+    })),
 ])

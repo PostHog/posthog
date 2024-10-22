@@ -113,35 +113,39 @@ export function DestinationsTable(): JSX.Element {
                             )
                         },
                     },
-                    {
-                        title: 'Frequency',
-                        key: 'interval',
-                        render: function RenderFrequency(_, destination) {
-                            return destination.interval
-                        },
-                    },
-                    {
-                        title: 'Weekly volume',
-                        render: function RenderSuccessRate(_, destination) {
-                            return (
-                                <Link
-                                    to={
-                                        /* TODO for emails */ urls.pipelineNode(
-                                            PipelineStage.Destination,
-                                            destination.id,
-                                            PipelineNodeTab.Metrics
-                                        )
-                                    }
-                                >
-                                    {destination.backend === PipelineBackend.HogFunction ? (
-                                        <AppMetricSparkLineV2 id={destination.hog_function.id} />
-                                    ) : (
-                                        <AppMetricSparkLine pipelineNode={destination} />
-                                    )}
-                                </Link>
-                            )
-                        },
-                    },
+                    ...(type == 'broadcast'
+                        ? []
+                        : ([
+                              {
+                                  title: 'Frequency',
+                                  key: 'interval',
+                                  render: function RenderFrequency(_, destination) {
+                                      return destination.interval
+                                  },
+                              },
+                              {
+                                  title: 'Weekly volume',
+                                  render: function RenderSuccessRate(_, destination) {
+                                      return (
+                                          <Link
+                                              to={
+                                                  /* TODO for emails */ urls.pipelineNode(
+                                                      PipelineStage.Destination,
+                                                      destination.id,
+                                                      PipelineNodeTab.Metrics
+                                                  )
+                                              }
+                                          >
+                                              {destination.backend === PipelineBackend.HogFunction ? (
+                                                  <AppMetricSparkLineV2 id={destination.hog_function.id} />
+                                              ) : (
+                                                  <AppMetricSparkLine pipelineNode={destination} />
+                                              )}
+                                          </Link>
+                                      )
+                                  },
+                              },
+                          ] satisfies LemonTableColumn<Destination, any>[])),
                     updatedAtColumn() as LemonTableColumn<Destination, any>,
                     {
                         title: 'Status',

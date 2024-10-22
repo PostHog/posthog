@@ -23,6 +23,7 @@ import { Sparkline } from 'lib/components/Sparkline'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
+import { capitalizeFirstLetter } from 'lib/utils'
 
 import { AvailableFeature } from '~/types'
 
@@ -146,8 +147,10 @@ export function HogFunctionConfiguration({ templateId, id }: HogFunctionConfigur
         return <PayGateMini feature={AvailableFeature.DATA_PIPELINES} />
     }
 
-    const showFilters = type === 'destination'
+    const showFilters = type === 'destination' || type === 'broadcast'
     const showExpectedVolume = type === 'destination'
+    const showEnabled = type === 'destination' || type === 'email'
+    const canEditSource = type === 'destination' || type === 'email'
 
     return (
         <div className="space-y-3">
@@ -202,19 +205,20 @@ export function HogFunctionConfiguration({ templateId, id }: HogFunctionConfigur
                                         {template && <DestinationTag status={template.status} />}
                                     </div>
 
-                                    <HogFunctionStatusIndicator hogFunction={hogFunction} />
-
-                                    <LemonField name="enabled">
-                                        {({ value, onChange }) => (
-                                            <LemonSwitch
-                                                label="Enabled"
-                                                onChange={() => onChange(!value)}
-                                                checked={value}
-                                                disabled={loading}
-                                                bordered
-                                            />
-                                        )}
-                                    </LemonField>
+                                    {showEnabled && <HogFunctionStatusIndicator hogFunction={hogFunction} />}
+                                    {showEnabled && (
+                                        <LemonField name="enabled">
+                                            {({ value, onChange }) => (
+                                                <LemonSwitch
+                                                    label="Enabled"
+                                                    onChange={() => onChange(!value)}
+                                                    checked={value}
+                                                    disabled={loading}
+                                                    bordered
+                                                />
+                                            )}
+                                        </LemonField>
+                                    )}
                                 </div>
                                 <LemonField name="name" label="Name">
                                     <LemonInput type="text" disabled={loading} />
@@ -355,7 +359,7 @@ export function HogFunctionConfiguration({ templateId, id }: HogFunctionConfigur
                             <div className="border bg-bg-light rounded p-3 space-y-2">
                                 <div className="space-y-2">
                                     <HogFunctionInputs />
-                                    {showSource ? (
+                                    {showSource && canEditSource ? (
                                         <LemonButton
                                             icon={<IconPlus />}
                                             size="small"
@@ -379,76 +383,106 @@ export function HogFunctionConfiguration({ templateId, id }: HogFunctionConfigur
                                 </div>
                             </div>
 
-                            <div
-                                className={clsx(
-                                    'border rounded p-3 space-y-2',
-                                    showSource ? 'bg-bg-light' : 'bg-accent-3000'
-                                )}
-                            >
-                                <div className="flex items-center gap-2 justify-end">
-                                    <div className="flex-1 space-y-2">
-                                        <h2 className="mb-0">Edit source</h2>
-                                        {!showSource ? <p>Click here to edit the function's source code</p> : null}
+                            {canEditSource && (
+                                <div
+                                    className={clsx(
+                                        'border rounded p-3 space-y-2',
+                                        showSource ? 'bg-bg-light' : 'bg-accent-3000'
+                                    )}
+                                >
+                                    <div className="flex items-center gap-2 justify-end">
+                                        <div className="flex-1 space-y-2">
+                                            <h2 className="mb-0">Edit source</h2>
+                                            {!showSource ? <p>Click here to edit the function's source code</p> : null}
+                                        </div>
+
+                                        {!showSource ? (
+                                            <LemonButton
+                                                type="secondary"
+                                                onClick={() => setShowSource(true)}
+                                                disabledReason={
+                                                    !hasAddon
+                                                        ? 'Editing the source code requires the Data Pipelines addon'
+                                                        : undefined
+                                                }
+                                            >
+                                                Edit source code
+                                            </LemonButton>
+                                        ) : (
+                                            <LemonButton
+                                                size="xsmall"
+                                                type="secondary"
+                                                onClick={() => setShowSource(false)}
+                                            >
+                                                Hide source code
+                                            </LemonButton>
+                                        )}
                                     </div>
 
-                                    {!showSource ? (
-                                        <LemonButton
-                                            type="secondary"
-                                            onClick={() => setShowSource(true)}
-                                            disabledReason={
-                                                !hasAddon
-                                                    ? 'Editing the source code requires the Data Pipelines addon'
-                                                    : undefined
-                                            }
-                                        >
-                                            Edit source code
-                                        </LemonButton>
-                                    ) : (
-                                        <LemonButton
-                                            size="xsmall"
-                                            type="secondary"
-                                            onClick={() => setShowSource(false)}
-                                        >
-                                            Hide source code
-                                        </LemonButton>
-                                    )}
+                                    {showSource ? (
+                                        <LemonField name="hog">
+                                            {({ value, onChange }) => (
+                                                <>
+                                                    <span className="text-xs text-muted-alt">
+                                                        This is the underlying Hog code that will run whenever the
+                                                        filters match.{' '}
+                                                        <Link to="https://posthog.com/docs/hog">See the docs</Link> for
+                                                        more info
+                                                    </span>
+                                                    <CodeEditorResizeable
+                                                        language="hog"
+                                                        value={value ?? ''}
+                                                        onChange={(v) => onChange(v ?? '')}
+                                                        globals={globalsWithInputs}
+                                                        options={{
+                                                            minimap: {
+                                                                enabled: false,
+                                                            },
+                                                            wordWrap: 'on',
+                                                            scrollBeyondLastLine: false,
+                                                            automaticLayout: true,
+                                                            fixedOverflowWidgets: true,
+                                                            suggest: {
+                                                                showInlineDetails: true,
+                                                            },
+                                                            quickSuggestionsDelay: 300,
+                                                        }}
+                                                    />
+                                                </>
+                                            )}
+                                        </LemonField>
+                                    ) : null}
                                 </div>
+                            )}
 
-                                {showSource ? (
-                                    <LemonField name="hog">
-                                        {({ value, onChange }) => (
-                                            <>
-                                                <span className="text-xs text-muted-alt">
-                                                    This is the underlying Hog code that will run whenever the filters
-                                                    match. <Link to="https://posthog.com/docs/hog">See the docs</Link>{' '}
-                                                    for more info
-                                                </span>
-                                                <CodeEditorResizeable
-                                                    language="hog"
-                                                    value={value ?? ''}
-                                                    onChange={(v) => onChange(v ?? '')}
-                                                    globals={globalsWithInputs}
-                                                    options={{
-                                                        minimap: {
-                                                            enabled: false,
-                                                        },
-                                                        wordWrap: 'on',
-                                                        scrollBeyondLastLine: false,
-                                                        automaticLayout: true,
-                                                        fixedOverflowWidgets: true,
-                                                        suggest: {
-                                                            showInlineDetails: true,
-                                                        },
-                                                        quickSuggestionsDelay: 300,
-                                                    }}
-                                                />
-                                            </>
-                                        )}
-                                    </LemonField>
-                                ) : null}
-                            </div>
+                            {type === 'destination' ? (
+                                id && id !== 'new' ? (
+                                    <HogFunctionTest id={id} />
+                                ) : (
+                                    <HogFunctionTestPlaceholder />
+                                )
+                            ) : type === 'broadcast' || type === 'email' ? (
+                                <HogFunctionTestPlaceholder
+                                    description={
+                                        id && id !== 'new'
+                                            ? `${
+                                                  type === 'email' ? 'Email provider' : capitalizeFirstLetter(type)
+                                              } testing coming soon!`
+                                            : `Save your ${type === 'email' ? 'email provider' : type} to begin testing`
+                                    }
+                                />
+                            ) : null}
+                            {type === 'broadcast' ? (
+                                id && id !== 'new' ? (
+                                    <HogFunctionTestPlaceholder title="Send broadcast" description="Coming soon..." />
+                                ) : (
+                                    <HogFunctionTestPlaceholder
+                                        title="Send broadcast"
+                                        description="Save to send your broadcast"
+                                    />
+                                )
+                            ) : null}
 
-                            {id ? <HogFunctionTest id={id} /> : <HogFunctionTestPlaceholder />}
                             <div className="flex gap-2 justify-end">{saveButtons}</div>
                         </div>
                     </div>

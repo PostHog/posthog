@@ -279,15 +279,15 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
         ],
 
         filteredDestinations: [
-            (s) => [s.filters, s.destinations, s.destinationsFuse],
-            (filters, destinations, destinationsFuse): Destination[] => {
+            (s) => [s.filters, s.destinations, s.destinationsFuse, s.type],
+            (filters, destinations, destinationsFuse, type): Destination[] => {
                 const { search, showPaused, kind } = filters
 
                 return (search ? destinationsFuse.search(search).map((x) => x.item) : destinations).filter((dest) => {
                     if (kind && dest.backend !== kind) {
                         return false
                     }
-                    if (!showPaused && !dest.enabled) {
+                    if (!showPaused && !dest.enabled && type !== 'broadcast' && type !== 'email') {
                         return false
                     }
                     return true

@@ -3,24 +3,22 @@ from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
 
 # See https://dev.mailjet.com/email/reference/contacts/contact-list/
 
-common_inputs_schemas = [
-    {
-        "key": "api_key",
-        "type": "string",
-        "label": "Mailjet API Key",
-        "secret": True,
-        "required": True,
-    },
-    {
-        "key": "email",
-        "type": "string",
-        "label": "Email of the user",
-        "description": "Where to find the email for the user to be checked with Mailjet",
-        "default": "{person.properties.email}",
-        "secret": False,
-        "required": True,
-    },
-]
+input_api_key = {
+    "key": "api_key",
+    "type": "string",
+    "label": "Mailjet API Key",
+    "secret": True,
+    "required": True,
+}
+input_email = {
+    "key": "email",
+    "type": "string",
+    "label": "Email of the user",
+    "description": "Where to find the email for the user to be checked with Mailjet",
+    "default": "{person.properties.email}",
+    "secret": False,
+    "required": True,
+}
 
 common_filters = {
     "events": [{"id": "$identify", "name": "$identify", "type": "events", "order": 0}],
@@ -56,7 +54,8 @@ fetch(f'https://api.mailjet.com/v3/REST/contact/', {
 })
 """.strip(),
     inputs_schema=[
-        *common_inputs_schemas,
+        input_api_key,
+        input_email,
         {
             "key": "name",
             "type": "string",
@@ -110,7 +109,8 @@ fetch(f'https://api.mailjet.com/v3/REST/contact/{inputs.email}/managecontactlist
 })
 """.strip(),
     inputs_schema=[
-        *common_inputs_schemas,
+        input_api_key,
+        input_email,
         {
             "key": "contact_list_id",
             "type": "string",
@@ -168,22 +168,31 @@ fetch(f'https://api.mailjet.com/v3.1/send', {
 		'Messages':[
             {
                 'From': {
-                    'Email': inputs.email.from_email,
-                    'Name': inputs.email.from_name
+                    'Email': inputs.email.from,
+                    'Name': ''
                 },
                 'To': [
                     {
-                        'Email': inputs.email.to_email,
-                        'Name': inputs.email.to_name
+                        'Email': inputs.email.to,
+                        'Name': ''
                     }
                 ],
                 'Subject': inputs.email.subject,
-                'HTMLPart': inputs.email.body
+                'HTMLPart': inputs.email.html
             }
 		]
     }
 })
 """.strip(),
-    inputs_schema=[*common_inputs_schemas],
+    inputs_schema=[
+        input_api_key,
+        {
+            "key": "from_email",
+            "type": "string",
+            "label": "Email to send from",
+            "secret": False,
+            "required": True,
+        },
+    ],
     filters=common_filters,
 )
