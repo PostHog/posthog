@@ -331,6 +331,7 @@ export interface RecordingsQuery extends DataNode<RecordingsQueryResponse> {
         | 'click_count'
         | 'keypress_count'
         | 'mouse_activity_count'
+        | 'activity_score'
     limit?: integer
     offset?: integer
     user_modified_filters?: Record<string, any>
