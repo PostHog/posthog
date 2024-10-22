@@ -215,7 +215,6 @@ export const FEATURE_FLAGS = {
     INSIGHT_VARIABLES: 'insight_variables', // owner: @Gilbert09 #team-data-warehouse
     WEB_EXPERIMENTS: 'web-experiments', // owner: @team-feature-success
     BIGQUERY_DWH: 'bigquery-dwh', // owner: @Gilbert09 #team-data-warehouse
-    REPLAY_DEFAULT_SORT_ORDER_EXPERIMENT: 'replay-order-by-experiment', // owner: #team-replay
     ENVIRONMENTS: 'environments', // owner: @Twixes #team-product-analytics
     BILLING_PAYMENT_ENTRY_IN_APP: 'billing-payment-entry-in-app', // owner: @zach
     LEGACY_ACTION_WEBHOOKS: 'legacy-action-webhooks', // owner: @mariusandra #team-cdp

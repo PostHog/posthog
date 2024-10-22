@@ -7,6 +7,7 @@ import contextlib
 import csv
 import datetime as dt
 import gzip
+import json
 import tempfile
 import typing
 
@@ -463,16 +464,43 @@ class JSONLBatchExportWriter(BatchExportWriter):
         """Write a single row of JSONL."""
         try:
             n = self.batch_export_file.write(orjson.dumps(d, default=str) + b"\n")
-        except orjson.JSONEncodeError:
-            logger.exception("Failed to encode with orjson: %s", d)
-            # orjson is very strict about invalid unicode. This slow path protects us against
-            # things we've observed in practice, like single surrogate codes, e.g. "\ud83d"
-            cleaned_content = replace_broken_unicode(d)
-            n = self.batch_export_file.write(orjson.dumps(cleaned_content, default=str) + b"\n")
-        except TypeError:
-            logger.exception("Orjson detected a deeply nested dict: %s", d)
-            raise
+        except orjson.JSONEncodeError as err:
+            # NOTE: `orjson.JSONEncodeError` is actually just an alias for `TypeError`.
+            # This handler will catch everything coming from orjson, so we have to
+            # awkwardly check error messages.
+            if str(err) == "Recursion limit reached":
+                # Orjson enforces an unmodifiable recursion limit (256), so we can't
+                # dump very nested dicts.
+                if d.get("event", None) == "$web_vitals":
+                    # These are PostHog events that for a while included a bunch of
+                    # nested DOM structures. Eventually, this was removed, but these
+                    # events could still be present in database.
+                    # Let's try to clear the key with nested elements first.
+                    try:
+                        del d["properties"]["$web_vitals_INP_event"]["attribution"]["interactionTargetElement"]
+                    except KeyError:
+                        # We tried, fallback to the slower but more permissive stdlib
+                        # json.
+                        logger.exception("PostHog $web_vitals event didn't match expected structure")
+                        dumped = json.dumps(d).encode("utf-8")
+                        n = self.batch_export_file.write(dumped + b"\n")
+                    else:
+                        dumped = orjson.dumps(d, default=str)
+                        n = self.batch_export_file.write(dumped + b"\n")
 
+                else:
+                    # In this case, we fallback to the slower but more permissive stdlib
+                    # json.
+                    logger.exception("Orjson detected a deeply nested dict: %s", d)
+                    dumped = json.dumps(d).encode("utf-8")
+                    n = self.batch_export_file.write(dumped + b"\n")
+            else:
+                # Orjson is very strict about invalid unicode. This slow path protects us
+                # against things we've observed in practice, like single surrogate codes, e.g.
+                # "\ud83d"
+                logger.exception("Failed to encode with orjson: %s", d)
+                cleaned_content = replace_broken_unicode(d)
+                n = self.batch_export_file.write(orjson.dumps(cleaned_content, default=str) + b"\n")
         return n
 
     def _write_record_batch(self, record_batch: pa.RecordBatch) -> None:

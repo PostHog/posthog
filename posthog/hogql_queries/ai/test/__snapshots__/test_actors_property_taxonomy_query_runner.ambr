@@ -81,15 +81,12 @@
     (SELECT DISTINCT persons.properties___email AS prop
      FROM
        (SELECT person.id AS id,
-               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email,
-               toTimeZone(person.created_at, 'UTC') AS created_at
+               argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', ''), person.version) AS properties___email,
+               argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at
         FROM person
-        WHERE and(equals(person.team_id, 2), ifNull(in(tuple(person.id, person.version),
-                                                         (SELECT person.id AS id, max(person.version) AS version
-                                                          FROM person
-                                                          WHERE equals(person.team_id, 2)
-                                                          GROUP BY person.id
-                                                          HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons
+        WHERE equals(person.team_id, 2)
+        GROUP BY person.id
+        HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons
      WHERE isNotNull(prop)
      ORDER BY persons.created_at DESC)
   LIMIT 100 SETTINGS readonly=2,
@@ -108,15 +105,12 @@
     (SELECT DISTINCT persons.`properties___does not exist` AS prop
      FROM
        (SELECT person.id AS id,
-               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'does not exist'), ''), 'null'), '^"|"$', '') AS `properties___does not exist`,
-               toTimeZone(person.created_at, 'UTC') AS created_at
+               argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'does not exist'), ''), 'null'), '^"|"$', ''), person.version) AS `properties___does not exist`,
+               argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at
         FROM person
-        WHERE and(equals(person.team_id, 2), ifNull(in(tuple(person.id, person.version),
-                                                         (SELECT person.id AS id, max(person.version) AS version
-                                                          FROM person
-                                                          WHERE equals(person.team_id, 2)
-                                                          GROUP BY person.id
-                                                          HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons
+        WHERE equals(person.team_id, 2)
+        GROUP BY person.id
+        HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons
      WHERE isNotNull(prop)
      ORDER BY persons.created_at DESC)
   LIMIT 100 SETTINGS readonly=2,
@@ -135,15 +129,12 @@
     (SELECT DISTINCT persons.properties___age AS prop
      FROM
        (SELECT person.id AS id,
-               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'age'), ''), 'null'), '^"|"$', '') AS properties___age,
-               toTimeZone(person.created_at, 'UTC') AS created_at
+               argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'age'), ''), 'null'), '^"|"$', ''), person.version) AS properties___age,
+               argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at
         FROM person
-        WHERE and(equals(person.team_id, 2), ifNull(in(tuple(person.id, person.version),
-                                                         (SELECT person.id AS id, max(person.version) AS version
-                                                          FROM person
-                                                          WHERE equals(person.team_id, 2)
-                                                          GROUP BY person.id
-                                                          HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons
+        WHERE equals(person.team_id, 2)
+        GROUP BY person.id
+        HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons
      WHERE isNotNull(prop)
      ORDER BY persons.created_at DESC)
   LIMIT 100 SETTINGS readonly=2,
