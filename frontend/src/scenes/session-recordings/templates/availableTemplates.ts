@@ -1,3 +1,5 @@
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+
 import { ReplayTemplateType } from '~/types'
 
 export const replayTemplates: ReplayTemplateType[] = [
@@ -119,6 +121,26 @@ export const replayTemplates: ReplayTemplateType[] = [
                 name: 'Feature flag',
                 key: 'feature-flag',
                 description: 'The feature flag that you want to observe.',
+            },
+        ],
+        categories: ['More'],
+    },
+    {
+        key: 'rageclicks',
+        name: 'Rageclicks',
+        description: 'See where users are "rageclicking" on your website to find things that don\'t work as expected.',
+        variables: [
+            {
+                type: 'event',
+                name: 'Rageclick event',
+                key: 'rageclick-event',
+                description: 'The event that indicates a user has "rageclicked" on your website.',
+                noTouch: true,
+                filterGroup: {
+                    id: '$rageclick',
+                    name: '$rageclick',
+                    type: TaxonomicFilterGroupType.Events,
+                },
             },
         ],
         categories: ['More'],

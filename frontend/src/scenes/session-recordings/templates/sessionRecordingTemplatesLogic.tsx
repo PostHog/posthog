@@ -86,7 +86,11 @@ export const sessionReplayTemplatesLogic = kea<sessionReplayTemplatesLogicType>(
                 return filterGroup
             },
         ],
-        areAnyVariablesTouched: [(s) => [s.variables], (variables) => variables.some((v) => v.touched)],
+        areAnyVariablesTouched: [
+            (s) => [s.variables],
+            (variables) => variables.some((v) => v.touched) || variables.some((v) => v.noTouch),
+        ],
+        editableVariables: [(s) => [s.variables], (variables) => variables.filter((v) => !v.noTouch)],
     }),
     listeners(({ values }) => ({
         navigate: () => {
