@@ -261,6 +261,7 @@ async def backfill_schedule(inputs: BackfillScheduleInputs) -> None:
 
         args = await client.data_converter.decode(schedule_action.args)
         args[0]["is_backfill"] = True
+        args[0]["is_earliest_backfill"] = start_at is None
 
         await asyncio.sleep(inputs.start_delay)
 

@@ -218,7 +218,7 @@ async def iter_records_from_model_view(
     **parameters,
 ) -> AsyncRecordsGenerator:
     if model_name == "persons":
-        if is_backfill:
+        if is_backfill and interval_start is None:
             view = SELECT_FROM_PERSONS_VIEW_BACKFILL
         else:
             view = SELECT_FROM_PERSONS_VIEW
@@ -342,7 +342,7 @@ def start_produce_batch_export_record_batches(
     model_name: str,
     is_backfill: bool,
     team_id: int,
-    interval_start: str,
+    interval_start: str | None,
     interval_end: str,
     fields: list[BatchExportField] | None = None,
     destination_default_fields: list[BatchExportField] | None = None,
@@ -367,7 +367,10 @@ def start_produce_batch_export_record_batches(
             fields = destination_default_fields
 
     if model_name == "persons":
-        view = SELECT_FROM_PERSONS_VIEW
+        if is_backfill and interval_start is None:
+            view = SELECT_FROM_PERSONS_VIEW_BACKFILL
+        else:
+            view = SELECT_FROM_PERSONS_VIEW
 
     else:
         if parameters.get("exclude_events", None):
@@ -398,9 +401,12 @@ def start_produce_batch_export_record_batches(
 
         view = query_template.substitute(fields=query_fields)
 
-    parameters["team_id"] = team_id
-    parameters["interval_start"] = dt.datetime.fromisoformat(interval_start).strftime("%Y-%m-%d %H:%M:%S")
+    if interval_start is not None:
+        parameters["interval_start"] = dt.datetime.fromisoformat(interval_start).strftime("%Y-%m-%d %H:%M:%S")
+
     parameters["interval_end"] = dt.datetime.fromisoformat(interval_end).strftime("%Y-%m-%d %H:%M:%S")
+    parameters["team_id"] = team_id
+
     extra_query_parameters = parameters.pop("extra_query_parameters", {}) or {}
     parameters = {**parameters, **extra_query_parameters}
 

@@ -130,7 +130,7 @@ class BigQueryInsertInputs:
     private_key_id: str
     token_uri: str
     client_email: str
-    data_interval_start: str
+    data_interval_start: str | None
     data_interval_end: str
     exclude_events: list[str] | None = None
     include_events: list[str] | None = None
@@ -656,11 +656,12 @@ class BigQueryBatchExportWorkflow(PostHogWorkflow):
     async def run(self, inputs: BigQueryBatchExportInputs):
         """Workflow implementation to export data to BigQuery."""
         data_interval_start, data_interval_end = get_data_interval(inputs.interval, inputs.data_interval_end)
+        should_backfill_from_beginning = inputs.is_backfill and inputs.is_earliest_backfill
 
         start_batch_export_run_inputs = StartBatchExportRunInputs(
             team_id=inputs.team_id,
             batch_export_id=inputs.batch_export_id,
-            data_interval_start=data_interval_start.isoformat(),
+            data_interval_start=data_interval_start.isoformat() if not should_backfill_from_beginning else None,
             data_interval_end=data_interval_end.isoformat(),
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
@@ -694,7 +695,7 @@ class BigQueryBatchExportWorkflow(PostHogWorkflow):
             private_key_id=inputs.private_key_id,
             token_uri=inputs.token_uri,
             client_email=inputs.client_email,
-            data_interval_start=data_interval_start.isoformat(),
+            data_interval_start=data_interval_start.isoformat() if not should_backfill_from_beginning else None,
             data_interval_end=data_interval_end.isoformat(),
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
