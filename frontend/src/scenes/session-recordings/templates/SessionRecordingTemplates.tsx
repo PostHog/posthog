@@ -7,7 +7,7 @@ import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/util
 
 import { actionsModel } from '~/models/actionsModel'
 import {
-    FeatureFlagFilter,
+    FeaturePropertyFilter,
     FilterLogicalOperator,
     ReplayTemplateCategory,
     ReplayTemplateType,
@@ -104,7 +104,7 @@ const SingleTemplateVariable = ({
                 }
                 onChange={(thisFilterGroup) => {
                     variable.type === 'flag'
-                        ? setVariable({ ...variable, value: (thisFilterGroup.values[0] as FeatureFlagFilter).key })
+                        ? setVariable({ ...variable, value: (thisFilterGroup.values[0] as FeaturePropertyFilter).key })
                         : setVariable({ ...variable, filterGroup: thisFilterGroup.values[0] })
                 }}
             >

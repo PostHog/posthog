@@ -8,9 +8,10 @@ import { taxonomicFilterGroupTypeToEntityType } from 'scenes/insights/filters/Ac
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import {
     ActionFilter,
-    FeatureFlagFilter,
+    FeaturePropertyFilter,
     FilterLogicalOperator,
     PropertyFilterType,
+    PropertyOperator,
     UniversalFiltersGroup,
     UniversalFiltersGroupValue,
 } from '~/types'
@@ -123,9 +124,10 @@ export const universalFiltersLogic = kea<universalFiltersLogicType>([
                 if (!item.key) {
                     return
                 }
-                const newFeatureFlagFilter: FeatureFlagFilter = {
+                const newFeatureFlagFilter: FeaturePropertyFilter = {
                     type: PropertyFilterType.Feature,
                     key: item.key,
+                    operator: PropertyOperator.Exact,
                 }
                 newValues.push(newFeatureFlagFilter)
             } else {

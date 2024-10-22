@@ -802,6 +802,7 @@ export interface GroupPropertyFilter extends BasePropertyFilter {
 export interface FeaturePropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.Feature
     operator: PropertyOperator
+    key: string
 }
 
 export interface HogQLPropertyFilter extends BasePropertyFilter {
@@ -1065,7 +1066,7 @@ export interface UniversalFiltersGroup {
 }
 
 export type UniversalFiltersGroupValue = UniversalFiltersGroup | UniversalFilterValue
-export type UniversalFilterValue = AnyPropertyFilter | ActionFilter | FeatureFlagFilter | RecordingFilter
+export type UniversalFilterValue = AnyPropertyFilter | ActionFilter
 
 export type ErrorCluster = {
     cluster: number
@@ -1111,16 +1112,6 @@ export interface ActionFilter extends EntityFilter {
     properties?: AnyPropertyFilter[]
     type: EntityType
     days?: string[] // TODO: why was this added here?
-}
-
-export interface FeatureFlagFilter {
-    type: PropertyFilterType.Feature
-    key: string
-}
-
-export interface RecordingFilter {
-    type: PropertyFilterType.Recording
-    key: string
 }
 
 export interface DataWarehouseFilter extends ActionFilter {

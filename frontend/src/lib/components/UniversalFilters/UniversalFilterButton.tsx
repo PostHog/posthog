@@ -11,7 +11,7 @@ import React from 'react'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { ActionFilter, AnyPropertyFilter, FeatureFlagFilter, UniversalFilterValue } from '~/types'
+import { ActionFilter, AnyPropertyFilter, FeaturePropertyFilter, UniversalFilterValue } from '~/types'
 
 import { EntityFilterInfo } from '../EntityFilterInfo'
 import { formatPropertyLabel } from '../PropertyFilters/utils'
@@ -118,6 +118,6 @@ const EventLabel = ({
     )
 }
 
-const FeatureFlagLabel = ({ filter }: { filter: FeatureFlagFilter }): JSX.Element => {
+const FeatureFlagLabel = ({ filter }: { filter: FeaturePropertyFilter }): JSX.Element => {
     return <div>{filter.key}</div>
 }
