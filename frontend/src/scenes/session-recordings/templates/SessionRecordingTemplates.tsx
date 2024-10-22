@@ -123,16 +123,17 @@ const TemplateVariables = ({ template }: { template: ReplayTemplateType }): JSX.
 
 const RecordingTemplateCard = ({ template }: { template: ReplayTemplateType }): JSX.Element => {
     const { showVariables, hideVariables, navigate } = useActions(sessionReplayTemplatesLogic({ template }))
-    const { variablesVisible, variables } = useValues(sessionReplayTemplatesLogic({ template }))
+    const { variablesVisible, editableVariables } = useValues(sessionReplayTemplatesLogic({ template }))
 
     return (
         <LemonCard
             className="w-80"
             onClick={() => {
-                variables.length > 0 ? showVariables() : navigate()
+                editableVariables.length > 0 ? showVariables() : navigate()
             }}
             closeable={variablesVisible}
             onClose={hideVariables}
+            focused={variablesVisible}
         >
             <div className="flex flex-col gap-2">
                 <h3>
