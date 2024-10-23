@@ -157,7 +157,9 @@ const RecordingTemplateCard = (props: RecordingTemplateCardProps): JSX.Element =
             closeable={variablesVisible}
             onClose={hideVariables}
             focused={variablesVisible}
-            data-attr={`session-replay-template-${props.category}-${props.template.key}`}
+            data-attr="session-replay-template"
+            data-ph-capture-attribute-category={props.category}
+            data-ph-capture-attribute-template={props.template.key}
         >
             <div className="flex flex-col gap-2">
                 <div className="flex items-center gap-2">
