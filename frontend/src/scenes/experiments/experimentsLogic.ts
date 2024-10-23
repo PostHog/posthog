@@ -64,8 +64,7 @@ export const experimentsLogic = kea<experimentsLogicType>([
             },
         ],
         tab: [
-            // ExperimentsTabs.All as ExperimentsTabs,
-            ExperimentsTabs.Holdouts as ExperimentsTabs,
+            ExperimentsTabs.All as ExperimentsTabs,
             {
                 setExperimentsTab: (_, { tabKey }) => tabKey,
             },

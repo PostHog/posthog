@@ -5,6 +5,7 @@ import { ExperimentsHog } from 'lib/components/hedgehogs'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { PageHeader } from 'lib/components/PageHeader'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -30,8 +31,16 @@ export const scene: SceneExport = {
 }
 
 export function Experiments(): JSX.Element {
-    const { filteredExperiments, experimentsLoading, tab, searchTerm, shouldShowEmptyState, searchStatus, userFilter } =
-        useValues(experimentsLogic)
+    const {
+        filteredExperiments,
+        experimentsLoading,
+        tab,
+        searchTerm,
+        shouldShowEmptyState,
+        searchStatus,
+        userFilter,
+        featureFlags,
+    } = useValues(experimentsLogic)
     const { setExperimentsTab, deleteExperiment, archiveExperiment, setSearchStatus, setSearchTerm, setUserFilter } =
         useActions(experimentsLogic)
 
@@ -210,11 +219,13 @@ export function Experiments(): JSX.Element {
                     { key: ExperimentsTabs.All, label: 'All experiments' },
                     { key: ExperimentsTabs.Yours, label: 'Your experiments' },
                     { key: ExperimentsTabs.Archived, label: 'Archived experiments' },
-                    { key: ExperimentsTabs.Holdouts, label: 'Holdouts' },
+                    ...(featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOLDOUTS]
+                        ? [{ key: ExperimentsTabs.Holdouts, label: 'Holdout groups' }]
+                        : []),
                 ]}
             />
 
-            {tab === ExperimentsTabs.Holdouts ? (
+            {featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOLDOUTS] && tab === ExperimentsTabs.Holdouts ? (
                 <Holdouts />
             ) : (
                 <>
