@@ -9,7 +9,7 @@ import { UserBasicType } from '~/types'
 import type { holdoutsLogicType } from './holdoutsLogicType'
 
 export interface Holdout {
-    id: string
+    id: number | null
     name: string
     description: string | null
     filters: Record<string, any>
@@ -19,7 +19,7 @@ export interface Holdout {
 }
 
 export const NEW_HOLDOUT: Holdout = {
-    id: 'new',
+    id: null,
     name: '',
     description: null,
     filters: [
@@ -39,9 +39,9 @@ export const holdoutsLogic = kea<holdoutsLogicType>([
     actions({
         setHoldout: (holdout: Partial<Holdout>) => ({ holdout }),
         createHoldout: true,
-        updateHoldout: (id: string, holdout: Partial<Holdout>) => ({ id, holdout }),
-        deleteHoldout: (id: string) => ({ id }),
-        loadHoldout: (id: string) => ({ id }),
+        updateHoldout: (id: number | null, holdout: Partial<Holdout>) => ({ id, holdout }),
+        deleteHoldout: (id: number | null) => ({ id }),
+        loadHoldout: (id: number | null) => ({ id }),
     }),
     reducers({
         holdout: [
@@ -100,7 +100,7 @@ export const holdoutsLogic = kea<holdoutsLogicType>([
     selectors({
         holdoutById: [
             (s) => [s.holdouts],
-            (holdouts: Holdout[]) => (id: string) => holdouts.find((h) => h.id === id) || null,
+            (holdouts: Holdout[]) => (id: number | null) => holdouts.find((h) => h.id === id) || null,
         ],
     }),
     events(({ actions }) => ({

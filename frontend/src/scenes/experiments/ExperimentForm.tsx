@@ -5,11 +5,12 @@ import { LemonDivider, LemonInput, LemonTextArea, Tooltip } from '@posthog/lemon
 import { BindLogic, useActions, useValues } from 'kea'
 import { Form, Group } from 'kea-forms'
 import { ExperimentVariantNumber } from 'lib/components/SeriesGlyph'
-import { MAX_EXPERIMENT_VARIANTS } from 'lib/constants'
+import { FEATURE_FLAGS, MAX_EXPERIMENT_VARIANTS } from 'lib/constants'
 import { IconChevronLeft } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
+import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { useEffect } from 'react'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
@@ -23,7 +24,7 @@ import { experimentLogic } from './experimentLogic'
 import { ExperimentInsightCreator } from './MetricSelector'
 
 const StepInfo = (): JSX.Element => {
-    const { experiment } = useValues(experimentLogic)
+    const { experiment, featureFlags } = useValues(experimentLogic)
     const { addExperimentGroup, removeExperimentGroup, moveToNextFormStep } = useActions(experimentLogic)
 
     return (
@@ -134,6 +135,14 @@ const StepInfo = (): JSX.Element => {
                         </div>
                     </div>
                 </div>
+                {featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOLDOUTS] && (
+                    <div>
+                        <h3>Holdout group</h3>
+                        <div className="text-xs text-muted">Exclude a stable group of users from the experiment.</div>
+                        <LemonDivider />
+                        <HoldoutSelector />
+                    </div>
+                )}
             </div>
             <LemonButton
                 className="mt-2"
@@ -272,6 +281,33 @@ const StepGoal = (): JSX.Element => {
             >
                 Save as draft
             </LemonButton>
+        </div>
+    )
+}
+
+const HoldoutSelector = (): JSX.Element => {
+    const { experiment, holdouts } = useValues(experimentLogic)
+    const { setExperiment } = useActions(experimentLogic)
+
+    const holdoutOptions = holdouts.map((holdout) => ({
+        value: holdout.id,
+        label: holdout.name,
+    }))
+    holdoutOptions.unshift({ value: null, label: 'No holdout' })
+
+    return (
+        <div className="mt-4 mb-8">
+            <LemonSelect
+                options={holdoutOptions}
+                value={experiment.holdout || null}
+                onChange={(value) => {
+                    setExperiment({
+                        ...experiment,
+                        holdout: value,
+                    })
+                }}
+                data-attr="experiment-holdout-selector"
+            />
         </div>
     )
 }
