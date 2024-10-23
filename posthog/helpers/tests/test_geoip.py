@@ -11,20 +11,25 @@ australia_ip = "13.106.122.3"
 uk_ip = "31.28.64.3"
 us_ip_v6 = "2600:6c52:7a00:11c:1b6:b7b0:ea19:6365"
 local_ip = "127.0.0.1"
+mexico_ip = "187.188.10.252"
+australia_ip_2 = "13.106.122.3"
 
 
 @pytest.mark.parametrize(
-    "test_input,expected",
+    "test_input,expected_country,expected_city",
     [
-        (australia_ip, "Australia"),
-        (uk_ip, "United Kingdom"),
-        (us_ip_v6, "United States"),
+        (australia_ip, "Australia", "Sydney"),
+        (uk_ip, "United Kingdom", "Royston"),
+        (us_ip_v6, "United States", "San Luis Obispo"),
+        (mexico_ip, "Mexico", "Cuauhtémoc"),
+        (australia_ip, "Australia", "Sydney"),
     ],
 )
-def test_geoip_results(test_input, expected):
+def test_geoip_results(test_input, expected_country, expected_city):
     properties = get_geoip_properties(test_input)
-    assert properties["$geoip_country_name"] == expected
-    assert len(properties) == 6
+    assert properties["$geoip_country_name"] == expected_country
+    assert properties["$geoip_city_name"] == expected_city
+    assert len(properties) == 7
 
 
 class TestGeoIPDBError(TestCase):
