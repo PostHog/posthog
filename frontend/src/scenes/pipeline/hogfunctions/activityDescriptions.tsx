@@ -8,19 +8,12 @@ import {
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
 import { Link } from 'lib/lemon-ui/Link'
 import { initHogLanguage } from 'lib/monaco/languages/hog'
-import { urls } from 'scenes/urls'
-
-import { PipelineNodeTab, PipelineStage } from '~/types'
+import { hogFunctionUrl } from 'scenes/pipeline/hogfunctions/urls'
 
 const nameOrLinkToHogFunction = (id?: string | null, name?: string | null): string | JSX.Element => {
     const displayName = name || '(empty string)'
-    return id ? (
-        <Link to={urls.pipelineNode(PipelineStage.Destination, `hog-${id}`, PipelineNodeTab.Configuration)}>
-            {displayName}
-        </Link>
-    ) : (
-        displayName
-    )
+    // TODO: get the real type
+    return id ? <Link to={hogFunctionUrl('destination', id)}>{displayName}</Link> : displayName
 }
 
 export interface DiffProps {

@@ -4,6 +4,7 @@ import dataclasses
 
 template: HogFunctionTemplate = HogFunctionTemplate(
     status="beta",
+    type="destination",
     id="template-engage-so",
     name="Engage.so",
     description="Send events to Engage.so",

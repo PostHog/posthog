@@ -13,13 +13,13 @@ export const pipelineOverviewLogic = kea<pipelineOverviewLogicType>([
             ['currentTeamId'],
             pipelineTransformationsLogic,
             ['loading as transformationsLoading', 'transformations'],
-            pipelineDestinationsLogic,
+            pipelineDestinationsLogic({ type: 'destination' }),
             ['loading as destinationsLoading', 'destinations'],
         ],
         actions: [
             pipelineTransformationsLogic,
             ['loadPlugins as loadTransformationPlugins', 'loadPluginConfigs as loadTransformationPluginConfigs'],
-            pipelineDestinationsLogic,
+            pipelineDestinationsLogic({ type: 'destination' }),
             [
                 'loadPlugins as loadDestinationPlugins',
                 'loadPluginConfigs as loadDestinationPluginConfigs',

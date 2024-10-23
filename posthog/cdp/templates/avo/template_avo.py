@@ -5,6 +5,7 @@ from posthog.hogql.escape_sql import escape_hogql_string
 
 template: HogFunctionTemplate = HogFunctionTemplate(
     status="beta",
+    type="destination",
     id="template-avo",
     name="Avo",
     description="Send events to Avo",

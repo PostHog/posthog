@@ -36,7 +36,12 @@ import { HogFunctionTest, HogFunctionTestPlaceholder } from './HogFunctionTest'
 
 const EVENT_THRESHOLD_ALERT_LEVEL = 8000
 
-export function HogFunctionConfiguration({ templateId, id }: { templateId?: string; id?: string }): JSX.Element {
+export interface HogFunctionConfigurationProps {
+    templateId?: string | null
+    id?: string | null
+}
+
+export function HogFunctionConfiguration({ templateId, id }: HogFunctionConfigurationProps): JSX.Element {
     const logicProps = { templateId, id }
     const logic = hogFunctionConfigurationLogic(logicProps)
     const {
@@ -58,6 +63,7 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
         subTemplate,
         templateHasChanged,
         forcedSubTemplateId,
+        type,
     } = useValues(logic)
     const {
         submitConfiguration,
@@ -140,6 +146,11 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
         return <PayGateMini feature={AvailableFeature.DATA_PIPELINES} />
     }
 
+    const showFilters = type === 'destination' || type === 'broadcast'
+    const showExpectedVolume = type === 'destination'
+    const showEnabled = type === 'destination' || type === 'email'
+    const canEditSource = type === 'destination' || type === 'email'
+
     return (
         <div className="space-y-3">
             <BindLogic logic={hogFunctionConfigurationLogic} props={logicProps}>
@@ -152,10 +163,13 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                     }
                 />
 
-                <LemonBanner type="info">
-                    Hog Functions are in <b>beta</b> and are the next generation of our data pipeline destinations. You
-                    can use pre-existing templates or modify the source Hog code to create your own custom functions.
-                </LemonBanner>
+                {type === 'destination' ? (
+                    <LemonBanner type="info">
+                        Hog Functions are in <b>beta</b> and are the next generation of our data pipeline destinations.
+                        You can use pre-existing templates or modify the source Hog code to create your own custom
+                        functions.
+                    </LemonBanner>
+                ) : null}
 
                 {hogFunction?.filters?.bytecode_error ? (
                     <div>
@@ -190,19 +204,20 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                                         {template && <DestinationTag status={template.status} />}
                                     </div>
 
-                                    <HogFunctionStatusIndicator hogFunction={hogFunction} />
-
-                                    <LemonField name="enabled">
-                                        {({ value, onChange }) => (
-                                            <LemonSwitch
-                                                label="Enabled"
-                                                onChange={() => onChange(!value)}
-                                                checked={value}
-                                                disabled={loading}
-                                                bordered
-                                            />
-                                        )}
-                                    </LemonField>
+                                    {showEnabled && <HogFunctionStatusIndicator hogFunction={hogFunction} />}
+                                    {showEnabled && (
+                                        <LemonField name="enabled">
+                                            {({ value, onChange }) => (
+                                                <LemonSwitch
+                                                    label="Enabled"
+                                                    onChange={() => onChange(!value)}
+                                                    checked={value}
+                                                    disabled={loading}
+                                                    bordered
+                                                />
+                                            )}
+                                        </LemonField>
+                                    )}
                                 </div>
                                 <LemonField name="name" label="Name">
                                     <LemonInput type="text" disabled={loading} />
@@ -261,45 +276,47 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                                 ) : null}
                             </div>
 
-                            <HogFunctionFilters />
+                            {showFilters && <HogFunctionFilters />}
 
-                            <div className="relative border bg-bg-light rounded p-3 space-y-2">
-                                <LemonLabel>Expected volume</LemonLabel>
-                                {sparkline && !sparklineLoading ? (
-                                    <>
-                                        {sparkline.count > EVENT_THRESHOLD_ALERT_LEVEL ? (
-                                            <LemonBanner type="warning">
-                                                <b>Warning:</b> This destination would have triggered{' '}
-                                                <strong>
-                                                    {sparkline.count ?? 0} time{sparkline.count !== 1 ? 's' : ''}
-                                                </strong>{' '}
-                                                in the last 7 days. Consider the impact of this function on your
-                                                destination.
-                                            </LemonBanner>
-                                        ) : (
-                                            <p>
-                                                This destination would have triggered{' '}
-                                                <strong>
-                                                    {sparkline.count ?? 0} time{sparkline.count !== 1 ? 's' : ''}
-                                                </strong>{' '}
-                                                in the last 7 days.
-                                            </p>
-                                        )}
-                                        <Sparkline
-                                            type="bar"
-                                            className="w-full h-20"
-                                            data={sparkline.data}
-                                            labels={sparkline.labels}
-                                        />
-                                    </>
-                                ) : sparklineLoading ? (
-                                    <div className="min-h-20">
-                                        <SpinnerOverlay />
-                                    </div>
-                                ) : (
-                                    <p>The expected volume could not be calculated</p>
-                                )}
-                            </div>
+                            {showExpectedVolume && (
+                                <div className="relative border bg-bg-light rounded p-3 space-y-2">
+                                    <LemonLabel>Expected volume</LemonLabel>
+                                    {sparkline && !sparklineLoading ? (
+                                        <>
+                                            {sparkline.count > EVENT_THRESHOLD_ALERT_LEVEL ? (
+                                                <LemonBanner type="warning">
+                                                    <b>Warning:</b> This destination would have triggered{' '}
+                                                    <strong>
+                                                        {sparkline.count ?? 0} time{sparkline.count !== 1 ? 's' : ''}
+                                                    </strong>{' '}
+                                                    in the last 7 days. Consider the impact of this function on your
+                                                    destination.
+                                                </LemonBanner>
+                                            ) : (
+                                                <p>
+                                                    This destination would have triggered{' '}
+                                                    <strong>
+                                                        {sparkline.count ?? 0} time{sparkline.count !== 1 ? 's' : ''}
+                                                    </strong>{' '}
+                                                    in the last 7 days.
+                                                </p>
+                                            )}
+                                            <Sparkline
+                                                type="bar"
+                                                className="w-full h-20"
+                                                data={sparkline.data}
+                                                labels={sparkline.labels}
+                                            />
+                                        </>
+                                    ) : sparklineLoading ? (
+                                        <div className="min-h-20">
+                                            <SpinnerOverlay />
+                                        </div>
+                                    ) : (
+                                        <p>The expected volume could not be calculated</p>
+                                    )}
+                                </div>
+                            )}
                         </div>
 
                         <div className="flex-2 min-w-100 space-y-4">
@@ -341,7 +358,7 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                             <div className="border bg-bg-light rounded p-3 space-y-2">
                                 <div className="space-y-2">
                                     <HogFunctionInputs />
-                                    {showSource ? (
+                                    {showSource && canEditSource ? (
                                         <LemonButton
                                             icon={<IconPlus />}
                                             size="small"
@@ -365,76 +382,91 @@ export function HogFunctionConfiguration({ templateId, id }: { templateId?: stri
                                 </div>
                             </div>
 
-                            <div
-                                className={clsx(
-                                    'border rounded p-3 space-y-2',
-                                    showSource ? 'bg-bg-light' : 'bg-accent-3000'
-                                )}
-                            >
-                                <div className="flex items-center gap-2 justify-end">
-                                    <div className="flex-1 space-y-2">
-                                        <h2 className="mb-0">Edit source</h2>
-                                        {!showSource ? <p>Click here to edit the function's source code</p> : null}
+                            {canEditSource && (
+                                <div
+                                    className={clsx(
+                                        'border rounded p-3 space-y-2',
+                                        showSource ? 'bg-bg-light' : 'bg-accent-3000'
+                                    )}
+                                >
+                                    <div className="flex items-center gap-2 justify-end">
+                                        <div className="flex-1 space-y-2">
+                                            <h2 className="mb-0">Edit source</h2>
+                                            {!showSource ? <p>Click here to edit the function's source code</p> : null}
+                                        </div>
+
+                                        {!showSource ? (
+                                            <LemonButton
+                                                type="secondary"
+                                                onClick={() => setShowSource(true)}
+                                                disabledReason={
+                                                    !hasAddon
+                                                        ? 'Editing the source code requires the Data Pipelines addon'
+                                                        : undefined
+                                                }
+                                            >
+                                                Edit source code
+                                            </LemonButton>
+                                        ) : (
+                                            <LemonButton
+                                                size="xsmall"
+                                                type="secondary"
+                                                onClick={() => setShowSource(false)}
+                                            >
+                                                Hide source code
+                                            </LemonButton>
+                                        )}
                                     </div>
 
-                                    {!showSource ? (
-                                        <LemonButton
-                                            type="secondary"
-                                            onClick={() => setShowSource(true)}
-                                            disabledReason={
-                                                !hasAddon
-                                                    ? 'Editing the source code requires the Data Pipelines addon'
-                                                    : undefined
-                                            }
-                                        >
-                                            Edit source code
-                                        </LemonButton>
-                                    ) : (
-                                        <LemonButton
-                                            size="xsmall"
-                                            type="secondary"
-                                            onClick={() => setShowSource(false)}
-                                        >
-                                            Hide source code
-                                        </LemonButton>
-                                    )}
+                                    {showSource ? (
+                                        <LemonField name="hog">
+                                            {({ value, onChange }) => (
+                                                <>
+                                                    <span className="text-xs text-muted-alt">
+                                                        This is the underlying Hog code that will run whenever the
+                                                        filters match.{' '}
+                                                        <Link to="https://posthog.com/docs/hog">See the docs</Link> for
+                                                        more info
+                                                    </span>
+                                                    <CodeEditorResizeable
+                                                        language="hog"
+                                                        value={value ?? ''}
+                                                        onChange={(v) => onChange(v ?? '')}
+                                                        globals={globalsWithInputs}
+                                                        options={{
+                                                            minimap: {
+                                                                enabled: false,
+                                                            },
+                                                            wordWrap: 'on',
+                                                            scrollBeyondLastLine: false,
+                                                            automaticLayout: true,
+                                                            fixedOverflowWidgets: true,
+                                                            suggest: {
+                                                                showInlineDetails: true,
+                                                            },
+                                                            quickSuggestionsDelay: 300,
+                                                        }}
+                                                    />
+                                                </>
+                                            )}
+                                        </LemonField>
+                                    ) : null}
                                 </div>
+                            )}
 
-                                {showSource ? (
-                                    <LemonField name="hog">
-                                        {({ value, onChange }) => (
-                                            <>
-                                                <span className="text-xs text-muted-alt">
-                                                    This is the underlying Hog code that will run whenever the filters
-                                                    match. <Link to="https://posthog.com/docs/hog">See the docs</Link>{' '}
-                                                    for more info
-                                                </span>
-                                                <CodeEditorResizeable
-                                                    language="hog"
-                                                    value={value ?? ''}
-                                                    onChange={(v) => onChange(v ?? '')}
-                                                    globals={globalsWithInputs}
-                                                    options={{
-                                                        minimap: {
-                                                            enabled: false,
-                                                        },
-                                                        wordWrap: 'on',
-                                                        scrollBeyondLastLine: false,
-                                                        automaticLayout: true,
-                                                        fixedOverflowWidgets: true,
-                                                        suggest: {
-                                                            showInlineDetails: true,
-                                                        },
-                                                        quickSuggestionsDelay: 300,
-                                                    }}
-                                                />
-                                            </>
-                                        )}
-                                    </LemonField>
-                                ) : null}
-                            </div>
+                            {!id || id === 'new' ? <HogFunctionTestPlaceholder /> : <HogFunctionTest id={id} />}
 
-                            {id ? <HogFunctionTest id={id} /> : <HogFunctionTestPlaceholder />}
+                            {type === 'broadcast' ? (
+                                id && id !== 'new' ? (
+                                    <HogFunctionTestPlaceholder title="Send broadcast" description="Coming soon..." />
+                                ) : (
+                                    <HogFunctionTestPlaceholder
+                                        title="Send broadcast"
+                                        description="Save to send your broadcast"
+                                    />
+                                )
+                            ) : null}
+
                             <div className="flex gap-2 justify-end">{saveButtons}</div>
                         </div>
                     </div>

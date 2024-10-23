@@ -5,6 +5,7 @@ import { combineUrl, router } from 'kea-router'
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { hogFunctionNewUrl } from 'scenes/pipeline/hogfunctions/urls'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -81,11 +82,7 @@ export const newDestinationsLogic = kea<newDestinationsLogicType>([
                         name: hogFunction.name,
                         description: hogFunction.description,
                         backend: PipelineBackend.HogFunction as const,
-                        url: combineUrl(
-                            urls.pipelineNodeNew(PipelineStage.Destination, `hog-${hogFunction.id}`),
-                            {},
-                            hashParams
-                        ).url,
+                        url: combineUrl(hogFunctionNewUrl(hogFunction.type, hogFunction.id), {}, hashParams).url,
                         status: hogFunction.status,
                     })),
                     ...batchExportServiceNames.map((service) => ({

@@ -63,6 +63,7 @@ import {
     HogFunctionStatus,
     HogFunctionTemplateType,
     HogFunctionType,
+    HogFunctionTypeType,
     InsightModel,
     IntegrationType,
     ListOrganizationMembersParams,
@@ -1744,7 +1745,10 @@ const api = {
         },
     },
     hogFunctions: {
-        async list(params?: { filters?: any }): Promise<PaginatedResponse<HogFunctionType>> {
+        async list(params?: {
+            filters?: any
+            type?: HogFunctionTypeType
+        }): Promise<PaginatedResponse<HogFunctionType>> {
             return await new ApiRequest().hogFunctions().withQueryString(params).get()
         },
         async get(id: HogFunctionType['id']): Promise<HogFunctionType> {
@@ -1775,9 +1779,13 @@ const api = {
             return await new ApiRequest().hogFunction(id).withAction('metrics/totals').withQueryString(params).get()
         },
 
-        async listTemplates(): Promise<PaginatedResponse<HogFunctionTemplateType>> {
-            return await new ApiRequest().hogFunctionTemplates().get()
+        async listTemplates(type?: HogFunctionTypeType): Promise<PaginatedResponse<HogFunctionTemplateType>> {
+            return new ApiRequest()
+                .hogFunctionTemplates()
+                .withQueryString({ type: type ?? 'destination' })
+                .get()
         },
+
         async getTemplate(id: HogFunctionTemplateType['id']): Promise<HogFunctionTemplateType> {
             return await new ApiRequest().hogFunctionTemplate(id).get()
         },

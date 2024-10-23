@@ -22,6 +22,7 @@ common_inputs = {
 
 template_create: HogFunctionTemplate = HogFunctionTemplate(
     status="alpha",
+    type="destination",
     id="template-salesforce-create",
     name="Salesforce",
     description="Create objects in Salesforce",
@@ -108,6 +109,7 @@ if (res.status >= 400) {
 
 template_update: HogFunctionTemplate = HogFunctionTemplate(
     status="alpha",
+    type="destination",
     id="template-salesforce-update",
     name="Salesforce",
     description="Update objects in Salesforce",

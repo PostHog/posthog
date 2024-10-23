@@ -169,7 +169,7 @@ export const pipelinePluginConfigurationLogic = kea<pipelinePluginConfigurationL
             if (props.stage === PipelineStage.Transformation) {
                 pipelineTransformationsLogic.findMounted()?.actions.updatePluginConfig(pluginConfig)
             } else if (props.stage === PipelineStage.Destination) {
-                pipelineDestinationsLogic.findMounted()?.actions.updatePluginConfig(pluginConfig)
+                pipelineDestinationsLogic.findMounted({ type: 'destination' })?.actions.updatePluginConfig(pluginConfig)
             } else if (props.stage === PipelineStage.SiteApp) {
                 frontendAppsLogic.findMounted()?.actions.updatePluginConfig(pluginConfig)
             } else if (props.stage === PipelineStage.ImportApp) {

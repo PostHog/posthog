@@ -1,6 +1,6 @@
 import { lemonToast } from '@posthog/lemon-ui'
 import FuseClass from 'fuse.js'
-import { actions, afterMount, connect, kea, listeners, path, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -12,6 +12,7 @@ import { userLogic } from 'scenes/userLogic'
 import {
     BatchExportConfiguration,
     HogFunctionType,
+    HogFunctionTypeType,
     PipelineStage,
     PluginConfigTypeNew,
     PluginConfigWithPluginInfoNew,
@@ -34,8 +35,15 @@ import type { pipelineDestinationsLogicType } from './destinationsLogicType'
 // Helping kea-typegen navigate the exported default class for Fuse
 export interface Fuse extends FuseClass<Destination> {}
 
+export interface DestinationsLogicProps {
+    type?: HogFunctionTypeType
+}
+
+// TODO: rename or merge with hogFunctionsListLogic
 export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
     path(['scenes', 'pipeline', 'destinationsLogic']),
+    props({} as DestinationsLogicProps),
+    key((props: DestinationsLogicProps) => props.type ?? 'destination'),
     connect({
         values: [
             teamLogic,
@@ -61,7 +69,7 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
         updatePluginConfig: (pluginConfig: PluginConfigTypeNew) => ({ pluginConfig }),
         updateBatchExportConfig: (batchExportConfig: BatchExportConfiguration) => ({ batchExportConfig }),
     }),
-    loaders(({ values, actions }) => ({
+    loaders(({ values, actions, props }) => ({
         plugins: [
             {} as Record<number, PluginType>,
             {
@@ -166,7 +174,7 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
             {
                 loadHogFunctions: async () => {
                     // TODO: Support pagination?
-                    return (await api.hogFunctions.list()).results
+                    return (await api.hogFunctions.list({ type: props.type ?? 'destination' })).results
                 },
 
                 deleteNodeHogFunction: async ({ destination }) => {
@@ -205,6 +213,19 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
         ],
     })),
     selectors({
+        type: [() => [(_, p) => p.type], (type?: HogFunctionTypeType): HogFunctionTypeType => type ?? 'destination'],
+        typeSingular: [
+            (s) => [s.type],
+            (type): string => {
+                return { email: 'email provider' }[type as string] ?? type
+            },
+        ],
+        typePlural: [
+            (s) => [s.type],
+            (type): string => {
+                return { email: 'email providers' }[type as string] ?? type + 's'
+            },
+        ],
         paidHogFunctions: [
             (s) => [s.hogFunctions],
             (hogFunctions) => {
@@ -258,15 +279,15 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
         ],
 
         filteredDestinations: [
-            (s) => [s.filters, s.destinations, s.destinationsFuse],
-            (filters, destinations, destinationsFuse): Destination[] => {
+            (s) => [s.filters, s.destinations, s.destinationsFuse, s.type],
+            (filters, destinations, destinationsFuse, type): Destination[] => {
                 const { search, showPaused, kind } = filters
 
                 return (search ? destinationsFuse.search(search).map((x) => x.item) : destinations).filter((dest) => {
                     if (kind && dest.backend !== kind) {
                         return false
                     }
-                    if (!showPaused && !dest.enabled) {
+                    if (!showPaused && !dest.enabled && type !== 'broadcast' && type !== 'email') {
                         return false
                     }
                     return true
@@ -310,10 +331,12 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
         },
     })),
 
-    afterMount(({ actions }) => {
-        actions.loadPlugins()
-        actions.loadPluginConfigs()
-        actions.loadBatchExports()
+    afterMount(({ props, actions }) => {
+        if (props.type === 'destination') {
+            actions.loadPlugins()
+            actions.loadPluginConfigs()
+            actions.loadBatchExports()
+        }
         actions.loadHogFunctions()
     }),
 ])

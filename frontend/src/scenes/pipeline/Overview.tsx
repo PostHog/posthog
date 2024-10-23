@@ -1,6 +1,8 @@
 import { Link } from '@posthog/lemon-ui'
+import { BindLogic } from 'kea'
 import { DataWarehouseManagedSourcesTable } from 'scenes/data-warehouse/settings/DataWarehouseManagedSourcesTable'
 import { DataWarehouseSelfManagedSourcesTable } from 'scenes/data-warehouse/settings/DataWarehouseSelfManagedSourcesTable'
+import { pipelineDestinationsLogic } from 'scenes/pipeline/destinations/destinationsLogic'
 import { urls } from 'scenes/urls'
 
 import { PipelineTab } from '~/types'
@@ -45,7 +47,9 @@ export function Overview(): JSX.Element {
                     Send your data to destinations in real time or with batch exports. Only active Destinations are
                     shown here. <Link to={urls.pipeline(PipelineTab.Destinations)}>See all.</Link>
                 </p>
-                <DestinationsTable />
+                <BindLogic logic={pipelineDestinationsLogic} props={{ type: 'destination' }}>
+                    <DestinationsTable />
+                </BindLogic>
             </div>
         </div>
     )
