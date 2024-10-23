@@ -11,7 +11,6 @@ import {
     ChartDisplayType,
     CohortPropertyFilter,
     CountPerActorMathType,
-    DurationType,
     EventPropertyFilter,
     EventType,
     FeaturePropertyFilter,
@@ -311,6 +310,18 @@ export interface RecordingsQueryResponse {
     has_next: boolean
 }
 
+export enum RecordingOrder {
+    Duration = 'duration',
+    InactiveSeconds = 'inactive_seconds',
+    ActiveSeconds = 'active_seconds',
+    StartTime = 'start_time',
+    ConsoleErrorCount = 'console_error_count',
+    ClickCount = 'click_count',
+    KeypressCount = 'keypress_count',
+    MouseActivityCount = 'mouse_activity_count',
+    ActivityScore = 'activity_score',
+}
+
 export interface RecordingsQuery extends DataNode<RecordingsQueryResponse> {
     kind: NodeKind.RecordingsQuery
     date_from?: string | null
@@ -324,14 +335,7 @@ export interface RecordingsQuery extends DataNode<RecordingsQueryResponse> {
     operand?: FilterLogicalOperator
     session_ids?: string[]
     person_uuid?: string
-    order:
-        | DurationType
-        | 'start_time'
-        | 'console_error_count'
-        | 'click_count'
-        | 'keypress_count'
-        | 'mouse_activity_count'
-        | 'activity_score'
+    order?: RecordingOrder
     limit?: integer
     offset?: integer
     user_modified_filters?: Record<string, any>

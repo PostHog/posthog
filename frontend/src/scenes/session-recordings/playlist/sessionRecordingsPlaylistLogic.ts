@@ -741,6 +741,9 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             if (params.filters && !equal(params.filters, values.filters)) {
                 actions.setFilters(params.filters)
             }
+            if (params.order && !equal(params.order, values.filters.order)) {
+                actions.setFilters({ ...values.filters, order: params.order })
+            }
         }
         return {
             '*': urlToAction,
