@@ -6,8 +6,7 @@ from posthog.hogql import ast
 from posthog.hogql.ast import CompareOperationOp, ArithmeticOperationOp
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import DatabaseField, LazyJoinToAdd, LazyTableToAdd
-from posthog.hogql.errors import NotImplementedError, QueryError
-from posthog.hogql.functions.mapping import HOGQL_COMPARISON_MAPPING
+from posthog.hogql.errors import NotImplementedError
 
 from posthog.hogql.visitor import clone_expr, CloningVisitor, Visitor, TraversingVisitor
 
@@ -44,15 +43,13 @@ class WhereClauseExtractor(CloningVisitor):
     clear_types: bool = False
     clear_locations: bool = False
     capture_timestamp_comparisons: bool = False  # implement handle_timestamp_comparison if setting this to True
-    is_join: bool = False
     tracked_tables: list[ast.LazyTable | ast.LazyJoin]
     tombstone_string: str
 
-    def __init__(self, context: HogQLContext, is_join: Optional[bool] = False):
+    def __init__(self, context: HogQLContext):
         super().__init__()
         self.context = context
         self.tracked_tables = []
-        self.is_join = is_join or False
         # A constant with this string will be used to escape early if we can't handle the query
         self.tombstone_string = (
             "__TOMBSTONE__" + ("".join(random.choices(string.ascii_uppercase + string.digits, k=10))) + "__"
@@ -113,18 +110,10 @@ class WhereClauseExtractor(CloningVisitor):
             if result:
                 return result
 
-        # if the comparison is negative and it's a join, we don't want to filter down as the outer query needs to be able to filter down results
-        if self.is_join and node.op in ast.NEGATED_COMPARE_OPS:
-            return ast.Constant(value=True)
-
         # Check if any of the fields are a field on our requested table
         if len(self.tracked_tables) > 0:
             left = self.visit(node.left)
             right = self.visit(node.right)
-
-            # Too complicated
-            if isinstance(node.right, ast.SelectQuery):
-                return ast.Constant(value=True)
             if has_tombstone(left, self.tombstone_string) or has_tombstone(right, self.tombstone_string):
                 return ast.Constant(value=self.tombstone_string)
             return ast.CompareOperation(op=node.op, left=left, right=right)
@@ -140,8 +129,6 @@ class WhereClauseExtractor(CloningVisitor):
         return ast.Constant(value=True)
 
     def visit_not(self, node: ast.Not) -> ast.Expr:
-        if self.is_join:
-            return ast.Constant(value=True)
         response = self.visit(node.expr)
         if has_tombstone(response, self.tombstone_string):
             return ast.Constant(value=self.tombstone_string)
@@ -152,25 +139,43 @@ class WhereClauseExtractor(CloningVisitor):
             return self.visit_and(ast.And(exprs=node.args))
         elif node.name == "or":
             return self.visit_or(ast.Or(exprs=node.args))
-        elif node.name == "not":
-            if self.is_join:
-                return ast.Constant(value=True)
-
-        elif node.name in HOGQL_COMPARISON_MAPPING:
-            op = HOGQL_COMPARISON_MAPPING[node.name]
-            if len(node.args) != 2:
-                raise QueryError(f"Comparison '{node.name}' requires exactly two arguments")
-            # We do "cleverer" logic with nullable types in visit_compare_operation
+        elif node.name == "greaterOrEquals":
             return self.visit_compare_operation(
-                ast.CompareOperation(
-                    left=node.args[0],
-                    right=node.args[1],
-                    op=op,
-                )
+                ast.CompareOperation(op=CompareOperationOp.GtEq, left=node.args[0], right=node.args[1])
             )
-
+        elif node.name == "greater":
+            return self.visit_compare_operation(
+                ast.CompareOperation(op=CompareOperationOp.Gt, left=node.args[0], right=node.args[1])
+            )
+        elif node.name == "lessOrEquals":
+            return self.visit_compare_operation(
+                ast.CompareOperation(op=CompareOperationOp.LtEq, left=node.args[0], right=node.args[1])
+            )
+        elif node.name == "less":
+            return self.visit_compare_operation(
+                ast.CompareOperation(op=CompareOperationOp.Lt, left=node.args[0], right=node.args[1])
+            )
+        elif node.name == "equals":
+            return self.visit_compare_operation(
+                ast.CompareOperation(op=CompareOperationOp.Eq, left=node.args[0], right=node.args[1])
+            )
+        elif node.name == "like":
+            return self.visit_compare_operation(
+                ast.CompareOperation(op=CompareOperationOp.Like, left=node.args[0], right=node.args[1])
+            )
+        elif node.name == "notLike":
+            return self.visit_compare_operation(
+                ast.CompareOperation(op=CompareOperationOp.NotLike, left=node.args[0], right=node.args[1])
+            )
+        elif node.name == "ilike":
+            return self.visit_compare_operation(
+                ast.CompareOperation(op=CompareOperationOp.ILike, left=node.args[0], right=node.args[1])
+            )
+        elif node.name == "notIlike":
+            return self.visit_compare_operation(
+                ast.CompareOperation(op=CompareOperationOp.NotILike, left=node.args[0], right=node.args[1])
+            )
         args = [self.visit(arg) for arg in node.args]
-
         if any(has_tombstone(arg, self.tombstone_string) for arg in args):
             return ast.Constant(value=self.tombstone_string)
         return ast.Call(name=node.name, args=args)
@@ -452,9 +457,6 @@ class IsTimeOrIntervalConstantVisitor(Visitor[bool]):
         return self.visit(node.expr)
 
     def visit_tuple(self, node: ast.Tuple) -> bool:
-        return all(self.visit(arg) for arg in node.exprs)
-
-    def visit_array(self, node: ast.Tuple) -> bool:
         return all(self.visit(arg) for arg in node.exprs)
 
 
