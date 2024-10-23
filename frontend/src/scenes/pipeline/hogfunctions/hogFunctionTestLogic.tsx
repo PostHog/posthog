@@ -116,8 +116,8 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
     afterMount(({ actions, values }) => {
         if (values.type === 'email') {
             const email = {
-                from: 'me@mycompany.com',
-                to: '{person.properties.email}',
+                from: 'me@example.com',
+                to: 'you@example.com',
                 subject: 'Hello',
                 html: 'hello world',
             }

@@ -12,6 +12,7 @@ import IconBigQuery from 'public/services/bigquery.png'
 import IconPostgres from 'public/services/postgres.png'
 import IconRedshift from 'public/services/redshift.png'
 import IconSnowflake from 'public/services/snowflake.png'
+import { hogFunctionUrl } from 'scenes/pipeline/hogfunctions/urls'
 import { urls } from 'scenes/urls'
 
 import {
@@ -268,7 +269,10 @@ export function pipelineNodeMenuCommonItems(node: Transformation | SiteApp | Imp
     const items: LemonMenuItem[] = [
         {
             label: canConfigurePlugins ? 'Edit configuration' : 'View configuration',
-            to: urls.pipelineNode(node.stage, node.id, PipelineNodeTab.Configuration),
+            to:
+                'hog_function' in node && node.hog_function
+                    ? hogFunctionUrl(node.hog_function.type, node.hog_function.id)
+                    : urls.pipelineNode(node.stage, node.id, PipelineNodeTab.Configuration),
         },
         {
             label: 'View metrics',
