@@ -633,6 +633,19 @@ impl FeatureFlagMatcher {
             }
         }
 
+        let has_cohort_filter = flag.filters.groups.iter().any(|group| {
+            group.properties.as_ref().map_or(false, |props| {
+                props.iter().any(|prop| prop.prop_type == "cohort")
+            })
+        });
+
+        let flag_to_evaluate = if has_cohort_filter {
+            flag.transform_cohort_filters(self.postgres_reader.clone(), self.team_id)
+                .await?
+        } else {
+            flag.clone()
+        };
+
         // Sort conditions with variant overrides to the top so that we can evaluate them first
         let mut sorted_conditions: Vec<(usize, &FlagGroupType)> =
             flag.get_conditions().iter().enumerate().collect();
@@ -643,7 +656,7 @@ impl FeatureFlagMatcher {
         for (index, condition) in sorted_conditions {
             let (is_match, reason) = self
                 .is_condition_match(
-                    flag,
+                    &flag_to_evaluate,
                     condition,
                     property_overrides.clone(),
                     hash_key_overrides.clone(),
