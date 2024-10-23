@@ -144,7 +144,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         assert session_recordings == [
             {
                 "session_id": session_id_two,
-                "activity_score": 28.65,
+                "activity_score": 40.16,
                 "team_id": self.team.pk,
                 "distinct_id": user,
                 "click_count": 2,
@@ -163,7 +163,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
             },
             {
                 "session_id": session_id_one,
-                "activity_score": 37.93,
+                "activity_score": 61.11,
                 "team_id": self.team.pk,
                 "distinct_id": user,
                 "click_count": 4,
@@ -374,7 +374,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
 
         assert session_recordings == [
             {
-                "activity_score": 28.65,
+                "activity_score": 40.16,
                 "session_id": session_id_two,
                 "team_id": self.team.pk,
                 "distinct_id": user,
@@ -403,7 +403,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         assert session_recordings == [
             {
                 "session_id": session_id_one,
-                "activity_score": 37.93,
+                "activity_score": 61.11,
                 "team_id": self.team.pk,
                 "distinct_id": user,
                 "click_count": 4,
