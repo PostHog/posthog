@@ -206,6 +206,43 @@ class TestQueryRunner(BaseTest):
             self.assertEqual(response.is_cached, True)
             mock_on_commit.assert_called_once()
 
+    @mock.patch("django.db.transaction.on_commit")
+    def test_recent_cache_calculate_async_if_stale_and_blocking_on_miss(self, mock_on_commit):
+        TestQueryRunner = self.setup_test_query_runner_class()
+
+        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
+
+        with freeze_time(datetime(2023, 2, 4, 13, 37, 42)):
+            # in cache-only mode, returns cache miss response if uncached
+            response = runner.run(execution_mode=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE)
+            self.assertIsInstance(response, CacheMissResponse)
+
+            response = runner.run(
+                execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS
+            )
+            self.assertIsInstance(response, TestCachedBasicQueryResponse)
+            self.assertEqual(response.is_cached, False)
+            self.assertEqual(response.last_refresh.isoformat(), "2023-02-04T13:37:42+00:00")
+            self.assertEqual(response.next_allowed_client_refresh.isoformat(), "2023-02-04T13:41:42+00:00")
+
+            # returns cached response afterwards
+            response = runner.run(
+                execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS
+            )
+            self.assertIsInstance(response, TestCachedBasicQueryResponse)
+            self.assertEqual(response.is_cached, True)
+
+        with freeze_time(datetime(2023, 2, 4, 13, 37 + 11, 42)):
+            # returns fresh response if stale
+            response = runner.run(
+                execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS
+            )
+            self.assertIsInstance(response, TestCachedBasicQueryResponse)
+            # Should kick off the calculation in the background
+            self.assertEqual(response.is_cached, True)
+            self.assertEqual(response.last_refresh.isoformat(), "2023-02-04T13:37:42+00:00")
+            mock_on_commit.assert_called_once()
+
     def test_modifier_passthrough(self):
         try:
             from ee.clickhouse.materialized_columns.analyze import materialize
