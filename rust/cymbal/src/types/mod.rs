@@ -116,7 +116,7 @@ mod test {
             Some("https://app-static.eu.posthog.com/static/chunk-PGUQKT6S.js".to_string())
         );
         assert_eq!(frame.fn_name, "?".to_string());
-        assert_eq!(frame.in_app, true);
+        assert!(frame.in_app);
         assert_eq!(frame.line, 64);
         assert_eq!(frame.column, 25112);
 
