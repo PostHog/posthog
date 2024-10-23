@@ -6,7 +6,12 @@ from langfuse.callback import CallbackHandler
 from langgraph.graph.state import StateGraph
 
 from ee import settings
-from ee.hogai.trends.nodes import CreateTrendsPlanNode, CreateTrendsPlanToolsNode, GenerateTrendsNode
+from ee.hogai.trends.nodes import (
+    CreateTrendsPlanNode,
+    CreateTrendsPlanToolsNode,
+    GenerateTrendsNode,
+    GenerateTrendsToolsNode,
+)
 from ee.hogai.utils import AssistantMessage, AssistantNodeName, AssistantState
 from posthog.models.team.team import Team
 from posthog.schema import AssistantMessage as FrontendAssistantMessage
@@ -36,6 +41,10 @@ class Assistant:
 
         generate_trends_node = GenerateTrendsNode(self._team)
         builder.add_node(GenerateTrendsNode.name, generate_trends_node.run)
+
+        generate_trends_tools_node = GenerateTrendsToolsNode(self._team)
+        builder.add_node(GenerateTrendsToolsNode.name, generate_trends_tools_node.run)
+        builder.add_edge(GenerateTrendsToolsNode.name, GenerateTrendsNode.name)
 
         builder.add_edge(AssistantNodeName.START, create_trends_plan_node.name)
         builder.add_conditional_edges(create_trends_plan_node.name, create_trends_plan_node.router)
@@ -70,3 +79,6 @@ class Assistant:
                             content=parsed_message.model_dump_json(),
                             payload=VisualizationMessagePayload(plan=""),
                         ).model_dump_json()
+            elif state["langgraph_node"] == AssistantNodeName.GENERATE_TRENDS_TOOLS:
+                # Reset tool output parser when encountered a validation error
+                chunks = AIMessageChunk(content="")

@@ -2,7 +2,7 @@ import itertools
 import json
 import xml.etree.ElementTree as ET
 from functools import cached_property
-from typing import Union, cast
+from typing import Optional, Union, cast
 
 from langchain.agents.format_scratchpad import format_log_to_str
 from langchain.agents.output_parsers import ReActJsonSingleInputOutputParser
@@ -22,6 +22,7 @@ from ee.hogai.trends.prompts import (
     react_scratchpad_prompt,
     react_system_prompt,
     react_user_prompt,
+    trends_failover_prompt,
     trends_group_mapping_prompt,
     trends_new_plan_prompt,
     trends_plan_prompt,
@@ -254,11 +255,13 @@ class GenerateTrendsNode(AssistantNode):
         return ET.tostring(root, encoding="unicode")
 
     def router(self, state: AssistantState):
-        if state.get("tool_argument") is not None:
+        if state.get("intermediate_steps", []):
             return AssistantNodeName.GENERATE_TRENDS_TOOLS
         return AssistantNodeName.END
 
-    def _reconstruct_conversation(self, state: AssistantState) -> list[BaseMessage]:
+    def _reconstruct_conversation(
+        self, state: AssistantState, validation_error_message: Optional[str] = None
+    ) -> list[BaseMessage]:
         """
         Reconstruct the conversation for the generation. Take all previously generated questions, plans, and schemas, and return the history.
         """
@@ -319,6 +322,13 @@ class GenerateTrendsNode(AssistantNode):
             if ai_message:
                 conversation.append(AIMessage(content=ai_message.content))
 
+        if validation_error_message:
+            conversation.append(
+                HumanMessagePromptTemplate.from_template(trends_failover_prompt, template_format="mustache").format(
+                    exception_message=validation_error_message
+                )
+            )
+
         return conversation
 
     @classmethod
@@ -330,6 +340,8 @@ class GenerateTrendsNode(AssistantNode):
 
     def run(self, state: AssistantState, config: RunnableConfig):
         generated_plan = state.get("plan", "")
+        intermediate_steps = state.get("intermediate_steps", [])
+        validation_error_message = intermediate_steps[-1][1] if intermediate_steps else None
 
         llm = ChatOpenAI(model="gpt-4o", temperature=0.7, streaming=True).with_structured_output(
             GenerateTrendTool().schema,
@@ -342,7 +354,7 @@ class GenerateTrendsNode(AssistantNode):
                 ("system", trends_system_prompt),
             ],
             template_format="mustache",
-        ) + self._reconstruct_conversation(state)
+        ) + self._reconstruct_conversation(state, validation_error_message=validation_error_message)
         merger = merge_message_runs()
 
         chain = (
@@ -357,23 +369,14 @@ class GenerateTrendsNode(AssistantNode):
 
         try:
             message = chain.invoke({}, config)
-        except OutputParserException:
-            # if e.send_to_llm:
-            #     observation = str(e.observation)
-            # else:
-            #     observation = "Invalid or incomplete response. You must use the provided tools and output JSON to answer the user's question."
-            # return {"tool_argument": observation}
+        except OutputParserException as e:
+            if e.send_to_llm:
+                observation = str(e.observation)
+            else:
+                observation = "Invalid or incomplete response. You must use the provided tools and output JSON to answer the user's question."
 
             return {
-                "messages": [
-                    AssistantMessage(
-                        type="ai",
-                        content=GenerateTrendOutputModel(
-                            reasoning_steps=["Schema validation failed"]
-                        ).model_dump_json(),
-                        payload=VisualizationMessagePayload(plan=generated_plan),
-                    )
-                ]
+                "intermediate_steps": [(AgentAction("handle_incorrect_response", observation, str(e)), None)],
             }
 
         return {
@@ -383,7 +386,8 @@ class GenerateTrendsNode(AssistantNode):
                     content=cast(GenerateTrendOutputModel, message).model_dump_json(),
                     payload=VisualizationMessagePayload(plan=generated_plan),
                 )
-            ]
+            ],
+            "intermediate_steps": None,
         }
 
 
@@ -395,4 +399,8 @@ class GenerateTrendsToolsNode(AssistantNode):
     name = AssistantNodeName.GENERATE_TRENDS_TOOLS
 
     def run(self, state: AssistantState, config: RunnableConfig):
-        return state
+        intermediate_steps = state.get("intermediate_steps", [])
+        if not intermediate_steps:
+            return state
+        action, _ = intermediate_steps[-1]
+        return {"intermediate_steps": (action, action.log)}

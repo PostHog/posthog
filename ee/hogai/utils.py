@@ -27,7 +27,6 @@ class AssistantState(TypedDict):
     messages: Annotated[Sequence[AssistantMessage], add_messages]
     intermediate_steps: Optional[list[tuple[AgentAction, Optional[str]]]]
     plan: Optional[str]
-    tool_argument: Optional[str]
 
 
 class AssistantNodeName(StrEnum):
