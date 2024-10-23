@@ -255,6 +255,34 @@ class TestExperimentCRUD(APILicensedTest):
             ],
         )
 
+        # remove holdouts
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{exp_id}",
+            {"holdout": None},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        experiment = Experiment.objects.get(pk=exp_id)
+        self.assertEqual(experiment.holdout_id, None)
+
+        created_ff = FeatureFlag.objects.get(key=ff_key)
+        self.assertEqual(created_ff.filters["holdout_groups"], None)
+
+        # try adding invalid holdout
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{exp_id}",
+            {"holdout": 123456},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["detail"], 'Invalid pk "123456" - object does not exist.')
+
+        # add back holdout
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{exp_id}",
+            {"holdout": holdout_2_id},
+        )
+
         # launch experiment and try updating holdouts again
         response = self.client.patch(
             f"/api/projects/{self.team.id}/experiments/{exp_id}",

@@ -312,8 +312,8 @@ class ExperimentSerializer(serializers.ModelSerializer):
         if instance.is_draft:
             # if feature flag variants or holdout have changed, update the feature flag.
             holdout_groups = instance.holdout.filters if instance.holdout else None
-            if validated_data.get("holdout"):
-                holdout_groups = validated_data["holdout"].filters
+            if "holdout" in validated_data:
+                holdout_groups = validated_data["holdout"].filters if validated_data["holdout"] else None
 
             if validated_data.get("parameters"):
                 variants = validated_data["parameters"].get("feature_flag_variants", [])
@@ -348,7 +348,7 @@ class ExperimentSerializer(serializers.ModelSerializer):
                 existing_flag_serializer.save()
             else:
                 # no parameters provided, just update the holdout if necessary
-                if validated_data.get("holdout"):
+                if "holdout" in validated_data:
                     existing_flag_serializer = FeatureFlagSerializer(
                         feature_flag,
                         data={"filters": {**feature_flag.filters, "holdout_groups": holdout_groups}},
