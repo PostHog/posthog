@@ -200,6 +200,7 @@
         "@babel/preset-typescript": "^7.22.5",
         "@cypress/webpack-preprocessor": "^5.17.1",
         "@playwright/test": "1.45.0",
+        "@rrweb/rrweb-plugin-console-record": "^2.0.0-alpha.17",
         "@sentry/types": "7.112.1",
         "@storybook/addon-a11y": "^7.6.4",
         "@storybook/addon-actions": "^7.6.4",
