@@ -851,12 +851,40 @@ def _create_event(**kwargs):
 
     NOTE: All events get batched and only created when sync_execute is called.
     """
+    if properties := kwargs.get("properties"):
+        if session_id := properties.get("$session_id"):
+            _warn_if_session_id_malformed(session_id)
     if not kwargs.get("event_uuid"):
         kwargs["event_uuid"] = str(uuid.uuid4())
     if not kwargs.get("timestamp"):
         kwargs["timestamp"] = dt.datetime.now()
     events_cache_tests.append(kwargs)
     return kwargs["event_uuid"]
+
+
+def _warn_if_session_id_malformed(session_id: str):
+    try:
+        session_id_parsed = uuid.UUID(session_id)
+    except ValueError:
+        print(  # noqa: T201
+            f"WARNING: $session_id should be a UUIDv7 and {repr(session_id)} doesn't resemble a UUID. "
+            "Events with a non-UUIDv7 session ID don't count as part of any session in HogQL-based querying. Use uuid7()!"
+        )
+    else:
+        # You can tweak the min/max accepted times below, but don't add/subtract hundreds of years
+        min_accepted_unix_time_ms = int(dt.datetime(year=2010, month=1, day=1).timestamp() * 1000)
+        max_accepted_unix_time_ms = int(dt.datetime(year=2029, month=12, day=31).timestamp() * 1000)
+        session_id_unix_time_ms = session_id_parsed.int >> 80
+        if session_id_unix_time_ms < min_accepted_unix_time_ms:
+            print(  # noqa: T201
+                f"WARNING: $session_id should be a UUIDv7 and {session_id_parsed}'s value appears too small to be a UUIDv7. "
+                "Events with a non-UUIDv7 session ID don't count as part of any session in HogQL-based querying. Use uuid7()!"
+            )
+        elif session_id_unix_time_ms > max_accepted_unix_time_ms:
+            print(  # noqa: T201
+                f"WARNING: $session_id should be a UUIDv7 and {session_id_parsed}'s value appears too large to be a UUIDv7. "
+                "Events with a non-UUIDv7 session ID don't count as part of any session in HogQL-based querying. Use uuid7()!"
+            )
 
 
 def _create_person(*args, **kwargs):
