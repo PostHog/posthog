@@ -172,7 +172,7 @@ mod tests {
         let service = create_test_service();
         let test_cases = vec![
             ("13.106.122.3", "Australia", "Sydney"),
-            ("31.28.64.3", "United Kingdom", "Royston"),
+            ("31.28.64.3", "United Kingdom", "Baldock"),
             (
                 "2600:6c52:7a00:11c:1b6:b7b0:ea19:6365",
                 "United States",
