@@ -678,6 +678,7 @@ export enum ExperimentsTabs {
     All = 'all',
     Yours = 'yours',
     Archived = 'archived',
+    Holdouts = 'holdouts',
 }
 
 export enum ActivityTab {
