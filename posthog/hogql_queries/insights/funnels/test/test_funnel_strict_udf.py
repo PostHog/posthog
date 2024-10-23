@@ -7,7 +7,6 @@ from hogql_parser import parse_expr
 from posthog.constants import INSIGHT_FUNNELS, FunnelOrderType
 from posthog.hogql.constants import HogQLGlobalSettings, MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY
 from posthog.hogql.query import execute_hogql_query
-from posthog.hogql_queries.insights.funnels.funnel_udf import udf_event_array_filter
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
 from posthog.hogql_queries.insights.funnels.test.test_funnel_strict import (
     BaseTestFunnelStrictStepsBreakdown,
@@ -22,7 +21,6 @@ from posthog.schema import (
     BreakdownFilter,
     FunnelsFilter,
     BreakdownAttributionType,
-    StepOrderValue,
 )
 from posthog.test.base import _create_person, _create_event
 
@@ -58,7 +56,7 @@ class TestFunnelStrictStepsUDF(BaseTestFunnelStrictSteps):
         runner = FunnelsQueryRunner(query=query, team=self.team)
         inner_aggregation_query = runner.funnel_class._inner_aggregation_query()
         inner_aggregation_query.select.append(
-            parse_expr(f"{udf_event_array_filter(StepOrderValue.STRICT)} AS filtered_array")
+            parse_expr(f"{runner.funnel_class.udf_event_array_filter()} AS filtered_array")
         )
         inner_aggregation_query.having = None
         response = execute_hogql_query(
@@ -71,8 +69,8 @@ class TestFunnelStrictStepsUDF(BaseTestFunnelStrictSteps):
                 allow_experimental_analyzer=True,
             ),
         )
-        # Make sure the events have been condensed down to one
-        self.assertEqual(1, len(response.results[0][-1]))
+        # Make sure the events have been condensed down to two
+        self.assertEqual(2, len(response.results[0][-1]))
 
     def test_different_prop_val_in_strict_filter(self):
         funnels_query = FunnelsQuery(

@@ -112,7 +112,7 @@ const templateToConfiguration = (
     template.inputs_schema?.forEach((schema) => {
         if (typeof subTemplate?.inputs?.[schema.key] !== 'undefined') {
             inputs[schema.key] = { value: subTemplate.inputs[schema.key] }
-        } else if (schema.default) {
+        } else if (schema.default !== undefined) {
             inputs[schema.key] = { value: schema.default }
         }
     })

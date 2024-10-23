@@ -1,7 +1,7 @@
-import { IconAIText, IconCode, IconMessage } from '@posthog/icons'
+import { IconAIText, IconCheckCircle, IconCode, IconMessage } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonSegmentedButton, LemonSegmentedButtonOption } from 'lib/lemon-ui/LemonSegmentedButton'
+import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { useState } from 'react'
 
@@ -13,31 +13,15 @@ interface WebExperimentTransformFieldProps {
     tIndex: number
     transform: WebExperimentTransform
 }
-type elementTransformKind = 'html' | 'text' | 'css'
-const ELEMENT_TRANSFORM_OPTIONS: LemonSegmentedButtonOption<elementTransformKind>[] = [
-    {
-        value: 'html',
-        label: 'HTML',
-        icon: <IconCode />,
-    },
-    {
-        value: 'text',
-        label: 'Text',
-        icon: <IconMessage />,
-    },
-    {
-        value: 'css',
-        label: 'CSS',
-        icon: <IconAIText />,
-    },
-]
 
 export function WebExperimentTransformField({
     variant,
     tIndex,
     transform,
 }: WebExperimentTransformFieldProps): JSX.Element {
-    const [transformSelected, setTransformSelected] = useState(transform.html ? 'html' : 'text')
+    const [transformSelected, setTransformSelected] = useState(
+        transform.html && transform.html.length > 0 ? 'html' : 'text'
+    )
     const { experimentForm, inspectingElement, selectedVariant } = useValues(experimentsTabLogic)
     const { setExperimentFormValue, selectVariant, inspectForElementWithIndex } = useActions(experimentsTabLogic)
     return (
@@ -57,7 +41,38 @@ export function WebExperimentTransformField({
             </div>
             <LemonSegmentedButton
                 fullWidth
-                options={ELEMENT_TRANSFORM_OPTIONS}
+                options={[
+                    {
+                        value: 'html',
+                        label: 'HTML',
+                        icon:
+                            transform.html && transform.html.length > 0 ? (
+                                <IconCheckCircle className="text-success" />
+                            ) : (
+                                <IconCode />
+                            ),
+                    },
+                    {
+                        value: 'text',
+                        label: 'Text',
+                        icon:
+                            transform.text && transform.text.length > 0 ? (
+                                <IconCheckCircle className="text-success" />
+                            ) : (
+                                <IconMessage />
+                            ),
+                    },
+                    {
+                        value: 'css',
+                        label: 'CSS',
+                        icon:
+                            transform.css && transform.css.length > 0 ? (
+                                <IconCheckCircle className="text-success" />
+                            ) : (
+                                <IconAIText />
+                            ),
+                    },
+                ]}
                 onChange={(e) => {
                     setTransformSelected(e)
                     if (experimentForm.variants) {

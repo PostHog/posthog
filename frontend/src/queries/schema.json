@@ -401,10 +401,20 @@
         },
         "AlertCondition": {
             "additionalProperties": false,
+            "properties": {
+                "type": {
+                    "$ref": "#/definitions/AlertConditionType"
+                }
+            },
+            "required": ["type"],
             "type": "object"
         },
+        "AlertConditionType": {
+            "enum": ["absolute_value", "relative_increase", "relative_decrease"],
+            "type": "string"
+        },
         "AlertState": {
-            "enum": ["Firing", "Not firing", "Errored"],
+            "enum": ["Firing", "Not firing", "Errored", "Snoozed"],
             "type": "string"
         },
         "AnyDataNode": {
@@ -467,10 +477,10 @@
                     "$ref": "#/definitions/ErrorTrackingQuery"
                 },
                 {
-                    "$ref": "#/definitions/ExperimentFunnelQuery"
+                    "$ref": "#/definitions/ExperimentFunnelsQuery"
                 },
                 {
-                    "$ref": "#/definitions/ExperimentTrendQuery"
+                    "$ref": "#/definitions/ExperimentTrendsQuery"
                 }
             ]
         },
@@ -1240,7 +1250,7 @@
             ],
             "type": "object"
         },
-        "CachedExperimentFunnelQueryResponse": {
+        "CachedExperimentFunnelsQueryResponse": {
             "additionalProperties": false,
             "properties": {
                 "cache_key": {
@@ -1254,9 +1264,22 @@
                     "description": "What triggered the calculation of the query, leave empty if user/immediate",
                     "type": "string"
                 },
+                "credible_intervals": {
+                    "additionalProperties": {
+                        "items": {
+                            "type": "number"
+                        },
+                        "maxItems": 2,
+                        "minItems": 2,
+                        "type": "array"
+                    },
+                    "type": "object"
+                },
+                "expected_loss": {
+                    "type": "number"
+                },
                 "insight": {
-                    "const": "FUNNELS",
-                    "type": "string"
+                    "$ref": "#/definitions/FunnelsQueryResponse"
                 },
                 "is_cached": {
                     "type": "boolean"
@@ -1269,32 +1292,49 @@
                     "format": "date-time",
                     "type": "string"
                 },
+                "probability": {
+                    "additionalProperties": {
+                        "type": "number"
+                    },
+                    "type": "object"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
-                "results": {
-                    "additionalProperties": {
-                        "$ref": "#/definitions/ExperimentVariantFunnelResult"
-                    },
-                    "type": "object"
+                "significance_code": {
+                    "$ref": "#/definitions/ExperimentSignificanceCode"
+                },
+                "significant": {
+                    "type": "boolean"
                 },
                 "timezone": {
                     "type": "string"
+                },
+                "variants": {
+                    "items": {
+                        "$ref": "#/definitions/ExperimentVariantFunnelsBaseStats"
+                    },
+                    "type": "array"
                 }
             },
             "required": [
                 "cache_key",
+                "credible_intervals",
+                "expected_loss",
                 "insight",
                 "is_cached",
                 "last_refresh",
                 "next_allowed_client_refresh",
-                "results",
-                "timezone"
+                "probability",
+                "significance_code",
+                "significant",
+                "timezone",
+                "variants"
             ],
             "type": "object"
         },
-        "CachedExperimentTrendQueryResponse": {
+        "CachedExperimentTrendsQueryResponse": {
             "additionalProperties": false,
             "properties": {
                 "cache_key": {
@@ -1308,9 +1348,19 @@
                     "description": "What triggered the calculation of the query, leave empty if user/immediate",
                     "type": "string"
                 },
+                "credible_intervals": {
+                    "additionalProperties": {
+                        "items": {
+                            "type": "number"
+                        },
+                        "maxItems": 2,
+                        "minItems": 2,
+                        "type": "array"
+                    },
+                    "type": "object"
+                },
                 "insight": {
-                    "const": "TRENDS",
-                    "type": "string"
+                    "$ref": "#/definitions/TrendsQueryResponse"
                 },
                 "is_cached": {
                     "type": "boolean"
@@ -1323,28 +1373,48 @@
                     "format": "date-time",
                     "type": "string"
                 },
+                "p_value": {
+                    "type": "number"
+                },
+                "probability": {
+                    "additionalProperties": {
+                        "type": "number"
+                    },
+                    "type": "object"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
-                "results": {
-                    "additionalProperties": {
-                        "$ref": "#/definitions/ExperimentVariantTrendResult"
-                    },
-                    "type": "object"
+                "significance_code": {
+                    "$ref": "#/definitions/ExperimentSignificanceCode"
+                },
+                "significant": {
+                    "type": "boolean"
                 },
                 "timezone": {
                     "type": "string"
+                },
+                "variants": {
+                    "items": {
+                        "$ref": "#/definitions/ExperimentVariantTrendsBaseStats"
+                    },
+                    "type": "array"
                 }
             },
             "required": [
                 "cache_key",
+                "credible_intervals",
                 "insight",
                 "is_cached",
                 "last_refresh",
                 "next_allowed_client_refresh",
-                "results",
-                "timezone"
+                "p_value",
+                "probability",
+                "significance_code",
+                "significant",
+                "timezone",
+                "variants"
             ],
             "type": "object"
         },
@@ -3611,35 +3681,101 @@
                         {
                             "additionalProperties": false,
                             "properties": {
-                                "insight": {
-                                    "const": "FUNNELS",
-                                    "type": "string"
-                                },
-                                "results": {
+                                "credible_intervals": {
                                     "additionalProperties": {
-                                        "$ref": "#/definitions/ExperimentVariantFunnelResult"
+                                        "items": {
+                                            "type": "number"
+                                        },
+                                        "maxItems": 2,
+                                        "minItems": 2,
+                                        "type": "array"
                                     },
                                     "type": "object"
+                                },
+                                "expected_loss": {
+                                    "type": "number"
+                                },
+                                "insight": {
+                                    "$ref": "#/definitions/FunnelsQueryResponse"
+                                },
+                                "probability": {
+                                    "additionalProperties": {
+                                        "type": "number"
+                                    },
+                                    "type": "object"
+                                },
+                                "significance_code": {
+                                    "$ref": "#/definitions/ExperimentSignificanceCode"
+                                },
+                                "significant": {
+                                    "type": "boolean"
+                                },
+                                "variants": {
+                                    "items": {
+                                        "$ref": "#/definitions/ExperimentVariantFunnelsBaseStats"
+                                    },
+                                    "type": "array"
                                 }
                             },
-                            "required": ["insight", "results"],
+                            "required": [
+                                "credible_intervals",
+                                "expected_loss",
+                                "insight",
+                                "probability",
+                                "significance_code",
+                                "significant",
+                                "variants"
+                            ],
                             "type": "object"
                         },
                         {
                             "additionalProperties": false,
                             "properties": {
-                                "insight": {
-                                    "const": "TRENDS",
-                                    "type": "string"
-                                },
-                                "results": {
+                                "credible_intervals": {
                                     "additionalProperties": {
-                                        "$ref": "#/definitions/ExperimentVariantTrendResult"
+                                        "items": {
+                                            "type": "number"
+                                        },
+                                        "maxItems": 2,
+                                        "minItems": 2,
+                                        "type": "array"
                                     },
                                     "type": "object"
+                                },
+                                "insight": {
+                                    "$ref": "#/definitions/TrendsQueryResponse"
+                                },
+                                "p_value": {
+                                    "type": "number"
+                                },
+                                "probability": {
+                                    "additionalProperties": {
+                                        "type": "number"
+                                    },
+                                    "type": "object"
+                                },
+                                "significance_code": {
+                                    "$ref": "#/definitions/ExperimentSignificanceCode"
+                                },
+                                "significant": {
+                                    "type": "boolean"
+                                },
+                                "variants": {
+                                    "items": {
+                                        "$ref": "#/definitions/ExperimentVariantTrendsBaseStats"
+                                    },
+                                    "type": "array"
                                 }
                             },
-                            "required": ["insight", "results"],
+                            "required": [
+                                "credible_intervals",
+                                "insight",
+                                "p_value",
+                                "probability",
+                                "significance_code",
+                                "significant",
+                                "variants"
+                            ],
                             "type": "object"
                         }
                     ]
@@ -3757,10 +3893,10 @@
                             "$ref": "#/definitions/ErrorTrackingQuery"
                         },
                         {
-                            "$ref": "#/definitions/ExperimentFunnelQuery"
+                            "$ref": "#/definitions/ExperimentFunnelsQuery"
                         },
                         {
-                            "$ref": "#/definitions/ExperimentTrendQuery"
+                            "$ref": "#/definitions/ExperimentTrendsQuery"
                         }
                     ],
                     "description": "Source of the events"
@@ -4992,14 +5128,14 @@
             "required": ["columns", "hogql", "results", "types"],
             "type": "object"
         },
-        "ExperimentFunnelQuery": {
+        "ExperimentFunnelsQuery": {
             "additionalProperties": false,
             "properties": {
                 "experiment_id": {
                     "type": "integer"
                 },
                 "kind": {
-                    "const": "ExperimentFunnelQuery",
+                    "const": "ExperimentFunnelsQuery",
                     "type": "string"
                 },
                 "modifiers": {
@@ -5007,7 +5143,7 @@
                     "description": "Modifiers used when performing the query"
                 },
                 "response": {
-                    "$ref": "#/definitions/ExperimentFunnelQueryResponse"
+                    "$ref": "#/definitions/ExperimentFunnelsQueryResponse"
                 },
                 "source": {
                     "$ref": "#/definitions/FunnelsQuery"
@@ -5016,24 +5152,61 @@
             "required": ["experiment_id", "kind", "source"],
             "type": "object"
         },
-        "ExperimentFunnelQueryResponse": {
+        "ExperimentFunnelsQueryResponse": {
             "additionalProperties": false,
             "properties": {
-                "insight": {
-                    "const": "FUNNELS",
-                    "type": "string"
-                },
-                "results": {
+                "credible_intervals": {
                     "additionalProperties": {
-                        "$ref": "#/definitions/ExperimentVariantFunnelResult"
+                        "items": {
+                            "type": "number"
+                        },
+                        "maxItems": 2,
+                        "minItems": 2,
+                        "type": "array"
                     },
                     "type": "object"
+                },
+                "expected_loss": {
+                    "type": "number"
+                },
+                "insight": {
+                    "$ref": "#/definitions/FunnelsQueryResponse"
+                },
+                "probability": {
+                    "additionalProperties": {
+                        "type": "number"
+                    },
+                    "type": "object"
+                },
+                "significance_code": {
+                    "$ref": "#/definitions/ExperimentSignificanceCode"
+                },
+                "significant": {
+                    "type": "boolean"
+                },
+                "variants": {
+                    "items": {
+                        "$ref": "#/definitions/ExperimentVariantFunnelsBaseStats"
+                    },
+                    "type": "array"
                 }
             },
-            "required": ["insight", "results"],
+            "required": [
+                "insight",
+                "variants",
+                "probability",
+                "significant",
+                "significance_code",
+                "expected_loss",
+                "credible_intervals"
+            ],
             "type": "object"
         },
-        "ExperimentTrendQuery": {
+        "ExperimentSignificanceCode": {
+            "enum": ["significant", "not_enough_exposure", "low_win_probability", "high_loss", "high_p_value"],
+            "type": "string"
+        },
+        "ExperimentTrendsQuery": {
             "additionalProperties": false,
             "properties": {
                 "count_query": {
@@ -5046,7 +5219,7 @@
                     "$ref": "#/definitions/TrendsQuery"
                 },
                 "kind": {
-                    "const": "ExperimentTrendQuery",
+                    "const": "ExperimentTrendsQuery",
                     "type": "string"
                 },
                 "modifiers": {
@@ -5054,30 +5227,63 @@
                     "description": "Modifiers used when performing the query"
                 },
                 "response": {
-                    "$ref": "#/definitions/ExperimentTrendQueryResponse"
+                    "$ref": "#/definitions/ExperimentTrendsQueryResponse"
                 }
             },
             "required": ["count_query", "experiment_id", "kind"],
             "type": "object"
         },
-        "ExperimentTrendQueryResponse": {
+        "ExperimentTrendsQueryResponse": {
             "additionalProperties": false,
             "properties": {
-                "insight": {
-                    "const": "TRENDS",
-                    "type": "string"
-                },
-                "results": {
+                "credible_intervals": {
                     "additionalProperties": {
-                        "$ref": "#/definitions/ExperimentVariantTrendResult"
+                        "items": {
+                            "type": "number"
+                        },
+                        "maxItems": 2,
+                        "minItems": 2,
+                        "type": "array"
                     },
                     "type": "object"
+                },
+                "insight": {
+                    "$ref": "#/definitions/TrendsQueryResponse"
+                },
+                "p_value": {
+                    "type": "number"
+                },
+                "probability": {
+                    "additionalProperties": {
+                        "type": "number"
+                    },
+                    "type": "object"
+                },
+                "significance_code": {
+                    "$ref": "#/definitions/ExperimentSignificanceCode"
+                },
+                "significant": {
+                    "type": "boolean"
+                },
+                "variants": {
+                    "items": {
+                        "$ref": "#/definitions/ExperimentVariantTrendsBaseStats"
+                    },
+                    "type": "array"
                 }
             },
-            "required": ["insight", "results"],
+            "required": [
+                "insight",
+                "variants",
+                "probability",
+                "significant",
+                "significance_code",
+                "p_value",
+                "credible_intervals"
+            ],
             "type": "object"
         },
-        "ExperimentVariantFunnelResult": {
+        "ExperimentVariantFunnelsBaseStats": {
             "additionalProperties": false,
             "properties": {
                 "failure_count": {
@@ -5093,7 +5299,7 @@
             "required": ["key", "success_count", "failure_count"],
             "type": "object"
         },
-        "ExperimentVariantTrendResult": {
+        "ExperimentVariantTrendsBaseStats": {
             "additionalProperties": false,
             "properties": {
                 "absolute_exposure": {
@@ -6808,11 +7014,19 @@
         "InsightThreshold": {
             "additionalProperties": false,
             "properties": {
-                "absoluteThreshold": {
-                    "$ref": "#/definitions/InsightsThresholdAbsolute"
+                "bounds": {
+                    "$ref": "#/definitions/InsightsThresholdBounds"
+                },
+                "type": {
+                    "$ref": "#/definitions/InsightThresholdType"
                 }
             },
+            "required": ["type"],
             "type": "object"
+        },
+        "InsightThresholdType": {
+            "enum": ["absolute", "percentage"],
+            "type": "string"
         },
         "InsightVizNode": {
             "additionalProperties": false,
@@ -7116,7 +7330,7 @@
             "required": ["kind"],
             "type": "object"
         },
-        "InsightsThresholdAbsolute": {
+        "InsightsThresholdBounds": {
             "additionalProperties": false,
             "properties": {
                 "lower": {
@@ -7401,8 +7615,8 @@
                 "WebStatsTableQuery",
                 "WebExternalClicksTableQuery",
                 "WebGoalsQuery",
-                "ExperimentFunnelQuery",
-                "ExperimentTrendQuery",
+                "ExperimentFunnelsQuery",
+                "ExperimentTrendsQuery",
                 "DatabaseSchemaQuery",
                 "SuggestedQuestionsQuery",
                 "TeamTaxonomyQuery",
@@ -7886,6 +8100,12 @@
                     "$ref": "#/definitions/RefreshType",
                     "default": "blocking",
                     "description": "Whether results should be calculated sync or async, and how much to rely on the cache:\n- `'blocking'` - calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in the cache\n- `'async'` - kick off background calculation (returning immediately with a query status), UNLESS there are very fresh results in the cache\n- `'lazy_async'` - kick off background calculation, UNLESS there are somewhat fresh results in the cache\n- `'force_blocking'` - calculate synchronously, even if fresh results are already cached\n- `'force_async'` - kick off background calculation, even if fresh results are already cached\n- `'force_cache'` - return cached data or a cache miss; always completes immediately as it never calculates Background calculation can be tracked using the `query_status` response field."
+                },
+                "variables_override": {
+                    "additionalProperties": {
+                        "type": "object"
+                    },
+                    "type": "object"
                 }
             },
             "required": ["query"],
@@ -8662,35 +8882,101 @@
                 {
                     "additionalProperties": false,
                     "properties": {
-                        "insight": {
-                            "const": "FUNNELS",
-                            "type": "string"
-                        },
-                        "results": {
+                        "credible_intervals": {
                             "additionalProperties": {
-                                "$ref": "#/definitions/ExperimentVariantFunnelResult"
+                                "items": {
+                                    "type": "number"
+                                },
+                                "maxItems": 2,
+                                "minItems": 2,
+                                "type": "array"
                             },
                             "type": "object"
+                        },
+                        "expected_loss": {
+                            "type": "number"
+                        },
+                        "insight": {
+                            "$ref": "#/definitions/FunnelsQueryResponse"
+                        },
+                        "probability": {
+                            "additionalProperties": {
+                                "type": "number"
+                            },
+                            "type": "object"
+                        },
+                        "significance_code": {
+                            "$ref": "#/definitions/ExperimentSignificanceCode"
+                        },
+                        "significant": {
+                            "type": "boolean"
+                        },
+                        "variants": {
+                            "items": {
+                                "$ref": "#/definitions/ExperimentVariantFunnelsBaseStats"
+                            },
+                            "type": "array"
                         }
                     },
-                    "required": ["insight", "results"],
+                    "required": [
+                        "insight",
+                        "variants",
+                        "probability",
+                        "significant",
+                        "significance_code",
+                        "expected_loss",
+                        "credible_intervals"
+                    ],
                     "type": "object"
                 },
                 {
                     "additionalProperties": false,
                     "properties": {
-                        "insight": {
-                            "const": "TRENDS",
-                            "type": "string"
-                        },
-                        "results": {
+                        "credible_intervals": {
                             "additionalProperties": {
-                                "$ref": "#/definitions/ExperimentVariantTrendResult"
+                                "items": {
+                                    "type": "number"
+                                },
+                                "maxItems": 2,
+                                "minItems": 2,
+                                "type": "array"
                             },
                             "type": "object"
+                        },
+                        "insight": {
+                            "$ref": "#/definitions/TrendsQueryResponse"
+                        },
+                        "p_value": {
+                            "type": "number"
+                        },
+                        "probability": {
+                            "additionalProperties": {
+                                "type": "number"
+                            },
+                            "type": "object"
+                        },
+                        "significance_code": {
+                            "$ref": "#/definitions/ExperimentSignificanceCode"
+                        },
+                        "significant": {
+                            "type": "boolean"
+                        },
+                        "variants": {
+                            "items": {
+                                "$ref": "#/definitions/ExperimentVariantTrendsBaseStats"
+                            },
+                            "type": "array"
                         }
                     },
-                    "required": ["insight", "results"],
+                    "required": [
+                        "insight",
+                        "variants",
+                        "probability",
+                        "significant",
+                        "significance_code",
+                        "p_value",
+                        "credible_intervals"
+                    ],
                     "type": "object"
                 },
                 {
@@ -9241,35 +9527,101 @@
                 {
                     "additionalProperties": false,
                     "properties": {
-                        "insight": {
-                            "const": "FUNNELS",
-                            "type": "string"
-                        },
-                        "results": {
+                        "credible_intervals": {
                             "additionalProperties": {
-                                "$ref": "#/definitions/ExperimentVariantFunnelResult"
+                                "items": {
+                                    "type": "number"
+                                },
+                                "maxItems": 2,
+                                "minItems": 2,
+                                "type": "array"
                             },
                             "type": "object"
+                        },
+                        "expected_loss": {
+                            "type": "number"
+                        },
+                        "insight": {
+                            "$ref": "#/definitions/FunnelsQueryResponse"
+                        },
+                        "probability": {
+                            "additionalProperties": {
+                                "type": "number"
+                            },
+                            "type": "object"
+                        },
+                        "significance_code": {
+                            "$ref": "#/definitions/ExperimentSignificanceCode"
+                        },
+                        "significant": {
+                            "type": "boolean"
+                        },
+                        "variants": {
+                            "items": {
+                                "$ref": "#/definitions/ExperimentVariantFunnelsBaseStats"
+                            },
+                            "type": "array"
                         }
                     },
-                    "required": ["insight", "results"],
+                    "required": [
+                        "credible_intervals",
+                        "expected_loss",
+                        "insight",
+                        "probability",
+                        "significance_code",
+                        "significant",
+                        "variants"
+                    ],
                     "type": "object"
                 },
                 {
                     "additionalProperties": false,
                     "properties": {
-                        "insight": {
-                            "const": "TRENDS",
-                            "type": "string"
-                        },
-                        "results": {
+                        "credible_intervals": {
                             "additionalProperties": {
-                                "$ref": "#/definitions/ExperimentVariantTrendResult"
+                                "items": {
+                                    "type": "number"
+                                },
+                                "maxItems": 2,
+                                "minItems": 2,
+                                "type": "array"
                             },
                             "type": "object"
+                        },
+                        "insight": {
+                            "$ref": "#/definitions/TrendsQueryResponse"
+                        },
+                        "p_value": {
+                            "type": "number"
+                        },
+                        "probability": {
+                            "additionalProperties": {
+                                "type": "number"
+                            },
+                            "type": "object"
+                        },
+                        "significance_code": {
+                            "$ref": "#/definitions/ExperimentSignificanceCode"
+                        },
+                        "significant": {
+                            "type": "boolean"
+                        },
+                        "variants": {
+                            "items": {
+                                "$ref": "#/definitions/ExperimentVariantTrendsBaseStats"
+                            },
+                            "type": "array"
                         }
                     },
-                    "required": ["insight", "results"],
+                    "required": [
+                        "credible_intervals",
+                        "insight",
+                        "p_value",
+                        "probability",
+                        "significance_code",
+                        "significant",
+                        "variants"
+                    ],
                     "type": "object"
                 },
                 {
@@ -9649,10 +10001,10 @@
                     "$ref": "#/definitions/ErrorTrackingQuery"
                 },
                 {
-                    "$ref": "#/definitions/ExperimentFunnelQuery"
+                    "$ref": "#/definitions/ExperimentFunnelsQuery"
                 },
                 {
-                    "$ref": "#/definitions/ExperimentTrendQuery"
+                    "$ref": "#/definitions/ExperimentTrendsQuery"
                 },
                 {
                     "$ref": "#/definitions/DataVisualizationNode"
@@ -9907,6 +10259,10 @@
                         },
                         {
                             "const": "mouse_activity_count",
+                            "type": "string"
+                        },
+                        {
+                            "const": "activity_score",
                             "type": "string"
                         }
                     ]
@@ -10479,6 +10835,10 @@
             "additionalProperties": false,
             "properties": {
                 "active_seconds": {
+                    "type": "number"
+                },
+                "activity_score": {
+                    "description": "calculated on the backend so that we can sort by it, definition may change over time",
                     "type": "number"
                 },
                 "click_count": {
@@ -11116,6 +11476,10 @@
                     },
                     "type": "array"
                 },
+                "showAlertThresholdLines": {
+                    "default": false,
+                    "type": "boolean"
+                },
                 "showLabelsOnSeries": {
                     "type": "boolean"
                 },
@@ -11185,6 +11549,9 @@
                         ]
                     },
                     "type": "object"
+                },
+                "show_alert_threshold_lines": {
+                    "type": "boolean"
                 },
                 "show_labels_on_series": {
                     "type": "boolean"

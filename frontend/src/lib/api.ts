@@ -16,6 +16,7 @@ import {
     DatabaseSerializedFieldType,
     ErrorTrackingGroup,
     HogCompileResponse,
+    HogQLVariable,
     QuerySchema,
     QueryStatusResponse,
     RecordingsQuery,
@@ -49,11 +50,11 @@ import {
     Experiment,
     ExportedAssetType,
     ExternalDataJob,
+    ExternalDataSource,
     ExternalDataSourceCreatePayload,
     ExternalDataSourceSchema,
     ExternalDataSourceSyncSchema,
     ExternalDataSourceType,
-    ExternalDataStripeSource,
     FeatureFlagAssociatedRoleType,
     FeatureFlagType,
     Group,
@@ -83,6 +84,7 @@ import {
     PluginConfigTypeNew,
     PluginConfigWithPluginInfoNew,
     PluginLogEntry,
+    ProjectType,
     PropertyDefinition,
     PropertyDefinitionType,
     QueryBasedInsightModel,
@@ -195,6 +197,7 @@ export async function getJSONOrNull(response: Response): Promise<any> {
 
 export class ApiConfig {
     private static _currentOrganizationId: OrganizationType['id'] | null = null
+    private static _currentProjectId: ProjectType['id'] | null = null
     private static _currentTeamId: TeamType['id'] | null = null
 
     static getCurrentOrganizationId(): OrganizationType['id'] {
@@ -217,6 +220,17 @@ export class ApiConfig {
 
     static setCurrentTeamId(id: TeamType['id']): void {
         this._currentTeamId = id
+    }
+
+    static getCurrentProjectId(): ProjectType['id'] {
+        if (!this._currentProjectId) {
+            throw new Error('Project ID is not known.')
+        }
+        return this._currentProjectId
+    }
+
+    static setCurrentProjectId(id: ProjectType['id']): void {
+        this._currentProjectId = id
     }
 }
 
@@ -304,13 +318,22 @@ class ApiRequest {
         return this.addPathComponent('projects')
     }
 
-    public projectsDetail(id: TeamType['id'] = ApiConfig.getCurrentTeamId()): ApiRequest {
+    public projectsDetail(id: ProjectType['id'] = ApiConfig.getCurrentProjectId()): ApiRequest {
         return this.projects().addPathComponent(id)
+    }
+
+    // # Projects
+    public environments(): ApiRequest {
+        return this.addPathComponent('environments')
+    }
+
+    public environmentsDetail(id: TeamType['id'] = ApiConfig.getCurrentTeamId()): ApiRequest {
+        return this.environments().addPathComponent(id)
     }
 
     // # Insights
     public insights(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('insights')
+        return this.environmentsDetail(teamId).addPathComponent('insights')
     }
 
     public insight(id: QueryBasedInsightModel['id'], teamId?: TeamType['id']): ApiRequest {
@@ -335,7 +358,7 @@ class ApiRequest {
     }
 
     public pluginConfigs(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('plugin_configs')
+        return this.environmentsDetail(teamId).addPathComponent('plugin_configs')
     }
 
     public pluginConfig(id: number, teamId?: TeamType['id']): ApiRequest {
@@ -381,7 +404,7 @@ class ApiRequest {
 
     // # Exports
     public exports(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('exports')
+        return this.environmentsDetail(teamId).addPathComponent('exports')
     }
 
     public export(id: number, teamId?: TeamType['id']): ApiRequest {
@@ -390,7 +413,7 @@ class ApiRequest {
 
     // # Events
     public events(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('events')
+        return this.environmentsDetail(teamId).addPathComponent('events')
     }
 
     public event(id: EventType['id'], teamId?: TeamType['id']): ApiRequest {
@@ -402,16 +425,16 @@ class ApiRequest {
     }
 
     // # Data management
-    public eventDefinitions(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('event_definitions')
+    public eventDefinitions(projectId?: ProjectType['id']): ApiRequest {
+        return this.projectsDetail(projectId).addPathComponent('event_definitions')
     }
 
-    public eventDefinitionDetail(eventDefinitionId: EventDefinition['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('event_definitions').addPathComponent(eventDefinitionId)
+    public eventDefinitionDetail(eventDefinitionId: EventDefinition['id'], projectId?: ProjectType['id']): ApiRequest {
+        return this.projectsDetail(projectId).addPathComponent('event_definitions').addPathComponent(eventDefinitionId)
     }
 
-    public propertyDefinitions(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('property_definitions')
+    public propertyDefinitions(projectId?: ProjectType['id']): ApiRequest {
+        return this.projectsDetail(projectId).addPathComponent('property_definitions')
     }
 
     public propertyDefinitionDetail(
@@ -457,14 +480,16 @@ class ApiRequest {
     }
 
     // Recordings
-    public recording(recordingId: SessionRecordingType['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('session_recordings').addPathComponent(recordingId)
-    }
     public recordings(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('session_recordings')
+        return this.environmentsDetail(teamId).addPathComponent('session_recordings')
+    }
+    public recording(recordingId: SessionRecordingType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.recordings(teamId).addPathComponent(recordingId)
     }
     public recordingMatchingEvents(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('session_recordings').addPathComponent('matching_events')
+        return this.environmentsDetail(teamId)
+            .addPathComponent('session_recordings')
+            .addPathComponent('matching_events')
     }
     public recordingPlaylists(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('session_recording_playlists')
@@ -484,7 +509,7 @@ class ApiRequest {
 
     // # Dashboards
     public dashboards(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('dashboards')
+        return this.environmentsDetail(teamId).addPathComponent('dashboards')
     }
 
     public dashboardsDetail(dashboardId: DashboardType['id'], teamId?: TeamType['id']): ApiRequest {
@@ -564,7 +589,7 @@ class ApiRequest {
 
     // # Persons
     public persons(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('persons')
+        return this.environmentsDetail(teamId).addPathComponent('persons')
     }
 
     public person(id: string | number, teamId?: TeamType['id']): ApiRequest {
@@ -580,7 +605,7 @@ class ApiRequest {
 
     // # Groups
     public groups(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('groups')
+        return this.environmentsDetail(teamId).addPathComponent('groups')
     }
 
     // # Search
@@ -719,7 +744,7 @@ class ApiRequest {
 
     // # Subscriptions
     public subscriptions(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('subscriptions')
+        return this.environmentsDetail(teamId).addPathComponent('subscriptions')
     }
 
     public subscription(id: SubscriptionType['id'], teamId?: TeamType['id']): ApiRequest {
@@ -746,12 +771,15 @@ class ApiRequest {
     // # Alerts
     public alerts(alertId?: AlertType['id'], insightId?: InsightModel['id'], teamId?: TeamType['id']): ApiRequest {
         if (alertId) {
-            return this.projectsDetail(teamId).addPathComponent('alerts').addPathComponent(alertId).withQueryString({
-                insight_id: insightId,
-            })
+            return this.environmentsDetail(teamId)
+                .addPathComponent('alerts')
+                .addPathComponent(alertId)
+                .withQueryString({
+                    insight_id: insightId,
+                })
         }
 
-        return this.projectsDetail(teamId).addPathComponent('alerts').withQueryString({
+        return this.environmentsDetail(teamId).addPathComponent('alerts').withQueryString({
             insight_id: insightId,
         })
     }
@@ -775,7 +803,7 @@ class ApiRequest {
 
     // # Queries
     public query(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('query')
+        return this.environmentsDetail(teamId).addPathComponent('query')
     }
 
     public queryStatus(queryId: string, showProgress: boolean, teamId?: TeamType['id']): ApiRequest {
@@ -788,7 +816,7 @@ class ApiRequest {
 
     // Chat
     public chat(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('query').addPathComponent('chat')
+        return this.environmentsDetail(teamId).addPathComponent('query').addPathComponent('chat')
     }
 
     // Notebooks
@@ -802,7 +830,7 @@ class ApiRequest {
 
     // Batch Exports
     public batchExports(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('batch_exports')
+        return this.environmentsDetail(teamId).addPathComponent('batch_exports')
     }
 
     public batchExport(id: BatchExportConfiguration['id'], teamId?: TeamType['id']): ApiRequest {
@@ -826,7 +854,7 @@ class ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('external_data_sources')
     }
 
-    public externalDataSource(sourceId: ExternalDataStripeSource['id'], teamId?: TeamType['id']): ApiRequest {
+    public externalDataSource(sourceId: ExternalDataSource['id'], teamId?: TeamType['id']): ApiRequest {
         return this.externalDataSources(teamId).addPathComponent(sourceId)
     }
 
@@ -841,6 +869,9 @@ class ApiRequest {
     // Insight Variables
     public insightVariables(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('insight_variables')
+    }
+    public insightVariable(variableId: string, teamId?: TeamType['id']): ApiRequest {
+        return this.insightVariables(teamId).addPathComponent(variableId)
     }
 
     // ActivityLog
@@ -907,14 +938,14 @@ const prepareUrl = (url: string): string => {
     return output
 }
 
-const PROJECT_ID_REGEX = /\/api\/projects\/(\w+)(?:$|[/?#])/
+const PROJECT_ID_REGEX = /\/api\/(project|environment)s\/(\w+)(?:$|[/?#])/
 
 const ensureProjectIdNotInvalid = (url: string): void => {
     const projectIdMatch = PROJECT_ID_REGEX.exec(url)
     if (projectIdMatch) {
-        const projectId = projectIdMatch[1].trim()
+        const projectId = projectIdMatch[2].trim()
         if (projectId === 'null' || projectId === 'undefined') {
-            throw { status: 0, detail: 'Cannot make request - project ID is unknown.' }
+            throw { status: 0, detail: `Cannot make request - ${projectIdMatch[1]} ID is unknown.` }
         }
     }
 }
@@ -935,7 +966,8 @@ const api = {
             shortId: InsightModel['short_id'],
             basic?: boolean,
             refresh?: RefreshType,
-            filtersOverride?: DashboardFilter | null
+            filtersOverride?: DashboardFilter | null,
+            variablesOverride?: Record<string, HogQLVariable> | null
         ): Promise<PaginatedResponse<Partial<InsightModel>>> {
             return new ApiRequest()
                 .insights()
@@ -945,6 +977,7 @@ const api = {
                         basic,
                         refresh,
                         filters_override: filtersOverride,
+                        variables_override: variablesOverride,
                     })
                 )
                 .get()
@@ -1249,7 +1282,7 @@ const api = {
         },
         async list({
             limit = EVENT_DEFINITIONS_PER_PAGE,
-            teamId = ApiConfig.getCurrentTeamId(),
+            teamId,
             ...params
         }: {
             limit?: number
@@ -1265,7 +1298,7 @@ const api = {
         },
         determineListEndpoint({
             limit = EVENT_DEFINITIONS_PER_PAGE,
-            teamId = ApiConfig.getCurrentTeamId(),
+            teamId,
             ...params
         }: {
             limit?: number
@@ -1314,7 +1347,7 @@ const api = {
         },
         async list({
             limit = EVENT_PROPERTY_DEFINITIONS_PER_PAGE,
-            teamId = ApiConfig.getCurrentTeamId(),
+            teamId,
             ...params
         }: {
             event_names?: string[]
@@ -1340,7 +1373,7 @@ const api = {
         },
         determineListEndpoint({
             limit = EVENT_PROPERTY_DEFINITIONS_PER_PAGE,
-            teamId = ApiConfig.getCurrentTeamId(),
+            teamId,
             ...params
         }: {
             event_names?: string[]
@@ -1368,7 +1401,7 @@ const api = {
 
     sessions: {
         async propertyDefinitions({
-            teamId = ApiConfig.getCurrentTeamId(),
+            teamId,
             search,
             properties,
         }: {
@@ -2050,6 +2083,13 @@ const api = {
         ): Promise<BatchExportRun> {
             return await new ApiRequest().batchExportRun(id, runId, teamId).withAction('retry').create()
         },
+        async cancelRun(
+            id: BatchExportConfiguration['id'],
+            runId: BatchExportRun['id'],
+            teamId?: TeamType['id']
+        ): Promise<BatchExportRun> {
+            return await new ApiRequest().batchExportRun(id, runId, teamId).withAction('cancel').create()
+        },
         async logs(
             id: BatchExportConfiguration['id'],
             params: LogEntryRequestParams = {}
@@ -2166,25 +2206,25 @@ const api = {
         },
     },
     externalDataSources: {
-        async list(options?: ApiMethodOptions | undefined): Promise<PaginatedResponse<ExternalDataStripeSource>> {
+        async list(options?: ApiMethodOptions | undefined): Promise<PaginatedResponse<ExternalDataSource>> {
             return await new ApiRequest().externalDataSources().get(options)
         },
-        async get(sourceId: ExternalDataStripeSource['id']): Promise<ExternalDataStripeSource> {
+        async get(sourceId: ExternalDataSource['id']): Promise<ExternalDataSource> {
             return await new ApiRequest().externalDataSource(sourceId).get()
         },
         async create(data: Partial<ExternalDataSourceCreatePayload>): Promise<{ id: string }> {
             return await new ApiRequest().externalDataSources().create({ data })
         },
-        async delete(sourceId: ExternalDataStripeSource['id']): Promise<void> {
+        async delete(sourceId: ExternalDataSource['id']): Promise<void> {
             await new ApiRequest().externalDataSource(sourceId).delete()
         },
-        async reload(sourceId: ExternalDataStripeSource['id']): Promise<void> {
+        async reload(sourceId: ExternalDataSource['id']): Promise<void> {
             await new ApiRequest().externalDataSource(sourceId).withAction('reload').create()
         },
         async update(
-            sourceId: ExternalDataStripeSource['id'],
-            data: Partial<ExternalDataStripeSource>
-        ): Promise<ExternalDataStripeSource> {
+            sourceId: ExternalDataSource['id'],
+            data: Partial<ExternalDataSource>
+        ): Promise<ExternalDataSource> {
             return await new ApiRequest().externalDataSource(sourceId).update({ data })
         },
         async database_schema(
@@ -2206,7 +2246,7 @@ const api = {
                 .create({ data: { source_type, prefix } })
         },
         async jobs(
-            sourceId: ExternalDataStripeSource['id'],
+            sourceId: ExternalDataSource['id'],
             before: string | null,
             after: string | null
         ): Promise<ExternalDataJob[]> {
@@ -2274,8 +2314,11 @@ const api = {
         async list(options?: ApiMethodOptions | undefined): Promise<PaginatedResponse<Variable>> {
             return await new ApiRequest().insightVariables().get(options)
         },
-        async create(data: Partial<any>): Promise<Variable> {
+        async create(data: Partial<Variable>): Promise<Variable> {
             return await new ApiRequest().insightVariables().create({ data })
+        },
+        async update(variableId: string, data: Partial<Variable>): Promise<Variable> {
+            return await new ApiRequest().insightVariable(variableId).update({ data })
         },
     },
 
@@ -2402,7 +2445,8 @@ const api = {
         queryId?: string,
         refresh?: boolean,
         async?: boolean,
-        filtersOverride?: DashboardFilter | null
+        filtersOverride?: DashboardFilter | null,
+        variablesOverride?: Record<string, HogQLVariable> | null
     ): Promise<
         T extends { [response: string]: any }
             ? T['response'] extends infer P | undefined
@@ -2413,7 +2457,13 @@ const api = {
         const refreshParam: RefreshType | undefined = refresh && async ? 'force_async' : async ? 'async' : refresh
         return await new ApiRequest().query().create({
             ...options,
-            data: { query, client_query_id: queryId, refresh: refreshParam, filters_override: filtersOverride },
+            data: {
+                query,
+                client_query_id: queryId,
+                refresh: refreshParam,
+                filters_override: filtersOverride,
+                variables_override: variablesOverride,
+            },
         })
     },
 
