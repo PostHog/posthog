@@ -12,7 +12,16 @@ from posthog.hogql_queries.legacy_compatibility.clean_properties import clean_gl
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 from posthog.models import Filter, Cohort, Team, Property
 from posthog.models.property import PropertyGroup
-from posthog.schema import ActorsQuery
+from posthog.queries.foss_cohort_query import validate_interval, parse_and_validate_positive_integer
+from posthog.schema import (
+    ActorsQuery,
+    InsightActorsQuery,
+    TrendsQuery,
+    InsightDateRange,
+    TrendsFilter,
+    EventsNode,
+    ActionsNode,
+)
 from posthog.queries.cohort_query import CohortQuery
 
 
@@ -82,6 +91,49 @@ class HogQLCohortQuery:
 
     # Get this working first
     def get_performed_event_condition(self, prop: Property) -> ast.SelectQuery:
+        # either an action or an event
+        if prop.event_type == "events":
+            series = [EventsNode(event=prop.key)]
+        elif prop.event_type == "actions":
+            series = [ActionsNode(id=int(prop.key))]
+        else:
+            raise ValueError(f"Event type must be 'events' or 'actions'")
+
+        if prop.event_filters:
+            filter = Filter(data={"properties": prop.event_filters}).property_groups
+            series[0].properties = filter
+
+        if prop.explicit_datetime:
+            # Explicit datetime filter, can be a relative or absolute date, follows same convention
+            # as all analytics datetime filters
+            # date_param = f"{prepend}_explicit_date_{idx}"
+            # target_datetime = relative_date_parse(prop.explicit_datetime, self._team.timezone_info)
+
+            # Do this to create global filters for the entire query
+            # relative_date = self._get_relative_interval_from_explicit_date(target_datetime, self._team.timezone_info)
+            # self._check_earliest_date(relative_date)
+
+            # return f"timestamp > %({date_param})s", {f"{date_param}": target_datetime}
+            date_from = prop.explicit_datetime
+        else:
+            date_value = parse_and_validate_positive_integer(prop.time_value, "time_value")
+            date_interval = validate_interval(prop.time_interval)
+            date_from = f"-{date_value}{date_interval[:1]}"
+
+        trends_query = TrendsQuery(
+            dateRange=InsightDateRange(date_from=date_from),
+            trendsFilter=TrendsFilter(display="ActionsBarValue"),
+            series=series,
+        )
+
+        actors_query = ActorsQuery(
+            source=InsightActorsQuery(source=trends_query),
+            select=["id"],
+        )
+
+        return ActorsQueryRunner(team=self.team, query=actors_query).to_query()
+
+        '''
         return parse_select(
             """select * from (
                     <ActorsQuery select={['id']}>
@@ -96,6 +148,7 @@ class HogQLCohortQuery:
                     </ActorsQuery>
                 )"""
         )
+        '''
 
     def _get_condition_for_property(self, prop: Property) -> ast.SelectQuery | ast.SelectUnionQuery:
         res: str = ""

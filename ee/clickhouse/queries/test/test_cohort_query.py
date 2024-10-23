@@ -310,8 +310,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
             }
         )
 
-        q, params = CohortQuery(filter=filter, team=self.team).get_query()
-        res = sync_execute(q, {**params, **filter.hogql_context.values})
+        res = execute(filter, self.team)
 
         self.assertEqual([p1.uuid], [r[0] for r in res])
 
