@@ -62,6 +62,7 @@ class EventTaxonomyQueryRunner(TaxonomyCacheMixin, QueryRunner):
                 WHERE {filter}
                 GROUP BY key
                 ORDER BY total_count DESC
+                LIMIT 500
             """,
             placeholders={"from_query": self._get_subquery(), "filter": self._get_omit_filter()},
         )
