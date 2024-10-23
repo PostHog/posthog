@@ -191,7 +191,8 @@ export function Toolbar(): JSX.Element | null {
                     'Toolbar',
                     minimized && 'Toolbar--minimized',
                     hedgehogMode && 'Toolbar--hedgehog-mode',
-                    isDragging && 'Toolbar--dragging'
+                    isDragging && 'Toolbar--dragging',
+                    showExperiments && 'Toolbar--with-experiments'
                 )}
                 onMouseDown={(e) => onMouseOrTouchDown(e.nativeEvent)}
                 onTouchStart={(e) => onMouseOrTouchDown(e.nativeEvent)}
@@ -201,7 +202,6 @@ export function Toolbar(): JSX.Element | null {
                     {
                         '--toolbar-button-x': `${position.x}px`,
                         '--toolbar-button-y': `${position.y}px`,
-                        width: showExperiments ? '334px' : 'var(--toolbar-width-expanded)',
                     } as any
                 }
             >
