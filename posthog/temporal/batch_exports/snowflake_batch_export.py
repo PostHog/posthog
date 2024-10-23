@@ -130,7 +130,7 @@ class SnowflakeInsertInputs:
     warehouse: str
     schema: str
     table_name: str
-    data_interval_start: str
+    data_interval_start: str | None
     data_interval_end: str
     role: str | None = None
     exclude_events: list[str] | None = None
@@ -542,8 +542,8 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Recor
     logger = await bind_temporal_worker_logger(team_id=inputs.team_id, destination="Snowflake")
     await logger.ainfo(
         "Batch exporting range %s - %s to Snowflake: %s.%s.%s",
-        inputs.data_interval_start,
-        inputs.data_interval_end,
+        inputs.data_interval_start or "START",
+        inputs.data_interval_end or "END",
         inputs.database,
         inputs.schema,
         inputs.table_name,
@@ -562,7 +562,7 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Recor
         )
 
         if should_resume is True and details is not None:
-            data_interval_start = details.last_inserted_at.isoformat()
+            data_interval_start: str | None = details.last_inserted_at.isoformat()
             current_flush_counter = details.file_no
         else:
             data_interval_start = inputs.data_interval_start
@@ -715,11 +715,12 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
     async def run(self, inputs: SnowflakeBatchExportInputs):
         """Workflow implementation to export data to Snowflake table."""
         data_interval_start, data_interval_end = get_data_interval(inputs.interval, inputs.data_interval_end)
+        should_backfill_from_beginning = inputs.is_backfill and inputs.is_earliest_backfill
 
         start_batch_export_run_inputs = StartBatchExportRunInputs(
             team_id=inputs.team_id,
             batch_export_id=inputs.batch_export_id,
-            data_interval_start=data_interval_start.isoformat(),
+            data_interval_start=data_interval_start.isoformat() if not should_backfill_from_beginning else None,
             data_interval_end=data_interval_end.isoformat(),
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
@@ -753,7 +754,7 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
             database=inputs.database,
             schema=inputs.schema,
             table_name=inputs.table_name,
-            data_interval_start=data_interval_start.isoformat(),
+            data_interval_start=data_interval_start.isoformat() if not should_backfill_from_beginning else None,
             data_interval_end=data_interval_end.isoformat(),
             role=inputs.role,
             exclude_events=inputs.exclude_events,

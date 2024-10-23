@@ -9,9 +9,9 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTable, LemonTableColumns, LemonTableProps } from 'lib/lemon-ui/LemonTable'
 import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
 import {
+    CLOUD_INTERNAL_POSTHOG_PROPERTY_KEYS,
     CORE_FILTER_DEFINITIONS_BY_GROUP,
     getCoreFilterDefinition,
-    NON_DOLLAR_POSTHOG_PROPERTY_KEYS,
     PROPERTY_KEYS,
 } from 'lib/taxonomy'
 import { isURL } from 'lib/utils'
@@ -249,8 +249,8 @@ export function PropertiesTable({
 
         if (filterable && hidePostHogPropertiesInTable) {
             entries = entries.filter(([key]) => {
-                const isPostHogProperty = key.startsWith('$') && PROPERTY_KEYS.includes(key)
-                const isNonDollarPostHogProperty = isCloudOrDev && NON_DOLLAR_POSTHOG_PROPERTY_KEYS.includes(key)
+                const isPostHogProperty = key.startsWith('$') || PROPERTY_KEYS.includes(key)
+                const isNonDollarPostHogProperty = isCloudOrDev && CLOUD_INTERNAL_POSTHOG_PROPERTY_KEYS.includes(key)
                 return !isPostHogProperty && !isNonDollarPostHogProperty
             })
         }
@@ -410,9 +410,10 @@ export function PropertiesTable({
                             {searchable && (
                                 <LemonInput
                                     type="search"
-                                    placeholder="Search for property keys and values"
+                                    placeholder="Search property keys and values"
                                     value={searchTerm || ''}
                                     onChange={setSearchTerm}
+                                    className="max-w-full w-64"
                                 />
                             )}
 
