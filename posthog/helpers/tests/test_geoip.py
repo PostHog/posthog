@@ -19,9 +19,9 @@ australia_ip_2 = "13.106.122.3"
     "test_input,expected_country,expected_city",
     [
         (australia_ip, "Australia", "Sydney"),
-        (uk_ip, "United Kingdom", "Royston"),
+        (uk_ip, "United Kingdom", "Baldock"),
         (us_ip_v6, "United States", "San Luis Obispo"),
-        (mexico_ip, "Mexico", "Cuauhtémoc"),
+        (mexico_ip, "Mexico", "Coyoacán"),
         (australia_ip, "Australia", "Sydney"),
     ],
 )
