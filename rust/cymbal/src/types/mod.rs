@@ -126,7 +126,7 @@ mod test {
             Some("https://app-static.eu.posthog.com/static/chunk-PGUQKT6S.js".to_string())
         );
         assert_eq!(frame.fn_name, "n.loadForeignModule".to_string());
-        assert_eq!(frame.in_app, true);
+        assert!(frame.in_app);
         assert_eq!(frame.line, 64);
         assert_eq!(frame.column, 15003);
 
@@ -142,7 +142,7 @@ mod test {
             "$exception_list": []
         }"#;
 
-        let props: Result<ErrProps, Error> = serde_json::from_str(&raw);
+        let props: Result<ErrProps, Error> = serde_json::from_str(raw);
         assert!(props.is_ok());
         assert_eq!(props.unwrap().exception_list.len(), 0);
 
@@ -152,7 +152,7 @@ mod test {
             }]
         }"#;
 
-        let props: Result<ErrProps, Error> = serde_json::from_str(&raw);
+        let props: Result<ErrProps, Error> = serde_json::from_str(raw);
         assert!(props.is_err());
         assert_eq!(
             props.unwrap_err().to_string(),
@@ -166,7 +166,7 @@ mod test {
             }]
         }"#;
 
-        let props: Result<ErrProps, Error> = serde_json::from_str(&raw);
+        let props: Result<ErrProps, Error> = serde_json::from_str(raw);
         assert!(props.is_err());
         assert_eq!(
             props.unwrap_err().to_string(),
