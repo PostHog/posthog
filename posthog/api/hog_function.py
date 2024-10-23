@@ -325,9 +325,21 @@ class HogFunctionViewSet(
         response = ActorsQueryRunner(query=actors_query, team=self.team).calculate()
 
         for result in response.results:
-            id, properties, created_at = result
-            print(result)  # noqa: T201
-            # TODO: send this to the plugin server for processing
+            # TODO: error handling
+            globals = {
+                "person": {
+                    "id": str(result[0]),
+                    "properties": json.loads(result[1]),
+                    "created_at": result[2].isoformat(),
+                }
+            }
+            create_hog_invocation_test(
+                team_id=hog_function.team_id,
+                hog_function_id=hog_function.id,
+                globals=globals,
+                configuration=HogFunctionSerializer(hog_function).data,
+                mock_async_functions=False,
+            )
 
         return Response({"success": True})
 

@@ -419,7 +419,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                         return false
                     }
                     await api.hogFunctions.sendBroadcast(id)
-                    lemonToast.success('Broadcast started!')
+                    lemonToast.success('Broadcast sent!')
                     return true
                 },
             },
