@@ -135,6 +135,8 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
             chain = ["session_duration"]
         elif isinstance(self.series, DataWarehouseNode) and self.series.math_property:
             chain = [self.series.math_property]
+        elif self.series.math_property_type == "data_warehouse_person_properties" and self.series.math_property:
+            chain = ["person", *self.series.math_property.split(".")]
         else:
             chain = ["properties", self.series.math_property]
 
