@@ -1,5 +1,6 @@
 import { actions, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
 import { urls } from 'scenes/urls'
 
 import {
@@ -133,6 +134,10 @@ export const sessionReplayTemplatesLogic = kea<sessionReplayTemplatesLogicType>(
     }),
     listeners(({ values, props }) => ({
         navigate: () => {
+            posthog.capture('session replay template used', {
+                template: props.template.key,
+                category: props.category,
+            })
             const filterGroup = values.variables.length > 0 ? values.filterGroup : undefined
             router.actions.push(urls.replay(ReplayTabs.Home, filterGroup, undefined, props.template.order))
         },
