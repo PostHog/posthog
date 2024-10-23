@@ -126,6 +126,7 @@ export const SidePanelExperimentFeatureFlag = (): JSX.Element => {
                                     }}
                                     min={0}
                                     max={100}
+                                    suffix={<span>%</span>}
                                 />
                             ),
                         },
