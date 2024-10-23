@@ -23,7 +23,6 @@ import { Sparkline } from 'lib/components/Sparkline'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
-import { capitalizeFirstLetter } from 'lib/utils'
 
 import { AvailableFeature } from '~/types'
 
@@ -455,23 +454,8 @@ export function HogFunctionConfiguration({ templateId, id }: HogFunctionConfigur
                                 </div>
                             )}
 
-                            {type === 'destination' ? (
-                                id && id !== 'new' ? (
-                                    <HogFunctionTest id={id} />
-                                ) : (
-                                    <HogFunctionTestPlaceholder />
-                                )
-                            ) : type === 'broadcast' || type === 'email' ? (
-                                <HogFunctionTestPlaceholder
-                                    description={
-                                        id && id !== 'new'
-                                            ? `${
-                                                  type === 'email' ? 'Email provider' : capitalizeFirstLetter(type)
-                                              } testing coming soon!`
-                                            : `Save your ${type === 'email' ? 'email provider' : type} to begin testing`
-                                    }
-                                />
-                            ) : null}
+                            {!id || id === 'new' ? <HogFunctionTestPlaceholder /> : <HogFunctionTest id={id} />}
+
                             {type === 'broadcast' ? (
                                 id && id !== 'new' ? (
                                     <HogFunctionTestPlaceholder title="Send broadcast" description="Coming soon..." />
