@@ -51,6 +51,7 @@ import {
     DataWarehouseFilter,
     FilterType,
     FunnelExclusionLegacy,
+    FunnelMathType,
     FunnelsFilterType,
     GroupMathType,
     HogQLMathType,
@@ -84,7 +85,7 @@ const actorsOnlyMathTypes = [
     HogQLMathType.HogQL,
 ]
 
-const funnelsMathTypes = [BaseMathType.FirstTimeForUser]
+const funnelsMathTypes = [FunnelMathType.FirstTimeForUser, FunnelMathType.FirstTimeForUserWithFilters]
 
 type FilterTypeActionsAndEvents = {
     events?: ActionFilter[]
@@ -118,7 +119,7 @@ export const legacyEntityToNode = (
     }
 
     if (mathAvailability !== MathAvailability.None) {
-        // only trends and stickiness insights support math.
+        // only trends, funnels, and stickiness insights support math.
         // transition to then default math for stickiness, when an unsupported math type is encountered.
         if (mathAvailability === MathAvailability.ActorsOnly && !actorsOnlyMathTypes.includes(entity.math as any)) {
             shared = {
@@ -391,6 +392,7 @@ export const trendsFilterToQuery = (filters: Partial<TrendsFilterType>): TrendsF
     return objectCleanWithEmpty({
         smoothingIntervals: filters.smoothing_intervals,
         showLegend: filters.show_legend,
+        showAlertThresholdLines: filters.show_alert_threshold_lines,
         hiddenLegendIndexes: hiddenLegendKeysToIndexes(filters.hidden_legend_keys),
         aggregationAxisFormat: filters.aggregation_axis_format,
         aggregationAxisPrefix: filters.aggregation_axis_prefix,

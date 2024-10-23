@@ -1,4 +1,4 @@
-import { actions, connect, kea, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { FEATURE_FLAGS, SESSION_RECORDINGS_PLAYLIST_FREE_COUNT } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -17,6 +17,8 @@ export const humanFriendlyTabName = (tab: ReplayTabs): string => {
             return 'Recordings'
         case ReplayTabs.Playlists:
             return 'Playlists'
+        case ReplayTabs.Templates:
+            return 'What to watch'
         default:
             return capitalizeFirstLetter(tab)
     }
@@ -31,6 +33,7 @@ export const sessionReplaySceneLogic = kea<sessionReplaySceneLogicType>([
     }),
     actions({
         setTab: (tab: ReplayTabs = ReplayTabs.Home) => ({ tab }),
+        hideNewBadge: true,
     }),
     reducers(() => ({
         tab: [
@@ -39,6 +42,21 @@ export const sessionReplaySceneLogic = kea<sessionReplaySceneLogicType>([
                 setTab: (_, { tab }) => tab,
             },
         ],
+        shouldShowNewBadge: [
+            true as boolean,
+            { persist: true },
+            {
+                hideNewBadge: () => false,
+            },
+        ],
+    })),
+
+    listeners(({ actions }) => ({
+        setTab: ({ tab }) => {
+            if (tab === ReplayTabs.Templates) {
+                actions.hideNewBadge()
+            }
+        },
     })),
 
     actionToUrl(({ values }) => {
@@ -52,7 +70,10 @@ export const sessionReplaySceneLogic = kea<sessionReplaySceneLogicType>([
             (s) => [s.featureFlags],
             (featureFlags) => {
                 const hasErrorClustering = !!featureFlags[FEATURE_FLAGS.REPLAY_ERROR_CLUSTERING]
-                return Object.values(ReplayTabs).filter((tab) => tab != ReplayTabs.Errors || hasErrorClustering)
+                const hasTemplates = !!featureFlags[FEATURE_FLAGS.REPLAY_TEMPLATES]
+                return Object.values(ReplayTabs).filter((tab) =>
+                    tab == ReplayTabs.Errors ? hasErrorClustering : tab == ReplayTabs.Templates ? hasTemplates : true
+                )
             },
         ],
         breadcrumbs: [

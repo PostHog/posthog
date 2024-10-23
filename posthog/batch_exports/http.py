@@ -6,7 +6,6 @@ import structlog
 from django.db import transaction
 from django.utils.timezone import now
 from rest_framework import filters, request, response, serializers, viewsets
-from posthog.api.utils import action
 from rest_framework.exceptions import (
     NotAuthenticated,
     NotFound,
@@ -17,6 +16,7 @@ from rest_framework.pagination import CursorPagination
 
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.utils import action
 from posthog.batch_exports.models import BATCH_EXPORT_INTERVALS
 from posthog.batch_exports.service import (
     BatchExportIdError,
@@ -25,6 +25,7 @@ from posthog.batch_exports.service import (
     BatchExportServiceRPCError,
     BatchExportWithNoEndNotAllowedError,
     backfill_export,
+    cancel_running_batch_export_run,
     disable_and_delete_export,
     pause_batch_export,
     sync_batch_export,
@@ -147,6 +148,18 @@ class BatchExportRunViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.Read
         )
 
         return response.Response({"backfill_id": backfill_id})
+
+    @action(methods=["POST"], detail=True, required_scopes=["batch_export:write"])
+    def cancel(self, *args, **kwargs) -> response.Response:
+        """Cancel a batch export run."""
+
+        batch_export_run: BatchExportRun = self.get_object()
+
+        temporal = sync_connect()
+        # TODO: check status of run beforehand
+        cancel_running_batch_export_run(temporal, batch_export_run)
+
+        return response.Response({"cancelled": True})
 
 
 class BatchExportDestinationSerializer(serializers.ModelSerializer):
@@ -380,23 +393,31 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
         start_at_input = request.data.get("start_at", None)
         end_at_input = request.data.get("end_at", None)
 
-        if start_at_input is None or end_at_input is None:
-            raise ValidationError("Both 'start_at' and 'end_at' must be specified")
+        temporal = sync_connect()
+        batch_export = self.get_object()
 
-        start_at = validate_date_input(start_at_input, self.team)
-        end_at = validate_date_input(end_at_input, self.team)
+        if start_at_input is not None:
+            start_at = validate_date_input(start_at_input, self.team)
+        else:
+            start_at = None
+
+        if end_at_input is not None:
+            end_at = validate_date_input(end_at_input, self.team)
+        else:
+            end_at = None
+
+        if start_at is None or end_at is None:
+            backfill_id = backfill_export(temporal, str(batch_export.pk), self.team_id, start_at, end_at)
+            return response.Response({"backfill_id": backfill_id})
 
         if start_at >= end_at:
             raise ValidationError("The initial backfill datetime 'start_at' happens after 'end_at'")
-
-        batch_export = self.get_object()
 
         if end_at > dt.datetime.now(dt.UTC) + batch_export.interval_time_delta:
             raise ValidationError(
                 f"The provided 'end_at' ({end_at.isoformat()}) is too far into the future. Cannot backfill beyond 1 batch period into the future."
             )
 
-        temporal = sync_connect()
         try:
             backfill_id = backfill_export(temporal, str(batch_export.pk), self.team_id, start_at, end_at)
         except BatchExportWithNoEndNotAllowedError:

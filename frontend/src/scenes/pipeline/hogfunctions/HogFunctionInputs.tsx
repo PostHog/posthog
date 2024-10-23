@@ -175,7 +175,6 @@ export function HogFunctionInputRenderer({ value, onChange, schema, disabled }: 
             )
         case 'dictionary':
             return <DictionaryField value={value} onChange={onChange} />
-
         case 'boolean':
             return <LemonSwitch checked={value} onChange={(checked) => onChange?.(checked)} disabled={disabled} />
         case 'integration':

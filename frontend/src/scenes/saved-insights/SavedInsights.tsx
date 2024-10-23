@@ -338,16 +338,37 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconVideoCamera,
         inMenu: false,
     },
-    [NodeKind.ExperimentTrendQuery]: {
-        name: 'Experiment Result',
+    [NodeKind.ExperimentTrendsQuery]: {
+        name: 'Experiment Trends Result',
         description: 'View experiment trend result',
         icon: IconFlask,
         inMenu: false,
     },
-    [NodeKind.ExperimentFunnelQuery]: {
-        name: 'Experiment Funnel',
+    [NodeKind.ExperimentFunnelsQuery]: {
+        name: 'Experiment Funnels Result',
         description: 'View experiment funnel result',
         icon: IconFlask,
+        inMenu: false,
+    },
+    [NodeKind.TeamTaxonomyQuery]: {
+        name: 'Team Taxonomy',
+        icon: IconHogQL,
+        inMenu: false,
+    },
+    [NodeKind.EventTaxonomyQuery]: {
+        name: 'Event Taxonomy',
+        icon: IconHogQL,
+        inMenu: false,
+    },
+    [NodeKind.SuggestedQuestionsQuery]: {
+        name: 'AI Suggested Questions',
+        icon: IconHogQL,
+        inMenu: false,
+    },
+    [NodeKind.ActorsPropertyTaxonomyQuery]: {
+        name: 'Actor Property Taxonomy',
+        description: 'View the taxonomy of the actor’s property.',
+        icon: IconHogQL,
         inMenu: false,
     },
 }

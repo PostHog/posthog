@@ -211,8 +211,6 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
     def _run(self, filter: Filter, team: Team):
         flush_persons_and_events()
 
-        # trend_query = filter_to_query(filter.to_dict())
-
         trend_query = convert_filter_to_trends_query(filter)
         tqr = TrendsQueryRunner(team=team, query=trend_query)
         return tqr.calculate().results
@@ -3841,6 +3839,21 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
     def test_action_filtering(self):
         sign_up_action, person = self._create_events()
+        action_response = self._run(
+            Filter(team=self.team, data={"actions": [{"id": sign_up_action.id}]}),
+            self.team,
+        )
+        event_response = self._run(Filter(team=self.team, data={"events": [{"id": "sign up"}]}), self.team)
+        self.assertEqual(len(action_response), 1)
+
+        self.assertEntityResponseEqual(action_response, event_response)
+
+    def test_action_filtering_for_action_in_different_env_of_project(self):
+        sign_up_action, person = self._create_events()
+        other_team_in_project = Team.objects.create(organization=self.organization, project=self.project)
+        sign_up_action.team = other_team_in_project
+        sign_up_action.save()
+
         action_response = self._run(
             Filter(team=self.team, data={"actions": [{"id": sign_up_action.id}]}),
             self.team,

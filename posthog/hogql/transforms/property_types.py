@@ -13,7 +13,7 @@ from posthog.schema import PersonsOnEventsMode
 from posthog.hogql.database.s3_table import S3Table
 
 
-def build_property_swapper(node: ast.Expr, context: HogQLContext) -> None:
+def build_property_swapper(node: ast.AST, context: HogQLContext) -> None:
     from posthog.models import PropertyDefinition
 
     if not context or not context.team_id:
@@ -222,7 +222,7 @@ class PropertySwapper(CloningVisitor):
             return ast.Call(
                 name="transform",
                 args=[
-                    node,
+                    ast.Call(name="toString", args=[node]),
                     ast.Constant(value=["true", "false"]),
                     ast.Constant(value=[True, False]),
                     ast.Constant(value=None),

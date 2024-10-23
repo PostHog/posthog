@@ -200,11 +200,7 @@ class Team(UUIDClassicModel):
         related_query_name="team",
     )
     project = models.ForeignKey(
-        "posthog.Project",
-        on_delete=models.CASCADE,
-        related_name="teams",
-        related_query_name="team",
-        null=True,
+        "posthog.Project", on_delete=models.CASCADE, related_name="teams", related_query_name="team"
     )
     api_token = models.CharField(
         max_length=200,
@@ -246,7 +242,11 @@ class Team(UUIDClassicModel):
     )
     session_recording_linked_flag = models.JSONField(null=True, blank=True)
     session_recording_network_payload_capture_config = models.JSONField(null=True, blank=True)
+    session_recording_url_trigger_config = ArrayField(
+        models.JSONField(null=True, blank=True), default=list, blank=True, null=True
+    )
     session_replay_config = models.JSONField(null=True, blank=True)
+    survey_config = models.JSONField(null=True, blank=True)
     capture_console_log_opt_in = models.BooleanField(null=True, blank=True, default=True)
     capture_performance_opt_in = models.BooleanField(null=True, blank=True, default=True)
     surveys_opt_in = models.BooleanField(null=True, blank=True)
@@ -282,7 +282,7 @@ class Team(UUIDClassicModel):
     # during feature releases.
     extra_settings = models.JSONField(null=True, blank=True)
 
-    # Project level default HogQL query modifiers
+    # Environment-level default HogQL query modifiers
     modifiers = models.JSONField(null=True, blank=True)
 
     # This is meant to be used as a stopgap until https://github.com/PostHog/meta/pull/39 gets implemented

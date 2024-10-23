@@ -6,7 +6,7 @@ use serde_json::Value;
 
 #[test]
 fn serde_passthrough() {
-    let raw: &'static str = include_str!("./static/raw_js_stack.json");
+    let raw: &'static str = include_str!("./static/raw_ch_exception_list.json");
     let before: Value = serde_json::from_str(raw).unwrap();
     let raw: ClickHouseEvent = serde_json::from_str(raw).unwrap();
 

@@ -15,6 +15,7 @@ from posthog.api.team import (
     TeamSerializer,
     validate_team_attrs,
 )
+from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.event_usage import report_user_action
 from posthog.geoip import get_geoip_properties
 from posthog.jwt import PosthogJwtAudience, encode_jwt
@@ -98,6 +99,7 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
             "session_recording_linked_flag",  # Compat with TeamSerializer
             "session_recording_network_payload_capture_config",  # Compat with TeamSerializer
             "session_replay_config",  # Compat with TeamSerializer
+            "survey_config",
             "access_control",  # Compat with TeamSerializer
             "week_start_day",  # Compat with TeamSerializer
             "primary_dashboard",  # Compat with TeamSerializer
@@ -159,6 +161,7 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
             "session_recording_linked_flag",
             "session_recording_network_payload_capture_config",
             "session_replay_config",
+            "survey_config",
             "access_control",
             "week_start_day",
             "primary_dashboard",
@@ -269,6 +272,37 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
         team_before_update = team.__dict__.copy()
         project_before_update = instance.__dict__.copy()
 
+        if "survey_config" in validated_data:
+            if team.survey_config is not None and validated_data.get("survey_config") is not None:
+                validated_data["survey_config"] = {
+                    **team.survey_config,
+                    **validated_data["survey_config"],
+                }
+
+            if validated_data.get("survey_config") is None:
+                del team_before_update["survey_config"]
+
+            survey_config_changes_between = dict_changes_between(
+                "Survey",
+                team_before_update.get("survey_config", {}),
+                validated_data.get("survey_config", {}),
+                use_field_exclusions=True,
+            )
+            if survey_config_changes_between:
+                log_activity(
+                    organization_id=cast(UUIDT, instance.organization_id),
+                    team_id=instance.pk,
+                    user=cast(User, self.context["request"].user),
+                    was_impersonated=is_impersonated_session(request),
+                    scope="Survey",
+                    item_id="#",
+                    activity="updated",
+                    detail=Detail(
+                        name="global survey appearance",
+                        changes=survey_config_changes_between,
+                    ),
+                )
+
         if (
             "session_replay_config" in validated_data
             and validated_data["session_replay_config"] is not None
@@ -364,6 +398,10 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def safely_get_queryset(self, queryset):
         # IMPORTANT: This is actually what ensures that a user cannot read/update a project for which they don't have permission
         visible_teams_ids = UserPermissions(cast(User, self.request.user)).team_ids_visible_for_user
+        queryset = queryset.filter(id__in=visible_teams_ids)
+        if isinstance(self.request.successful_authenticator, PersonalAPIKeyAuthentication):
+            if scoped_organizations := self.request.successful_authenticator.personal_api_key.scoped_organizations:
+                queryset = queryset.filter(organization_id__in=scoped_organizations)
         return queryset.filter(id__in=visible_teams_ids)
 
     def get_serializer_class(self) -> type[serializers.BaseSerializer]:

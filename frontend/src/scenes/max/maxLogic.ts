@@ -1,7 +1,9 @@
+import { shuffle } from 'd3'
 import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 
-import { ExperimentalAITrendsQuery } from '~/queries/schema'
+import { ExperimentalAITrendsQuery, NodeKind, SuggestedQuestionsQuery } from '~/queries/schema'
 
 import type { maxLogicType } from './maxLogicType'
 
@@ -9,7 +11,7 @@ export interface MaxLogicProps {
     sessionId: string
 }
 
-interface TrendGenerationResult {
+export interface TrendGenerationResult {
     reasoning_steps?: string[]
     answer?: ExperimentalAITrendsQuery
 }
@@ -31,6 +33,8 @@ export const maxLogic = kea<maxLogicType>([
         replaceMessage: (index: number, message: ThreadMessage) => ({ index, message }),
         setMessageStatus: (index: number, status: ThreadMessage['status']) => ({ index, status }),
         setQuestion: (question: string) => ({ question }),
+        setVisibleSuggestions: (suggestions: string[]) => ({ suggestions }),
+        shuffleVisibleSuggestions: true,
     }),
     reducers({
         question: [
@@ -66,8 +70,49 @@ export const maxLogic = kea<maxLogicType>([
                 setThreadLoaded: (_, { testOnlyOverride }) => testOnlyOverride,
             },
         ],
+        wasSuggestionLoadingInitiated: [
+            false,
+            {
+                loadSuggestions: () => true,
+            },
+        ],
+        visibleSuggestions: [
+            null as string[] | null,
+            {
+                setVisibleSuggestions: (_, { suggestions }) => suggestions,
+            },
+        ],
+    }),
+    loaders({
+        allSuggestions: [
+            null as string[] | null,
+            {
+                loadSuggestions: async () => {
+                    const response = await api.query<SuggestedQuestionsQuery>({
+                        kind: NodeKind.SuggestedQuestionsQuery,
+                    })
+                    return response.questions
+                },
+            },
+        ],
     }),
     listeners(({ actions, values, props }) => ({
+        loadSuggestionsSuccess: () => {
+            actions.shuffleVisibleSuggestions()
+        },
+        shuffleVisibleSuggestions: () => {
+            if (!values.allSuggestions) {
+                throw new Error('No question suggestions to shuffle')
+            }
+            const allSuggestionsWithoutCurrentlyVisible = values.allSuggestions.filter(
+                (suggestion) => !values.visibleSuggestions?.includes(suggestion)
+            )
+            if (!process.env.STORYBOOK) {
+                // Randomize order, except in Storybook where we want to keep the order consistent for snapshots
+                shuffle(allSuggestionsWithoutCurrentlyVisible)
+            }
+            actions.setVisibleSuggestions(allSuggestionsWithoutCurrentlyVisible.slice(0, 3))
+        },
         askMax: async ({ prompt }) => {
             actions.addMessage({ role: 'user', content: prompt })
             const newIndex = values.thread.length

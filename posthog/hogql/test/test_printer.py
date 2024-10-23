@@ -114,6 +114,11 @@ class TestPrinter(BaseTest):
             repsponse, f"SELECT\n    plus(1, 2),\n    3\nFROM\n    events\nLIMIT {MAX_SELECT_RETURNED_ROWS}"
         )
 
+    def test_print_to_string(self):
+        assert str(parse_select("select 1 + 2, 3 from events")) == "sql(SELECT plus(1, 2), 3 FROM events)"
+        assert str(parse_expr("1 + 2")) == "sql(plus(1, 2))"
+        assert str(parse_expr("unknown_field")) == "sql(unknown_field)"
+
     def test_literals(self):
         self.assertEqual(self._expr("1 + 2"), "plus(1, 2)")
         self.assertEqual(self._expr("-1 + 2"), "plus(-1, 2)")
@@ -1360,9 +1365,6 @@ class TestPrinter(BaseTest):
         generated_sql_statements1 = self._select(
             "SELECT "
             "start_time = toStartOfMonth(now()), "
-            "now() = now(), "
-            "1 = now(), "
-            "now() = 1, "
             "1 = 1, "
             "click_count = 1, "
             "1 = click_count, "
@@ -1374,9 +1376,6 @@ class TestPrinter(BaseTest):
         generated_sql_statements2 = self._select(
             "SELECT "
             "equals(start_time, toStartOfMonth(now())), "
-            "equals(now(), now()), "
-            "equals(1, now()), "
-            "equals(now(), 1), "
             "equals(1, 1), "
             "equals(click_count, 1), "
             "equals(1, click_count), "
@@ -1392,12 +1391,6 @@ class TestPrinter(BaseTest):
             # (the return of toStartOfMonth() is treated as "potentially nullable" since we yet have full typing support)
             f"ifNull(equals(session_replay_events.start_time, toStartOfMonth(now64(6, %(hogql_val_1)s))), "
             f"isNull(session_replay_events.start_time) and isNull(toStartOfMonth(now64(6, %(hogql_val_1)s)))), "
-            # now() = now() (also two nullable fields)
-            f"ifNull(equals(now64(6, %(hogql_val_2)s), now64(6, %(hogql_val_3)s)), isNull(now64(6, %(hogql_val_2)s)) and isNull(now64(6, %(hogql_val_3)s))), "
-            # 1 = now()
-            f"ifNull(equals(1, now64(6, %(hogql_val_4)s)), 0), "
-            # now() = 1
-            f"ifNull(equals(now64(6, %(hogql_val_5)s), 1), 0), "
             # 1 = 1
             f"1, "
             # click_count = 1
@@ -1416,12 +1409,12 @@ class TestPrinter(BaseTest):
 
     def test_field_nullable_not_equals(self):
         generated_sql1 = self._select(
-            "SELECT start_time != toStartOfMonth(now()), now() != now(), 1 != now(), now() != 1, 1 != 1, "
+            "SELECT start_time != toStartOfMonth(now()), 1 != 1, "
             "click_count != 1, 1 != click_count, click_count != keypress_count, click_count != null, null != click_count "
             "FROM session_replay_events"
         )
         generated_sql2 = self._select(
-            "SELECT notEquals(start_time, toStartOfMonth(now())), notEquals(now(), now()), notEquals(1, now()), notEquals(now(), 1), notEquals(1, 1), "
+            "SELECT notEquals(start_time, toStartOfMonth(now())), notEquals(1, 1), "
             "notEquals(click_count, 1), notEquals(1, click_count), notEquals(click_count, keypress_count), notEquals(click_count, null), notEquals(null, click_count) "
             "FROM session_replay_events"
         )
@@ -1432,12 +1425,6 @@ class TestPrinter(BaseTest):
             # (the return of toStartOfMonth() is treated as "potentially nullable" since we yet have full typing support)
             f"ifNull(notEquals(session_replay_events.start_time, toStartOfMonth(now64(6, %(hogql_val_1)s))), "
             f"isNotNull(session_replay_events.start_time) or isNotNull(toStartOfMonth(now64(6, %(hogql_val_1)s)))), "
-            # now() = now() (also two nullable fields)
-            f"ifNull(notEquals(now64(6, %(hogql_val_2)s), now64(6, %(hogql_val_3)s)), isNotNull(now64(6, %(hogql_val_2)s)) or isNotNull(now64(6, %(hogql_val_3)s))), "
-            # 1 = now()
-            f"ifNull(notEquals(1, now64(6, %(hogql_val_4)s)), 1), "
-            # now() = 1
-            f"ifNull(notEquals(now64(6, %(hogql_val_5)s), 1), 1), "
             # 1 = 1
             f"0, "
             # click_count = 1
@@ -1476,9 +1463,9 @@ class TestPrinter(BaseTest):
         )
         assert generated_sql_statements1 == (
             f"SELECT "
-            "ifNull(equals(transform(nullIf(nullIf(events.mat_is_boolean, ''), 'null'), %(hogql_val_0)s, %(hogql_val_1)s, NULL), 1), 0), "
-            "ifNull(equals(transform(nullIf(nullIf(events.mat_is_boolean, ''), 'null'), %(hogql_val_2)s, %(hogql_val_3)s, NULL), 0), 0), "
-            "isNull(transform(nullIf(nullIf(events.mat_is_boolean, ''), 'null'), %(hogql_val_4)s, %(hogql_val_5)s, NULL)) "
+            "ifNull(equals(transform(toString(nullIf(nullIf(events.mat_is_boolean, ''), 'null')), %(hogql_val_0)s, %(hogql_val_1)s, NULL), 1), 0), "
+            "ifNull(equals(transform(toString(nullIf(nullIf(events.mat_is_boolean, ''), 'null')), %(hogql_val_2)s, %(hogql_val_3)s, NULL), 0), 0), "
+            "isNull(transform(toString(nullIf(nullIf(events.mat_is_boolean, ''), 'null')), %(hogql_val_4)s, %(hogql_val_5)s, NULL)) "
             f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}"
         )
         assert context.values == {

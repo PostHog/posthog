@@ -18,6 +18,22 @@ class SurveyAdmin(admin.ModelAdmin):
     autocomplete_fields = ("team", "created_by")
     ordering = ("-created_at",)
 
+    def get_form(self, request, obj=None, change=False, **kwargs):
+        form = super().get_form(request, obj, **kwargs)
+        for field in [
+            "start_date",
+            "end_date",
+            "responses_limit",
+            "iteration_count",
+            "iteration_frequency_days",
+            "iteration_start_dates",
+            "current_iteration",
+            "current_iteration_start_date",
+            "actions",
+        ]:
+            form.base_fields[field].required = False
+        return form
+
     def team_link(self, experiment: Experiment):
         return format_html(
             '<a href="/admin/posthog/team/{}/change/">{}</a>',

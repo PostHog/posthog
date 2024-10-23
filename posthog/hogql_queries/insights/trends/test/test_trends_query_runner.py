@@ -944,13 +944,14 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert len(response.results) == 2
 
         assert response.results[0]["label"] == "Formula (A+B)"
-        assert response.results[0]["breakdown_value"] == "all"
-        assert response.results[0]["count"] == 16
+        assert response.results[0]["breakdown_value"] == cohort1.pk
+        assert response.results[0]["count"] == 9
+        assert response.results[0]["data"] == [0, 0, 2, 2, 2, 0, 1, 0, 1, 0, 1, 0]
 
         assert response.results[1]["label"] == "Formula (A+B)"
-        assert response.results[1]["breakdown_value"] == cohort1.pk
-        assert response.results[1]["count"] == 9
-        assert response.results[1]["data"] == [0, 0, 2, 2, 2, 0, 1, 0, 1, 0, 1, 0]
+        assert response.results[1]["breakdown_value"] == "all"
+        assert response.results[1]["count"] == 16
+        assert response.results[1]["data"] == [1, 0, 2, 4, 4, 0, 2, 1, 1, 0, 1, 0]
 
         # action needs to be unset to display custom label
         assert response.results[0]["action"] is None
@@ -4832,3 +4833,89 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         breakdowns = [b for result in response.results for b in result["breakdown_value"]]
         self.assertNotIn(BREAKDOWN_OTHER_STRING_LABEL, breakdowns)
+
+    def test_trends_aggregation_total_with_null(self):
+        self._create_events(
+            [
+                SeriesTestData(
+                    distinct_id="p1",
+                    events=[
+                        Series(event="$pageview", timestamps=["2020-01-08T12:00:00Z"]),
+                    ],
+                    properties={
+                        "$browser": "Chrome",
+                        "prop": 30,
+                        "bool_field": True,
+                        "nullable_prop": "1.1",
+                    },
+                ),
+                SeriesTestData(
+                    distinct_id="p7",
+                    events=[
+                        Series(event="$pageview", timestamps=["2020-01-15T12:00:00Z"]),
+                    ],
+                    properties={
+                        "$browser": "Chrome",
+                        "prop": 30,
+                        "bool_field": True,
+                        "nullable_prop": "1.1",
+                    },
+                ),
+                SeriesTestData(
+                    distinct_id="p3",
+                    events=[
+                        Series(event="$pageview", timestamps=["2020-01-12T12:00:00Z"]),
+                    ],
+                    properties={
+                        "$browser": "Chrome",
+                        "prop": 30,
+                        "bool_field": True,
+                        "nullable_prop": "garbage",
+                    },
+                ),
+                SeriesTestData(
+                    distinct_id="p4",
+                    events=[
+                        Series(event="$pageview", timestamps=["2020-01-15T12:00:00Z"]),
+                    ],
+                    properties={
+                        "$browser": "Chrome",
+                        "prop": 40,
+                        "bool_field": False,
+                        "nullable_prop": "garbage",
+                    },
+                ),
+                SeriesTestData(
+                    distinct_id="p5",
+                    events=[
+                        Series(event="$pageview", timestamps=["2020-01-09T12:00:00Z"]),
+                    ],
+                    properties={
+                        "$browser": "Chrome",
+                        "prop": 40,
+                        "bool_field": False,
+                        "nullable_prop": "garbage",
+                    },
+                ),
+            ]
+        )
+
+        # need to let property be inferred as a different type first and then override
+        # to get the `toFloat` cast
+        nullable_prop = PropertyDefinition.objects.get(name="nullable_prop")
+        nullable_prop.property_type = "Numeric"
+        nullable_prop.save()
+
+        nullable_prop = PropertyDefinition.objects.get(name="nullable_prop")
+
+        response = self._run_trends_query(
+            "2020-01-08",
+            "2020-01-15",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview", math=PropertyMathType.SUM, math_property="nullable_prop")],
+            None,
+            BreakdownFilter(breakdown="$browser", breakdown_type=BreakdownType.EVENT),
+        )
+
+        assert len(response.results) == 1
+        assert response.results[0]["data"] == [1.1, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.1]

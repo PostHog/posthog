@@ -25,7 +25,6 @@ from posthog.queries.breakdown_props import ALL_USERS_COHORT_ID, get_breakdown_c
 from posthog.queries.util import correct_result_for_sampling
 from posthog.schema import (
     ActionsNode,
-    BaseMathType,
     BreakdownAttributionType,
     BreakdownType,
     DataWarehouseNode,
@@ -34,6 +33,7 @@ from posthog.schema import (
     FunnelTimeToConvertResults,
     FunnelVizType,
     FunnelExclusionEventsNode,
+    FunnelMathType,
 )
 from posthog.types import EntityNode, ExclusionEntityNode
 
@@ -88,6 +88,25 @@ class FunnelBase(ABC):
 
     def get_step_counts_without_aggregation_query(self) -> ast.SelectQuery:
         raise NotImplementedError()
+
+    # This is a simple heuristic to reduce the number of events we look at in UDF funnels (thus are serialized and sent over)
+    # We remove an event if it matches one or zero steps and there was already the same type of event before and after it (that don't have the same timestamp)
+    # arrayRotateRight turns [1,2,3] into [3,1,2]
+    # arrayRotateLeft turns [1,2,3] into [2,3,1]
+    # For some reason, using these uses much less memory than using indexing in clickhouse to check the previous and next element
+    def _udf_event_array_filter(self, timestamp_index: int, prop_val_index: int, steps_index: int):
+        return f"""arrayFilter(
+                    (x, x_before, x_after) -> not (
+                        length(x.{steps_index}) <= 1
+                        and x.{steps_index} == x_before.{steps_index}
+                        and x.{steps_index} == x_after.{steps_index}
+                        and x.{prop_val_index} == x_before.{prop_val_index}
+                        and x.{prop_val_index} == x_after.{prop_val_index}
+                        and x.{timestamp_index} > x_before.{timestamp_index}
+                        and x.{timestamp_index} < x_after.{timestamp_index}),
+                    events_array,
+                    arrayRotateRight(events_array, 1),
+                    arrayRotateLeft(events_array, 1))"""
 
     @cached_property
     def breakdown_cohorts(self) -> list[Cohort]:
@@ -304,7 +323,7 @@ class FunnelBase(ABC):
                 "Data warehouse tables are not supported in funnels just yet. For now, please try this funnel without the data warehouse-based step."
             )
         else:
-            action = Action.objects.get(pk=step.id)
+            action = Action.objects.get(pk=step.id, team__project_id=self.context.team.project_id)
             name = action.name
             action_id = step.id
             type = "actions"
@@ -676,7 +695,7 @@ class FunnelBase(ABC):
 
         if isinstance(entity, ActionsNode) or isinstance(entity, FunnelExclusionActionsNode):
             # action
-            action = Action.objects.get(pk=int(entity.id), team=self.context.team)
+            action = Action.objects.get(pk=int(entity.id), team__project_id=self.context.team.project_id)
             event_expr = action_to_expr(action)
         elif isinstance(entity, DataWarehouseNode):
             raise ValidationError(
@@ -697,8 +716,12 @@ class FunnelBase(ABC):
             filter_expr = property_to_expr(entity.properties, self.context.team)
             filters.append(filter_expr)
 
-        if entity.math == BaseMathType.FIRST_TIME_FOR_USER:
+        if entity.math == FunnelMathType.FIRST_TIME_FOR_USER:
             subquery = FirstTimeForUserAggregationQuery(self.context, filter_expr, event_expr).to_query()
+            first_time_filter = parse_expr("e.uuid IN {subquery}", placeholders={"subquery": subquery})
+            return ast.And(exprs=[*filters, first_time_filter])
+        elif entity.math == FunnelMathType.FIRST_TIME_FOR_USER_WITH_FILTERS:
+            subquery = FirstTimeForUserAggregationQuery(self.context, ast.Constant(value=1), filter_expr).to_query()
             first_time_filter = parse_expr("e.uuid IN {subquery}", placeholders={"subquery": subquery})
             return ast.And(exprs=[*filters, first_time_filter])
         elif len(filters) > 1:

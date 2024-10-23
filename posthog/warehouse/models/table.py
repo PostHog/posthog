@@ -104,8 +104,10 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
     def soft_delete(self):
         from posthog.warehouse.models.join import DataWarehouseJoin
 
-        DataWarehouseJoin.objects.filter(source_table_name=self.name).delete()
-        DataWarehouseJoin.objects.filter(joining_table_name=self.name).delete()
+        for join in DataWarehouseJoin.objects.filter(
+            Q(team_id=self.team.pk) & (Q(source_table_name=self.name) | Q(joining_table_name=self.name))
+        ).exclude(deleted=True):
+            join.soft_delete()
 
         self.deleted = True
         self.deleted_at = datetime.now()

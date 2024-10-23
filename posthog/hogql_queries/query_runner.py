@@ -33,6 +33,7 @@ from posthog.schema import (
     FunnelsQuery,
     HogQLQuery,
     HogQLQueryModifiers,
+    HogQLVariable,
     InsightActorsQuery,
     InsightActorsQueryOptions,
     LifecycleQuery,
@@ -44,6 +45,7 @@ from posthog.schema import (
     SamplingRate,
     SessionsTimelineQuery,
     StickinessQuery,
+    SuggestedQuestionsQuery,
     TrendsQuery,
     WebOverviewQuery,
     WebStatsTableQuery,
@@ -364,10 +366,10 @@ def get_query_runner(
             limit_context=limit_context,
         )
 
-    if kind == "ExperimentFunnelQuery":
-        from .experiments.experiment_funnel_query_runner import ExperimentFunnelQueryRunner
+    if kind == "ExperimentFunnelsQuery":
+        from .experiments.experiment_funnels_query_runner import ExperimentFunnelsQueryRunner
 
-        return ExperimentFunnelQueryRunner(
+        return ExperimentFunnelsQueryRunner(
             query=query,
             team=team,
             timings=timings,
@@ -375,15 +377,25 @@ def get_query_runner(
             limit_context=limit_context,
         )
 
-    if kind == "ExperimentTrendQuery":
-        from .experiments.experiment_trend_query_runner import ExperimentTrendQueryRunner
+    if kind == "ExperimentTrendsQuery":
+        from .experiments.experiment_trends_query_runner import ExperimentTrendsQueryRunner
 
-        return ExperimentTrendQueryRunner(
+        return ExperimentTrendsQueryRunner(
             query=query,
             team=team,
             timings=timings,
             modifiers=modifiers,
             limit_context=limit_context,
+        )
+    if kind == "SuggestedQuestionsQuery":
+        from posthog.hogql_queries.ai.suggested_questions_query_runner import SuggestedQuestionsQueryRunner
+
+        return SuggestedQuestionsQueryRunner(
+            query=cast(SuggestedQuestionsQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
         )
 
     raise ValueError(f"Can't get a runner for an unknown query kind: {kind}")
@@ -709,6 +721,20 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
     def _refresh_frequency(self) -> timedelta:
         return timedelta(minutes=1)
+
+    def apply_variable_overrides(self, variable_overrides: list[HogQLVariable]):
+        """Irreversably update self.query with provided variable overrides."""
+        if not hasattr(self.query, "variables") or not self.query.kind == "HogQLQuery" or len(variable_overrides) == 0:
+            return
+
+        assert isinstance(self.query, HogQLQuery)
+
+        if not self.query.variables:
+            return
+
+        for variable in variable_overrides:
+            if self.query.variables.get(variable.variableId):
+                self.query.variables[variable.variableId] = variable
 
     def apply_dashboard_filters(self, dashboard_filter: DashboardFilter):
         """Irreversably update self.query with provided dashboard filters."""

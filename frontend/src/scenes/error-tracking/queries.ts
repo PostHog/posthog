@@ -1,4 +1,3 @@
-import { UniversalFiltersGroup } from 'lib/components/UniversalFilters/UniversalFilters'
 import { dayjs } from 'lib/dayjs'
 import { range } from 'lib/utils'
 
@@ -11,7 +10,7 @@ import {
     InsightVizNode,
     NodeKind,
 } from '~/queries/schema'
-import { AnyPropertyFilter, BaseMathType, ChartDisplayType, PropertyGroupFilter } from '~/types'
+import { AnyPropertyFilter, BaseMathType, ChartDisplayType, PropertyGroupFilter, UniversalFiltersGroup } from '~/types'
 
 export type SparklineConfig = {
     value: number
@@ -184,12 +183,13 @@ export const errorTrackingGroupEventsQuery = ({
 }
 
 // JSON.stringify wraps strings in double quotes and HogQL only supports single quote strings
-const stringifyFingerprints = (fingerprints: ErrorTrackingGroup['fingerprint'][]): string => {
-    const stringifiedFingerprints = fingerprints.map((fp) => {
-        const stringifiedParts = fp.map((s) => `'${s}'`)
-        return `[${stringifiedParts.join(',')}]`
-    })
-    return `[${stringifiedFingerprints.join(',')}]`
+export const stringifyFingerprints = (fingerprints: ErrorTrackingGroup['fingerprint'][]): string => {
+    // so we escape all single quoted strings and replace double quotes with single quotes, unless they're already escaped.
+    // Also replace escaped double quotes with regular double quotes - this isn't valid JSON, but we aren't trying to generate JSON so its ok.
+    return JSON.stringify(fingerprints)
+        .replace(/'/g, "\\'")
+        .replace(/(?<!\\)"/g, "'")
+        .replace(/\\"/g, '"')
 }
 
 export const errorTrackingGroupBreakdownQuery = ({
