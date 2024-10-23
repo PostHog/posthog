@@ -54,85 +54,6 @@ from posthog.schema import (
 class CreateTrendsPlanNode(AssistantNode):
     name = AssistantNodeName.CREATE_TRENDS_PLAN
 
-    @cached_property
-    def _events_prompt(self) -> str:
-        event_description_mapping = {
-            "$identify": "Identifies an anonymous user. This event doesn't show how many users you have but rather how many users used an account."
-        }
-
-        response = TeamTaxonomyQueryRunner(TeamTaxonomyQuery(), self._team).run(
-            ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
-        )
-
-        if not isinstance(response, CachedTeamTaxonomyQueryResponse):
-            raise ValueError("Failed to generate events prompt.")
-
-        events = [item.event for item in response.results]
-
-        # default for null in the schema
-        tags: list[str] = ["all events"]
-
-        for event_name in events:
-            event_tag = event_name
-            if event_name in event_description_mapping:
-                description = event_description_mapping[event_name]
-                event_tag += f" - {description}"
-            elif event_name in hardcoded_prop_defs["events"]:
-                data = hardcoded_prop_defs["events"][event_name]
-                event_tag += f" - {data['label']}. {data['description']}"
-                if "examples" in data:
-                    event_tag += f" Examples: {data['examples']}."
-            tags.append(remove_line_breaks(event_tag))
-
-        root = ET.Element("list of available events for filtering")
-        root.text = "\n" + "\n".join(tags) + "\n"
-        return ET.tostring(root, encoding="unicode")
-
-    @cached_property
-    def _team_group_types(self) -> list[str]:
-        return list(
-            GroupTypeMapping.objects.filter(team=self._team)
-            .order_by("group_type_index")
-            .values_list("group_type", flat=True)
-        )
-
-    def router(self, state: AssistantState):
-        # Exceptional case. TODO: decide how to handle this.
-        if state.get("plan") is not None:
-            return AssistantNodeName.GENERATE_TRENDS
-
-        if state.get("intermediate_steps", []):
-            return AssistantNodeName.CREATE_TRENDS_PLAN_TOOLS
-
-        raise ValueError("Invalid state.")
-
-    def _reconstruct_conversation(self, state: AssistantState) -> list[BaseMessage]:
-        """
-        Reconstruct the conversation for the agent. On this step we only care about previously asked questions and generated plans. All other messages are filtered out.
-        """
-        messages = state.get("messages", [])
-        if len(messages) == 0:
-            return []
-
-        conversation = [
-            HumanMessagePromptTemplate.from_template(react_user_prompt, template_format="mustache").format(
-                question=messages[0].content
-            )
-        ]
-
-        for message in messages[1:]:
-            if message.type == "human":
-                conversation.append(
-                    HumanMessagePromptTemplate.from_template(
-                        react_follow_up_prompt,
-                        template_format="mustache",
-                    ).format(feedback=message.content)
-                )
-            elif message.type == "ai" and isinstance(message.payload, VisualizationMessagePayload):
-                conversation.append(AIMessage(content=message.payload.plan))
-
-        return conversation
-
     def run(self, state: AssistantState, config: RunnableConfig):
         intermediate_steps = state.get("intermediate_steps") or []
 
@@ -196,14 +117,88 @@ class CreateTrendsPlanNode(AssistantNode):
             "intermediate_steps": [*intermediate_steps, (result, None)],
         }
 
+    def router(self, state: AssistantState):
+        # Exceptional case. TODO: decide how to handle this.
+        if state.get("plan") is not None:
+            return AssistantNodeName.GENERATE_TRENDS
+
+        if state.get("intermediate_steps", []):
+            return AssistantNodeName.CREATE_TRENDS_PLAN_TOOLS
+
+        raise ValueError("Invalid state.")
+
+    @cached_property
+    def _events_prompt(self) -> str:
+        event_description_mapping = {
+            "$identify": "Identifies an anonymous user. This event doesn't show how many users you have but rather how many users used an account."
+        }
+
+        response = TeamTaxonomyQueryRunner(TeamTaxonomyQuery(), self._team).run(
+            ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
+        )
+
+        if not isinstance(response, CachedTeamTaxonomyQueryResponse):
+            raise ValueError("Failed to generate events prompt.")
+
+        events = [item.event for item in response.results]
+
+        # default for null in the schema
+        tags: list[str] = ["all events"]
+
+        for event_name in events:
+            event_tag = event_name
+            if event_name in event_description_mapping:
+                description = event_description_mapping[event_name]
+                event_tag += f" - {description}"
+            elif event_name in hardcoded_prop_defs["events"]:
+                data = hardcoded_prop_defs["events"][event_name]
+                event_tag += f" - {data['label']}. {data['description']}"
+                if "examples" in data:
+                    event_tag += f" Examples: {data['examples']}."
+            tags.append(remove_line_breaks(event_tag))
+
+        root = ET.Element("list of available events for filtering")
+        root.text = "\n" + "\n".join(tags) + "\n"
+        return ET.tostring(root, encoding="unicode")
+
+    @cached_property
+    def _team_group_types(self) -> list[str]:
+        return list(
+            GroupTypeMapping.objects.filter(team=self._team)
+            .order_by("group_type_index")
+            .values_list("group_type", flat=True)
+        )
+
+    def _reconstruct_conversation(self, state: AssistantState) -> list[BaseMessage]:
+        """
+        Reconstruct the conversation for the agent. On this step we only care about previously asked questions and generated plans. All other messages are filtered out.
+        """
+        messages = state.get("messages", [])
+        if len(messages) == 0:
+            return []
+
+        conversation = [
+            HumanMessagePromptTemplate.from_template(react_user_prompt, template_format="mustache").format(
+                question=messages[0].content
+            )
+        ]
+
+        for message in messages[1:]:
+            if message.type == "human":
+                conversation.append(
+                    HumanMessagePromptTemplate.from_template(
+                        react_follow_up_prompt,
+                        template_format="mustache",
+                    ).format(feedback=message.content)
+                )
+            elif message.type == "ai" and isinstance(message.payload, VisualizationMessagePayload):
+                conversation.append(AIMessage(content=message.payload.plan))
+
+        return conversation
+
 
 class CreateTrendsPlanToolsNode(AssistantNode):
     name = AssistantNodeName.CREATE_TRENDS_PLAN_TOOLS
-
-    def router(self, state: AssistantState):
-        if state.get("plan") is not None:
-            return AssistantNodeName.GENERATE_TRENDS
-        return AssistantNodeName.CREATE_TRENDS_PLAN
 
     def run(self, state: AssistantState, config: RunnableConfig):
         toolkit = TrendsAgentToolkit(self._team)
@@ -237,9 +232,77 @@ class CreateTrendsPlanToolsNode(AssistantNode):
 
         return {"intermediate_steps": [*intermediate_steps[:-1], (action, output)]}
 
+    def router(self, state: AssistantState):
+        if state.get("plan") is not None:
+            return AssistantNodeName.GENERATE_TRENDS
+        return AssistantNodeName.CREATE_TRENDS_PLAN
+
 
 class GenerateTrendsNode(AssistantNode):
     name = AssistantNodeName.GENERATE_TRENDS
+
+    def run(self, state: AssistantState, config: RunnableConfig):
+        generated_plan = state.get("plan", "")
+
+        llm = ChatOpenAI(model="gpt-4o", temperature=0.7, streaming=True).with_structured_output(
+            GenerateTrendTool().schema,
+            method="function_calling",
+            include_raw=False,
+        )
+
+        trends_generation_prompt = ChatPromptTemplate.from_messages(
+            [
+                ("system", trends_system_prompt),
+            ],
+            template_format="mustache",
+        ) + self._reconstruct_conversation(state)
+        merger = merge_message_runs()
+
+        chain = (
+            trends_generation_prompt
+            | merger
+            | llm
+            # Result from structured output is a parsed dict. Convert to a string since the output parser expects it.
+            | RunnableLambda(lambda x: json.dumps(x))
+            # Validate a string input.
+            | PydanticOutputParser[GenerateTrendOutputModel](pydantic_object=GenerateTrendOutputModel)
+        )
+
+        try:
+            message = chain.invoke({}, config)
+        except OutputParserException:
+            # if e.send_to_llm:
+            #     observation = str(e.observation)
+            # else:
+            #     observation = "Invalid or incomplete response. You must use the provided tools and output JSON to answer the user's question."
+            # return {"tool_argument": observation}
+
+            return {
+                "messages": [
+                    AssistantMessage(
+                        type="ai",
+                        content=GenerateTrendOutputModel(
+                            reasoning_steps=["Schema validation failed"]
+                        ).model_dump_json(),
+                        payload=VisualizationMessagePayload(plan=generated_plan),
+                    )
+                ]
+            }
+
+        return {
+            "messages": [
+                AssistantMessage(
+                    type="ai",
+                    content=cast(GenerateTrendOutputModel, message).model_dump_json(),
+                    payload=VisualizationMessagePayload(plan=generated_plan),
+                )
+            ]
+        }
+
+    def router(self, state: AssistantState):
+        if state.get("tool_argument") is not None:
+            return AssistantNodeName.GENERATE_TRENDS_TOOLS
+        return AssistantNodeName.END
 
     @cached_property
     def _group_mapping_prompt(self) -> str:
@@ -252,11 +315,6 @@ class GenerateTrendsNode(AssistantNode):
             "\n" + "\n".join([f'name "{group.group_type}", index {group.group_type_index}' for group in groups]) + "\n"
         )
         return ET.tostring(root, encoding="unicode")
-
-    def router(self, state: AssistantState):
-        if state.get("tool_argument") is not None:
-            return AssistantNodeName.GENERATE_TRENDS_TOOLS
-        return AssistantNodeName.END
 
     def _reconstruct_conversation(self, state: AssistantState) -> list[BaseMessage]:
         """
@@ -327,64 +385,6 @@ class GenerateTrendsNode(AssistantNode):
             return GenerateTrendOutputModel.model_validate(output)
         except ValidationError:
             return None
-
-    def run(self, state: AssistantState, config: RunnableConfig):
-        generated_plan = state.get("plan", "")
-
-        llm = ChatOpenAI(model="gpt-4o", temperature=0.7, streaming=True).with_structured_output(
-            GenerateTrendTool().schema,
-            method="function_calling",
-            include_raw=False,
-        )
-
-        trends_generation_prompt = ChatPromptTemplate.from_messages(
-            [
-                ("system", trends_system_prompt),
-            ],
-            template_format="mustache",
-        ) + self._reconstruct_conversation(state)
-        merger = merge_message_runs()
-
-        chain = (
-            trends_generation_prompt
-            | merger
-            | llm
-            # Result from structured output is a parsed dict. Convert to a string since the output parser expects it.
-            | RunnableLambda(lambda x: json.dumps(x))
-            # Validate a string input.
-            | PydanticOutputParser[GenerateTrendOutputModel](pydantic_object=GenerateTrendOutputModel)
-        )
-
-        try:
-            message = chain.invoke({}, config)
-        except OutputParserException:
-            # if e.send_to_llm:
-            #     observation = str(e.observation)
-            # else:
-            #     observation = "Invalid or incomplete response. You must use the provided tools and output JSON to answer the user's question."
-            # return {"tool_argument": observation}
-
-            return {
-                "messages": [
-                    AssistantMessage(
-                        type="ai",
-                        content=GenerateTrendOutputModel(
-                            reasoning_steps=["Schema validation failed"]
-                        ).model_dump_json(),
-                        payload=VisualizationMessagePayload(plan=generated_plan),
-                    )
-                ]
-            }
-
-        return {
-            "messages": [
-                AssistantMessage(
-                    type="ai",
-                    content=cast(GenerateTrendOutputModel, message).model_dump_json(),
-                    payload=VisualizationMessagePayload(plan=generated_plan),
-                )
-            ]
-        }
 
 
 class GenerateTrendsToolsNode(AssistantNode):
