@@ -334,7 +334,9 @@ class FeatureFlagMatcher:
                 # rollout_percentage is None (=100%), or we are inside holdout rollout bound.
                 # Thus, we match. Now get the variant override for the holdout condition.
                 variant_override = condition.get("variant")
-                if variant_override in [variant["key"] for variant in feature_flag.variants]:
+                if variant_override:
+                    # TODO: Should the variant be validated against the variants in the flag here?
+                    # becomes annoying when updating flags when the holdout is updated.
                     variant = variant_override
                 else:
                     variant = self.get_matching_variant(feature_flag)
