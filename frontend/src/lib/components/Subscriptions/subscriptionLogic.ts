@@ -1,4 +1,4 @@
-import { connect, kea, key, listeners, path, props } from 'kea'
+import { kea, key, listeners, path, props } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { beforeUnload, router, urlToAction } from 'kea-router'
@@ -30,9 +30,6 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
     path(['lib', 'components', 'Subscriptions', 'subscriptionLogic']),
     props({} as SubscriptionsLogicProps),
     key(({ id, insightShortId, dashboardId }) => `${insightShortId || dashboardId}-${id ?? 'new'}`),
-    connect(({ insightShortId, dashboardId }: SubscriptionsLogicProps) => ({
-        actions: [subscriptionsLogic({ insightShortId, dashboardId }), ['loadSubscriptions']],
-    })),
 
     loaders(({ props }) => ({
         subscription: {
@@ -97,7 +94,9 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                     router.actions.replace(urlForSubscription(updatedSub.id, props))
                 }
 
-                actions.loadSubscriptions()
+                // If a subscriptionsLogic for this insight/dashboard is mounted already, let's make sure
+                // this change is propagated to `subscriptions` there
+                subscriptionsLogic.findMounted(props)?.actions.loadSubscriptions()
                 actions.loadSubscriptionSuccess(updatedSub)
                 lemonToast.success(`Subscription saved.`)
 
