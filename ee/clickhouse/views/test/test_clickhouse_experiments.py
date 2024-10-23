@@ -123,6 +123,159 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(experiment.description, "Bazinga")
         self.assertEqual(experiment.end_date.strftime("%Y-%m-%dT%H:%M"), end_date)
 
+    def test_transferring_holdout_to_another_group(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiment_holdouts/",
+            data={
+                "name": "Test Experiment holdout",
+                "filters": [
+                    {
+                        "properties": [],
+                        "rollout_percentage": 20,
+                        "variant": "holdout",
+                    }
+                ],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["name"], "Test Experiment holdout")
+        self.assertEqual(
+            response.json()["filters"], [{"properties": [], "rollout_percentage": 20, "variant": "holdout"}]
+        )
+        holdout_id = response.json()["id"]
+
+        # Generate draft experiment to be part of holdout
+        ff_key = "a-b-tests"
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Test Experiment",
+                "description": "",
+                "start_date": None,
+                "end_date": None,
+                "feature_flag_key": ff_key,
+                "parameters": None,
+                "filters": {
+                    "events": [
+                        {"order": 0, "id": "$pageview"},
+                        {"order": 1, "id": "$pageleave"},
+                    ],
+                    "properties": [],
+                },
+                "holdout": holdout_id,
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["name"], "Test Experiment")
+        self.assertEqual(response.json()["feature_flag_key"], ff_key)
+
+        created_ff = FeatureFlag.objects.get(key=ff_key)
+
+        self.assertEqual(created_ff.key, ff_key)
+        self.assertEqual(
+            created_ff.filters["holdout_groups"], [{"properties": [], "rollout_percentage": 20, "variant": "holdout"}]
+        )
+
+        exp_id = response.json()["id"]
+
+        # new holdout, and update experiment
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiment_holdouts/",
+            data={
+                "name": "Test Experiment holdout 2",
+                "filters": [
+                    {
+                        "properties": [],
+                        "rollout_percentage": 5,
+                        "variant": "holdout",
+                    }
+                ],
+            },
+            format="json",
+        )
+        holdout_2_id = response.json()["id"]
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{exp_id}",
+            {"holdout": holdout_2_id},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        experiment = Experiment.objects.get(pk=exp_id)
+        self.assertEqual(experiment.holdout_id, holdout_2_id)
+
+        created_ff = FeatureFlag.objects.get(key=ff_key)
+        self.assertEqual(
+            created_ff.filters["holdout_groups"], [{"properties": [], "rollout_percentage": 5, "variant": "holdout"}]
+        )
+
+        # update parameters
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{exp_id}",
+            {
+                "parameters": {
+                    "feature_flag_variants": [
+                        {
+                            "key": "control",
+                            "name": "Control Group",
+                            "rollout_percentage": 33,
+                        },
+                        {
+                            "key": "test_1",
+                            "name": "Test Variant",
+                            "rollout_percentage": 33,
+                        },
+                        {
+                            "key": "test_2",
+                            "name": "Test Variant",
+                            "rollout_percentage": 34,
+                        },
+                    ]
+                },
+            },
+        )
+
+        experiment = Experiment.objects.get(pk=exp_id)
+        self.assertEqual(experiment.holdout_id, holdout_2_id)
+
+        created_ff = FeatureFlag.objects.get(key=ff_key)
+        self.assertEqual(
+            created_ff.filters["holdout_groups"], [{"properties": [], "rollout_percentage": 5, "variant": "holdout"}]
+        )
+        self.assertEqual(
+            created_ff.filters["multivariate"]["variants"],
+            [
+                {"key": "control", "name": "Control Group", "rollout_percentage": 33},
+                {"key": "test_1", "name": "Test Variant", "rollout_percentage": 33},
+                {"key": "test_2", "name": "Test Variant", "rollout_percentage": 34},
+            ],
+        )
+
+        # launch experiment and try updating holdouts again
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{exp_id}",
+            {"start_date": "2021-12-01T10:23"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{exp_id}",
+            {"holdout": holdout_id},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["detail"], "Can't update holdout on running Experiment")
+
+        created_ff = FeatureFlag.objects.get(key=ff_key)
+        self.assertEqual(
+            created_ff.filters["holdout_groups"], [{"properties": [], "rollout_percentage": 5, "variant": "holdout"}]
+        )
+
     def test_adding_behavioral_cohort_filter_to_experiment_fails(self):
         cohort = Cohort.objects.create(
             team=self.team,

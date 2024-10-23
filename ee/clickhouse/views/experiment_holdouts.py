@@ -63,7 +63,7 @@ class ExperimentHoldoutSerializer(serializers.ModelSerializer):
 
 
 class ExperimentHoldoutViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
-    scope_object = "experiment_holdouts"
+    scope_object = "experiment"
     queryset = ExperimentHoldout.objects.prefetch_related("created_by").all()
     serializer_class = ExperimentHoldoutSerializer
     ordering = "-created_at"
