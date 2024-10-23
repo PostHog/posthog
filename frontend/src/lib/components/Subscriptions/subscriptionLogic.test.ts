@@ -47,7 +47,7 @@ describe('subscriptionLogic', () => {
         existingLogic.mount()
     })
 
-    it('loads subscription', async () => {
+    it('loads existing subscription', async () => {
         router.actions.push('/insights/123/subscriptions/1')
         await expectLogic(existingLogic).toFinishListeners().toDispatchActions(['loadSubscriptionSuccess'])
         expect(existingLogic.values.subscription).toMatchObject({
