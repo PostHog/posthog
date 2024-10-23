@@ -59,6 +59,8 @@ export function HogFunctionConfiguration({ templateId, id }: HogFunctionConfigur
         hasAddon,
         sparkline,
         sparklineLoading,
+        personsCount,
+        personsCountLoading,
         template,
         subTemplate,
         templateHasChanged,
@@ -150,6 +152,7 @@ export function HogFunctionConfiguration({ templateId, id }: HogFunctionConfigur
     const showExpectedVolume = type === 'destination'
     const showEnabled = type === 'destination' || type === 'email'
     const canEditSource = type === 'destination' || type === 'email'
+    const showPersonsCount = type === 'broadcast'
 
     return (
         <div className="space-y-3">
@@ -277,6 +280,29 @@ export function HogFunctionConfiguration({ templateId, id }: HogFunctionConfigur
                             </div>
 
                             {showFilters && <HogFunctionFilters />}
+
+                            {showPersonsCount && (
+                                <div className="relative border bg-bg-light rounded p-3 space-y-2">
+                                    <LemonLabel>Matching persons</LemonLabel>
+                                    {personsCount && !personsCountLoading ? (
+                                        <>
+                                            <p>
+                                                Found{' '}
+                                                <strong>
+                                                    {personsCount ?? 0} {personsCount !== 1 ? 'people' : 'person'}
+                                                </strong>{' '}
+                                                to send to.
+                                            </p>
+                                        </>
+                                    ) : personsCountLoading ? (
+                                        <div className="min-h-20">
+                                            <SpinnerOverlay />
+                                        </div>
+                                    ) : (
+                                        <p>The expected volume could not be calculated</p>
+                                    )}
+                                </div>
+                            )}
 
                             {showExpectedVolume && (
                                 <div className="relative border bg-bg-light rounded p-3 space-y-2">
