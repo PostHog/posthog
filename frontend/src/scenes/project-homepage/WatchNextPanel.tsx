@@ -32,7 +32,7 @@ function ActivityScoreLabel({ score }: { score: number | undefined }): JSX.Eleme
         <span
             className={clsx(
                 'text-xs',
-                n > 90 ? 'text-success-dark' : n > 75 ? 'text-success' : n > 50 ? 'text-warning' : 'text-muted'
+                n >= 90 ? 'text-success-dark' : n >= 75 ? 'text-success' : n >= 50 ? 'text-warning' : 'text-muted'
             )}
         >
             Activity score: {parseFloat(n.toFixed(2))}
@@ -66,6 +66,47 @@ export function RecordingRow({ recording }: RecordingRowProps): JSX.Element {
     )
 }
 
+export interface WatchNextListProps {
+    sessionRecordings: SessionRecordingType[]
+    loading: boolean
+    recordingsOptIn: boolean | undefined
+}
+
+// separated from the logics so that it can have storybook tests without mocking API calls
+export function WatchNextList({ sessionRecordings, loading, recordingsOptIn }: WatchNextListProps): JSX.Element {
+    return (
+        <CompactList
+            title={
+                <Tooltip title="A selection of the most interesting recordings. We use multiple signals to calculate an activity score.">
+                    <div className="flex items-center gap-1.5">
+                        <span>Watch next</span>
+                        <IconInfo className="text-lg" />
+                    </div>
+                </Tooltip>
+            }
+            viewAllURL={urls.replay()}
+            loading={loading}
+            emptyMessage={
+                recordingsOptIn
+                    ? {
+                          title: 'There are no recordings for this project',
+                          description: 'Make sure you have the javascript snippet setup in your website.',
+                          buttonText: 'Learn more',
+                          buttonTo: 'https://posthog.com/docs/user-guides/recordings',
+                      }
+                    : {
+                          title: 'Recordings are not enabled for this project',
+                          description: 'Once recordings are enabled, recordings will display here.',
+                          buttonText: 'Enable recordings',
+                          buttonTo: urls.settings('project-replay'),
+                      }
+            }
+            items={sessionRecordings.slice(0, 5)}
+            renderRow={(recording: SessionRecordingType, index) => <RecordingRow key={index} recording={recording} />}
+        />
+    )
+}
+
 export function WatchNextPanel(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const sessionRecordingsListLogicInstance = sessionRecordingsPlaylistLogic({
@@ -78,38 +119,10 @@ export function WatchNextPanel(): JSX.Element {
     const { sessionRecordings, sessionRecordingsResponseLoading } = useValues(sessionRecordingsListLogicInstance)
 
     return (
-        <>
-            <CompactList
-                title={
-                    <Tooltip title="A selection of the most interesting recordings. We use multiple signals to calculate an activity score.">
-                        <div className="flex items-center gap-1.5">
-                            <span>Watch next</span>
-                            <IconInfo className="text-lg" />
-                        </div>
-                    </Tooltip>
-                }
-                viewAllURL={urls.replay()}
-                loading={sessionRecordingsResponseLoading}
-                emptyMessage={
-                    currentTeam?.session_recording_opt_in
-                        ? {
-                              title: 'There are no recordings for this project',
-                              description: 'Make sure you have the javascript snippet setup in your website.',
-                              buttonText: 'Learn more',
-                              buttonTo: 'https://posthog.com/docs/user-guides/recordings',
-                          }
-                        : {
-                              title: 'Recordings are not enabled for this project',
-                              description: 'Once recordings are enabled, recordings will display here.',
-                              buttonText: 'Enable recordings',
-                              buttonTo: urls.settings('project-replay'),
-                          }
-                }
-                items={sessionRecordings.slice(0, 5)}
-                renderRow={(recording: SessionRecordingType, index) => (
-                    <RecordingRow key={index} recording={recording} />
-                )}
-            />
-        </>
+        <WatchNextList
+            recordingsOptIn={currentTeam?.session_recording_opt_in}
+            sessionRecordings={sessionRecordings}
+            loading={sessionRecordingsResponseLoading}
+        />
     )
 }
