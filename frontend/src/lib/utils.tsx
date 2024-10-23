@@ -723,20 +723,22 @@ export function autoCaptureEventToDescription(
     }
 
     const getVerb = (): string => {
-        if (event.properties.$event_type === 'click') {
-            return 'clicked'
+        const eventTypesMap: { [key: string]: string } = {
+            'click': 'clicked',
+            'change': 'typed something into',
+            'submit': 'submitted',
+            'touch': 'touched a',
+            'value_changed': 'changed value in',
+            'toggle': 'toggled',
+            'menu_action': 'pressed menu',
+            'swipe': 'swiped',
+            'pinch': 'pinched',
+            'pan': 'panned',
+            'rotation': 'rotated',
+            'long_press': 'long pressed'
         }
-        if (event.properties.$event_type === 'change') {
-            return 'typed something into'
-        }
-        if (event.properties.$event_type === 'submit') {
-            return 'submitted'
-        }
-
-        if (event.properties.$event_type === 'touch') {
-            return 'pressed'
-        }
-        return 'interacted with'
+    
+        return eventTypesMap[event.properties.$event_type] || 'interacted with'
     }
 
     const getTag = (): string => {
