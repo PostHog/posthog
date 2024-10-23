@@ -120,6 +120,7 @@ export function exec(
     let ops = vmState ? vmState.ops : 0
     const timeout = options?.timeout ?? DEFAULT_TIMEOUT_MS
     const maxAsyncSteps = options?.maxAsyncSteps ?? DEFAULT_MAX_ASYNC_STEPS
+    const rootGlobals: Record<string, any> = options?.globals ?? {}
 
     if (callStack.length === 0) {
         callStack.push({
@@ -141,6 +142,7 @@ export function exec(
 
     let frame: CallFrame = callStack[callStack.length - 1]
     let chunkBytecode: any[] = rootBytecode
+    let chunkGlobals = rootGlobals
     let lastChunk = frame.chunk
     let lastTime = startTime
 
@@ -149,15 +151,19 @@ export function exec(
     const setChunkBytecode = (): void => {
         if (!frame.chunk || frame.chunk === 'root') {
             chunkBytecode = rootBytecode
+            chunkGlobals = rootGlobals
         } else if (frame.chunk.startsWith('stl/') && frame.chunk.substring(4) in BYTECODE_STL) {
             chunkBytecode = BYTECODE_STL[frame.chunk.substring(4)][1]
+            chunkGlobals = {}
         } else if (bytecodes[frame.chunk]) {
             chunkBytecode = bytecodes[frame.chunk].bytecode
+            chunkGlobals = bytecodes[frame.chunk].globals ?? {}
         } else if (options?.importBytecode) {
             const chunk = options.importBytecode(frame.chunk)
             if (chunk) {
                 bytecodes[frame.chunk] = chunk // cache for later
                 chunkBytecode = chunk.bytecode
+                chunkGlobals = chunk.globals ?? {}
             } else {
                 throw new HogVMException(`Unknown chunk: ${frame.chunk}`)
             }
@@ -455,8 +461,8 @@ export function exec(
                     for (let i = 0; i < count; i++) {
                         chain.push(popStack())
                     }
-                    if (options?.globals && chain[0] in options.globals && Object.hasOwn(options.globals, chain[0])) {
-                        pushStack(convertJSToHog(getNestedValue(options.globals, chain, true)))
+                    if (chunkGlobals && chain[0] in chunkGlobals && Object.hasOwn(chunkGlobals, chain[0])) {
+                        pushStack(convertJSToHog(getNestedValue(chunkGlobals, chain, true)))
                     } else if (
                         options?.asyncFunctions &&
                         chain.length == 1 &&

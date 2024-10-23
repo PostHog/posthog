@@ -294,8 +294,32 @@ export class HogExecutor {
                             if (!provider) {
                                 throw new Error('No email provider configured for team')
                             }
-                            // TODO: add globals from provider.inputs & encrypted inputs
-                            return { bytecode: provider.bytecode }
+
+                            try {
+                                const providerGlobals = this.buildHogFunctionGlobals({
+                                    id: 'fake',
+                                    teamId: invocation.teamId,
+                                    hogFunction: provider,
+                                    globals: {} as any,
+                                    queue: 'hog',
+                                    queueParameters: undefined,
+                                    vmState: undefined,
+                                    timings: [],
+                                    priority: 0,
+                                } satisfies HogFunctionInvocation)
+
+                                return {
+                                    bytecode: provider.bytecode,
+                                    globals: providerGlobals,
+                                }
+                            } catch (e) {
+                                result.logs.push({
+                                    level: 'error',
+                                    timestamp: DateTime.now(),
+                                    message: `Error building inputs: ${e}`,
+                                })
+                                throw e
+                            }
                         }
                         throw new Error(`Unknown chunk: ${chunkId}`)
                     },
