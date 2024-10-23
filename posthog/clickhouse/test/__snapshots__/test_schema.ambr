@@ -2086,7 +2086,7 @@
   sumIf(1, event='$autocapture') as autocapture_count
   
   FROM posthog_test.sharded_events
-  WHERE `$session_id` IS NOT NULL AND `$session_id` != ''
+  WHERE `$session_id` IS NOT NULL AND `$session_id` != '' AND team_id IN (1, 2, 13610, 19279, 21173, 29929, 32050, 9910, 11775, 21129, 31490)
   GROUP BY `$session_id`, team_id
   
   
