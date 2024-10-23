@@ -865,7 +865,7 @@ def _create_event(**kwargs):
 def _warn_if_session_id_malformed(session_id: str):
     try:
         session_id_parsed = uuid.UUID(session_id)
-    except ValueError:
+    except:
         print(  # noqa: T201
             f"WARNING: $session_id SHOULD be a UUIDv7 and {repr(session_id)} doesn't resemble a UUID. "
             "Events with a non-UUIDv7 session ID don't count as part of any session in HogQL-based querying. Use uuid7()!"
