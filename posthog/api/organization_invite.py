@@ -59,7 +59,7 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
     def validate_private_project_access(
         self, private_project_access: Optional[list[dict[str, Any]]]
     ) -> Optional[list[dict[str, Any]]]:
-        team_error = "Team does not exist on this organization, or it is private and you do not have access to it."
+        team_error = "Project does not exist on this organization, or it is private and you do not have access to it."
         if not private_project_access:
             return None
         for item in private_project_access:
