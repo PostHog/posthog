@@ -16,6 +16,7 @@ import {
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+import { combineUrl } from 'kea-router'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
@@ -23,6 +24,7 @@ import { Sparkline } from 'lib/components/Sparkline'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
+import { urls } from 'scenes/urls'
 
 import { AvailableFeature } from '~/types'
 
@@ -61,6 +63,7 @@ export function HogFunctionConfiguration({ templateId, id }: HogFunctionConfigur
         sparklineLoading,
         personsCount,
         personsCountLoading,
+        personsListQuery,
         template,
         subTemplate,
         templateHasChanged,
@@ -288,9 +291,11 @@ export function HogFunctionConfiguration({ templateId, id }: HogFunctionConfigur
                                         <>
                                             <p>
                                                 Found{' '}
-                                                <strong>
-                                                    {personsCount ?? 0} {personsCount !== 1 ? 'people' : 'person'}
-                                                </strong>{' '}
+                                                <Link to={combineUrl(urls.activity(), {}, { q: personsListQuery }).url}>
+                                                    <strong>
+                                                        {personsCount ?? 0} {personsCount !== 1 ? 'people' : 'person'}
+                                                    </strong>
+                                                </Link>{' '}
                                                 to send to.
                                             </p>
                                         </>

@@ -17,7 +17,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { groupsModel } from '~/models/groupsModel'
 import { performQuery } from '~/queries/query'
-import { ActorsQuery, EventsNode, EventsQuery, NodeKind, TrendsQuery } from '~/queries/schema'
+import { ActorsQuery, DataTableNode, EventsNode, EventsQuery, NodeKind, TrendsQuery } from '~/queries/schema'
 import { escapePropertyAsHogQlIdentifier, hogql } from '~/queries/utils'
 import {
     AnyPersonScopeFilter,
@@ -694,6 +694,25 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     kind: NodeKind.ActorsQuery,
                     properties: configuration.filters?.properties as AnyPersonScopeFilter[] | undefined,
                     select: ['count()'],
+                }
+            },
+            { resultEqualityCheck: equal },
+        ],
+
+        personsListQuery: [
+            (s) => [s.configuration, s.type],
+            (configuration, type): DataTableNode | null => {
+                if (type !== 'broadcast') {
+                    return null
+                }
+                return {
+                    kind: NodeKind.DataTableNode,
+                    source: {
+                        kind: NodeKind.ActorsQuery,
+                        properties: configuration.filters?.properties as AnyPersonScopeFilter[] | undefined,
+                        select: ['person', 'properties.email', 'created_at'],
+                    },
+                    full: true,
                 }
             },
             { resultEqualityCheck: equal },
