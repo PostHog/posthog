@@ -69,6 +69,7 @@ export function HogFunctionConfiguration({ templateId, id }: HogFunctionConfigur
         templateHasChanged,
         forcedSubTemplateId,
         type,
+        broadcastLoading,
     } = useValues(logic)
     const {
         submitConfiguration,
@@ -80,6 +81,7 @@ export function HogFunctionConfiguration({ templateId, id }: HogFunctionConfigur
         setConfigurationValue,
         deleteHogFunction,
         setSubTemplateId,
+        sendBroadcast,
     } = useActions(logic)
 
     if (loading && !loaded) {
@@ -489,7 +491,18 @@ export function HogFunctionConfiguration({ templateId, id }: HogFunctionConfigur
 
                             {type === 'broadcast' ? (
                                 id && id !== 'new' ? (
-                                    <HogFunctionTestPlaceholder title="Send broadcast" description="Coming soon..." />
+                                    <HogFunctionTestPlaceholder
+                                        title="Send broadcast"
+                                        description={
+                                            <LemonButton
+                                                type="primary"
+                                                onClick={sendBroadcast}
+                                                loading={personsCountLoading || broadcastLoading}
+                                            >
+                                                Send to {personsCount} emails
+                                            </LemonButton>
+                                        }
+                                    />
                                 ) : (
                                     <HogFunctionTestPlaceholder
                                         title="Send broadcast"

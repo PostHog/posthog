@@ -23,10 +23,10 @@ from posthog.cdp.services.icons import CDPIconsService
 from posthog.cdp.templates import HOG_FUNCTION_TEMPLATES_BY_ID
 from posthog.cdp.validation import compile_hog, generate_template_bytecode, validate_inputs, validate_inputs_schema
 from posthog.constants import AvailableFeature
+from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.models.activity_logging.activity_log import log_activity, changes_between, Detail
 from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionState
 from posthog.plugins.plugin_server_api import create_hog_invocation_test
-
 
 logger = structlog.get_logger(__name__)
 
@@ -312,6 +312,24 @@ class HogFunctionViewSet(
             return Response({"status": "error"}, status=res.status_code)
 
         return Response(res.json())
+
+    @action(detail=True, methods=["POST"])
+    def broadcast(self, request: Request, *args, **kwargs):
+        hog_function = self.get_object()
+        actors_query = {
+            "kind": "ActorsQuery",
+            "properties": hog_function.filters.get("properties", None),
+            "select": ["id", "properties", "created_at"],
+        }
+
+        response = ActorsQueryRunner(query=actors_query, team=self.team).calculate()
+
+        for result in response.results:
+            id, properties, created_at = result
+            print(result)  # noqa: T201
+            # TODO: send this to the plugin server for processing
+
+        return Response({"success": True})
 
     def perform_create(self, serializer):
         serializer.save()

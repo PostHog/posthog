@@ -188,6 +188,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         setUnsavedConfiguration: (configuration: HogFunctionConfigurationType | null) => ({ configuration }),
         persistForUnload: true,
         setSampleGlobalsError: (error) => ({ error }),
+        sendBroadcast: true,
     }),
     reducers({
         showSource: [
@@ -404,6 +405,22 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                         actions.setSampleGlobalsError(e.message ?? errorMessage)
                         return values.exampleInvocationGlobals
                     }
+                },
+            },
+        ],
+
+        broadcast: [
+            false,
+            {
+                sendBroadcast: async () => {
+                    const id = values.hogFunction?.id
+                    if (!id) {
+                        lemonToast.error('No broadcast to send')
+                        return false
+                    }
+                    await api.hogFunctions.sendBroadcast(id)
+                    lemonToast.success('Broadcast started!')
+                    return true
                 },
             },
         ],
