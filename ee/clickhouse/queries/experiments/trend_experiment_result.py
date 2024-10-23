@@ -22,6 +22,7 @@ from posthog.hogql_queries.experiments.trends_statistics import (
     calculate_credible_intervals,
     calculate_probabilities,
 )
+from posthog.models.experiment import Experiment
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.filters.filter import Filter
 from posthog.models.team import Team
@@ -74,6 +75,7 @@ class ClickhouseTrendExperimentResult:
 
     def __init__(
         self,
+        experiment: Experiment,
         filter: Filter,
         team: Team,
         feature_flag: FeatureFlag,
@@ -84,6 +86,9 @@ class ClickhouseTrendExperimentResult:
     ):
         breakdown_key = f"$feature/{feature_flag.key}"
         self.variants = [variant["key"] for variant in feature_flag.variants]
+
+        if experiment.holdout:
+            self.variants.append("holdout")
 
         # our filters assume that the given time ranges are in the project timezone.
         # while start and end date are in UTC.
