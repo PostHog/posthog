@@ -118,7 +118,7 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
             />
         )
     } else if (isSavedInsightNode(query)) {
-        component = <SavedInsight query={query} context={queryContext} />
+        component = <SavedInsight query={query} context={queryContext} readOnly={readOnly} embedded={embedded} />
     } else if (isInsightVizNode(query)) {
         component = (
             <InsightViz
