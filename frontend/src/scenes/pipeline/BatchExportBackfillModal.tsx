@@ -108,7 +108,7 @@ export function BatchExportBackfillModal({ id }: BatchExportRunsLogicProps): JSX
                                 }
                             />
                         ) : (
-                            <LemonInput value="Earliest available" disabled />
+                            <LemonInput value="Beginning of time" disabled />
                         )
                     }
                 </LemonField>
@@ -120,8 +120,8 @@ export function BatchExportBackfillModal({ id }: BatchExportRunsLogicProps): JSX
                                 bordered
                                 label={
                                     <span className="flex items-center gap-2">
-                                        Backfill since earliest available
-                                        <Tooltip title="If selected, we will backfill data since the earliest available date until the provided end date. There is no need to set a start date.">
+                                        Backfill since beginning of time
+                                        <Tooltip title="If selected, we will backfill all data since the beginning of time until the end date set below. There is no need to set a start date for the backfill.">
                                             <IconInfo className=" text-lg text-muted-alt" />
                                         </Tooltip>
                                     </span>
