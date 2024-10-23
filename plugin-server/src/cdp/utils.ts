@@ -273,7 +273,8 @@ export const prepareLogEntriesForClickhouse = (
 
 export function createInvocation(
     globals: HogFunctionInvocationGlobals,
-    hogFunction: HogFunctionType
+    hogFunction: HogFunctionType,
+    executeExportedFunction?: [string, any[]]
 ): HogFunctionInvocation {
     // Add the source of the trigger to the globals
     const modifiedGlobals: HogFunctionInvocationGlobals = {
@@ -292,6 +293,7 @@ export function createInvocation(
         queue: 'hog',
         priority: 1,
         timings: [],
+        executeExportedFunction,
     }
 }
 

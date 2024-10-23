@@ -277,11 +277,57 @@ export class HogExecutor {
                 throw e
             }
 
+            if (invocation.executeExportedFunction) {
+                ;(globals as any).__args = invocation.executeExportedFunction[1]
+            }
+
+            function executableBytecode() {
+                let argBytecodes: any[] = []
+                for (let i = 0; i < (globals as any).__args.length; i++) {
+                    argBytecodes = [
+                        ...argBytecodes,
+                        33, // integer
+                        i + 1, // (index in args array)
+                        32, // string
+                        '__args',
+                        1, // get global
+                        2, // (chain length)
+                    ]
+                }
+                const bytecode = [
+                    '_H',
+                    1,
+                    ...argBytecodes,
+                    32, // string
+                    'x',
+                    2, // call global
+                    '__importCallable',
+                    1, // (arg count)
+                    54, // call local
+                    0, // (index)
+                    32, // string
+                    invocation.executeExportedFunction?.[0] ?? '',
+                    45, // get property
+                    54, // call local
+                    (globals as any).__args.length, // (arg count)
+                    35, // pop
+                ]
+                return {
+                    bytecodes: {
+                        x: { bytecode: invocation.hogFunction.bytecode, globals: globals },
+                        root: { bytecode },
+                    },
+                }
+            }
+
             const sensitiveValues = this.getSensitiveValues(invocation.hogFunction, globals.inputs)
+            const invocationInput =
+                invocation.vmState ??
+                (invocation.executeExportedFunction ? executableBytecode() : invocation.hogFunction.bytecode)
 
             try {
                 let hogLogs = 0
-                execRes = execHog(invocation.vmState ?? invocation.hogFunction.bytecode, {
+                execRes = execHog(invocationInput, {
                     globals,
                     maxAsyncSteps: MAX_ASYNC_STEPS, // NOTE: This will likely be configurable in the future
                     asyncFunctions: {

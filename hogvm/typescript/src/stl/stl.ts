@@ -796,8 +796,8 @@ export const STL: Record<string, STLFunction> = {
                 })
             )
         },
-        minArgs: 4,
-        maxArgs: 4,
+        minArgs: 1,
+        maxArgs: 1,
     },
 }
 

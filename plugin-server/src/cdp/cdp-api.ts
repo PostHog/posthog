@@ -112,6 +112,11 @@ export class CdpApi {
                 ...(configuration ?? {}),
             }
 
+            let functionToExecute: undefined | [string, any[]] = undefined
+            if (hogFunction.type === 'email') {
+                functionToExecute = ['sendEmail', [globals.email]]
+            }
+
             await this.hogFunctionManager.enrichWithIntegrations([compoundConfiguration])
 
             let lastResponse: HogFunctionInvocationResult | null = null
@@ -138,7 +143,8 @@ export class CdpApi {
                                 url: `${this.hub.SITE_URL ?? 'http://localhost:8000'}/project/${team.id}`,
                             },
                         },
-                        compoundConfiguration
+                        compoundConfiguration,
+                        functionToExecute
                     )
 
                 if (invocation.queue === 'fetch') {

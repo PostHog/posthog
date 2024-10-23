@@ -158,31 +158,36 @@ template_send_email: HogFunctionTemplate = HogFunctionTemplate(
     icon_url="/static/services/mailjet.png",
     category=["Email Provider"],
     hog="""
-fetch(f'https://api.mailjet.com/v3.1/send', {
-    'method': 'POST',
-    'headers': {
-        'Authorization': f'Bearer {inputs.api_key}',
-        'Content-Type': 'application/json'
-    },
-    'body': {
-		'Messages':[
-            {
-                'From': {
-                    'Email': inputs.email.from,
-                    'Name': ''
-                },
-                'To': [
-                    {
-                        'Email': inputs.email.to,
+fun sendEmail(email) {
+    fetch(f'https://api.mailjet.com/v3.1/send', {
+        'method': 'POST',
+        'headers': {
+            'Authorization': f'Bearer {inputs.api_key}',
+            'Content-Type': 'application/json'
+        },
+        'body': {
+            'Messages': [
+                {
+                    'From': {
+                        'Email': inputs.email.from,
                         'Name': ''
-                    }
-                ],
-                'Subject': inputs.email.subject,
-                'HTMLPart': inputs.email.html
-            }
-		]
-    }
-})
+                    },
+                    'To': [
+                        {
+                            'Email': inputs.email.to,
+                            'Name': ''
+                        }
+                    ],
+                    'Subject': inputs.email.subject,
+                    'HTMLPart': inputs.email.html
+                }
+            ]
+        }
+    })
+}
+
+// TODO: add support for "export fun"
+return {'sendEmail': sendEmail}
 """.strip(),
     inputs_schema=[
         input_api_key,
