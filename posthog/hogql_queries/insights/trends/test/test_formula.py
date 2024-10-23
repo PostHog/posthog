@@ -4,12 +4,13 @@ from unittest import mock
 from django.test import override_settings
 
 from posthog.constants import TRENDS_CUMULATIVE, TRENDS_PIE, TRENDS_BOLD_NUMBER
-from posthog.models import Cohort, Person
+from posthog.models import Cohort
 from posthog.models.group.util import create_group
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
     _create_event,
+    _create_person,
     flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
@@ -31,7 +32,7 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
     def setUp(self):
         super().setUp()
 
-        Person.objects.create(
+        _create_person(
             team_id=self.team.pk,
             distinct_ids=["blabla", "anonymous_id"],
             properties={"$some_prop": "some_val"},
@@ -432,9 +433,10 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
         response = self._run({"trendsFilter": {"formula": "A - B"}, "breakdownFilter": {"breakdown": "location"}})
         self.assertEqual(len(response), 2)
         self.assertEqual(response[0]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 450.0, 0.0])
-        self.assertEqual(response[0]["label"], "London")
+        self.assertEqual(response[0]["breakdown_value"], "London")
         self.assertEqual(response[1]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 250.0, 0.0, 0.0])
-        self.assertEqual(response[1]["label"], "Paris")
+        self.assertEqual(response[1]["label"], "Formula (A - B)")
+        self.assertEqual(response[1]["breakdown_value"], "Paris")
 
     @snapshot_clickhouse_queries
     def test_breakdown_aggregated(self):
@@ -443,9 +445,11 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(len(response), 2)
         self.assertEqual(response[0]["aggregated_value"], 866.6666666666667)
-        self.assertEqual(response[0]["label"], "London")
+        self.assertEqual(response[0]["label"], "Formula (A - B)")
+        self.assertEqual(response[0]["breakdown_value"], "London")
         self.assertEqual(response[1]["aggregated_value"], 250)
-        self.assertEqual(response[1]["label"], "Paris")
+        self.assertEqual(response[1]["label"], "Formula (A - B)")
+        self.assertEqual(response[1]["breakdown_value"], "Paris")
 
     @snapshot_clickhouse_queries
     def test_breakdown_with_different_breakdown_values_per_series(self):
@@ -470,21 +474,25 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(len(response), 4)
 
-        self.assertEqual(response[0]["label"], "London")
         self.assertEqual(response[0]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 400.0, 1400.0, 0.0])
+        self.assertEqual(response[0]["label"], "Formula (A + B)")
+        self.assertEqual(response[0]["breakdown_value"], "London")
 
-        self.assertEqual(response[1]["label"], "Paris")
         self.assertEqual(response[1]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 500.0, 0.0, 0.0])
+        self.assertEqual(response[1]["label"], "Formula (A + B)")
+        self.assertEqual(response[1]["breakdown_value"], "Paris")
 
         # Regression test to ensure we actually get data for "Belo Horizonte" below
         # We previously had a bug where if series B,C,D, etc. had a value not present
         # in series A, we'd just default to an empty string
-        self.assertEqual(response[2]["label"], "Belo Horizonte")
         self.assertEqual(response[2]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 500.0, 0.0])
+        self.assertEqual(response[2]["label"], "Formula (A + B)")
+        self.assertEqual(response[2]["breakdown_value"], "Belo Horizonte")
 
         # empty string values are considered "None"
-        self.assertEqual(response[3]["label"], "$$_posthog_breakdown_null_$$")
         self.assertEqual(response[3]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 400.0, 0.0])
+        self.assertEqual(response[3]["label"], "Formula (A + B)")
+        self.assertEqual(response[3]["breakdown_value"], "$$_posthog_breakdown_null_$$")
 
     def test_breakdown_counts_of_different_events_one_without_events(self):
         with freeze_time("2020-01-04T13:01:01Z"):
@@ -533,8 +541,8 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
                         "2020-01-03",
                         "2020-01-04",
                     ],
-                    "label": "London",
-                    "breakdown_value": "London",
+                    "label": "Formula (B / A)",
+                    "breakdown_value": "Paris",
                     "action": None,
                     "filter": mock.ANY,
                 },
@@ -561,8 +569,8 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
                         "2020-01-03",
                         "2020-01-04",
                     ],
-                    "label": "Paris",
-                    "breakdown_value": "Paris",
+                    "label": "Formula (B / A)",
+                    "breakdown_value": "London",
                     "action": None,
                     "filter": mock.ANY,
                 },
@@ -571,17 +579,22 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
 
     @snapshot_clickhouse_queries
     def test_breakdown_cohort(self):
-        cohort = Cohort.objects.create(
+        cohort: Cohort = Cohort.objects.create(
             team=self.team,
             name="cohort1",
             groups=[{"properties": [{"key": "$some_prop", "value": "some_val", "type": "person"}]}],
         )
+        cohort.calculate_people_ch(pending_version=0)
+
         response = self._run({"breakdownFilter": {"breakdown": ["all", cohort.pk], "breakdown_type": "cohort"}})
+
         self.assertEqual(len(response), 2)
         self.assertEqual(response[0]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 1200.0, 1350.0, 0.0])
-        self.assertEqual(response[0]["label"], "all users")
+        self.assertEqual(response[0]["breakdown_value"], "all")
+        self.assertEqual(response[0]["label"], "Formula (A + B)")
         self.assertEqual(response[1]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 1200.0, 1350.0, 0.0])
-        self.assertEqual(response[1]["label"], "cohort1")
+        self.assertEqual(response[1]["label"], "Formula (A + B)")
+        self.assertEqual(response[1]["breakdown_value"], cohort.pk)
 
     @snapshot_clickhouse_queries
     def test_breakdown_hogql(self):
@@ -594,7 +607,7 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
             }
         )
         self.assertEqual(
-            [series["label"] for series in response],
+            [series["breakdown_value"] for series in response],
             ["some_val : London", "some_val : Paris"],
         )
         self.assertEqual(
@@ -616,11 +629,15 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
             }
         )
 
-        self.assertEqual(len(response), 4)
-        self.assertEqual(response[0]["label"], "London")
+        self.assertEqual(len(response), 4, response)
+        self.assertEqual(response[0]["breakdown_value"], "London")
         self.assertEqual(response[0]["data"], [0, 0, 0, 0, 0, 1, 3, 0])
-        self.assertEqual(response[1]["label"], "Paris")
+        self.assertEqual(response[1]["breakdown_value"], "Paris")
         self.assertEqual(response[1]["data"], [0, 0, 0, 0, 0, 2, 0, 0])
+        self.assertEqual(response[2]["breakdown_value"], "Belo Horizonte")
+        self.assertEqual(response[2]["data"], [0, 0, 0, 0, 0, 0, 1, 0])
+        self.assertEqual(response[3]["breakdown_value"], "$$_posthog_breakdown_null_$$")
+        self.assertEqual(response[3]["data"], [0, 0, 0, 0, 0, 0, 1, 0])
 
     def test_global_properties(self):
         self.assertEqual(
@@ -681,12 +698,37 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response[1]["data"], [0.0, 1200.0])
 
     def test_aggregated(self):
-        self.assertEqual(self._run({"trendsFilter": {"display": TRENDS_PIE}})[0]["aggregated_value"], 2160.0)
+        self.assertEqual(
+            self._run(
+                {
+                    "trendsFilter": {
+                        "display": TRENDS_PIE,
+                        "formula": "A + B",
+                    }
+                }
+            )[0]["aggregated_value"],
+            2160.0,
+        )
 
     def test_cumulative(self):
+        response = self._run({"trendsFilter": {"display": TRENDS_CUMULATIVE, "formula": "A + B"}})
+        self.assertEqual(len(response), 1)
         self.assertEqual(
-            self._run({"trendsFilter": {"display": TRENDS_CUMULATIVE}})[0]["data"],
+            response[0]["data"],
             [0.0, 0.0, 0.0, 0.0, 0.0, 1200.0, 2550.0, 2550.0],
+        )
+        self.assertEqual(
+            response[0]["days"],
+            [
+                "2019-12-28",
+                "2019-12-29",
+                "2019-12-30",
+                "2019-12-31",
+                "2020-01-01",
+                "2020-01-02",
+                "2020-01-03",
+                "2020-01-04",
+            ],
         )
 
     def test_multiple_events(self):

@@ -837,7 +837,21 @@ class TrendsQueryRunner(QueryRunner):
             if has_compare:
                 return multisort(computed_results, (("compare_label", False), ("count", True)))
 
-            return sorted(computed_results, key=itemgetter("count"), reverse=True)
+            return sorted(
+                computed_results,
+                key=lambda s: (
+                    0
+                    if s.get("breakdown_value") not in (BREAKDOWN_NULL_STRING_LABEL, BREAKDOWN_OTHER_STRING_LABEL)
+                    else -1
+                    if s["breakdown_value"] == BREAKDOWN_NULL_STRING_LABEL
+                    else -2,
+                    s.get("aggregated_value", sum(s.get("data") or [])),
+                    s.get("count"),
+                    s.get("data"),
+                    repr(s.get("breakdown_value")),
+                ),
+                reverse=True,
+            )
         else:
             return [
                 self.apply_formula_to_results_group([r[0] for r in results], formula, aggregate_values=is_total_value)
@@ -855,7 +869,7 @@ class TrendsQueryRunner(QueryRunner):
         Applies the formula to a list of results, resulting in a single, computed result.
         """
         base_result = results_group[0]
-        base_result["label"] = f"Formula ({formula})" if breakdown_value is None else breakdown_value
+        base_result["label"] = f"Formula ({formula})"
         base_result["action"] = None
 
         if aggregate_values:
