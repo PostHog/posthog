@@ -11,6 +11,7 @@ import {
     FeatureFlagFilters,
     FeatureFlagGroupType,
     GroupTypeIndex,
+    MultivariateFlagVariant,
     PropertyFilterType,
     UserBlastRadiusType,
 } from '~/types'
@@ -24,6 +25,7 @@ export interface FeatureFlagReleaseConditionsLogicProps {
     id?: string
     readOnly?: boolean
     onChange?: (filters: FeatureFlagFilters, errors: any) => void
+    nonEmptyFeatureFlagVariants?: MultivariateFlagVariant[]
 }
 
 export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseConditionsLogicType>([
