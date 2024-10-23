@@ -242,7 +242,8 @@ class ExperimentTrendsQueryRunner(QueryRunner):
 
         count_result = shared_results["count_result"]
         exposure_result = shared_results["exposure_result"]
-
+        print("(((((((((((((((())))))))))))))))", self.prepared_count_query.model_dump())
+        print("rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr", count_result.model_dump())
         if count_result is None or exposure_result is None:
             raise ValueError("One or both query runners failed to produce a response")
 
@@ -255,7 +256,8 @@ class ExperimentTrendsQueryRunner(QueryRunner):
         credible_intervals = calculate_credible_intervals([control_variant, *test_variants])
 
         return ExperimentTrendsQueryResponse(
-            insight=count_result,
+            insight=count_result.results,
+            count_query=self.prepared_count_query,
             variants=[variant.model_dump() for variant in [control_variant, *test_variants]],
             probability={
                 variant.key: probability

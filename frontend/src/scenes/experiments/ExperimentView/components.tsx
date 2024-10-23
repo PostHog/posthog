@@ -42,6 +42,7 @@ import {
 import { experimentLogic } from '../experimentLogic'
 import { getExperimentStatus, getExperimentStatusColor } from '../experimentsLogic'
 import { getExperimentInsightColour, transformResultFilters } from '../utils'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export function VariantTag({
     experimentId,
@@ -96,6 +97,38 @@ export function ResultsQuery({
     targetResults: ExperimentResults['result'] | null
     showTable: boolean
 }): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+    if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
+        return (
+            <Query
+                query={{
+                    kind: NodeKind.InsightVizNode,
+                    source: targetResults.count_query,
+                    showTable,
+                    showLastComputation: true,
+                    showLastComputationRefresh: false,
+                }}
+                context={{
+                    insightProps: {
+                        dashboardItemId: targetResults?.fakeInsightId as InsightShortId,
+                        cachedInsight: {
+                            short_id: targetResults?.fakeInsightId as InsightShortId,
+                            query: {
+                                kind: 'InsightVizNode',
+                                source: targetResults.count_query,
+                            },
+                            result: targetResults?.insight,
+                            disable_baseline: true,
+                            last_refresh: targetResults?.last_refresh,
+                        },
+                        doNotLoad: true,
+                    },
+                }}
+                readOnly
+            />
+        )
+    }
+
     return (
         <Query
             query={{

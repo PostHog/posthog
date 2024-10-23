@@ -1618,7 +1618,8 @@ export enum ExperimentSignificanceCode {
 }
 
 export interface ExperimentTrendsQueryResponse {
-    insight: TrendsQueryResponse
+    insight: TrendsQueryResponse['results']
+    count_query?: TrendsQuery
     variants: ExperimentVariantTrendsBaseStats[]
     probability: Record<string, number>
     significant: boolean

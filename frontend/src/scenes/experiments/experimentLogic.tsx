@@ -22,6 +22,7 @@ import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { urls } from 'scenes/urls'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
@@ -61,6 +62,7 @@ const NEW_EXPERIMENT: Experiment = {
     name: '',
     feature_flag_key: '',
     filters: {},
+    metrics: [],
     parameters: {
         feature_flag_variants: [
             { key: 'control', rollout_percentage: 50 },
@@ -763,9 +765,27 @@ export const experimentLogic = kea<experimentLogicType>([
             },
         },
         experimentResults: [
-            null as ExperimentResults['result'] | null,
+            // null as ExperimentResults['result'] | null,
+            null as any | null,
             {
                 loadExperimentResults: async (refresh?: boolean) => {
+                    if (values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOGQL]) {
+                        console.log('yes hogql')
+                        const query = values.experiment.metrics[0].query
+
+                        const response: ExperimentResults = await api.create(
+                            `api/projects/${values.currentTeamId}/query`,
+                            { query }
+                        )
+
+                        return {
+                            ...response,
+                            fakeInsightId: Math.random().toString(36).substring(2, 15),
+                            last_refresh: response.last_refresh,
+                        }
+                    }
+
+                    console.log('no hogql')
                     try {
                         const refreshParam = refresh ? '?refresh=true' : ''
                         const response: ExperimentResults = await api.get(

@@ -1348,6 +1348,9 @@
                     "description": "What triggered the calculation of the query, leave empty if user/immediate",
                     "type": "string"
                 },
+                "count_query": {
+                    "$ref": "#/definitions/TrendsQuery"
+                },
                 "credible_intervals": {
                     "additionalProperties": {
                         "items": {
@@ -1360,7 +1363,10 @@
                     "type": "object"
                 },
                 "insight": {
-                    "$ref": "#/definitions/TrendsQueryResponse"
+                    "items": {
+                        "type": "object"
+                    },
+                    "type": "array"
                 },
                 "is_cached": {
                     "type": "boolean"
@@ -3731,6 +3737,9 @@
                         {
                             "additionalProperties": false,
                             "properties": {
+                                "count_query": {
+                                    "$ref": "#/definitions/TrendsQuery"
+                                },
                                 "credible_intervals": {
                                     "additionalProperties": {
                                         "items": {
@@ -3743,7 +3752,10 @@
                                     "type": "object"
                                 },
                                 "insight": {
-                                    "$ref": "#/definitions/TrendsQueryResponse"
+                                    "items": {
+                                        "type": "object"
+                                    },
+                                    "type": "array"
                                 },
                                 "p_value": {
                                     "type": "number"
@@ -5236,6 +5248,9 @@
         "ExperimentTrendsQueryResponse": {
             "additionalProperties": false,
             "properties": {
+                "count_query": {
+                    "$ref": "#/definitions/TrendsQuery"
+                },
                 "credible_intervals": {
                     "additionalProperties": {
                         "items": {
@@ -5248,7 +5263,10 @@
                     "type": "object"
                 },
                 "insight": {
-                    "$ref": "#/definitions/TrendsQueryResponse"
+                    "items": {
+                        "type": "object"
+                    },
+                    "type": "array"
                 },
                 "p_value": {
                     "type": "number"
@@ -8932,6 +8950,9 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "count_query": {
+                            "$ref": "#/definitions/TrendsQuery"
+                        },
                         "credible_intervals": {
                             "additionalProperties": {
                                 "items": {
@@ -8944,7 +8965,10 @@
                             "type": "object"
                         },
                         "insight": {
-                            "$ref": "#/definitions/TrendsQueryResponse"
+                            "items": {
+                                "type": "object"
+                            },
+                            "type": "array"
                         },
                         "p_value": {
                             "type": "number"
@@ -9577,6 +9601,9 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "count_query": {
+                            "$ref": "#/definitions/TrendsQuery"
+                        },
                         "credible_intervals": {
                             "additionalProperties": {
                                 "items": {
@@ -9589,7 +9616,10 @@
                             "type": "object"
                         },
                         "insight": {
-                            "$ref": "#/definitions/TrendsQueryResponse"
+                            "items": {
+                                "type": "object"
+                            },
+                            "type": "array"
                         },
                         "p_value": {
                             "type": "number"

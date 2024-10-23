@@ -175,6 +175,7 @@ class ExperimentSerializer(serializers.ModelSerializer):
             "created_by",
             "created_at",
             "updated_at",
+            "metrics",
         ]
         read_only_fields = [
             "id",
@@ -490,3 +491,4 @@ class EnterpriseExperimentsViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         experiment.exposure_cohort = cohort
         experiment.save(update_fields=["exposure_cohort"])
         return Response({"cohort": cohort_serializer.data}, status=201)
+
