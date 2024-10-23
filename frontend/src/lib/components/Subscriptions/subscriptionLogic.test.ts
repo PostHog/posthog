@@ -26,12 +26,11 @@ export const fixtureSubscriptionResponse = (id: number, args: Partial<Subscripti
 describe('subscriptionLogic', () => {
     let newLogic: ReturnType<typeof subscriptionLogic.build>
     let existingLogic: ReturnType<typeof subscriptionLogic.build>
-    let subscriptions: SubscriptionType[] = []
     beforeEach(async () => {
-        subscriptions = [fixtureSubscriptionResponse(1), fixtureSubscriptionResponse(2)]
         useMocks({
             get: {
-                '/api/projects/:team/subscriptions/1': fixtureSubscriptionResponse(1),
+                '/api/environments/:team/subscriptions': { count: 1, results: [fixtureSubscriptionResponse(1)] },
+                '/api/environments/:team/subscriptions/1': fixtureSubscriptionResponse(1),
                 '/api/projects/:team/integrations': { count: 0, results: [] },
             },
         })
@@ -42,10 +41,26 @@ describe('subscriptionLogic', () => {
         })
         existingLogic = subscriptionLogic({
             insightShortId: Insight1,
-            id: subscriptions[0].id,
+            id: 1,
         })
         newLogic.mount()
         existingLogic.mount()
+    })
+
+    it('loads subscription', async () => {
+        router.actions.push('/insights/123/subscriptions/1')
+        await expectLogic(existingLogic).toFinishListeners().toDispatchActions(['loadSubscriptionSuccess'])
+        expect(existingLogic.values.subscription).toMatchObject({
+            id: 1,
+            title: 'My example subscription',
+            target_type: 'email',
+            target_value: 'ben@posthog.com,geoff@other-company.com',
+            frequency: 'monthly',
+            interval: 2,
+            start_date: '2022-01-01T00:09:00',
+            byweekday: ['wednesday'],
+            bysetpos: 1,
+        })
     })
 
     it('updates values depending on frequency', async () => {
