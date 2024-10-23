@@ -48,6 +48,7 @@ def extend_api_router() -> None:
         "organization_role_memberships",
         ["organization_id", "role_id"],
     )
+    # Start: routes to be deprecated
     project_feature_flags_router.register(
         r"role_access",
         feature_flag_role_access.FeatureFlagRoleAccessViewSet,
@@ -60,6 +61,7 @@ def extend_api_router() -> None:
         "organization_resource_access",
         ["organization_id"],
     )
+    # End: routes to be deprecated
     register_grandfathered_environment_nested_viewset(r"hooks", hooks.HookViewSet, "environment_hooks", ["team_id"])
     register_grandfathered_environment_nested_viewset(
         r"explicit_members",
