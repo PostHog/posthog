@@ -409,7 +409,7 @@ class S3InsertInputs:
     region: str
     prefix: str
     team_id: int
-    data_interval_start: str
+    data_interval_start: str | None
     data_interval_end: str
     aws_access_key_id: str | None = None
     aws_secret_access_key: str | None = None
@@ -428,7 +428,7 @@ class S3InsertInputs:
     batch_export_schema: BatchExportSchema | None = None
 
 
-async def initialize_and_resume_multipart_upload(inputs: S3InsertInputs) -> tuple[S3MultiPartUpload, str]:
+async def initialize_and_resume_multipart_upload(inputs: S3InsertInputs) -> tuple[S3MultiPartUpload, str | None]:
     """Initialize a S3MultiPartUpload and resume it from a hearbeat state if available."""
     logger = await bind_temporal_worker_logger(team_id=inputs.team_id, destination="S3")
     key = get_s3_key(inputs)
@@ -673,10 +673,14 @@ class S3BatchExportWorkflow(PostHogWorkflow):
         """Workflow implementation to export data to S3 bucket."""
         data_interval_start, data_interval_end = get_data_interval(inputs.interval, inputs.data_interval_end)
 
+        should_backfill_from_beginning = (
+            inputs.is_backfill and inputs.batch_export_model is not None and inputs.batch_export_model.name == "persons"
+        )
+
         start_batch_export_run_inputs = StartBatchExportRunInputs(
             team_id=inputs.team_id,
             batch_export_id=inputs.batch_export_id,
-            data_interval_start=data_interval_start.isoformat(),
+            data_interval_start=data_interval_start.isoformat() if not should_backfill_from_beginning else None,
             data_interval_end=data_interval_end.isoformat(),
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
@@ -709,7 +713,7 @@ class S3BatchExportWorkflow(PostHogWorkflow):
             aws_access_key_id=inputs.aws_access_key_id,
             aws_secret_access_key=inputs.aws_secret_access_key,
             endpoint_url=inputs.endpoint_url,
-            data_interval_start=data_interval_start.isoformat(),
+            data_interval_start=data_interval_start.isoformat() if data_interval_start else None,
             data_interval_end=data_interval_end.isoformat(),
             compression=inputs.compression,
             exclude_events=inputs.exclude_events,
