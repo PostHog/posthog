@@ -27,7 +27,12 @@ export class GroupAndFirstEventManager {
         this.groupTypeManager = groupTypeManager
     }
 
-    public async updateGroupsAndFirstEvent(teamId: number, event: string, properties: Properties): Promise<void> {
+    public async updateGroupsAndFirstEvent(
+        teamId: number,
+        projectId: number,
+        event: string,
+        properties: Properties
+    ): Promise<void> {
         if (EVENTS_WITHOUT_EVENT_DEFINITION.includes(event)) {
             return
         }
@@ -56,7 +61,9 @@ export class GroupAndFirstEventManager {
                 const { $group_type: groupType, $group_set: groupPropertiesToSet } = properties
                 if (groupType != null && groupPropertiesToSet != null) {
                     // This "fetch" is side-effecty, it inserts a group-type and assigns an index if one isn't found
-                    const groupPromise = this.groupTypeManager.fetchGroupTypeIndex(teamId, groupType).then(() => {})
+                    const groupPromise = this.groupTypeManager
+                        .fetchGroupTypeIndex(teamId, projectId, groupType)
+                        .then(() => {})
                     promises.push(groupPromise)
                 }
             }
