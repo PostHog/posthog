@@ -68,6 +68,7 @@ export const sessionReplayTemplatesLogic = kea<sessionReplayTemplatesLogicType>(
     actions({
         setVariables: (variables?: ReplayTemplateVariableType[]) => ({ variables }),
         setVariable: (variable: ReplayTemplateVariableType) => ({ variable }),
+        resetVariable: (variable: ReplayTemplateVariableType) => ({ variable }),
         navigate: true,
         showVariables: true,
         hideVariables: true,
@@ -79,6 +80,8 @@ export const sessionReplayTemplatesLogic = kea<sessionReplayTemplatesLogicType>(
                 setVariables: (_, { variables }) => variables ?? [],
                 setVariable: (state, { variable }) =>
                     state.map((v) => (v.key === variable.key ? { ...variable, touched: true } : v)),
+                resetVariable: (state, { variable }) =>
+                    state.map((v) => (v.key === variable.key ? { ...variable, touched: false } : v)),
             },
         ],
         variablesVisible: [

@@ -72,7 +72,7 @@ const SingleTemplateVariable = ({
 }: RecordingTemplateCardProps & {
     variable: ReplayTemplateVariableType
 }): JSX.Element | null => {
-    const { setVariable } = useActions(sessionReplayTemplatesLogic(props))
+    const { setVariable, resetVariable } = useActions(sessionReplayTemplatesLogic(props))
     useMountedLogic(actionsModel)
 
     return variable.type === 'pageview' ? (
@@ -80,7 +80,9 @@ const SingleTemplateVariable = ({
             <LemonLabel info={variable.description}>{variable.name}</LemonLabel>
             <LemonInput
                 placeholder={variable.value}
-                onChange={(e) => setVariable({ ...variable, value: e })}
+                onChange={(e) =>
+                    e ? setVariable({ ...variable, value: e }) : resetVariable({ ...variable, value: undefined })
+                }
                 size="small"
             />
         </div>
@@ -103,9 +105,13 @@ const SingleTemplateVariable = ({
                         : []
                 }
                 onChange={(thisFilterGroup) => {
-                    variable.type === 'flag'
-                        ? setVariable({ ...variable, value: (thisFilterGroup.values[0] as FeaturePropertyFilter).key })
-                        : setVariable({ ...variable, filterGroup: thisFilterGroup.values[0] })
+                    if (thisFilterGroup.values.length === 0) {
+                        resetVariable({ ...variable, filterGroup: undefined })
+                    } else if (variable.type === 'flag') {
+                        setVariable({ ...variable, value: (thisFilterGroup.values[0] as FeaturePropertyFilter).key })
+                    } else {
+                        setVariable({ ...variable, filterGroup: thisFilterGroup.values[0] })
+                    }
                 }}
             >
                 <NestedFilterGroup
