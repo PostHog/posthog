@@ -178,7 +178,7 @@ mod tests {
                 "United States",
                 "San Luis Obispo",
             ),
-            ("187.188.10.252", "Mexico", "Cuauhtémoc"),
+            ("187.188.10.252", "Mexico", "Coyoacán"),
         ];
 
         for (ip, expected_country, expected_city) in test_cases {
