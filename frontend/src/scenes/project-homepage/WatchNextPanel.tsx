@@ -1,6 +1,7 @@
 import './ProjectHomepage.scss'
 
 import { IconInfo } from '@posthog/icons'
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { CompactList } from 'lib/components/CompactList/CompactList'
 import { IconPlayCircle } from 'lib/lemon-ui/icons'
@@ -25,6 +26,20 @@ interface RecordingRowProps {
     recording: SessionRecordingType
 }
 
+function ActivityScoreLabel({ score }: { score: number | undefined }): JSX.Element {
+    const n = score ?? 0
+    return (
+        <span
+            className={clsx(
+                'text-xs',
+                n > 90 ? 'text-success-dark' : n > 75 ? 'text-success' : n > 50 ? 'text-warning' : 'text-muted'
+            )}
+        >
+            Activity score: {parseFloat(n.toFixed(2))}
+        </span>
+    )
+}
+
 export function RecordingRow({ recording }: RecordingRowProps): JSX.Element {
     const { openSessionPlayer } = useActions(sessionPlayerModalLogic)
     const { reportRecordingOpenedFromRecentRecordingList } = useActions(eventUsageLogic)
@@ -32,7 +47,7 @@ export function RecordingRow({ recording }: RecordingRowProps): JSX.Element {
     return (
         <ProjectHomePageCompactListItem
             title={asDisplay(recording.person)}
-            subtitle={`Activity score: ${parseFloat((recording.activity_score ?? 0).toFixed(2))}`}
+            subtitle={<ActivityScoreLabel score={recording.activity_score} />}
             prefix={<ProfilePicture name={asDisplay(recording.person)} />}
             suffix={
                 <div className="flex items-center justify-end text-text-3000">
