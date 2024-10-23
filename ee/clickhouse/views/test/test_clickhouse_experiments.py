@@ -2511,11 +2511,63 @@ class ClickhouseTestFunnelExperimentResults(ClickhouseTestMixin, APILicensedTest
 
     @snapshot_clickhouse_queries
     def test_experiment_flow_with_event_results_for_three_test_variants(self):
+        ff_key = "a-b-test"
+        # generates the FF which should result in the above events^
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Test Experiment",
+                "description": "",
+                "start_date": "2020-01-01T00:00",
+                "end_date": "2020-01-06T00:00",
+                "feature_flag_key": ff_key,
+                "parameters": {
+                    "feature_flag_variants": [
+                        {
+                            "key": "control",
+                            "name": "Control Group",
+                            "rollout_percentage": 25,
+                        },
+                        {
+                            "key": "test_1",
+                            "name": "Test Variant 1",
+                            "rollout_percentage": 25,
+                        },
+                        {
+                            "key": "test_2",
+                            "name": "Test Variant 2",
+                            "rollout_percentage": 25,
+                        },
+                        {
+                            "key": "test",
+                            "name": "Test Variant 3",
+                            "rollout_percentage": 25,
+                        },
+                    ]
+                },
+                "filters": {
+                    "insight": "funnels",
+                    "events": [
+                        {"order": 0, "id": "$pageview"},
+                        {"order": 1, "id": "$pageleave"},
+                    ],
+                    "properties": [],
+                },
+            },
+        )
+
+        id = response.json()["id"]
+
         journeys_for(
             {
                 "person1_2": [
+                    # TODO: I'm not sure this following property holds any longer
                     # one event having the property is sufficient, since first touch breakdown is the default
-                    {"event": "$pageview", "timestamp": "2020-01-02", "properties": {}},
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-02",
+                        "properties": {"$feature/a-b-test": "test_2"},
+                    },
                     {
                         "event": "$pageleave",
                         "timestamp": "2020-01-04",
@@ -2658,53 +2710,6 @@ class ClickhouseTestFunnelExperimentResults(ClickhouseTestMixin, APILicensedTest
             self.team,
         )
 
-        ff_key = "a-b-test"
-        # generates the FF which should result in the above events^
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/experiments/",
-            {
-                "name": "Test Experiment",
-                "description": "",
-                "start_date": "2020-01-01T00:00",
-                "end_date": "2020-01-06T00:00",
-                "feature_flag_key": ff_key,
-                "parameters": {
-                    "feature_flag_variants": [
-                        {
-                            "key": "control",
-                            "name": "Control Group",
-                            "rollout_percentage": 25,
-                        },
-                        {
-                            "key": "test_1",
-                            "name": "Test Variant 1",
-                            "rollout_percentage": 25,
-                        },
-                        {
-                            "key": "test_2",
-                            "name": "Test Variant 2",
-                            "rollout_percentage": 25,
-                        },
-                        {
-                            "key": "test",
-                            "name": "Test Variant 3",
-                            "rollout_percentage": 25,
-                        },
-                    ]
-                },
-                "filters": {
-                    "insight": "funnels",
-                    "events": [
-                        {"order": 0, "id": "$pageview"},
-                        {"order": 1, "id": "$pageleave"},
-                    ],
-                    "properties": [],
-                },
-            },
-        )
-
-        id = response.json()["id"]
-
         response = self.client.get(f"/api/projects/{self.team.id}/experiments/{id}/results")
         self.assertEqual(200, response.status_code)
 
@@ -2716,7 +2721,7 @@ class ClickhouseTestFunnelExperimentResults(ClickhouseTestMixin, APILicensedTest
         self.assertEqual("control", result[0][0]["breakdown_value"][0])
 
         self.assertEqual(result[0][1]["name"], "$pageleave")
-        self.assertEqual(result[0][1]["count"], 1)
+        self.assertEqual(result[0][1]["count"], 2)
         self.assertEqual("control", result[0][1]["breakdown_value"][0])
 
         self.assertEqual(result[1][0]["name"], "$pageview")
@@ -2724,12 +2729,13 @@ class ClickhouseTestFunnelExperimentResults(ClickhouseTestMixin, APILicensedTest
         self.assertEqual("test", result[1][0]["breakdown_value"][0])
 
         self.assertEqual(result[1][1]["name"], "$pageleave")
-        self.assertEqual(result[1][1]["count"], 0)
+        self.assertEqual(result[1][1]["count"], 1)
         self.assertEqual("test", result[1][1]["breakdown_value"][0])
 
-        self.assertAlmostEqual(response_data["probability"]["test"], 0.031, places=1)
-        self.assertAlmostEqual(response_data["probability"]["test_1"], 0.158, places=1)
-        self.assertAlmostEqual(response_data["probability"]["control"], 0.77777, places=1)
+        self.assertAlmostEqual(response_data["probability"]["test"], 0.0, places=1)
+        self.assertAlmostEqual(response_data["probability"]["test_1"], 0.04278, places=1)
+        self.assertAlmostEqual(response_data["probability"]["test_2"], 0.36491, places=1)
+        self.assertAlmostEqual(response_data["probability"]["control"], 0.55275, places=1)
         self.assertEqual(
             response_data["significance_code"],
             ExperimentSignificanceCode.NOT_ENOUGH_EXPOSURE,
