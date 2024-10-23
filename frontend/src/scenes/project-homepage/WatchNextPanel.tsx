@@ -5,6 +5,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { CompactList } from 'lib/components/CompactList/CompactList'
 import { IconPlayCircle } from 'lib/lemon-ui/icons'
+import { LemonSnack } from 'lib/lemon-ui/LemonSnack'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyDuration } from 'lib/utils'
@@ -26,18 +27,27 @@ interface RecordingRowProps {
     recording: SessionRecordingType
 }
 
+type ACTIVITY_DESCRIPTIONS = 'very low' | 'low' | 'medium' | 'high' | 'very high'
+
 function ActivityScoreLabel({ score }: { score: number | undefined }): JSX.Element {
     const n = score ?? 0
-    return (
-        <span
-            className={clsx(
-                'text-xs',
-                n >= 90 ? 'text-success-dark' : n >= 75 ? 'text-success' : n >= 50 ? 'text-warning' : 'text-muted'
-            )}
-        >
-            Activity score: {parseFloat(n.toFixed(2))}
-        </span>
-    )
+    let backgroundColor = 'bg-primary-alt-highlight'
+    let description: ACTIVITY_DESCRIPTIONS = 'very low'
+    if (n >= 90) {
+        backgroundColor = 'bg-success-highlight'
+        description = 'very high'
+    } else if (n >= 75) {
+        backgroundColor = 'bg-success-highlight'
+        description = 'high'
+    } else if (n >= 50) {
+        backgroundColor = 'bg-warning-highlight'
+        description = 'medium'
+    } else if (n >= 25) {
+        backgroundColor = 'bg-warning-highlight'
+        description = 'low'
+    }
+
+    return <LemonSnack className={clsx(backgroundColor, 'text-xs')}>activity: {description}</LemonSnack>
 }
 
 export function RecordingRow({ recording }: RecordingRowProps): JSX.Element {
