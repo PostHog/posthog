@@ -8,7 +8,7 @@ template_new_broadcast: HogFunctionTemplate = HogFunctionTemplate(
     description="This is a broadcast",
     icon_url="/static/hedgehog/explorer-hog.png",
     category=["Email Marketing"],
-    hog="""send_email(inputs.email)""".strip(),
+    hog="""sendEmail(inputs.email)""".strip(),
     inputs_schema=[
         {
             "key": "email",
