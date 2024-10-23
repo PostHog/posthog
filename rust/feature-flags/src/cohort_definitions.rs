@@ -180,7 +180,7 @@ pub fn sort_cohorts_topologically(
                 if let Some(child_id) = child_id {
                     dependency_graph
                         .entry(cohort.id)
-                        .or_insert_with(Vec::new)
+                        .or_default()
                         .push(child_id);
 
                     if let Some(CohortOrEmpty::Cohort(child_cohort)) =
