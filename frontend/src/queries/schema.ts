@@ -331,6 +331,7 @@ export interface RecordingsQuery extends DataNode<RecordingsQueryResponse> {
         | 'click_count'
         | 'keypress_count'
         | 'mouse_activity_count'
+        | 'activity_score'
     limit?: integer
     offset?: integer
     user_modified_filters?: Record<string, any>
@@ -834,6 +835,8 @@ export type TrendsFilter = {
     display?: TrendsFilterLegacy['display']
     /** @default false */
     showLegend?: TrendsFilterLegacy['show_legend']
+    /** @default false */
+    showAlertThresholdLines?: boolean
     breakdown_histogram_bin_count?: TrendsFilterLegacy['breakdown_histogram_bin_count'] // TODO: fully move into BreakdownFilter
     /** @default numeric */
     aggregationAxisFormat?: TrendsFilterLegacy['aggregation_axis_format']

@@ -2083,6 +2083,13 @@ const api = {
         ): Promise<BatchExportRun> {
             return await new ApiRequest().batchExportRun(id, runId, teamId).withAction('retry').create()
         },
+        async cancelRun(
+            id: BatchExportConfiguration['id'],
+            runId: BatchExportRun['id'],
+            teamId?: TeamType['id']
+        ): Promise<BatchExportRun> {
+            return await new ApiRequest().batchExportRun(id, runId, teamId).withAction('cancel').create()
+        },
         async logs(
             id: BatchExportConfiguration['id'],
             params: LogEntryRequestParams = {}
