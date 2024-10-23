@@ -867,7 +867,7 @@ def _warn_if_session_id_malformed(session_id: str):
         session_id_parsed = uuid.UUID(session_id)
     except ValueError:
         print(  # noqa: T201
-            f"WARNING: $session_id should be a UUIDv7 and {repr(session_id)} doesn't resemble a UUID. "
+            f"WARNING: $session_id SHOULD be a UUIDv7 and {repr(session_id)} doesn't resemble a UUID. "
             "Events with a non-UUIDv7 session ID don't count as part of any session in HogQL-based querying. Use uuid7()!"
         )
     else:
@@ -877,12 +877,12 @@ def _warn_if_session_id_malformed(session_id: str):
         session_id_unix_time_ms = session_id_parsed.int >> 80
         if session_id_unix_time_ms < min_accepted_unix_time_ms:
             print(  # noqa: T201
-                f"WARNING: $session_id should be a UUIDv7 and {session_id_parsed}'s value appears too small to be a UUIDv7. "
+                f"WARNING: $session_id SHOULD be a UUIDv7 and {session_id_parsed}'s value appears too small to be a UUIDv7. "
                 "Events with a non-UUIDv7 session ID don't count as part of any session in HogQL-based querying. Use uuid7()!"
             )
         elif session_id_unix_time_ms > max_accepted_unix_time_ms:
             print(  # noqa: T201
-                f"WARNING: $session_id should be a UUIDv7 and {session_id_parsed}'s value appears too large to be a UUIDv7. "
+                f"WARNING: $session_id SHOULD be a UUIDv7 and {session_id_parsed}'s value appears too large to be a UUIDv7. "
                 "Events with a non-UUIDv7 session ID don't count as part of any session in HogQL-based querying. Use uuid7()!"
             )
 
