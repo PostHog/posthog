@@ -16,7 +16,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectClean, objectsEqual } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
-import { NodeKind, RecordingsQuery, RecordingsQueryResponse } from '~/queries/schema'
+import { NodeKind, RecordingOrder, RecordingsQuery, RecordingsQueryResponse } from '~/queries/schema'
 import {
     EntityTypes,
     FilterLogicalOperator,
@@ -77,7 +77,7 @@ export const defaultRecordingDurationFilter: RecordingDurationFilter = {
     operator: PropertyOperator.GreaterThan,
 }
 
-export const DEFAULT_RECORDING_FILTERS_ORDER_BY = 'start_time'
+export const DEFAULT_RECORDING_FILTERS_ORDER_BY = RecordingOrder.StartTime
 
 export const DEFAULT_RECORDING_FILTERS: RecordingUniversalFilters = {
     filter_test_accounts: false,
@@ -225,17 +225,11 @@ function combineLegacyRecordingFilters(
     }
 }
 
-function sortRecordings(recordings: SessionRecordingType[], order: RecordingsQuery['order']): SessionRecordingType[] {
-    const orderKey:
-        | 'recording_duration'
-        | 'activity_score'
-        | 'active_seconds'
-        | 'inactive_seconds'
-        | 'console_error_count'
-        | 'click_count'
-        | 'keypress_count'
-        | 'mouse_activity_count'
-        | 'start_time' = order === 'duration' ? 'recording_duration' : order
+function sortRecordings(
+    recordings: SessionRecordingType[],
+    order: RecordingsQuery['order'] | 'duration' = RecordingOrder.StartTime
+): SessionRecordingType[] {
+    const orderKey: RecordingOrder = order === 'duration' ? RecordingOrder.Duration : order
 
     return recordings.sort((a, b) => {
         const orderA = a[orderKey]

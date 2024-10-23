@@ -311,7 +311,7 @@ export interface RecordingsQueryResponse {
 }
 
 export enum RecordingOrder {
-    Duration = 'duration',
+    Duration = 'recording_duration',
     InactiveSeconds = 'inactive_seconds',
     ActiveSeconds = 'active_seconds',
     StartTime = 'start_time',

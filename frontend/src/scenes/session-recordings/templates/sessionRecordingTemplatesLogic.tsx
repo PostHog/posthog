@@ -65,7 +65,7 @@ export const sessionReplayTemplatesLogic = kea<sessionReplayTemplatesLogicType>(
     props({} as ReplayTemplateLogicPropsType),
     key((props) => `${props.category}-${props.template.key}`),
     actions({
-        setVariables: (variables: ReplayTemplateVariableType[]) => ({ variables }),
+        setVariables: (variables?: ReplayTemplateVariableType[]) => ({ variables }),
         setVariable: (variable: ReplayTemplateVariableType) => ({ variable }),
         navigate: true,
         showVariables: true,
@@ -73,9 +73,9 @@ export const sessionReplayTemplatesLogic = kea<sessionReplayTemplatesLogicType>(
     }),
     reducers(({ props }) => ({
         variables: [
-            props.template.variables,
+            props.template.variables ?? [],
             {
-                setVariables: (_, { variables }) => variables,
+                setVariables: (_, { variables }) => variables ?? [],
                 setVariable: (state, { variable }) =>
                     state.map((v) => (v.key === variable.key ? { ...variable, touched: true } : v)),
             },
@@ -131,10 +131,10 @@ export const sessionReplayTemplatesLogic = kea<sessionReplayTemplatesLogicType>(
         ],
         editableVariables: [(s) => [s.variables], (variables) => variables.filter((v) => !v.noTouch)],
     }),
-    listeners(({ values }) => ({
+    listeners(({ values, props }) => ({
         navigate: () => {
             const filterGroup = values.variables.length > 0 ? values.filterGroup : undefined
-            router.actions.push(urls.replay(ReplayTabs.Home, filterGroup))
+            router.actions.push(urls.replay(ReplayTabs.Home, filterGroup, undefined, props.template.order))
         },
     })),
     events(({ actions, props }) => ({

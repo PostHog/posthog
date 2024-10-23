@@ -11,6 +11,7 @@ import {
 } from '@posthog/icons'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
+import { RecordingOrder } from '~/queries/schema'
 import { PropertyFilterType, PropertyOperator, ReplayTemplateType } from '~/types'
 
 export const replayTemplates: ReplayTemplateType[] = [
@@ -222,5 +223,13 @@ export const replayTemplates: ReplayTemplateType[] = [
         ],
         categories: ['More'],
         icon: <IconPhone />,
+    },
+    {
+        key: 'activity-score',
+        name: 'Most active users',
+        description: 'Watch recordings of the most active sessions. Lots of valuable insights, guaranteed!',
+        order: RecordingOrder.ActivityScore,
+        categories: ['More'],
+        icon: <IconCursorClick />,
     },
 ]
