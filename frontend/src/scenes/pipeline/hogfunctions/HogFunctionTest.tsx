@@ -62,9 +62,8 @@ export function HogFunctionTestPlaceholder({
 }
 
 export function HogFunctionTest(props: HogFunctionTestLogicProps): JSX.Element {
-    const { isTestInvocationSubmitting, testResult, expanded, sampleGlobalsLoading, sampleGlobalsError } = useValues(
-        hogFunctionTestLogic(props)
-    )
+    const { isTestInvocationSubmitting, testResult, expanded, sampleGlobalsLoading, sampleGlobalsError, type } =
+        useValues(hogFunctionTestLogic(props))
     const { submitTestInvocation, setTestResult, toggleExpanded, loadSampleGlobals } = useActions(
         hogFunctionTestLogic(props)
     )
@@ -77,7 +76,14 @@ export function HogFunctionTest(props: HogFunctionTestLogicProps): JSX.Element {
                 <div className="flex items-center gap-2 justify-end">
                     <div className="flex-1 space-y-2">
                         <h2 className="mb-0">Testing</h2>
-                        {!expanded && <p>Click here to test your function with an example event</p>}
+                        {!expanded &&
+                            (type === 'email' ? (
+                                <p>Click here to test the provider with a sample e-mail</p>
+                            ) : type === 'broadcast' ? (
+                                <p>Click here to test your broadcast</p>
+                            ) : (
+                                <p>Click here to test your function with an example event</p>
+                            ))}
                     </div>
 
                     {!expanded ? (
@@ -96,14 +102,16 @@ export function HogFunctionTest(props: HogFunctionTestLogicProps): JSX.Element {
                                 </LemonButton>
                             ) : (
                                 <>
-                                    <LemonButton
-                                        type="secondary"
-                                        onClick={loadSampleGlobals}
-                                        loading={sampleGlobalsLoading}
-                                        tooltip="Find the last event matching filters, and use it to populate the globals below."
-                                    >
-                                        Refresh globals
-                                    </LemonButton>
+                                    {type === 'destination' ? (
+                                        <LemonButton
+                                            type="secondary"
+                                            onClick={loadSampleGlobals}
+                                            loading={sampleGlobalsLoading}
+                                            tooltip="Find the last event matching filters, and use it to populate the globals below."
+                                        >
+                                            Refresh globals
+                                        </LemonButton>
+                                    ) : null}
                                     <LemonField name="mock_async_functions">
                                         {({ value, onChange }) => (
                                             <LemonSwitch
@@ -189,7 +197,13 @@ export function HogFunctionTest(props: HogFunctionTestLogicProps): JSX.Element {
                                     {({ value, onChange }) => (
                                         <>
                                             <div className="space-y-2">
-                                                <div>Here are all the global variables you can use in your code:</div>
+                                                <div>
+                                                    {type === 'broadcast'
+                                                        ? 'The test broadcast will be sent with this sample data:'
+                                                        : type === 'email'
+                                                        ? 'The provider will be tested with this sample data:'
+                                                        : 'Here are all the global variables you can use in your code:'}
+                                                </div>
                                                 {sampleGlobalsError ? (
                                                     <div className="text-warning">{sampleGlobalsError}</div>
                                                 ) : null}

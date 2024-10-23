@@ -438,7 +438,7 @@ export class HogExecutor {
                     messages.push(`Sync: ${execRes.state.syncDuration}ms.`)
                     messages.push(`Mem: ${execRes.state.maxMemUsed} bytes.`)
                     messages.push(`Ops: ${execRes.state.ops}.`)
-                    messages.push(`Event: '${globals.event.url}'`)
+                    messages.push(`Event: '${globals.event?.url}'`)
 
                     hogFunctionStateMemory.observe(execRes.state.maxMemUsed / 1024)
 
@@ -448,7 +448,7 @@ export class HogExecutor {
                             hogFunctionId: invocation.hogFunction.id,
                             hogFunctionName: invocation.hogFunction.name,
                             teamId: invocation.teamId,
-                            eventId: invocation.globals.event.url,
+                            eventId: invocation.globals.event?.url,
                             memoryUsedKb: execRes.state.maxMemUsed / 1024,
                         })
                     }
@@ -464,7 +464,7 @@ export class HogExecutor {
             result.finished = true // Explicitly set to true to prevent infinite loops
             status.error(
                 '🦔',
-                `[HogExecutor] Error executing function ${invocation.hogFunction.id} - ${invocation.hogFunction.name}. Event: '${invocation.globals.event.url}'`,
+                `[HogExecutor] Error executing function ${invocation.hogFunction.id} - ${invocation.hogFunction.name}. Event: '${invocation.globals.event?.url}'`,
                 err
             )
         }

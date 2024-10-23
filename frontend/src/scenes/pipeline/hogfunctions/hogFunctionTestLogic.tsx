@@ -31,7 +31,15 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
     connect((props: HogFunctionTestLogicProps) => ({
         values: [
             hogFunctionConfigurationLogic({ id: props.id }),
-            ['configuration', 'configurationHasErrors', 'sampleGlobals', 'sampleGlobalsLoading', 'sampleGlobalsError'],
+            [
+                'configuration',
+                'configurationHasErrors',
+                'sampleGlobals',
+                'sampleGlobalsLoading',
+                'exampleInvocationGlobals',
+                'sampleGlobalsError',
+                'type',
+            ],
             groupsModel,
             ['groupTypes'],
         ],
@@ -61,7 +69,9 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
     }),
     listeners(({ values, actions }) => ({
         loadSampleGlobalsSuccess: () => {
-            actions.setTestInvocationValue('globals', JSON.stringify(values.sampleGlobals, null, 2))
+            if (values.type === 'destination') {
+                actions.setTestInvocationValue('globals', JSON.stringify(values.sampleGlobals, null, 2))
+            }
         },
     })),
     forms(({ props, actions, values }) => ({
@@ -103,7 +113,25 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
         },
     })),
 
-    afterMount(({ actions }) => {
-        actions.setTestInvocationValue('globals', '{/* Please wait, fetching a real event. */}')
+    afterMount(({ actions, values }) => {
+        if (values.type === 'email') {
+            const email = {
+                from: 'me@mycompany.com',
+                to: '{person.properties.email}',
+                subject: 'Hello',
+                html: 'hello world',
+            }
+            actions.setTestInvocationValue(
+                'globals',
+                JSON.stringify({ email, person: values.exampleInvocationGlobals.person }, null, 2)
+            )
+        } else if (values.type === 'broadcast') {
+            actions.setTestInvocationValue(
+                'globals',
+                JSON.stringify({ person: values.exampleInvocationGlobals.person }, null, 2)
+            )
+        } else {
+            actions.setTestInvocationValue('globals', '{/* Please wait, fetching a real event. */}')
+        }
     }),
 ])

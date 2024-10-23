@@ -332,6 +332,10 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             null as HogFunctionInvocationGlobals | null,
             {
                 loadSampleGlobals: async (_, breakpoint) => {
+                    if (values.type === 'email' || values.type === 'broadcast') {
+                        return values.sampleGlobals
+                    }
+
                     const errorMessage =
                         'No events match these filters in the last 30 days. Showing an example $pageview event instead.'
                     try {
