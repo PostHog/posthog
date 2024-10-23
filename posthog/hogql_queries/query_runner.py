@@ -22,11 +22,13 @@ from posthog.hogql_queries.query_cache import QueryCacheManager
 from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import Team, User
 from posthog.schema import (
+    ActorsPropertyTaxonomyQuery,
     ActorsQuery,
     CacheMissResponse,
     DashboardFilter,
     DateRange,
     EventsQuery,
+    EventTaxonomyQuery,
     FilterLogicalOperator,
     FunnelCorrelationActorsQuery,
     FunnelCorrelationQuery,
@@ -51,6 +53,7 @@ from posthog.schema import (
     SessionsTimelineQuery,
     StickinessQuery,
     SuggestedQuestionsQuery,
+    TeamTaxonomyQuery,
     TrendsQuery,
     WebGoalsQuery,
     WebOverviewQuery,
@@ -394,6 +397,36 @@ def get_query_runner(
 
         return SuggestedQuestionsQueryRunner(
             query=cast(SuggestedQuestionsQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+        )
+    if kind == "TeamTaxonomyQuery":
+        from .ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
+
+        return TeamTaxonomyQueryRunner(
+            query=cast(TeamTaxonomyQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+        )
+    if kind == "EventTaxonomyQuery":
+        from .ai.event_taxonomy_query_runner import EventTaxonomyQueryRunner
+
+        return EventTaxonomyQueryRunner(
+            query=cast(EventTaxonomyQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+        )
+    if kind == "ActorsPropertyTaxonomyQuery":
+        from .ai.actors_property_taxonomy_query_runner import ActorsPropertyTaxonomyQueryRunner
+
+        return ActorsPropertyTaxonomyQueryRunner(
+            query=cast(ActorsPropertyTaxonomyQuery | dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,

@@ -184,6 +184,9 @@ export type QuerySchema =
 
     // AI
     | SuggestedQuestionsQuery
+    | TeamTaxonomyQuery
+    | EventTaxonomyQuery
+    | ActorsPropertyTaxonomyQuery
 
 // Keep this, because QuerySchema itself will be collapsed as it is used in other models
 export type QuerySchemaRoot = QuerySchema
