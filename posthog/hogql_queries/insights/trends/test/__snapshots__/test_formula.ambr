@@ -295,7 +295,7 @@
         FROM
           (SELECT ifNull(sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'xyz'), ''), 'null'), '^"|"$', ''), 'Float64')), 0) AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
-                  toString(51) AS breakdown_value
+                  toString(999932324) AS breakdown_value
            FROM events AS e SAMPLE 1
            LEFT OUTER JOIN
              (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -345,7 +345,7 @@
         FROM
           (SELECT ifNull(avg(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'xyz'), ''), 'null'), '^"|"$', ''), 'Float64')), 0) AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
-                  toString(51) AS breakdown_value
+                  toString(999932324) AS breakdown_value
            FROM events AS e SAMPLE 1
            LEFT OUTER JOIN
              (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -721,6 +721,196 @@
                toStartOfHour(toTimeZone(e.timestamp, 'UTC')) AS day_start
         FROM events AS e SAMPLE 1
         WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-02 13:00:00', 6, 'UTC'))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-03 13:59:59', 6, 'UTC'))), equals(e.event, 'session start'))
+        GROUP BY day_start)
+     GROUP BY day_start
+     ORDER BY day_start ASC)
+  ORDER BY arraySum(total) DESC
+  LIMIT 50000 SETTINGS readonly=2,
+                       max_execution_time=60,
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=0
+  '''
+# ---
+# name: TestFormula.test_regression_formula_with_session_duration_aggregation
+  '''
+  SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))))), 1))) AS date,
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
+  FROM
+    (SELECT sum(total) AS count,
+            day_start AS day_start
+     FROM
+       (SELECT ifNull(avg(accurateCastOrNull(session_duration, 'Float64')), 0) AS total,
+               day_start AS day_start
+        FROM
+          (SELECT any(e__session.`$session_duration`) AS session_duration,
+                  toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
+           FROM events AS e SAMPLE 1
+           LEFT JOIN
+             (SELECT dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))) AS `$session_duration`,
+                     raw_sessions.session_id_v7 AS session_id_v7
+              FROM raw_sessions
+              WHERE and(equals(raw_sessions.team_id, 2), ifNull(greaterOrEquals(plus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), 0), ifNull(lessOrEquals(minus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0))
+              GROUP BY raw_sessions.session_id_v7,
+                       raw_sessions.session_id_v7) AS e__session ON equals(toUInt128(accurateCastOrNull(e.`$session_id`, 'UUID')), e__session.session_id_v7)
+           WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'session start'))
+           GROUP BY day_start,
+                    e.`$session_id`,
+                    day_start)
+        GROUP BY day_start)
+     GROUP BY day_start
+     ORDER BY day_start ASC)
+  ORDER BY arraySum(total) DESC
+  LIMIT 50000 SETTINGS readonly=2,
+                       max_execution_time=60,
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=0
+  '''
+# ---
+# name: TestFormula.test_regression_formula_with_session_duration_aggregation.1
+  '''
+  SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))))), 1))) AS date,
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
+  FROM
+    (SELECT sum(total) AS count,
+            day_start AS day_start
+     FROM
+       (SELECT count() AS total,
+               toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
+        FROM events AS e SAMPLE 1
+        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'session end'))
+        GROUP BY day_start)
+     GROUP BY day_start
+     ORDER BY day_start ASC)
+  ORDER BY arraySum(total) DESC
+  LIMIT 50000 SETTINGS readonly=2,
+                       max_execution_time=60,
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=0
+  '''
+# ---
+# name: TestFormula.test_regression_formula_with_unique_sessions_2x_and_duration_filter
+  '''
+  SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))))), 1))) AS date,
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
+  FROM
+    (SELECT sum(total) AS count,
+            day_start AS day_start
+     FROM
+       (SELECT count(DISTINCT e.`$session_id`) AS total,
+               toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
+        FROM events AS e SAMPLE 1
+        LEFT JOIN
+          (SELECT dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))) AS `$session_duration`,
+                  raw_sessions.session_id_v7 AS session_id_v7
+           FROM raw_sessions
+           WHERE and(equals(raw_sessions.team_id, 2), ifNull(greaterOrEquals(plus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), 0), ifNull(lessOrEquals(minus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0))
+           GROUP BY raw_sessions.session_id_v7,
+                    raw_sessions.session_id_v7) AS e__session ON equals(toUInt128(accurateCastOrNull(e.`$session_id`, 'UUID')), e__session.session_id_v7)
+        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'session start'), ifNull(greater(e__session.`$session_duration`, 12.0), 0))
+        GROUP BY day_start)
+     GROUP BY day_start
+     ORDER BY day_start ASC)
+  ORDER BY arraySum(total) DESC
+  LIMIT 50000 SETTINGS readonly=2,
+                       max_execution_time=60,
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=0
+  '''
+# ---
+# name: TestFormula.test_regression_formula_with_unique_sessions_2x_and_duration_filter.1
+  '''
+  SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))))), 1))) AS date,
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
+  FROM
+    (SELECT sum(total) AS count,
+            day_start AS day_start
+     FROM
+       (SELECT count(DISTINCT e.`$session_id`) AS total,
+               toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
+        FROM events AS e SAMPLE 1
+        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'session start'))
+        GROUP BY day_start)
+     GROUP BY day_start
+     ORDER BY day_start ASC)
+  ORDER BY arraySum(total) DESC
+  LIMIT 50000 SETTINGS readonly=2,
+                       max_execution_time=60,
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=0
+  '''
+# ---
+# name: TestFormula.test_regression_formula_with_unique_sessions_2x_and_duration_filter_2x
+  '''
+  SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))))), 1))) AS date,
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
+  FROM
+    (SELECT sum(total) AS count,
+            day_start AS day_start
+     FROM
+       (SELECT count(DISTINCT e.`$session_id`) AS total,
+               toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
+        FROM events AS e SAMPLE 1
+        LEFT JOIN
+          (SELECT dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))) AS `$session_duration`,
+                  raw_sessions.session_id_v7 AS session_id_v7
+           FROM raw_sessions
+           WHERE and(equals(raw_sessions.team_id, 2), ifNull(greaterOrEquals(plus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), 0), ifNull(lessOrEquals(minus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0))
+           GROUP BY raw_sessions.session_id_v7,
+                    raw_sessions.session_id_v7) AS e__session ON equals(toUInt128(accurateCastOrNull(e.`$session_id`, 'UUID')), e__session.session_id_v7)
+        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, '$autocapture'), ifNull(less(e__session.`$session_duration`, 30.0), 0))
+        GROUP BY day_start)
+     GROUP BY day_start
+     ORDER BY day_start ASC)
+  ORDER BY arraySum(total) DESC
+  LIMIT 50000 SETTINGS readonly=2,
+                       max_execution_time=60,
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=0
+  '''
+# ---
+# name: TestFormula.test_regression_formula_with_unique_sessions_2x_and_duration_filter_2x.1
+  '''
+  SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))))), 1))) AS date,
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
+  FROM
+    (SELECT sum(total) AS count,
+            day_start AS day_start
+     FROM
+       (SELECT count(DISTINCT e.`$session_id`) AS total,
+               toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
+        FROM events AS e SAMPLE 1
+        LEFT JOIN
+          (SELECT dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))) AS `$session_duration`,
+                  raw_sessions.session_id_v7 AS session_id_v7
+           FROM raw_sessions
+           WHERE and(equals(raw_sessions.team_id, 2), ifNull(greaterOrEquals(plus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), 0), ifNull(lessOrEquals(minus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0))
+           GROUP BY raw_sessions.session_id_v7,
+                    raw_sessions.session_id_v7) AS e__session ON equals(toUInt128(accurateCastOrNull(e.`$session_id`, 'UUID')), e__session.session_id_v7)
+        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'session start'), ifNull(greater(e__session.`$session_duration`, 500.0), 0))
         GROUP BY day_start)
      GROUP BY day_start
      ORDER BY day_start ASC)

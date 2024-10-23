@@ -6,6 +6,7 @@ from django.test import override_settings
 from posthog.constants import TRENDS_CUMULATIVE, TRENDS_PIE, TRENDS_BOLD_NUMBER
 from posthog.models import Cohort
 from posthog.models.group.util import create_group
+from posthog.models.utils import uuid7
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -45,6 +46,7 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
             properties={"industry": "finance"},
         )
 
+        s1 = str(uuid7("2020-01-02T13:01:01Z", 1))
         with freeze_time("2020-01-02T13:01:01Z"):
             _create_event(
                 team=self.team,
@@ -54,7 +56,7 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
                     "xyz": 200,
                     "location": "Paris",
                     "$current_url": "http://example.org",
-                    "$session_id": "1",
+                    "$session_id": s1,
                     "$group_0": "org:5",
                 },
             )
@@ -65,7 +67,7 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
                 properties={
                     "xyz": 300,
                     "location": "Paris",
-                    "$session_id": "1",
+                    "$session_id": s1,
                     "$group_0": "org:5",
                 },
             )
@@ -76,7 +78,7 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
                 properties={
                     "xyz": 400,
                     "location": "London",
-                    "$session_id": "1",
+                    "$session_id": s1,
                     "$group_0": "org:5",
                 },
             )
@@ -88,7 +90,7 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
                 properties={
                     "xyz": 400,
                     "location": "London",
-                    "$session_id": "1",
+                    "$session_id": s1,
                     "$group_0": "org:5",
                 },
             )
@@ -100,7 +102,7 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
                 properties={
                     "xyz": 500,
                     "location": "London",
-                    "$session_id": "1",
+                    "$session_id": s1,
                     "$group_0": "org:5",
                 },
             )
@@ -111,7 +113,7 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
                 properties={
                     "xyz": 500,
                     "location": "London",
-                    "$session_id": "1",
+                    "$session_id": s1,
                     "$group_0": "org:5",
                 },
             )
@@ -123,7 +125,7 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
                 properties={
                     "xyz": 500,
                     "location": "Belo Horizonte",
-                    "$session_id": "1",
+                    "$session_id": s1,
                     "$group_0": "org:5",
                 },
             )
@@ -135,7 +137,7 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
                 properties={
                     "xyz": 400,
                     "location": "",
-                    "$session_id": "1",
+                    "$session_id": s1,
                     "$group_0": "org:5",
                 },
             )
@@ -580,6 +582,7 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
     def test_breakdown_cohort(self):
         cohort: Cohort = Cohort.objects.create(
+            id=999932324,
             team=self.team,
             name="cohort1",
             groups=[{"properties": [{"key": "$some_prop", "value": "some_val", "type": "person"}]}],
