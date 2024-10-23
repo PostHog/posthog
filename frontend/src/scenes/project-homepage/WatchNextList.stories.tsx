@@ -1,5 +1,4 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
-import { uuid } from 'lib/utils'
 import { WatchNextList, WatchNextListProps } from 'scenes/project-homepage/WatchNextPanel'
 
 import { SessionRecordingType } from '~/types'
@@ -8,7 +7,7 @@ function asRecording(param: Partial<SessionRecordingType>): SessionRecordingType
     return {
         id: '0',
         person: {
-            distinct_ids: [uuid()],
+            distinct_ids: ['a distinct id'],
             properties: {},
         },
         activity_score: 0,
