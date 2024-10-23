@@ -208,7 +208,7 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
         setSavedConfiguration: (configuration: Record<string, any>) => ({ configuration }),
         setSelectedModel: (model: string) => ({ model }),
     }),
-    loaders(({ props, values }) => ({
+    loaders(({ props, values, actions }) => ({
         batchExportConfig: [
             null as BatchExportConfiguration | null,
             {
@@ -247,6 +247,8 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
                         return res
                     }
                     const res = await api.batchExports.create(data)
+                    actions.resetConfiguration(getConfigurationFromBatchExportConfig(res))
+
                     router.actions.replace(
                         urls.pipelineNode(PipelineStage.Destination, res.id, PipelineNodeTab.Configuration)
                     )
@@ -449,7 +451,11 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
         enabled: () => values.configurationChanged,
         message: 'Leave action?\nChanges you made will be discarded.',
         onConfirm: () => {
-            actions.resetConfiguration()
+            values.batchExportConfig
+                ? actions.resetConfiguration(getConfigurationFromBatchExportConfig(values.batchExportConfig))
+                : values.service
+                ? actions.resetConfiguration(getDefaultConfiguration(values.service))
+                : actions.resetConfiguration()
         },
     })),
 
