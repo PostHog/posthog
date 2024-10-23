@@ -620,7 +620,7 @@ async def test_s3_export_workflow_with_minio_bucket(
 )
 @pytest.mark.parametrize("interval", ["hour"], indirect=True)
 @pytest.mark.parametrize("model", [BatchExportModel(name="persons", schema=None)])
-async def test_s3_export_workflow_backfill_persons_with_minio_bucket(
+async def test_s3_export_workflow_backfill_earliest_persons_with_minio_bucket(
     clickhouse_client,
     minio_client,
     ateam,
@@ -636,10 +636,10 @@ async def test_s3_export_workflow_backfill_persons_with_minio_bucket(
     model,
     generate_test_data,
 ):
-    """Test an S3BatchExport Workflow backfilling the persons model.
+    """Test a `S3BatchExportWorkflow` backfilling the persons model.
 
     We expect persons outside the batch interval to also be backfilled (i.e. persons that were updated
-    more than an hour ago).
+    more than an hour ago) when setting `is_earliest_backfill=True`.
     """
     workflow_id = str(uuid.uuid4())
     inputs = S3BatchExportInputs(
@@ -649,13 +649,14 @@ async def test_s3_export_workflow_backfill_persons_with_minio_bucket(
         interval=interval,
         batch_export_model=model,
         is_backfill=True,
+        is_earliest_backfill=True,
         **s3_batch_export.destination.config,
     )
     _, persons = generate_test_data
 
     # Ensure some data outside batch interval has been created
     assert any(
-        data_interval_end - person["_timestamp"].replace(tzinfo=dt.UTC) > dt.timedelta(hours=1) for person in persons
+        data_interval_end - person["_timestamp"].replace(tzinfo=dt.UTC) > dt.timedelta(hours=12) for person in persons
     )
 
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
@@ -684,6 +685,7 @@ async def test_s3_export_workflow_backfill_persons_with_minio_bucket(
 
     run = runs[0]
     assert run.status == "Completed"
+    assert run.data_interval_start is None
 
     await assert_clickhouse_records_in_s3(
         s3_compatible_client=minio_client,

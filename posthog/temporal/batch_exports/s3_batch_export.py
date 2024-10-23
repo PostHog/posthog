@@ -514,8 +514,8 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
     logger = await bind_temporal_worker_logger(team_id=inputs.team_id, destination="S3")
     await logger.ainfo(
         "Batch exporting range %s - %s to S3: %s",
-        inputs.data_interval_start,
-        inputs.data_interval_end,
+        inputs.data_interval_start or "START",
+        inputs.data_interval_end or "END",
         get_s3_key(inputs),
     )
 
@@ -672,10 +672,7 @@ class S3BatchExportWorkflow(PostHogWorkflow):
     async def run(self, inputs: S3BatchExportInputs):
         """Workflow implementation to export data to S3 bucket."""
         data_interval_start, data_interval_end = get_data_interval(inputs.interval, inputs.data_interval_end)
-
-        should_backfill_from_beginning = (
-            inputs.is_backfill and inputs.batch_export_model is not None and inputs.batch_export_model.name == "persons"
-        )
+        should_backfill_from_beginning = inputs.is_backfill and inputs.is_earliest_backfill
 
         start_batch_export_run_inputs = StartBatchExportRunInputs(
             team_id=inputs.team_id,
@@ -713,7 +710,7 @@ class S3BatchExportWorkflow(PostHogWorkflow):
             aws_access_key_id=inputs.aws_access_key_id,
             aws_secret_access_key=inputs.aws_secret_access_key,
             endpoint_url=inputs.endpoint_url,
-            data_interval_start=data_interval_start.isoformat() if data_interval_start else None,
+            data_interval_start=data_interval_start.isoformat() if not should_backfill_from_beginning else None,
             data_interval_end=data_interval_end.isoformat(),
             compression=inputs.compression,
             exclude_events=inputs.exclude_events,

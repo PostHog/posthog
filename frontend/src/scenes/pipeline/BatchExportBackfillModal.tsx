@@ -1,8 +1,13 @@
+import { IconInfo } from '@posthog/icons'
+import { Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+import { NotFound } from 'lib/components/NotFound'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
+import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -12,8 +17,12 @@ export function BatchExportBackfillModal({ id }: BatchExportRunsLogicProps): JSX
     const { timezone } = useValues(teamLogic)
     const logic = batchExportRunsLogic({ id })
 
-    const { batchExportConfig, isBackfillModalOpen, isBackfillFormSubmitting } = useValues(logic)
-    const { closeBackfillModal } = useActions(logic)
+    const { batchExportConfig, isBackfillModalOpen, isBackfillFormSubmitting, isEarliestBackfill } = useValues(logic)
+    const { closeBackfillModal, setEarliestBackfill, unsetEarliestBackfill } = useActions(logic)
+
+    if (!batchExportConfig) {
+        return <NotFound object="batch export" />
+    }
 
     return (
         <LemonModal
@@ -62,43 +71,74 @@ export function BatchExportBackfillModal({ id }: BatchExportRunsLogicProps): JSX
                     // project's timezone".
                 }
                 <LemonField name="start_at" label={`Start Date (${timezone})`} className="flex-1">
-                    {({ value, onChange }) => (
-                        <LemonCalendarSelectInput
-                            value={
-                                value
-                                    ? batchExportConfig
-                                        ? batchExportConfig.interval === 'day'
-                                            ? value.hour(0).minute(0).second(0)
-                                            : value.tz(timezone)
+                    {({ value, onChange }) =>
+                        !isEarliestBackfill ? (
+                            <LemonCalendarSelectInput
+                                value={
+                                    value
+                                        ? batchExportConfig
+                                            ? batchExportConfig.interval === 'day'
+                                                ? value.hour(0).minute(0).second(0)
+                                                : value.tz(timezone)
+                                            : value
                                         : value
-                                    : value
-                            }
-                            onChange={(date) => {
-                                if (date) {
-                                    let projectDate = date.tz(timezone, true)
-
-                                    if (batchExportConfig && batchExportConfig.interval === 'day') {
-                                        projectDate = projectDate.hour(0).minute(0).second(0)
-                                    }
-
-                                    onChange(projectDate)
-                                } else {
-                                    onChange(date)
                                 }
-                            }}
-                            placeholder="Select start date"
-                            granularity={
-                                batchExportConfig
-                                    ? batchExportConfig.interval === 'hour'
-                                        ? 'hour'
-                                        : batchExportConfig.interval.endsWith('minutes')
-                                        ? 'minute'
+                                onChange={(date) => {
+                                    if (date) {
+                                        let projectDate = date.tz(timezone, true)
+
+                                        if (batchExportConfig && batchExportConfig.interval === 'day') {
+                                            projectDate = projectDate.hour(0).minute(0).second(0)
+                                        }
+
+                                        onChange(projectDate)
+                                    } else {
+                                        onChange(date)
+                                    }
+                                }}
+                                placeholder="Select start date"
+                                granularity={
+                                    batchExportConfig
+                                        ? batchExportConfig.interval === 'hour'
+                                            ? 'hour'
+                                            : batchExportConfig.interval.endsWith('minutes')
+                                            ? 'minute'
+                                            : 'day'
                                         : 'day'
-                                    : 'day'
-                            }
-                        />
-                    )}
+                                }
+                            />
+                        ) : (
+                            <LemonInput value="Earliest available" disabled />
+                        )
+                    }
                 </LemonField>
+
+                {batchExportConfig?.model == 'persons' ? (
+                    <LemonField name="earliest_backfill">
+                        {({ onChange }) => (
+                            <LemonCheckbox
+                                bordered
+                                label={
+                                    <span className="flex items-center gap-2">
+                                        Backfill since earliest available
+                                        <Tooltip title="If selected, we will backfill data since the earliest available date until the provided end date. There is no need to set a start date.">
+                                            <IconInfo className=" text-lg text-muted-alt" />
+                                        </Tooltip>
+                                    </span>
+                                }
+                                onChange={(checked) => {
+                                    onChange(checked)
+                                    if (checked) {
+                                        setEarliestBackfill()
+                                    } else {
+                                        unsetEarliestBackfill()
+                                    }
+                                }}
+                            />
+                        )}
+                    </LemonField>
+                ) : null}
+
                 <LemonField name="end_at" label={`End Date (${timezone})`} className="flex-1">
                     {({ value, onChange }) => (
                         <LemonCalendarSelectInput
@@ -124,7 +164,7 @@ export function BatchExportBackfillModal({ id }: BatchExportRunsLogicProps): JSX
                                     onChange(date)
                                 }
                             }}
-                            placeholder="Select end date (optional)"
+                            placeholder="Select end date"
                             granularity={
                                 batchExportConfig
                                     ? batchExportConfig.interval === 'hour'
