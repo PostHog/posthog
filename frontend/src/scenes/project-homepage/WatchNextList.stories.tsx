@@ -26,6 +26,11 @@ type Story = StoryObj<typeof WatchNextList>
 const meta: Meta<typeof WatchNextList> = {
     title: 'Replay/Watch Next Panel',
     decorators: [],
+    parameters: {
+        testOptions: {
+            waitForLoadersToDisappear: false,
+        },
+    },
 }
 export default meta
 
