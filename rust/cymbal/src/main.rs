@@ -99,6 +99,10 @@ async fn main() -> Result<(), Error> {
             }
         };
 
+        if properties.exception_list.is_none() {
+            continue;
+        }
+
         if properties.exception_list.is_empty() {
             metrics::counter!(ERRORS, "cause" => "no_exception_list").increment(1);
             continue;

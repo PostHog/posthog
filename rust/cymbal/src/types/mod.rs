@@ -44,7 +44,7 @@ pub struct Exception {
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct ErrProps {
     #[serde(rename = "$exception_list")]
-    pub exception_list: Vec<Exception>, // Required from exception producers - we will not process events without this
+    pub exception_list: Option<Vec<Exception>>, // Required from exception producers - we will not process events without this
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename = "$exception_type")]
     pub exception_type: Option<String>, // legacy, overridden by exception_list
