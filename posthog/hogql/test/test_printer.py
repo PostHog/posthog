@@ -208,7 +208,7 @@ class TestPrinter(BaseTest):
         )
 
     def test_intersect_and_union_parens(self):
-        expr = parse_select("""select 1 as id intersect (select 2 as id union all select 3 as id)""", backend="python")
+        expr = parse_select("""select 1 as id intersect (select 2 as id union all select 3 as id)""")
         response = to_printed_hogql(expr, self.team)
         self.assertEqual(
             response,
@@ -225,7 +225,7 @@ class TestPrinter(BaseTest):
 
     # INTERSECT has higher priority than union
     def test_intersect_and_union(self):
-        expr = parse_select("""select 1 as id union all select 2 as id intersect select 3 as id""", backend="python")
+        expr = parse_select("""select 1 as id union all select 2 as id intersect select 3 as id""")
         response = to_printed_hogql(expr, self.team)
         self.assertEqual(
             response,
@@ -234,11 +234,13 @@ class TestPrinter(BaseTest):
                 "    1 AS id\n"
                 "LIMIT 50000\n"
                 "UNION ALL\n"
-                "(SELECT\n"
+                "SELECT\n"
                 "    2 AS id\n"
+                "LIMIT 50000\n"
                 "INTERSECT\n"
                 "SELECT\n"
-                "    3 AS id)"
+                "    3 AS id\n"
+                "LIMIT 50000"
             ),
         )
 
@@ -1204,7 +1206,7 @@ class TestPrinter(BaseTest):
         )
         self.assertEqual(
             self._select("SELECT 1 UNION ALL (SELECT 1 UNION ALL SELECT 1) UNION ALL SELECT 1"),
-            f"SELECT 1 LIMIT {MAX_SELECT_RETURNED_ROWS} UNION ALL SELECT 1 LIMIT {MAX_SELECT_RETURNED_ROWS} UNION ALL SELECT 1 LIMIT {MAX_SELECT_RETURNED_ROWS} UNION ALL SELECT 1 LIMIT {MAX_SELECT_RETURNED_ROWS}",
+            f"SELECT 1 LIMIT {MAX_SELECT_RETURNED_ROWS} UNION ALL (SELECT 1 UNION ALL SELECT 1) UNION ALL SELECT 1 LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
         self.assertEqual(
             self._select("SELECT 1 UNION ALL SELECT 1 UNION ALL SELECT 1 UNION ALL SELECT 1"),
