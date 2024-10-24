@@ -33,7 +33,7 @@ class LifecycleQueryRunner(QueryRunner):
     response: LifecycleQueryResponse
     cached_response: CachedLifecycleQueryResponse
 
-    def to_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
+    def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         if self.query.samplingFactor == 0:
             counts_with_sampling = ast.Constant(value=0)
         elif self.query.samplingFactor is not None and self.query.samplingFactor != 1:
@@ -95,7 +95,7 @@ class LifecycleQueryRunner(QueryRunner):
 
     def to_actors_query(
         self, day: Optional[str] = None, status: Optional[str] = None
-    ) -> ast.SelectQuery | ast.SelectUnionQuery:
+    ) -> ast.SelectQuery | ast.SelectSetQuery:
         with self.timings.measure("actors_query"):
             exprs = []
             if day is not None:

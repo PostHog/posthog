@@ -1,5 +1,6 @@
 from enum import StrEnum
-from typing import Any, Literal, Optional, Union
+from typing import Any, Literal, Optional, Union, get_args
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 
 from posthog.hogql.base import Type, Expr, CTE, ConstantType, UnknownType, AST
@@ -277,7 +278,7 @@ class SelectQueryType(Type):
 
 @dataclass(kw_only=True)
 class SelectUnionQueryType(Type):
-    types: list[SelectQueryType]
+    types: list[Union[SelectQueryType, "SelectUnionQueryType"]]
 
     def get_alias_for_table_type(self, table_type: TableOrSelectType) -> Optional[str]:
         return self.types[0].get_alias_for_table_type(table_type)
@@ -751,7 +752,7 @@ class JoinExpr(Expr):
     type: Optional[TableOrSelectType] = None
 
     join_type: Optional[str] = None
-    table: Optional[Union["SelectQuery", "SelectUnionQuery", Field]] = None
+    table: Optional[Union["SelectQuery", "SelectSetQuery", Field]] = None
     table_args: Optional[list[Expr]] = None
     alias: Optional[str] = None
     table_final: Optional[bool] = None
@@ -808,10 +809,35 @@ class SelectQuery(Expr):
     view_name: Optional[str] = None
 
 
+SetOperator = Literal["UNION ALL", "INTERSECT", "EXCEPT"]
+
+
 @dataclass(kw_only=True)
-class SelectUnionQuery(Expr):
+class SelectSetNode:
+    select_query: Union[SelectQuery, "SelectSetQuery"]
+    set_operator: SetOperator
+
+    def __post_init__(self):
+        if self.set_operator not in get_args(SetOperator):
+            raise ValueError("Invalid Set Operator")
+
+
+@dataclass(kw_only=True)
+class SelectSetQuery(Expr):
     type: Optional[SelectUnionQueryType] = None
-    select_queries: list[SelectQuery]
+    initial_select_query: Union[SelectQuery, "SelectSetQuery"]
+    subsequent_select_queries: list[SelectSetNode]
+
+    @classmethod
+    def create_from_queries(
+        cls, queries: Sequence[Union[SelectQuery, "SelectSetQuery"]], set_operator: SetOperator
+    ) -> "SelectSetQuery":
+        return SelectSetQuery(
+            initial_select_query=queries[0],
+            subsequent_select_queries=[
+                SelectSetNode(select_query=query, set_operator=set_operator) for query in queries[1:]
+            ],
+        )
 
 
 @dataclass(kw_only=True)

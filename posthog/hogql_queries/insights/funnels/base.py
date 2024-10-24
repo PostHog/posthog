@@ -532,7 +532,7 @@ class FunnelBase(ABC):
 
         return ast.JoinExpr(
             join_type="INNER JOIN",
-            table=ast.SelectUnionQuery(select_queries=cohort_queries),
+            table=ast.SelectSetQuery.create_from_queries(cohort_queries, "UNION ALL"),
             alias="cohort_join",
             constraint=ast.JoinConstraint(
                 expr=ast.CompareOperation(

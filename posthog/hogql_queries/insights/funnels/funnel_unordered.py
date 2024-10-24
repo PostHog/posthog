@@ -115,7 +115,7 @@ class FunnelUnordered(FunnelBase):
             entities_to_use.append(entities_to_use.pop(0))
             union_queries.append(formatted_query)
 
-        return ast.SelectUnionQuery(select_queries=union_queries)
+        return ast.SelectSetQuery.create_from_queries(union_queries, "UNION ALL")
 
     def _get_step_times(self, max_steps: int) -> list[ast.Expr]:
         windowInterval = self.context.funnelWindowInterval

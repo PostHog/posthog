@@ -24,7 +24,7 @@ class WebGoalsQueryRunner(WebAnalyticsQueryRunner):
     response: WebGoalsQueryResponse
     cached_response: CachedWebGoalsQueryResponse
 
-    def to_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
+    def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         with self.timings.measure("date_expr"):
             start = self.query_date_range.date_from_as_hogql()
             end = self.query_date_range.date_to_as_hogql()
