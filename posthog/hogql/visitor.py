@@ -240,6 +240,9 @@ class TraversingVisitor(Visitor[None]):
     def visit_date_time_type(self, node: ast.DateTimeType):
         pass
 
+    def visit_interval_type(self, node: ast.IntervalType):
+        pass
+
     def visit_uuid_type(self, node: ast.UUIDType):
         pass
 

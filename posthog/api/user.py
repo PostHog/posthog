@@ -494,6 +494,9 @@ def redirect_to_site(request):
         return HttpResponse(status=404)
 
     if not team or not unparsed_hostname_in_allowed_url_list(team.app_urls, app_url):
+        logger.info(
+            "can_only_redirect_to_permitted_domain", permitted_domains=team.app_urls, app_url=app_url, team_id=team.id
+        )
         return HttpResponse(f"Can only redirect to a permitted domain.", status=403)
     request.user.temporary_token = secrets.token_urlsafe(32)
     request.user.save()
@@ -532,6 +535,9 @@ def redirect_to_website(request):
         return HttpResponse(status=404)
 
     if not team or urllib.parse.urlparse(app_url).hostname not in PERMITTED_FORUM_DOMAINS:
+        logger.info(
+            "can_only_redirect_to_permitted_domain", permitted_domains=team.app_urls, app_url=app_url, team_id=team.id
+        )
         return HttpResponse(f"Can only redirect to a permitted domain.", status=403)
 
     token = ""
