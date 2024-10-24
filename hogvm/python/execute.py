@@ -33,7 +33,7 @@ CALLSTACK_LENGTH = 1000
 @dataclass
 class BytecodeResult:
     result: Any
-    bytecode: list[Any]
+    bytecodes: dict[str, list[Any]]
     stdout: list[str]
 
 
@@ -68,7 +68,7 @@ def execute_bytecode(
     max_mem_used = 0
     ops = 0
     stdout: list[str] = []
-    colored_bytecode = []
+    debug_bytecode = []
     if isinstance(timeout, int):
         timeout = timedelta(seconds=timeout)
 
@@ -96,7 +96,7 @@ def execute_bytecode(
     chunk_globals = globals
 
     def set_chunk_bytecode():
-        nonlocal chunk_bytecode, chunk_globals, last_op, colored_bytecode
+        nonlocal chunk_bytecode, chunk_globals, last_op, debug_bytecode
         if not frame.chunk or frame.chunk == "root":
             chunk_bytecode = root_bytecode
             chunk_globals = globals
@@ -108,12 +108,11 @@ def execute_bytecode(
             chunk_globals = bytecodes[frame.chunk].get("globals", {})
         else:
             raise HogVMException(f"Unknown chunk: {frame.chunk}")
-        # TODO: add "import_bytecode" callback
         last_op = len(chunk_bytecode) - 1
         if debug:
-            colored_bytecode = color_bytecode(chunk_bytecode)
+            debug_bytecode = color_bytecode(chunk_bytecode)
         if frame.ip == 0 and (chunk_bytecode[0] == "_H" or chunk_bytecode[0] == "_h"):
-            # TODO: store chunkVersion
+            # TODO: store chunk version
             frame.ip += 2 if chunk_bytecode[0] == "_H" else 1
 
     set_chunk_bytecode()
@@ -191,7 +190,7 @@ def execute_bytecode(
                 if len(stack) > 1:
                     raise HogVMException("Invalid bytecode. More than one value left on stack")
                 return BytecodeResult(
-                    result=pop_stack() if len(stack) > 0 else None, stdout=stdout, bytecode=root_bytecode
+                    result=pop_stack() if len(stack) > 0 else None, stdout=stdout, bytecodes=bytecodes
                 )
             stack_start = last_call_frame.stack_start
             stack_keep_first_elements(stack_start)
@@ -204,7 +203,7 @@ def execute_bytecode(
         if (ops & 127) == 0:  # every 128th operation
             check_timeout()
         elif debug:
-            debugger(symbol, chunk_bytecode, colored_bytecode, frame.ip, stack, call_stack, throw_stack)
+            debugger(symbol, chunk_bytecode, debug_bytecode, frame.ip, stack, call_stack, throw_stack)
         match symbol:
             case None:
                 break
@@ -333,7 +332,7 @@ def execute_bytecode(
                 response = pop_stack()
                 last_call_frame = call_stack.pop()
                 if len(call_stack) == 0 or last_call_frame is None:
-                    return BytecodeResult(result=response, stdout=stdout, bytecode=root_bytecode)
+                    return BytecodeResult(result=response, stdout=stdout, bytecodes=bytecodes)
                 stack_start = last_call_frame.stack_start
                 stack_keep_first_elements(stack_start)
                 push_stack(response)
@@ -659,4 +658,4 @@ def execute_bytecode(
 
         frame.ip += 1
 
-    return BytecodeResult(result=pop_stack() if len(stack) > 0 else None, stdout=stdout, bytecode=root_bytecode)
+    return BytecodeResult(result=pop_stack() if len(stack) > 0 else None, stdout=stdout, bytecodes=bytecodes)
