@@ -97,7 +97,9 @@ impl Cohort {
 
     /// Parses the filters JSON into a CohortProperty structure
     pub fn parse_filters(&self) -> Result<Vec<PropertyFilter>, FlagError> {
-        let cohort_property: CohortProperty = serde_json::from_value(self.filters.clone())?;
+        let wrapper: serde_json::Value = serde_json::from_value(self.filters.clone())?;
+        let cohort_property: InnerCohortProperty =
+            serde_json::from_value(wrapper["properties"].clone())?;
         Ok(cohort_property.to_property_filters())
     }
 }
@@ -117,15 +119,19 @@ pub enum CohortPropertyType {
     OR,
 }
 
-// TODO this should serialize to "properties" in the DB
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct CohortProperty {
+    properties: InnerCohortProperty,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct InnerCohortProperty {
     #[serde(rename = "type")]
-    prop_type: CohortPropertyType, // TODO make this an AND|OR string enum
+    prop_type: CohortPropertyType,
     values: Vec<CohortValues>,
 }
 
-impl CohortProperty {
+impl InnerCohortProperty {
     pub fn to_property_filters(&self) -> Vec<PropertyFilter> {
         self.values
             .iter()
@@ -270,21 +276,7 @@ mod tests {
             postgres_writer.clone(),
             team.id,
             None,
-            json!({
-                "type": "AND",
-                "values": [
-                    {
-                        "type": "property",
-                        "values": [
-                            {
-                                "key": "email",
-                                "value": "test@example.com",
-                                "type": "person"
-                            }
-                        ]
-                    }
-                ]
-            }),
+            json!({"properties": {"type": "OR", "values": [{"type": "OR", "values": [{"key": "$initial_browser_version", "type": "person", "value": ["125"], "negation": false, "operator": "exact"}]}]}}),
             false,
         )
         .await
@@ -307,21 +299,7 @@ mod tests {
             description: None,
             team_id: 1,
             deleted: false,
-            filters: json!({
-                "type": "AND",
-                "values": [
-                    {
-                        "type": "property",
-                        "values": [
-                            {
-                                "key": "email",
-                                "value": "test@example.com",
-                                "type": "person"
-                            }
-                        ]
-                    }
-                ]
-            }),
+            filters: json!({"properties": {"type": "OR", "values": [{"type": "OR", "values": [{"key": "$initial_browser_version", "type": "person", "value": ["125"], "negation": false, "operator": "exact"}]}]}}),
             query: None,
             version: None,
             pending_version: None,
@@ -335,8 +313,8 @@ mod tests {
 
         let result = cohort.parse_filters().unwrap();
         assert_eq!(result.len(), 1);
-        assert_eq!(result[0].key, "email");
-        assert_eq!(result[0].value, json!("test@example.com"));
+        assert_eq!(result[0].key, "$initial_browser_version");
+        assert_eq!(result[0].value, json!(["125"]));
         assert_eq!(result[0].prop_type, "person");
     }
 
@@ -351,7 +329,7 @@ mod tests {
                 description: None,
                 team_id: 1,
                 deleted: false,
-                filters: json!({"type": "AND", "values": []}),
+                filters: json!({"properties": {"type": "AND", "values": []}}),
                 query: None,
                 version: None,
                 pending_version: None,
@@ -369,7 +347,7 @@ mod tests {
             description: None,
             team_id: 1,
             deleted: false,
-            filters: json!({"type": "AND", "values": [{"type": "property", "values": [{"key": "cohort", "value": 1, "type": "cohort"}]}]}),
+            filters: json!({"properties": {"type": "AND", "values": [{"type": "property", "values": [{"key": "cohort", "value": 1, "type": "cohort"}]}]}}),
             query: None,
             version: None,
             pending_version: None,
@@ -386,7 +364,7 @@ mod tests {
             description: None,
             team_id: 1,
             deleted: false,
-            filters: json!({"type": "AND", "values": [{"type": "property", "values": [{"key": "cohort", "value": 2, "type": "cohort"}]}]}),
+            filters: json!({"properties": {"type": "AND", "values": [{"type": "property", "values": [{"key": "cohort", "value": 2, "type": "cohort"}]}]}}),
             query: None,
             version: None,
             pending_version: None,
@@ -405,7 +383,7 @@ mod tests {
 
     #[test]
     fn test_cohort_property_to_property_filters() {
-        let cohort_property = CohortProperty {
+        let cohort_property = InnerCohortProperty {
             prop_type: CohortPropertyType::AND,
             values: vec![CohortValues {
                 prop_type: "property".to_string(),

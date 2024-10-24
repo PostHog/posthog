@@ -3254,17 +3254,19 @@ mod tests {
             team.id,
             None,
             json!({
-                "type": "OR",
-                "values": [{
+                "properties": {
                     "type": "OR",
                     "values": [{
-                        "key": "$browser_version",
-                        "type": "person",
-                        "value": "125",
-                        "negation": false,
-                        "operator": "gt"
+                        "type": "OR",
+                        "values": [{
+                            "key": "$browser_version",
+                            "type": "person",
+                            "value": "125",
+                            "negation": false,
+                            "operator": "gt"
+                        }]
                     }]
-                }]
+                }
             }),
             false,
         )
@@ -3340,17 +3342,19 @@ mod tests {
             team.id,
             None,
             json!({
-                "type": "OR",
-                "values": [{
+                "properties": {
                     "type": "OR",
                     "values": [{
-                        "key": "$browser_version",
-                        "type": "person",
-                        "value": "130",
-                        "negation": false,
-                        "operator": "gt"
+                        "type": "OR",
+                        "values": [{
+                            "key": "$browser_version",
+                            "type": "person",
+                            "value": "130",
+                            "negation": false,
+                            "operator": "gt"
+                        }]
                     }]
-                }]
+                }
             }),
             false,
         )
@@ -3426,17 +3430,19 @@ mod tests {
             team.id,
             None,
             json!({
-                "type": "OR",
-                "values": [{
+                "properties": {
                     "type": "OR",
                     "values": [{
-                        "key": "$browser_version",
-                        "type": "person",
-                        "value": "125",
-                        "negation": false,
-                        "operator": "gt"
+                        "type": "OR",
+                        "values": [{
+                            "key": "$browser_version",
+                            "type": "person",
+                            "value": "125",
+                            "negation": false,
+                            "operator": "gt"
+                        }]
                     }]
-                }]
+                }
             }),
             false,
         )
@@ -3513,17 +3519,19 @@ mod tests {
             team.id,
             None,
             json!({
-                "type": "OR",
-                "values": [{
+                "properties": {
                     "type": "OR",
                     "values": [{
-                        "key": "$browser_version",
-                        "type": "person",
-                        "value": "125",
-                        "negation": false,
-                        "operator": "gt"
+                        "type": "OR",
+                        "values": [{
+                            "key": "$browser_version",
+                            "type": "person",
+                            "value": "125",
+                            "negation": false,
+                            "operator": "gt"
+                        }]
                     }]
-                }]
+                }
             }),
             false,
         )
@@ -3536,17 +3544,19 @@ mod tests {
             team.id,
             None,
             json!({
-                "type": "OR",
-                "values": [{
+                "properties": {
                     "type": "OR",
                     "values": [{
-                        "key": "id",
-                        "type": "cohort",
-                        "value": base_cohort_row.id,
-                        "negation": false,
-                        "operator": "in"
+                        "type": "OR",
+                        "values": [{
+                            "key": "id",
+                            "type": "cohort",
+                            "value": base_cohort_row.id,
+                            "negation": false,
+                            "operator": "in"
+                        }]
                     }]
-                }]
+                }
             }),
             false,
         )
@@ -3623,17 +3633,19 @@ mod tests {
             team.id,
             None,
             json!({
-                "type": "OR",
-                "values": [{
+                "properties": {
                     "type": "OR",
                     "values": [{
-                        "key": "$browser_version",
-                        "type": "person",
-                        "value": "130",
-                        "negation": false,
-                        "operator": "gt"
+                        "type": "OR",
+                        "values": [{
+                            "key": "$browser_version",
+                            "type": "person",
+                            "value": "130",
+                            "negation": false,
+                            "operator": "gt"
+                        }]
                     }]
-                }]
+                }
             }),
             false,
         )
