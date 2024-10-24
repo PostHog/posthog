@@ -3868,6 +3868,7 @@ export enum ActivityScope {
     COMMENT = 'Comment',
     COHORT = 'Cohort',
     TEAM = 'Team',
+    ERROR_TRACKING_GROUP = 'ErrorTrackingGroup',
 }
 
 export type CommentType = {
