@@ -811,3 +811,97 @@ async def test_billing_limits(team, stripe_customer):
 
     with pytest.raises(Exception):
         await sync_to_async(execute_hogql_query)("SELECT * FROM stripe_customer", team)
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_create_external_job_failure(team, stripe_customer):
+    source = await sync_to_async(ExternalDataSource.objects.create)(
+        source_id=uuid.uuid4(),
+        connection_id=uuid.uuid4(),
+        destination_id=uuid.uuid4(),
+        team=team,
+        status="running",
+        source_type="Stripe",
+        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+    )
+
+    schema = await sync_to_async(ExternalDataSchema.objects.create)(
+        name="Customer",
+        team_id=team.pk,
+        source_id=source.pk,
+        sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+        sync_type_config={},
+    )
+
+    workflow_id = str(uuid.uuid4())
+    inputs = ExternalDataWorkflowInputs(
+        team_id=team.id,
+        external_data_source_id=source.pk,
+        external_data_schema_id=schema.id,
+    )
+
+    with mock.patch(
+        "posthog.temporal.data_imports.workflow_activities.check_billing_limits.list_limited_team_attributes",
+    ) as mock_list_limited_team_attributes:
+        mock_list_limited_team_attributes.side_effect = Exception("Ruhoh!")
+
+        with pytest.raises(Exception):
+            await _execute_run(workflow_id, inputs, stripe_customer["data"])
+
+    job: ExternalDataJob = await sync_to_async(ExternalDataJob.objects.get)(team_id=team.id, schema_id=schema.pk)
+
+    assert job.status == ExternalDataJob.Status.FAILED
+
+    with pytest.raises(Exception):
+        await sync_to_async(execute_hogql_query)("SELECT * FROM stripe_customer", team)
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_create_external_job_failure_no_job_model(team, stripe_customer):
+    source = await sync_to_async(ExternalDataSource.objects.create)(
+        source_id=uuid.uuid4(),
+        connection_id=uuid.uuid4(),
+        destination_id=uuid.uuid4(),
+        team=team,
+        status="running",
+        source_type="Stripe",
+        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+    )
+
+    schema = await sync_to_async(ExternalDataSchema.objects.create)(
+        name="Customer",
+        team_id=team.pk,
+        source_id=source.pk,
+        sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+        sync_type_config={},
+    )
+
+    workflow_id = str(uuid.uuid4())
+    inputs = ExternalDataWorkflowInputs(
+        team_id=team.id,
+        external_data_source_id=source.pk,
+        external_data_schema_id=schema.id,
+    )
+
+    @sync_to_async
+    def get_jobs():
+        jobs = ExternalDataJob.objects.filter(team_id=team.id, schema_id=schema.pk)
+
+        return list(jobs)
+
+    with mock.patch(
+        "posthog.temporal.data_imports.workflow_activities.create_job_model.create_external_data_job",
+    ) as mock_list_limited_team_attributes:
+        mock_list_limited_team_attributes.side_effect = Exception("Ruhoh!")
+
+        with pytest.raises(Exception):
+            await _execute_run(workflow_id, inputs, stripe_customer["data"])
+
+    jobs: list[ExternalDataJob] = await get_jobs()
+
+    assert len(jobs) == 0
+
+    with pytest.raises(Exception):
+        await sync_to_async(execute_hogql_query)("SELECT * FROM stripe_customer", team)
