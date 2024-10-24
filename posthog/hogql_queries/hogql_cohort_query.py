@@ -15,7 +15,11 @@ from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to
 from posthog.models import Filter, Cohort, Team, Property
 from posthog.models.cohort.util import get_count_operator
 from posthog.models.property import PropertyGroup
-from posthog.queries.foss_cohort_query import validate_interval, parse_and_validate_positive_integer
+from posthog.queries.foss_cohort_query import (
+    validate_interval,
+    parse_and_validate_positive_integer,
+    INTERVAL_TO_SECONDS,
+)
 from posthog.schema import (
     ActorsQuery,
     InsightActorsQuery,
@@ -39,7 +43,7 @@ class TestWrapperCohortQuery(CohortQuery):
         cohort_query = CohortQuery(filter=filter, team=team)
         hogql_cohort_query = HogQLCohortQuery(cohort_query=cohort_query)
         hogql_query = hogql_cohort_query.query_str("hogql")
-        self.result = execute_hogql_query(hogql_query, team)
+        self.result = execute_hogql_query(hogql_cohort_query.get_query(), team)
         super().__init__(filter=filter, team=team)
 
 
@@ -202,6 +206,55 @@ class HogQLCohortQuery:
 
         return ActorsQueryRunner(team=self.team, query=actors_query).to_query()
 
+    def get_performed_event_sequence(self, prop: Property) -> ast.SelectQuery:
+        # either an action or an event
+        series = []
+        if prop.event_type == "events":
+            series.append(EventsNode(event=prop.key))
+        elif prop.event_type == "actions":
+            series.append(ActionsNode(id=int(prop.key)))
+        else:
+            raise ValueError(f"Event type must be 'events' or 'actions'")
+
+        if prop.seq_event_type == "events":
+            series.append(EventsNode(event=prop.seq_event))
+        elif prop.seq_event_type == "actions":
+            series.append(ActionsNode(id=int(prop.seq_event)))
+        else:
+            raise ValueError(f"Event type must be 'events' or 'actions'")
+
+        """
+        if prop.event_filters:
+            filter = Filter(data={"properties": prop.event_filters}).property_groups
+            series[0].properties = filter
+        """
+
+        if prop.explicit_datetime:
+            date_from = prop.explicit_datetime
+        else:
+            date_value = parse_and_validate_positive_integer(prop.time_value, "time_value")
+            date_interval = validate_interval(prop.time_interval)
+            date_from = f"-{date_value}{date_interval[:1]}"
+
+        date_value = parse_and_validate_positive_integer(prop.seq_time_value, "seq_time_value")
+        date_interval = validate_interval(prop.seq_time_interval)
+        funnelWindowInterval = date_value * INTERVAL_TO_SECONDS[date_interval]
+
+        funnel_query = FunnelsQuery(
+            series=series,
+            dateRange=InsightDateRange(date_from=date_from),
+            funnelsFilter=FunnelsFilter(
+                funnelWindowInterval=funnelWindowInterval,
+                funnelWindowIntervalUnit=FunnelConversionWindowTimeUnit.SECOND,
+            ),
+        )
+        actors_query = actors_query = ActorsQuery(
+            source=FunnelsActorsQuery(source=funnel_query, funnelStep=2),
+            select=["id"],
+        )
+
+        return ActorsQueryRunner(team=self.team, query=actors_query).to_query()
+
     def _get_condition_for_property(self, prop: Property) -> ast.SelectQuery | ast.SelectUnionQuery:
         res: str = ""
         params: dict[str, Any] = {}
@@ -216,12 +269,12 @@ class HogQLCohortQuery:
                 return self.get_performed_event_condition(prop, True)
             elif prop.value == "performed_event_multiple":
                 return self.get_performed_event_multiple(prop)
+            elif prop.value == "performed_event_sequence":
+                return self.get_performed_event_sequence(prop)
             elif prop.value == "stopped_performing_event":
                 res, params = self.get_stopped_performing_event(prop, prepend, idx)
             elif prop.value == "restarted_performing_event":
                 res, params = self.get_restarted_performing_event(prop, prepend, idx)
-            elif prop.value == "performed_event_sequence":
-                res, params = self.get_performed_event_sequence(prop, prepend, idx)
             elif prop.value == "performed_event_regularly":
                 res, params = self.get_performed_event_regularly(prop, prepend, idx)
         elif prop.type == "person":

@@ -136,7 +136,7 @@ def execute_hogql_query(
             )
             print_columns = []
             columns_query = (
-                select_query_hogql.select_queries[0]
+                next(extract_select_queries(select_query_hogql))
                 if isinstance(select_query_hogql, ast.SelectUnionQuery)
                 else select_query_hogql
             )
