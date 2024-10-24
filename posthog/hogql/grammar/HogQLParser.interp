@@ -352,7 +352,7 @@ kvPair
 kvPairList
 select
 selectStmtWithParens
-selectUnionStmt
+selectSetStmt
 selectStmt
 withClause
 topClause

@@ -52,8 +52,8 @@ public:
     RuleForStmt = 12, RuleForInStmt = 13, RuleFuncStmt = 14, RuleVarAssignment = 15, 
     RuleExprStmt = 16, RuleEmptyStmt = 17, RuleBlock = 18, RuleKvPair = 19, 
     RuleKvPairList = 20, RuleSelect = 21, RuleSelectStmtWithParens = 22, 
-    RuleSelectUnionStmt = 23, RuleSelectStmt = 24, RuleWithClause = 25, 
-    RuleTopClause = 26, RuleFromClause = 27, RuleArrayJoinClause = 28, RuleWindowClause = 29, 
+    RuleSelectSetStmt = 23, RuleSelectStmt = 24, RuleWithClause = 25, RuleTopClause = 26, 
+    RuleFromClause = 27, RuleArrayJoinClause = 28, RuleWindowClause = 29, 
     RulePrewhereClause = 30, RuleWhereClause = 31, RuleGroupByClause = 32, 
     RuleHavingClause = 33, RuleOrderByClause = 34, RuleProjectionOrderByClause = 35, 
     RuleLimitAndOffsetClause = 36, RuleOffsetOnlyClause = 37, RuleSettingsClause = 38, 
@@ -113,7 +113,7 @@ public:
   class KvPairListContext;
   class SelectContext;
   class SelectStmtWithParensContext;
-  class SelectUnionStmtContext;
+  class SelectSetStmtContext;
   class SelectStmtContext;
   class WithClauseContext;
   class TopClauseContext;
@@ -553,7 +553,7 @@ public:
     SelectContext(antlr4::ParserRuleContext *parent, size_t invokingState);
     virtual size_t getRuleIndex() const override;
     antlr4::tree::TerminalNode *EOF();
-    SelectUnionStmtContext *selectUnionStmt();
+    SelectSetStmtContext *selectSetStmt();
     SelectStmtContext *selectStmt();
     HogqlxTagElementContext *hogqlxTagElement();
 
@@ -570,7 +570,7 @@ public:
     virtual size_t getRuleIndex() const override;
     SelectStmtContext *selectStmt();
     antlr4::tree::TerminalNode *LPAREN();
-    SelectUnionStmtContext *selectUnionStmt();
+    SelectSetStmtContext *selectSetStmt();
     antlr4::tree::TerminalNode *RPAREN();
     PlaceholderContext *placeholder();
 
@@ -581,9 +581,9 @@ public:
 
   SelectStmtWithParensContext* selectStmtWithParens();
 
-  class  SelectUnionStmtContext : public antlr4::ParserRuleContext {
+  class  SelectSetStmtContext : public antlr4::ParserRuleContext {
   public:
-    SelectUnionStmtContext(antlr4::ParserRuleContext *parent, size_t invokingState);
+    SelectSetStmtContext(antlr4::ParserRuleContext *parent, size_t invokingState);
     virtual size_t getRuleIndex() const override;
     std::vector<SelectStmtWithParensContext *> selectStmtWithParens();
     SelectStmtWithParensContext* selectStmtWithParens(size_t i);
@@ -601,7 +601,7 @@ public:
    
   };
 
-  SelectUnionStmtContext* selectUnionStmt();
+  SelectSetStmtContext* selectSetStmt();
 
   class  SelectStmtContext : public antlr4::ParserRuleContext {
   public:
@@ -1403,7 +1403,7 @@ public:
     ColumnExprSubqueryContext(ColumnExprContext *ctx);
 
     antlr4::tree::TerminalNode *LPAREN();
-    SelectUnionStmtContext *selectUnionStmt();
+    SelectSetStmtContext *selectSetStmt();
     antlr4::tree::TerminalNode *RPAREN();
 
     virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
@@ -2004,7 +2004,7 @@ public:
     IdentifierContext *identifier();
     antlr4::tree::TerminalNode *AS();
     antlr4::tree::TerminalNode *LPAREN();
-    SelectUnionStmtContext *selectUnionStmt();
+    SelectSetStmtContext *selectSetStmt();
     antlr4::tree::TerminalNode *RPAREN();
 
     virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
@@ -2089,7 +2089,7 @@ public:
     TableExprSubqueryContext(TableExprContext *ctx);
 
     antlr4::tree::TerminalNode *LPAREN();
-    SelectUnionStmtContext *selectUnionStmt();
+    SelectSetStmtContext *selectSetStmt();
     antlr4::tree::TerminalNode *RPAREN();
 
     virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;

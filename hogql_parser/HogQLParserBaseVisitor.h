@@ -107,7 +107,7 @@ public:
     return visitChildren(ctx);
   }
 
-  virtual std::any visitSelectUnionStmt(HogQLParser::SelectUnionStmtContext *ctx) override {
+  virtual std::any visitSelectSetStmt(HogQLParser::SelectSetStmtContext *ctx) override {
     return visitChildren(ctx);
   }
 

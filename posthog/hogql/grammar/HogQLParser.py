@@ -642,7 +642,7 @@ class HogQLParser ( Parser ):
     RULE_kvPairList = 20
     RULE_select = 21
     RULE_selectStmtWithParens = 22
-    RULE_selectUnionStmt = 23
+    RULE_selectSetStmt = 23
     RULE_selectStmt = 24
     RULE_withClause = 25
     RULE_topClause = 26
@@ -711,7 +711,7 @@ class HogQLParser ( Parser ):
                    "tryCatchStmt", "ifStmt", "whileStmt", "forStmt", "forInStmt", 
                    "funcStmt", "varAssignment", "exprStmt", "emptyStmt", 
                    "block", "kvPair", "kvPairList", "select", "selectStmtWithParens", 
-                   "selectUnionStmt", "selectStmt", "withClause", "topClause", 
+                   "selectSetStmt", "selectStmt", "withClause", "topClause", 
                    "fromClause", "arrayJoinClause", "windowClause", "prewhereClause", 
                    "whereClause", "groupByClause", "havingClause", "orderByClause", 
                    "projectionOrderByClause", "limitAndOffsetClause", "offsetOnlyClause", 
@@ -2461,8 +2461,8 @@ class HogQLParser ( Parser ):
         def EOF(self):
             return self.getToken(HogQLParser.EOF, 0)
 
-        def selectUnionStmt(self):
-            return self.getTypedRuleContext(HogQLParser.SelectUnionStmtContext,0)
+        def selectSetStmt(self):
+            return self.getTypedRuleContext(HogQLParser.SelectSetStmtContext,0)
 
 
         def selectStmt(self):
@@ -2496,7 +2496,7 @@ class HogQLParser ( Parser ):
             la_ = self._interp.adaptivePredict(self._input,27,self._ctx)
             if la_ == 1:
                 self.state = 355
-                self.selectUnionStmt()
+                self.selectSetStmt()
                 pass
 
             elif la_ == 2:
@@ -2535,8 +2535,8 @@ class HogQLParser ( Parser ):
         def LPAREN(self):
             return self.getToken(HogQLParser.LPAREN, 0)
 
-        def selectUnionStmt(self):
-            return self.getTypedRuleContext(HogQLParser.SelectUnionStmtContext,0)
+        def selectSetStmt(self):
+            return self.getTypedRuleContext(HogQLParser.SelectSetStmtContext,0)
 
 
         def RPAREN(self):
@@ -2576,7 +2576,7 @@ class HogQLParser ( Parser ):
                 self.state = 363
                 self.match(HogQLParser.LPAREN)
                 self.state = 364
-                self.selectUnionStmt()
+                self.selectSetStmt()
                 self.state = 365
                 self.match(HogQLParser.RPAREN)
                 pass
@@ -2597,7 +2597,7 @@ class HogQLParser ( Parser ):
         return localctx
 
 
-    class SelectUnionStmtContext(ParserRuleContext):
+    class SelectSetStmtContext(ParserRuleContext):
         __slots__ = 'parser'
 
         def __init__(self, parser, parent:ParserRuleContext=None, invokingState:int=-1):
@@ -2636,21 +2636,21 @@ class HogQLParser ( Parser ):
                 return self.getToken(HogQLParser.INTERSECT, i)
 
         def getRuleIndex(self):
-            return HogQLParser.RULE_selectUnionStmt
+            return HogQLParser.RULE_selectSetStmt
 
         def accept(self, visitor:ParseTreeVisitor):
-            if hasattr( visitor, "visitSelectUnionStmt" ):
-                return visitor.visitSelectUnionStmt(self)
+            if hasattr( visitor, "visitSelectSetStmt" ):
+                return visitor.visitSelectSetStmt(self)
             else:
                 return visitor.visitChildren(self)
 
 
 
 
-    def selectUnionStmt(self):
+    def selectSetStmt(self):
 
-        localctx = HogQLParser.SelectUnionStmtContext(self, self._ctx, self.state)
-        self.enterRule(localctx, 46, self.RULE_selectUnionStmt)
+        localctx = HogQLParser.SelectSetStmtContext(self, self._ctx, self.state)
+        self.enterRule(localctx, 46, self.RULE_selectSetStmt)
         self._la = 0 # Token type
         try:
             self.enterOuterAlt(localctx, 1)
@@ -5863,8 +5863,8 @@ class HogQLParser ( Parser ):
 
         def LPAREN(self):
             return self.getToken(HogQLParser.LPAREN, 0)
-        def selectUnionStmt(self):
-            return self.getTypedRuleContext(HogQLParser.SelectUnionStmtContext,0)
+        def selectSetStmt(self):
+            return self.getTypedRuleContext(HogQLParser.SelectSetStmtContext,0)
 
         def RPAREN(self):
             return self.getToken(HogQLParser.RPAREN, 0)
@@ -7152,7 +7152,7 @@ class HogQLParser ( Parser ):
                 self.state = 912
                 self.match(HogQLParser.LPAREN)
                 self.state = 913
-                self.selectUnionStmt()
+                self.selectSetStmt()
                 self.state = 914
                 self.match(HogQLParser.RPAREN)
                 pass
@@ -8215,8 +8215,8 @@ class HogQLParser ( Parser ):
             return self.getToken(HogQLParser.AS, 0)
         def LPAREN(self):
             return self.getToken(HogQLParser.LPAREN, 0)
-        def selectUnionStmt(self):
-            return self.getTypedRuleContext(HogQLParser.SelectUnionStmtContext,0)
+        def selectSetStmt(self):
+            return self.getTypedRuleContext(HogQLParser.SelectSetStmtContext,0)
 
         def RPAREN(self):
             return self.getToken(HogQLParser.RPAREN, 0)
@@ -8247,7 +8247,7 @@ class HogQLParser ( Parser ):
                 self.state = 1145
                 self.match(HogQLParser.LPAREN)
                 self.state = 1146
-                self.selectUnionStmt()
+                self.selectSetStmt()
                 self.state = 1147
                 self.match(HogQLParser.RPAREN)
                 pass
@@ -8484,8 +8484,8 @@ class HogQLParser ( Parser ):
 
         def LPAREN(self):
             return self.getToken(HogQLParser.LPAREN, 0)
-        def selectUnionStmt(self):
-            return self.getTypedRuleContext(HogQLParser.SelectUnionStmtContext,0)
+        def selectSetStmt(self):
+            return self.getTypedRuleContext(HogQLParser.SelectSetStmtContext,0)
 
         def RPAREN(self):
             return self.getToken(HogQLParser.RPAREN, 0)
@@ -8576,7 +8576,7 @@ class HogQLParser ( Parser ):
                 self.state = 1175
                 self.match(HogQLParser.LPAREN)
                 self.state = 1176
-                self.selectUnionStmt()
+                self.selectSetStmt()
                 self.state = 1177
                 self.match(HogQLParser.RPAREN)
                 pass

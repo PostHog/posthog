@@ -56,7 +56,7 @@ void hogqlparserParserInitialize() {
       "statement", "returnStmt", "throwStmt", "catchBlock", "tryCatchStmt", 
       "ifStmt", "whileStmt", "forStmt", "forInStmt", "funcStmt", "varAssignment", 
       "exprStmt", "emptyStmt", "block", "kvPair", "kvPairList", "select", 
-      "selectStmtWithParens", "selectUnionStmt", "selectStmt", "withClause", 
+      "selectStmtWithParens", "selectSetStmt", "selectStmt", "withClause", 
       "topClause", "fromClause", "arrayJoinClause", "windowClause", "prewhereClause", 
       "whereClause", "groupByClause", "havingClause", "orderByClause", "projectionOrderByClause", 
       "limitAndOffsetClause", "offsetOnlyClause", "settingsClause", "joinExpr", 
@@ -2665,8 +2665,8 @@ tree::TerminalNode* HogQLParser::SelectContext::EOF() {
   return getToken(HogQLParser::EOF, 0);
 }
 
-HogQLParser::SelectUnionStmtContext* HogQLParser::SelectContext::selectUnionStmt() {
-  return getRuleContext<HogQLParser::SelectUnionStmtContext>(0);
+HogQLParser::SelectSetStmtContext* HogQLParser::SelectContext::selectSetStmt() {
+  return getRuleContext<HogQLParser::SelectSetStmtContext>(0);
 }
 
 HogQLParser::SelectStmtContext* HogQLParser::SelectContext::selectStmt() {
@@ -2708,7 +2708,7 @@ HogQLParser::SelectContext* HogQLParser::select() {
     switch (getInterpreter<atn::ParserATNSimulator>()->adaptivePredict(_input, 27, _ctx)) {
     case 1: {
       setState(355);
-      selectUnionStmt();
+      selectSetStmt();
       break;
     }
 
@@ -2754,8 +2754,8 @@ tree::TerminalNode* HogQLParser::SelectStmtWithParensContext::LPAREN() {
   return getToken(HogQLParser::LPAREN, 0);
 }
 
-HogQLParser::SelectUnionStmtContext* HogQLParser::SelectStmtWithParensContext::selectUnionStmt() {
-  return getRuleContext<HogQLParser::SelectUnionStmtContext>(0);
+HogQLParser::SelectSetStmtContext* HogQLParser::SelectStmtWithParensContext::selectSetStmt() {
+  return getRuleContext<HogQLParser::SelectSetStmtContext>(0);
 }
 
 tree::TerminalNode* HogQLParser::SelectStmtWithParensContext::RPAREN() {
@@ -2807,7 +2807,7 @@ HogQLParser::SelectStmtWithParensContext* HogQLParser::selectStmtWithParens() {
         setState(363);
         match(HogQLParser::LPAREN);
         setState(364);
-        selectUnionStmt();
+        selectSetStmt();
         setState(365);
         match(HogQLParser::RPAREN);
         break;
@@ -2834,68 +2834,68 @@ HogQLParser::SelectStmtWithParensContext* HogQLParser::selectStmtWithParens() {
   return _localctx;
 }
 
-//----------------- SelectUnionStmtContext ------------------------------------------------------------------
+//----------------- SelectSetStmtContext ------------------------------------------------------------------
 
-HogQLParser::SelectUnionStmtContext::SelectUnionStmtContext(ParserRuleContext *parent, size_t invokingState)
+HogQLParser::SelectSetStmtContext::SelectSetStmtContext(ParserRuleContext *parent, size_t invokingState)
   : ParserRuleContext(parent, invokingState) {
 }
 
-std::vector<HogQLParser::SelectStmtWithParensContext *> HogQLParser::SelectUnionStmtContext::selectStmtWithParens() {
+std::vector<HogQLParser::SelectStmtWithParensContext *> HogQLParser::SelectSetStmtContext::selectStmtWithParens() {
   return getRuleContexts<HogQLParser::SelectStmtWithParensContext>();
 }
 
-HogQLParser::SelectStmtWithParensContext* HogQLParser::SelectUnionStmtContext::selectStmtWithParens(size_t i) {
+HogQLParser::SelectStmtWithParensContext* HogQLParser::SelectSetStmtContext::selectStmtWithParens(size_t i) {
   return getRuleContext<HogQLParser::SelectStmtWithParensContext>(i);
 }
 
-std::vector<tree::TerminalNode *> HogQLParser::SelectUnionStmtContext::EXCEPT() {
+std::vector<tree::TerminalNode *> HogQLParser::SelectSetStmtContext::EXCEPT() {
   return getTokens(HogQLParser::EXCEPT);
 }
 
-tree::TerminalNode* HogQLParser::SelectUnionStmtContext::EXCEPT(size_t i) {
+tree::TerminalNode* HogQLParser::SelectSetStmtContext::EXCEPT(size_t i) {
   return getToken(HogQLParser::EXCEPT, i);
 }
 
-std::vector<tree::TerminalNode *> HogQLParser::SelectUnionStmtContext::UNION() {
+std::vector<tree::TerminalNode *> HogQLParser::SelectSetStmtContext::UNION() {
   return getTokens(HogQLParser::UNION);
 }
 
-tree::TerminalNode* HogQLParser::SelectUnionStmtContext::UNION(size_t i) {
+tree::TerminalNode* HogQLParser::SelectSetStmtContext::UNION(size_t i) {
   return getToken(HogQLParser::UNION, i);
 }
 
-std::vector<tree::TerminalNode *> HogQLParser::SelectUnionStmtContext::ALL() {
+std::vector<tree::TerminalNode *> HogQLParser::SelectSetStmtContext::ALL() {
   return getTokens(HogQLParser::ALL);
 }
 
-tree::TerminalNode* HogQLParser::SelectUnionStmtContext::ALL(size_t i) {
+tree::TerminalNode* HogQLParser::SelectSetStmtContext::ALL(size_t i) {
   return getToken(HogQLParser::ALL, i);
 }
 
-std::vector<tree::TerminalNode *> HogQLParser::SelectUnionStmtContext::INTERSECT() {
+std::vector<tree::TerminalNode *> HogQLParser::SelectSetStmtContext::INTERSECT() {
   return getTokens(HogQLParser::INTERSECT);
 }
 
-tree::TerminalNode* HogQLParser::SelectUnionStmtContext::INTERSECT(size_t i) {
+tree::TerminalNode* HogQLParser::SelectSetStmtContext::INTERSECT(size_t i) {
   return getToken(HogQLParser::INTERSECT, i);
 }
 
 
-size_t HogQLParser::SelectUnionStmtContext::getRuleIndex() const {
-  return HogQLParser::RuleSelectUnionStmt;
+size_t HogQLParser::SelectSetStmtContext::getRuleIndex() const {
+  return HogQLParser::RuleSelectSetStmt;
 }
 
 
-std::any HogQLParser::SelectUnionStmtContext::accept(tree::ParseTreeVisitor *visitor) {
+std::any HogQLParser::SelectSetStmtContext::accept(tree::ParseTreeVisitor *visitor) {
   if (auto parserVisitor = dynamic_cast<HogQLParserVisitor*>(visitor))
-    return parserVisitor->visitSelectUnionStmt(this);
+    return parserVisitor->visitSelectSetStmt(this);
   else
     return visitor->visitChildren(this);
 }
 
-HogQLParser::SelectUnionStmtContext* HogQLParser::selectUnionStmt() {
-  SelectUnionStmtContext *_localctx = _tracker.createInstance<SelectUnionStmtContext>(_ctx, getState());
-  enterRule(_localctx, 46, HogQLParser::RuleSelectUnionStmt);
+HogQLParser::SelectSetStmtContext* HogQLParser::selectSetStmt() {
+  SelectSetStmtContext *_localctx = _tracker.createInstance<SelectSetStmtContext>(_ctx, getState());
+  enterRule(_localctx, 46, HogQLParser::RuleSelectSetStmt);
   size_t _la = 0;
 
 #if __cplusplus > 201703L
@@ -6808,8 +6808,8 @@ tree::TerminalNode* HogQLParser::ColumnExprSubqueryContext::LPAREN() {
   return getToken(HogQLParser::LPAREN, 0);
 }
 
-HogQLParser::SelectUnionStmtContext* HogQLParser::ColumnExprSubqueryContext::selectUnionStmt() {
-  return getRuleContext<HogQLParser::SelectUnionStmtContext>(0);
+HogQLParser::SelectSetStmtContext* HogQLParser::ColumnExprSubqueryContext::selectSetStmt() {
+  return getRuleContext<HogQLParser::SelectSetStmtContext>(0);
 }
 
 tree::TerminalNode* HogQLParser::ColumnExprSubqueryContext::RPAREN() {
@@ -8305,7 +8305,7 @@ HogQLParser::ColumnExprContext* HogQLParser::columnExpr(int precedence) {
       setState(912);
       match(HogQLParser::LPAREN);
       setState(913);
-      selectUnionStmt();
+      selectSetStmt();
       setState(914);
       match(HogQLParser::RPAREN);
       break;
@@ -9548,8 +9548,8 @@ tree::TerminalNode* HogQLParser::WithExprSubqueryContext::LPAREN() {
   return getToken(HogQLParser::LPAREN, 0);
 }
 
-HogQLParser::SelectUnionStmtContext* HogQLParser::WithExprSubqueryContext::selectUnionStmt() {
-  return getRuleContext<HogQLParser::SelectUnionStmtContext>(0);
+HogQLParser::SelectSetStmtContext* HogQLParser::WithExprSubqueryContext::selectSetStmt() {
+  return getRuleContext<HogQLParser::SelectSetStmtContext>(0);
 }
 
 tree::TerminalNode* HogQLParser::WithExprSubqueryContext::RPAREN() {
@@ -9590,7 +9590,7 @@ HogQLParser::WithExprContext* HogQLParser::withExpr() {
       setState(1145);
       match(HogQLParser::LPAREN);
       setState(1146);
-      selectUnionStmt();
+      selectSetStmt();
       setState(1147);
       match(HogQLParser::RPAREN);
       break;
@@ -9950,8 +9950,8 @@ tree::TerminalNode* HogQLParser::TableExprSubqueryContext::LPAREN() {
   return getToken(HogQLParser::LPAREN, 0);
 }
 
-HogQLParser::SelectUnionStmtContext* HogQLParser::TableExprSubqueryContext::selectUnionStmt() {
-  return getRuleContext<HogQLParser::SelectUnionStmtContext>(0);
+HogQLParser::SelectSetStmtContext* HogQLParser::TableExprSubqueryContext::selectSetStmt() {
+  return getRuleContext<HogQLParser::SelectSetStmtContext>(0);
 }
 
 tree::TerminalNode* HogQLParser::TableExprSubqueryContext::RPAREN() {
@@ -10064,7 +10064,7 @@ HogQLParser::TableExprContext* HogQLParser::tableExpr(int precedence) {
       setState(1175);
       match(HogQLParser::LPAREN);
       setState(1176);
-      selectUnionStmt();
+      selectSetStmt();
       setState(1177);
       match(HogQLParser::RPAREN);
       break;
