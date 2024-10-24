@@ -70,44 +70,30 @@ mod test {
     use super::ErrProps;
 
     #[test]
-    fn it_requires_exception_list() {
-        let raw: &'static str = include_str!("../../tests/static/raw_ch_exception.json");
-
-        let raw: ClickHouseEvent = serde_json::from_str(raw).unwrap();
-
-        // errors out because of missing exception_list property, which is required
-        let props: Result<ErrProps, Error> = serde_json::from_str(&raw.properties.unwrap());
-        assert!(props.is_err());
-        assert_eq!(
-            props.unwrap_err().to_string(),
-            "missing field `$exception_list` at line 275 column 5"
-        );
-    }
-
-    #[test]
     fn it_deserialises_error_props() {
         let raw: &'static str = include_str!("../../tests/static/raw_ch_exception_list.json");
 
         let raw: ClickHouseEvent = serde_json::from_str(raw).unwrap();
 
         let props: ErrProps = serde_json::from_str(&raw.properties.unwrap()).unwrap();
+        let exception_list = &props.exception_list.unwrap();
 
-        assert_eq!(props.exception_list.len(), 1);
+        assert_eq!(exception_list.len(), 1);
         assert_eq!(
-            props.exception_list[0].exception_type,
+            exception_list[0].exception_type,
             "UnhandledRejection".to_string()
         );
         assert_eq!(
-            props.exception_list[0].exception_message,
+            exception_list[0].exception_message,
             "Unexpected usage".to_string()
         );
-        let mechanism = props.exception_list[0].mechanism.as_ref().unwrap();
+        let mechanism = exception_list[0].mechanism.as_ref().unwrap();
         assert_eq!(mechanism.handled, Some(false));
         assert_eq!(mechanism.mechanism_type, None);
         assert_eq!(mechanism.source, None);
         assert_eq!(mechanism.synthetic, Some(false));
 
-        let stacktrace = props.exception_list[0].stacktrace.as_ref().unwrap();
+        let stacktrace = exception_list[0].stacktrace.as_ref().unwrap();
         assert_eq!(stacktrace.frames.len(), 2);
         let RawFrame::JavaScript(frame) = &stacktrace.frames[0];
 
@@ -144,7 +130,7 @@ mod test {
 
         let props: Result<ErrProps, Error> = serde_json::from_str(&raw);
         assert!(props.is_ok());
-        assert_eq!(props.unwrap().exception_list.len(), 0);
+        assert_eq!(props.unwrap().exception_list.unwrap().len(), 0);
 
         let raw: &'static str = r#"{
             "$exception_list": [{
