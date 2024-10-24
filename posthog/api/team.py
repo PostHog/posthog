@@ -28,7 +28,7 @@ from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.organization import OrganizationMembership
-from posthog.models.personal_api_key import APIScopeObjectOrNotSupported
+from posthog.models.scopes import APIScopeObjectOrNotSupported
 from posthog.models.project import Project
 from posthog.models.signals import mute_selected_signals
 from posthog.models.team.util import delete_batch_exports, delete_bulky_postgres_data
