@@ -2,6 +2,7 @@ from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
 
 template: HogFunctionTemplate = HogFunctionTemplate(
     status="beta",
+    type="destination",
     id="template-mailchimp",
     name="Mailchimp",
     description="Updates a contact in Mailchimp and subscribes new ones.",

@@ -11,7 +11,7 @@ import { pipelineAccessLogic } from 'scenes/pipeline/pipelineAccessLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { HogFunctionType } from '~/types'
+import { HogFunctionType, HogFunctionTypeType } from '~/types'
 
 import type { hogFunctionListLogicType } from './hogFunctionListLogicType'
 
@@ -25,6 +25,7 @@ export type HogFunctionListFilters = {
 }
 
 export type HogFunctionListLogicProps = {
+    type: HogFunctionTypeType
     defaultFilters?: HogFunctionListFilters
     forceFilters?: HogFunctionListFilters
     syncFiltersWithUrl?: boolean
@@ -68,7 +69,7 @@ export const hogFunctionListLogic = kea<hogFunctionListLogicType>([
             },
         ],
     })),
-    loaders(({ values, actions }) => ({
+    loaders(({ values, actions, props }) => ({
         hogFunctions: [
             [] as HogFunctionType[],
             {
@@ -76,6 +77,7 @@ export const hogFunctionListLogic = kea<hogFunctionListLogicType>([
                     return (
                         await api.hogFunctions.list({
                             filters: values.filters?.filters,
+                            type: props.type,
                         })
                     ).results
                 },

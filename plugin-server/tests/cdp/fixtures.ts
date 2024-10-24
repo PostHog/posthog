@@ -15,6 +15,7 @@ import { insertRow } from '../helpers/sql'
 export const createHogFunction = (hogFunction: Partial<HogFunctionType>) => {
     const item: HogFunctionType = {
         id: randomUUID(),
+        type: 'destination',
         name: 'Hog Function',
         team_id: 1,
         enabled: true,

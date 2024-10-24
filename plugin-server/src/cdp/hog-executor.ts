@@ -114,7 +114,7 @@ export class HogExecutor {
         nonMatchingFunctions: HogFunctionType[]
         erroredFunctions: HogFunctionType[]
     } {
-        const allFunctionsForTeam = this.hogFunctionManager.getTeamHogFunctions(event.project.id)
+        const allFunctionsForTeam = this.hogFunctionManager.getTeamHogDestinations(event.project.id)
         const filtersGlobals = convertToHogFunctionFilterGlobal(event)
 
         const nonMatchingFunctions: HogFunctionType[] = []

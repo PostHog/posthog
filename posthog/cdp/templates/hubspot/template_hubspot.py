@@ -6,6 +6,7 @@ from posthog.cdp.templates.hog_function_template import HogFunctionTemplate, Hog
 
 template: HogFunctionTemplate = HogFunctionTemplate(
     status="beta",
+    type="destination",
     id="template-hubspot",
     name="Hubspot",
     description="Creates a new contact in Hubspot whenever an event is triggered.",

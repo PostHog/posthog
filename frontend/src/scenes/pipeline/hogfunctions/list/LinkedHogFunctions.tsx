@@ -1,18 +1,20 @@
 import { LemonButton } from '@posthog/lemon-ui'
 import { useState } from 'react'
 
-import { HogFunctionFiltersType, HogFunctionSubTemplateIdType } from '~/types'
+import { HogFunctionFiltersType, HogFunctionSubTemplateIdType, HogFunctionTypeType } from '~/types'
 
 import { HogFunctionList } from './HogFunctionsList'
 import { HogFunctionTemplateList } from './HogFunctionTemplateList'
 
 export type LinkedHogFunctionsProps = {
+    type: HogFunctionTypeType
     filters: HogFunctionFiltersType
     subTemplateId?: HogFunctionSubTemplateIdType
     newDisabledReason?: string
 }
 
 export function LinkedHogFunctions({
+    type,
     filters,
     subTemplateId,
     newDisabledReason,
@@ -22,6 +24,7 @@ export function LinkedHogFunctions({
     return showNewDestination ? (
         <HogFunctionTemplateList
             defaultFilters={{}}
+            type={type}
             forceFilters={{ filters, subTemplateId }}
             extraControls={
                 <>
@@ -34,6 +37,7 @@ export function LinkedHogFunctions({
     ) : (
         <HogFunctionList
             forceFilters={{ filters }}
+            type={type}
             extraControls={
                 <>
                     <LemonButton

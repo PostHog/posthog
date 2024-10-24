@@ -36,7 +36,12 @@ import { HogFunctionTest, HogFunctionTestPlaceholder } from './HogFunctionTest'
 
 const EVENT_THRESHOLD_ALERT_LEVEL = 8000
 
-export function HogFunctionConfiguration({ templateId, id }: { templateId?: string; id?: string }): JSX.Element {
+export interface HogFunctionConfigurationProps {
+    templateId?: string | null
+    id?: string | null
+}
+
+export function HogFunctionConfiguration({ templateId, id }: HogFunctionConfigurationProps): JSX.Element {
     const logicProps = { templateId, id }
     const logic = hogFunctionConfigurationLogic(logicProps)
     const {

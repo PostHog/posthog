@@ -46,9 +46,9 @@ import { EmailTemplate } from './email-templater/emailTemplaterLogic'
 import type { hogFunctionConfigurationLogicType } from './hogFunctionConfigurationLogicType'
 
 export interface HogFunctionConfigurationLogicProps {
-    templateId?: string
-    subTemplateId?: string
-    id?: string
+    templateId?: string | null
+    subTemplateId?: string | null
+    id?: string | null
 }
 
 export const EVENT_VOLUME_DAILY_WARNING_THRESHOLD = 1000
@@ -56,6 +56,7 @@ const UNSAVED_CONFIGURATION_TTL = 1000 * 60 * 5
 
 const NEW_FUNCTION_TEMPLATE: HogFunctionTemplateType = {
     id: 'new',
+    type: 'destination',
     name: '',
     description: '',
     inputs_schema: [],
@@ -118,6 +119,7 @@ const templateToConfiguration = (
     })
 
     return {
+        type: template.type ?? 'destination',
         name: subTemplate?.name ?? template.name,
         description: subTemplate?.name ?? template.description,
         inputs_schema: template.inputs_schema,
@@ -403,6 +405,10 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
     })),
     selectors(() => ({
         logicProps: [() => [(_, props) => props], (props): HogFunctionConfigurationLogicProps => props],
+        type: [
+            (s) => [s.configuration, s.hogFunction],
+            (configuration, hogFunction) => configuration?.type ?? hogFunction?.type ?? 'loading',
+        ],
         hasAddon: [
             (s) => [s.hasAvailableFeature],
             (hasAvailableFeature) => {
