@@ -81,13 +81,23 @@ class PostgresInsertInputs:
 class PostgreSQLClient:
     """PostgreSQL connection client used in batch exports."""
 
-    def __init__(self, user: str, password: str, host: str, port: int, database: str, has_self_signed_cert: bool):
+    def __init__(
+        self,
+        user: str,
+        password: str,
+        host: str,
+        port: int,
+        database: str,
+        has_self_signed_cert: bool,
+        connection_timeout: int = 30,
+    ):
         self.user = user
         self.password = password
         self.database = database
         self.host = host
         self.port = port
         self.has_self_signed_cert = has_self_signed_cert
+        self.connection_timeout = connection_timeout
 
         self._connection: None | psycopg.AsyncConnection = None
 
@@ -134,6 +144,7 @@ class PostgreSQLClient:
             dbname=self.database,
             host=self.host,
             port=self.port,
+            connect_timeout=self.connection_timeout,
             sslmode="prefer" if settings.TEST else "require",
             **kwargs,
         )
