@@ -746,13 +746,12 @@ impl FeatureFlagMatcher {
                 .await?;
 
             // Evaluate cohort conditions
-            if !cohort_filters.is_empty() {
-                if !self
+            if !cohort_filters.is_empty()
+                && !self
                     .evaluate_cohort_filters(&cohort_filters, &properties_to_check)
                     .await?
-                {
-                    return Ok((false, FeatureFlagMatchReason::NoConditionMatch));
-                }
+            {
+                return Ok((false, FeatureFlagMatchReason::NoConditionMatch));
             }
 
             // Evaluate non-cohort properties
