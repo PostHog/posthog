@@ -3,6 +3,7 @@ from unittest import mock
 import aioboto3
 import functools
 import uuid
+import os
 from asgiref.sync import sync_to_async
 from django.conf import settings
 from django.test import override_settings
@@ -81,6 +82,17 @@ async def minio_client():
     Yields the client after creating a bucket. Upon resuming, we delete
     the contents and the bucket itself.
     """
+    # Unset AWS-related environment variables to prevent conflicts
+    os.environ.pop("AWS_ACCESS_KEY_ID", None)
+    os.environ.pop("AWS_SECRET_ACCESS_KEY", None)
+    os.environ.pop("AWS_SESSION_TOKEN", None)
+    os.environ.pop("AWS_DEFAULT_REGION", None)
+    os.environ.pop("AWS_REGION", None)
+    os.environ.pop("AWS_ROLE_ARN", None)
+    os.environ.pop("AWS_ROLE_SESSION_NAME", None)
+    os.environ.pop("AWS_CREDENTIAL_EXPIRATION", None)
+    os.environ.pop("AWS_PROFILE", None)
+
     async with create_test_client(
         "s3",
         aws_access_key_id=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
