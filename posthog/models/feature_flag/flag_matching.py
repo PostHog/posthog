@@ -335,8 +335,6 @@ class FeatureFlagMatcher:
                 # Thus, we match. Now get the variant override for the holdout condition.
                 variant_override = condition.get("variant")
                 if variant_override:
-                    # TODO: Should the variant be validated against the variants in the flag here?
-                    # becomes annoying when updating flags when the holdout is updated.
                     variant = variant_override
                 else:
                     variant = self.get_matching_variant(feature_flag)
