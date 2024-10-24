@@ -714,7 +714,8 @@ export function eventToDescription(
     return event.event
 }
 
-const eventTypesMap: { [key: string]: string } = {
+// $event_type to verb map
+const eventTypeToVerb: { [key: string]: string } = {
     click: 'clicked',
     change: 'typed something into',
     submit: 'submitted',
@@ -738,7 +739,7 @@ export function autoCaptureEventToDescription(
         return event.event
     }
 
-    const getVerb = (): string => eventTypesMap[event.properties.$event_type] || 'interacted with'
+    const getVerb = (): string => eventTypeToVerb[event.properties.$event_type] || 'interacted with'
 
     const getTag = (): string => {
         if (event.elements?.[0]?.tag_name === 'a') {
