@@ -915,41 +915,45 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     }
     RETURN_NEW_AST_NODE("SelectUnionQuery", "{s:N}", "select_queries", flattened_queries);
   }
-  */
+   */
 
    VISIT(SelectUnionStmt) {
-    // Using a vector of PyObjects atypically here, because this is a precursor of flattened_queries
     PyObject* initial_query = NULL;
-    vector<PyObject*> select_queries;
-    auto union_type = "";
+    PyObject* select_query = NULL;
+    PyObject* select_queries = PyList_New(0);
+    if (!select_queries) {
+      throw PyInternalError();
+    }
+    string union_type = "";
 
     for (auto child : ctx->children) {
-      if (auto token = dynamic_cast<HogQLParser::SelectStmtWithParensContext*>(child)) {
-        PyObject* select_query = visitAsPyObject(token);
-        if (initial_query == NULL) {
-          initial_query = select_query;
-        } else {
-          PyObject* ret = build_ast_node("SelectUnionNode", "{s:N,s:N}", "select_query", select_query, "union_type", union_type);
-          select_queries.push_back(ret);
-          union_type = "";
-        }
-      } else if (auto token = dynamic_cast<HogQLParser::SelectUnionStmtContext*>(child)) {
-        PyObject* select_query = visitAsPyObject(token);
-        if (initial_query == NULL) {
-          initial_query = select_query;
-        } else {
-          PyObject* ret = build_ast_node("SelectUnionNode", "{s:N,s:N}", "select_query", select_query, "union_type", union_type);
-          select_queries.push_back(ret);
-          union_type = "";
-        }
-      } else if (auto token = dynamic_cast<antlr4::TerminalNodeImpl*>(child)) {
+      if (auto token = dynamic_cast<antlr4::tree::TerminalNode*>(child)) {
         if (union_type == "") {
           union_type += child->getText();
         } else {
           union_type += " " + child->getText();
         }
+        continue;
+      }
+      try {
+        if (auto token = dynamic_cast<HogQLParser::SelectStmtWithParensContext*>(child)) {
+          select_query = visitAsPyObject(token);
+        } else if (auto token = dynamic_cast<HogQLParser::SelectUnionStmtContext*>(child)) {
+          select_query = visitAsPyObject(token);
+        } else {
+          throw ParsingError("Unexpected node type: " + child->getText());
+        }
+      } catch (...) {
+        Py_DECREF(initial_query);
+        Py_DECREF(select_queries);
+        throw;
+      }
+      if (initial_query == NULL) {
+        initial_query = select_query;
       } else {
-         throw ParsingError("Unexpected node type: " + string(token->getNodeType()));
+        PyObject* query = build_ast_node("SelectUnionNode", "{s:N,s:N}", "select_query", select_query, "union_type", PyUnicode_FromStringAndSize(union_type.data(), union_type.size()));
+        PyList_Append(select_queries, query);
+        union_type = "";
       }
     }
 
@@ -958,7 +962,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       return initial_query;
     }
 
-    RETURN_NEW_AST_NODE("SelectUnionQuery", "{s:N, s:N}", "initial_select_query", initial_query, "subsequent_select_queries": subsequent_select_queries);
+    RETURN_NEW_AST_NODE("SelectUnionQuery", "{s:N, s:N}", "initial_select_query", initial_query, "subsequent_select_queries", select_queries);
 
     /*
     auto select_stmt_with_parens_ctxs = ctx->selectStmtWithParens();
