@@ -9,7 +9,6 @@ from datetime import datetime, timedelta
 from typing import Any, Optional, cast
 
 import jwt
-import posthoganalytics
 import requests
 import structlog
 from django.conf import settings
@@ -501,11 +500,6 @@ def redirect_to_site(request):
 
     if not team or not unparsed_hostname_in_allowed_url_list(team.app_urls, app_url):
         REDIRECT_TO_SITE_FAILED_COUNTER.inc()
-        posthoganalytics.capture(
-            request.user.distinct_id,
-            "redirect_to_site_failed",
-            {"app_url": app_url, "app_urls": team.app_urls, "team_id": team.id},
-        )
         logger.error(
             "can_only_redirect_to_permitted_domain", permitted_domains=team.app_urls, app_url=app_url, team_id=team.id
         )
