@@ -129,20 +129,20 @@ const SingleTemplateVariable = ({
 
 const TemplateVariables = (props: RecordingTemplateCardProps): JSX.Element => {
     const { navigate } = useActions(sessionReplayTemplatesLogic(props))
-    const { variables, areAnyVariablesTouched } = useValues(sessionReplayTemplatesLogic(props))
+    const { variables, canApplyFilters } = useValues(sessionReplayTemplatesLogic(props))
     return (
         <div className="flex flex-col gap-2">
-            {variables.map((variable) => (
-                <SingleTemplateVariable key={variable.key} variable={variable} {...props} />
-            ))}
+            {variables
+                .filter((v) => !v.noTouch)
+                .map((variable) => (
+                    <SingleTemplateVariable key={variable.key} variable={variable} {...props} />
+                ))}
             <div>
                 <LemonButton
                     onClick={() => navigate()}
                     type="primary"
                     className="mt-2"
-                    disabledReason={
-                        !areAnyVariablesTouched ? 'Please set a value for at least one variable' : undefined
-                    }
+                    disabledReason={!canApplyFilters ? 'Please set a value for at least one variable' : undefined}
                 >
                     Apply filters
                 </LemonButton>
@@ -152,14 +152,14 @@ const TemplateVariables = (props: RecordingTemplateCardProps): JSX.Element => {
 }
 
 const RecordingTemplateCard = (props: RecordingTemplateCardProps): JSX.Element => {
-    const { showVariables, hideVariables, navigate } = useActions(sessionReplayTemplatesLogic(props))
-    const { variablesVisible, editableVariables } = useValues(sessionReplayTemplatesLogic(props))
+    const { showVariables, hideVariables } = useActions(sessionReplayTemplatesLogic(props))
+    const { variablesVisible } = useValues(sessionReplayTemplatesLogic(props))
 
     return (
         <LemonCard
             className="w-80"
             onClick={() => {
-                editableVariables.length > 0 ? showVariables() : navigate()
+                showVariables()
             }}
             closeable={variablesVisible}
             onClose={hideVariables}

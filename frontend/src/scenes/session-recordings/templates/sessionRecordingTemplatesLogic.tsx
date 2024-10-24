@@ -143,6 +143,10 @@ export const sessionReplayTemplatesLogic = kea<sessionReplayTemplatesLogicType>(
                 return filterGroup
             },
         ],
+        canApplyFilters: [
+            (s) => [s.variables, s.areAnyVariablesTouched],
+            (variables, areAnyVariablesTouched) => areAnyVariablesTouched || variables.length === 0,
+        ],
         areAnyVariablesTouched: [
             (s) => [s.variables],
             (variables) => variables.some((v) => v.touched) || variables.some((v) => v.noTouch),
