@@ -1,24 +1,31 @@
 import dataclasses
+import uuid
 from datetime import datetime
 from typing import Any
-import uuid
 
+from structlog.typing import FilteringBoundLogger
 from temporalio import activity
 
 from posthog.settings.utils import get_from_env
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.data_imports.pipelines.bigquery import delete_table
-from posthog.temporal.data_imports.pipelines.helpers import aremove_reset_pipeline, aupdate_job_count
-
-from posthog.temporal.data_imports.pipelines.pipeline import DataImportPipeline, PipelineInputs
+from posthog.temporal.data_imports.pipelines.helpers import (
+    aremove_reset_pipeline,
+    aupdate_job_count,
+)
+from posthog.temporal.data_imports.pipelines.pipeline import (
+    DataImportPipeline,
+    PipelineInputs,
+)
 from posthog.warehouse.models import (
     ExternalDataJob,
     ExternalDataSource,
     get_external_data_job,
 )
-from posthog.temporal.common.logger import bind_temporal_worker_logger
-from structlog.typing import FilteringBoundLogger
-from posthog.warehouse.models.external_data_schema import ExternalDataSchema, aget_schema_by_id
+from posthog.warehouse.models.external_data_schema import (
+    ExternalDataSchema,
+    aget_schema_by_id,
+)
 from posthog.warehouse.models.ssh_tunnel import SSHTunnel
 
 
@@ -86,8 +93,10 @@ async def import_data_activity(inputs: ImportDataActivityInputs):
                 reset_pipeline=reset_pipeline,
             )
         elif model.pipeline.source_type == ExternalDataSource.Type.HUBSPOT:
-            from posthog.temporal.data_imports.pipelines.hubspot.auth import hubspot_refresh_access_token
             from posthog.temporal.data_imports.pipelines.hubspot import hubspot
+            from posthog.temporal.data_imports.pipelines.hubspot.auth import (
+                hubspot_refresh_access_token,
+            )
 
             hubspot_access_code = model.pipeline.job_inputs.get("hubspot_secret_key", None)
             refresh_token = model.pipeline.job_inputs.get("hubspot_refresh_token", None)
@@ -117,9 +126,13 @@ async def import_data_activity(inputs: ImportDataActivityInputs):
             ExternalDataSource.Type.MSSQL,
         ]:
             if is_posthog_team(inputs.team_id):
-                from posthog.temporal.data_imports.pipelines.sql_database_v2 import sql_source_for_type
+                from posthog.temporal.data_imports.pipelines.sql_database_v2 import (
+                    sql_source_for_type,
+                )
             else:
-                from posthog.temporal.data_imports.pipelines.sql_database import sql_source_for_type
+                from posthog.temporal.data_imports.pipelines.sql_database import (
+                    sql_source_for_type,
+                )
 
             host = model.pipeline.job_inputs.get("host")
             port = model.pipeline.job_inputs.get("port")
@@ -208,9 +221,13 @@ async def import_data_activity(inputs: ImportDataActivityInputs):
             )
         elif model.pipeline.source_type == ExternalDataSource.Type.SNOWFLAKE:
             if is_posthog_team(inputs.team_id):
-                from posthog.temporal.data_imports.pipelines.sql_database_v2 import snowflake_source
+                from posthog.temporal.data_imports.pipelines.sql_database_v2 import (
+                    snowflake_source,
+                )
             else:
-                from posthog.temporal.data_imports.pipelines.sql_database import snowflake_source
+                from posthog.temporal.data_imports.pipelines.sql_database import (
+                    snowflake_source,
+                )
 
             account_id = model.pipeline.job_inputs.get("account_id")
             user = model.pipeline.job_inputs.get("user")
@@ -244,9 +261,13 @@ async def import_data_activity(inputs: ImportDataActivityInputs):
                 reset_pipeline=reset_pipeline,
             )
         elif model.pipeline.source_type == ExternalDataSource.Type.SALESFORCE:
-            from posthog.temporal.data_imports.pipelines.salesforce.auth import salesforce_refresh_access_token
-            from posthog.temporal.data_imports.pipelines.salesforce import salesforce_source
             from posthog.models.integration import aget_integration_by_id
+            from posthog.temporal.data_imports.pipelines.salesforce import (
+                salesforce_source,
+            )
+            from posthog.temporal.data_imports.pipelines.salesforce.auth import (
+                salesforce_refresh_access_token,
+            )
 
             salesforce_integration_id = model.pipeline.job_inputs.get("salesforce_integration_id", None)
 
@@ -328,7 +349,9 @@ async def import_data_activity(inputs: ImportDataActivityInputs):
                 reset_pipeline=reset_pipeline,
             )
         elif model.pipeline.source_type == ExternalDataSource.Type.BIGQUERY:
-            from posthog.temporal.data_imports.pipelines.sql_database_v2 import bigquery_source
+            from posthog.temporal.data_imports.pipelines.sql_database_v2 import (
+                bigquery_source,
+            )
 
             dataset_id = model.pipeline.job_inputs.get("dataset_id")
             project_id = model.pipeline.job_inputs.get("project_id")
@@ -377,6 +400,28 @@ async def import_data_activity(inputs: ImportDataActivityInputs):
                     token_uri=token_uri,
                 )
                 logger.info(f"Deleting bigquery temp destination table: {destination_table}")
+        elif model.pipeline.source_type == ExternalDataSource.Type.CHARGEBEE:
+            from posthog.temporal.data_imports.pipelines.chargebee import (
+                chargebee_source,
+            )
+
+            source = chargebee_source(
+                api_key=model.pipeline.job_inputs.get("api_key"),
+                site_name=model.pipeline.job_inputs.get("site_name"),
+                endpoint=schema.name,
+                team_id=inputs.team_id,
+                job_id=inputs.run_id,
+                is_incremental=schema.is_incremental,
+            )
+
+            return await _run(
+                job_inputs=job_inputs,
+                source=source,
+                logger=logger,
+                inputs=inputs,
+                schema=schema,
+                reset_pipeline=reset_pipeline,
+            )
         else:
             raise ValueError(f"Source type {model.pipeline.source_type} not supported")
 
