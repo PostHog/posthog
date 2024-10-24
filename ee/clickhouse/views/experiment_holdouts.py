@@ -34,13 +34,13 @@ class ExperimentHoldoutSerializer(serializers.ModelSerializer):
         ]
 
     def _get_filters_with_holdout_id(self, id: int, filters: list) -> list:
-        variant_name = f"holdout-{id}"
+        variant_key = f"holdout-{id}"
         updated_filters = []
         for filter in filters:
             updated_filters.append(
                 {
                     **filter,
-                    "variant": variant_name,
+                    "variant": variant_key,
                 }
             )
         return updated_filters
