@@ -19,6 +19,7 @@ export function PlayerSidebarOverviewTab(): JSX.Element {
             <PlayerSidebarOverviewGrid />
             <PlayerSidebarSessionSummary />
             <div className="font-bold bg-bg-light px-2 border-b py-3">
+                <h2>Latest person properties</h2>
                 <PersonDisplay person={sessionPerson} withIcon noPopover />
             </div>
             {sessionPlayerMetaDataLoading ? (
@@ -31,6 +32,8 @@ export function PlayerSidebarOverviewTab(): JSX.Element {
                     type={PropertyDefinitionType.Person}
                     sortProperties
                     embedded
+                    filterable
+                    className="mt-4"
                 />
             )}
         </div>
