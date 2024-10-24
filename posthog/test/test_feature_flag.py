@@ -886,11 +886,6 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                     "name": "Third Variant",
                     "rollout_percentage": 25,
                 },
-                {
-                    "key": "holdout",
-                    "name": "Hold out variant",
-                    "rollout_percentage": 0,
-                },
             ]
         }
         feature_flag = self.create_feature_flag(
