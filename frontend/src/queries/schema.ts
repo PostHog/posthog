@@ -2085,22 +2085,26 @@ export type ActorsPropertyTaxonomyQueryResponse = AnalyticsQueryResponseBase<Act
 export type CachedActorsPropertyTaxonomyQueryResponse = CachedQueryResponse<ActorsPropertyTaxonomyQueryResponse>
 
 export enum AssistantMessageType {
-    Visualization = 'visualization',
-    /**
-     * Do not use. Force the schema generator to generate a StrEnum.
-     */
-    Noop = 'noop',
+    Human = 'human',
+    Assistant = 'ai',
+    Visualization = 'ai/viz',
 }
 
-export interface VisualizationMessagePayload {
-    type: AssistantMessageType.Visualization
-    plan: string
+export interface HumanMessage {
+    type: AssistantMessageType.Human
+    content: string
 }
-
-export type AssistantMessagePayload = VisualizationMessagePayload
 
 export interface AssistantMessage {
-    type: 'human' | 'ai'
+    type: AssistantMessageType.Assistant
     content: string
-    payload?: AssistantMessagePayload
 }
+
+export interface VisualizationMessage {
+    type: AssistantMessageType.Visualization
+    plan?: string
+    reasoning_steps?: string[] | null
+    answer?: ExperimentalAITrendsQuery
+}
+
+export type RootAssistantMessage = VisualizationMessage | AssistantMessage | HumanMessage

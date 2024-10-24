@@ -1,30 +1,27 @@
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from enum import StrEnum
-from typing import Annotated, Optional, TypedDict
+from operator import add
+from typing import Annotated, Optional, TypedDict, Union
 
 from langchain_core.agents import AgentAction
-from langchain_core.messages import BaseMessage
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START
-from langgraph.graph.message import add_messages
 from pydantic import BaseModel, Field
 
 from posthog.models.team.team import Team
-from posthog.schema import AssistantMessage as AssistantMessageSchema
+from posthog.schema import AssistantMessage, HumanMessage, RootAssistantMessage, VisualizationMessage
 
-
-class AssistantMessage(BaseMessage, AssistantMessageSchema):
-    pass
+AssistantMessageUnion = Union[AssistantMessage, HumanMessage, VisualizationMessage]
 
 
 class Conversation(BaseModel):
-    messages: list[AssistantMessage] = Field(..., max_length=20)
+    messages: list[RootAssistantMessage] = Field(..., max_length=20)
     session_id: str
 
 
 class AssistantState(TypedDict):
-    messages: Annotated[Sequence[AssistantMessage], add_messages]
+    messages: Annotated[Sequence[AssistantMessageUnion], add]
     intermediate_steps: Optional[list[tuple[AgentAction, Optional[str]]]]
     plan: Optional[str]
     tool_argument: Optional[str]

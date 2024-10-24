@@ -7,10 +7,9 @@ from langgraph.graph.state import StateGraph
 
 from ee import settings
 from ee.hogai.trends.nodes import CreateTrendsPlanNode, CreateTrendsPlanToolsNode, GenerateTrendsNode
-from ee.hogai.utils import AssistantMessage, AssistantNodeName, AssistantState
+from ee.hogai.utils import AssistantNodeName, AssistantState, Conversation
 from posthog.models.team.team import Team
-from posthog.schema import AssistantMessage as FrontendAssistantMessage
-from posthog.schema import VisualizationMessagePayload
+from posthog.schema import VisualizationMessage
 
 if settings.LANGFUSE_PUBLIC_KEY:
     langfuse_handler = CallbackHandler(
@@ -47,12 +46,12 @@ class Assistant:
 
         return builder.compile()
 
-    def stream(self, messages: list[AssistantMessage]) -> Generator[str, None, None]:
+    def stream(self, conversation: Conversation) -> Generator[str, None, None]:
         assistant_graph = self._compile_graph()
         callbacks = [langfuse_handler] if langfuse_handler else []
 
         generator = assistant_graph.stream(
-            {"messages": messages},
+            {"messages": conversation.messages},
             config={"recursion_limit": 24, "callbacks": callbacks},
             stream_mode="messages",
         )
@@ -61,17 +60,13 @@ class Assistant:
 
         for message, state in generator:
             if state["langgraph_node"] == AssistantNodeName.GENERATE_TRENDS:
-                if isinstance(message, AssistantMessage):
-                    yield FrontendAssistantMessage(
-                        type=message.type, content=message.content, payload=message.payload
-                    ).model_dump_json()
+                if isinstance(message, VisualizationMessage):
+                    yield message.model_dump_json()
                 elif isinstance(message, AIMessageChunk):
                     message = cast(AIMessageChunk, message)
                     chunks += message  # type: ignore
                     parsed_message = GenerateTrendsNode.parse_output(chunks.tool_calls[0]["args"])
                     if parsed_message:
-                        yield FrontendAssistantMessage(
-                            type="ai",
-                            content=parsed_message.model_dump_json(),
-                            payload=VisualizationMessagePayload(plan=""),
+                        yield VisualizationMessage(
+                            reasoning_steps=parsed_message.reasoning_steps, answer=parsed_message.answer
                         ).model_dump_json()

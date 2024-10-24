@@ -1,9 +1,7 @@
 from django.test import override_settings
-from langchain_core.messages import HumanMessage
 
 from ee.hogai.trends.nodes import CreateTrendsPlanNode, GenerateTrendsNode
-from ee.hogai.utils import AssistantMessage
-from posthog.schema import VisualizationMessagePayload
+from posthog.schema import AssistantMessage, ExperimentalAITrendsQuery, HumanMessage, VisualizationMessage
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -12,6 +10,9 @@ from posthog.test.base import (
 
 @override_settings(IN_UNIT_TESTING=True)
 class TestPlanAgentNode(ClickhouseTestMixin, APIBaseTest):
+    def setUp(self):
+        self.schema = ExperimentalAITrendsQuery(series=[])
+
     def test_agent_reconstructs_conversation(self):
         node = CreateTrendsPlanNode(self.team)
         history = node._reconstruct_conversation({"messages": [HumanMessage(content="Text")]})
@@ -24,11 +25,7 @@ class TestPlanAgentNode(ClickhouseTestMixin, APIBaseTest):
             {
                 "messages": [
                     HumanMessage(content="Text"),
-                    AssistantMessage(
-                        content="schema",
-                        type="ai",
-                        payload=VisualizationMessagePayload(plan="randomplan"),
-                    ),
+                    VisualizationMessage(answer=self.schema, plan="randomplan"),
                 ]
             }
         )
@@ -43,11 +40,7 @@ class TestPlanAgentNode(ClickhouseTestMixin, APIBaseTest):
             {
                 "messages": [
                     HumanMessage(content="Text"),
-                    AssistantMessage(
-                        content="schema",
-                        type="ai",
-                        payload=VisualizationMessagePayload(plan="randomplan"),
-                    ),
+                    VisualizationMessage(answer=self.schema, plan="randomplan"),
                     HumanMessage(content="Text"),
                 ]
             }
@@ -68,7 +61,7 @@ class TestPlanAgentNode(ClickhouseTestMixin, APIBaseTest):
             {
                 "messages": [
                     HumanMessage(content="Text"),
-                    AssistantMessage(content="schema", type="ai"),
+                    AssistantMessage(content="test"),
                 ]
             }
         )
@@ -80,6 +73,9 @@ class TestPlanAgentNode(ClickhouseTestMixin, APIBaseTest):
 
 @override_settings(IN_UNIT_TESTING=True)
 class TestGenerateTrendsNode(ClickhouseTestMixin, APIBaseTest):
+    def setUp(self):
+        self.schema = ExperimentalAITrendsQuery(series=[])
+
     def test_agent_reconstructs_conversation(self):
         node = GenerateTrendsNode(self.team)
         history = node._reconstruct_conversation({"messages": [HumanMessage(content="Text")]})
@@ -90,12 +86,7 @@ class TestGenerateTrendsNode(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("Answer to this question:", history[1].content)
         self.assertNotIn("{{question}}", history[1].content)
 
-        history = node._reconstruct_conversation(
-            {
-                "messages": [HumanMessage(content="Text")],
-                "plan": "randomplan",
-            }
-        )
+        history = node._reconstruct_conversation({"messages": [HumanMessage(content="Text")], "plan": "randomplan"})
         self.assertEqual(len(history), 3)
         self.assertEqual(history[0].type, "human")
         self.assertIn("mapping", history[0].content)
@@ -113,11 +104,7 @@ class TestGenerateTrendsNode(ClickhouseTestMixin, APIBaseTest):
             {
                 "messages": [
                     HumanMessage(content="Text"),
-                    AssistantMessage(
-                        content="schema",
-                        type="ai",
-                        payload=VisualizationMessagePayload(plan="randomplan"),
-                    ),
+                    VisualizationMessage(answer=self.schema, plan="randomplan"),
                     HumanMessage(content="Follow Up"),
                 ],
                 "plan": "newrandomplan",
@@ -136,7 +123,7 @@ class TestGenerateTrendsNode(ClickhouseTestMixin, APIBaseTest):
         self.assertNotIn("{{question}}", history[2].content)
         self.assertIn("Text", history[2].content)
         self.assertEqual(history[3].type, "ai")
-        self.assertEqual(history[3].content, "schema")
+        self.assertEqual(history[3].content, self.schema.model_dump_json())
         self.assertEqual(history[4].type, "human")
         self.assertIn("the new plan", history[4].content)
         self.assertNotIn("{{plan}}", history[4].content)
@@ -171,11 +158,7 @@ class TestGenerateTrendsNode(ClickhouseTestMixin, APIBaseTest):
             {
                 "messages": [
                     HumanMessage(content="Text"),
-                    AssistantMessage(
-                        content="schema",
-                        type="ai",
-                        payload=VisualizationMessagePayload(plan="randomplan"),
-                    ),
+                    VisualizationMessage(answer=self.schema, plan="randomplan"),
                     HumanMessage(content="Follow"),
                     HumanMessage(content="Up"),
                 ],
@@ -195,7 +178,7 @@ class TestGenerateTrendsNode(ClickhouseTestMixin, APIBaseTest):
         self.assertNotIn("{{question}}", history[2].content)
         self.assertIn("Text", history[2].content)
         self.assertEqual(history[3].type, "ai")
-        self.assertEqual(history[3].content, "schema")
+        self.assertEqual(history[3].content, self.schema.model_dump_json())
         self.assertEqual(history[4].type, "human")
         self.assertIn("the new plan", history[4].content)
         self.assertNotIn("{{plan}}", history[4].content)

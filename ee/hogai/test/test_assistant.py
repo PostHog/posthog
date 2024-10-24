@@ -6,8 +6,8 @@ from langchain_core.runnables import RunnableLambda
 
 from ee.hogai.assistant import Assistant
 from ee.hogai.trends.utils import GenerateTrendOutputModel
-from ee.hogai.utils import AssistantMessage as AssistantMessageSchema
-from posthog.schema import AssistantMessage, VisualizationMessagePayload
+from ee.hogai.utils import Conversation
+from posthog.schema import HumanMessage, VisualizationMessage
 from posthog.test.base import (
     NonAtomicBaseTest,
 )
@@ -34,14 +34,12 @@ class TestAssistant(NonAtomicBaseTest):
             ) as generator_model_mock,
         ):
             assistant = Assistant(self.team)
-            generator = assistant.stream(messages=[AssistantMessageSchema(content="Launch the chain.", type="human")])
+            generator = assistant.stream(
+                Conversation(messages=[HumanMessage(content="Launch the chain.")], session_id="id")
+            )
             self.assertEqual(
                 json.loads(next(generator)),
-                AssistantMessage(
-                    content=generator_response.model_dump_json(),
-                    type="ai",
-                    payload=VisualizationMessagePayload(plan="Plan"),
-                ).model_dump(),
+                VisualizationMessage(answer=generator_response.model_dump_json(), plan="Plan").model_dump(),
             )
             self.assertEqual(planner_model_mock.call_count, 1)
             self.assertEqual(generator_model_mock.call_count, 1)

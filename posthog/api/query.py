@@ -41,7 +41,7 @@ from posthog.rate_limit import (
     ClickHouseSustainedRateThrottle,
     HogQLQueryThrottle,
 )
-from posthog.schema import QueryRequest, QueryResponseAlternative, QueryStatusResponse
+from posthog.schema import HumanMessage, QueryRequest, QueryResponseAlternative, QueryStatusResponse
 
 
 class ServerSentEventRenderer(BaseRenderer):
@@ -183,15 +183,17 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
 
         def generate():
             last_message = None
-            for message in assistant.stream(validated_body.messages):
+            for message in assistant.stream(validated_body):
                 last_message = message
                 yield last_message
 
-            report_user_action(
-                request.user,  # type: ignore
-                "chat with ai",
-                {"prompt": validated_body.messages[-1].content, "response": last_message},
-            )
+            human_message = validated_body.messages[-1]
+            if isinstance(human_message, HumanMessage):
+                report_user_action(
+                    request.user,  # type: ignore
+                    "chat with ai",
+                    {"prompt": human_message.content, "response": last_message},
+                )
 
         return StreamingHttpResponse(generate(), content_type=ServerSentEventRenderer.media_type)
 

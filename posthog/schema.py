@@ -63,14 +63,18 @@ class AlertState(StrEnum):
     SNOOZED = "Snoozed"
 
 
-class Type(StrEnum):
-    HUMAN = "human"
-    AI = "ai"
+class AssistantMessage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    content: str
+    type: Literal["ai"] = "ai"
 
 
 class AssistantMessageType(StrEnum):
-    VISUALIZATION = "visualization"
-    NOOP = "noop"
+    HUMAN = "human"
+    AI = "ai"
+    AI_VIZ = "ai/viz"
 
 
 class Kind(StrEnum):
@@ -328,7 +332,7 @@ class DatabaseSchemaSource(BaseModel):
     status: str
 
 
-class Type1(StrEnum):
+class Type(StrEnum):
     POSTHOG = "posthog"
     DATA_WAREHOUSE = "data_warehouse"
     VIEW = "view"
@@ -759,6 +763,14 @@ class HogQueryResponse(BaseModel):
     coloredBytecode: Optional[list] = None
     results: Any
     stdout: Optional[str] = None
+
+
+class HumanMessage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    content: str
+    type: Literal["human"] = "human"
 
 
 class Compare(StrEnum):
@@ -1449,14 +1461,6 @@ class TrendsQueryResponse(BaseModel):
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
-
-
-class VisualizationMessagePayload(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    plan: str
-    type: Literal["visualization"] = "visualization"
 
 
 class ActionsPie(BaseModel):
@@ -2749,7 +2753,7 @@ class DatabaseSchemaTableCommon(BaseModel):
     fields: dict[str, DatabaseSchemaField]
     id: str
     name: str
-    type: Type1
+    type: Type
 
 
 class ElementPropertyFilter(BaseModel):
@@ -4176,15 +4180,6 @@ class AnyResponseType(
     ]
 
 
-class AssistantMessage(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    content: str
-    payload: Optional[VisualizationMessagePayload] = None
-    type: Type
-
-
 class CachedExperimentFunnelsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5449,6 +5444,16 @@ class TrendsQuery(BaseModel):
     trendsFilter: Optional[TrendsFilter] = Field(default=None, description="Properties specific to the trends insight")
 
 
+class VisualizationMessage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    answer: Optional[ExperimentalAITrendsQuery] = None
+    plan: Optional[str] = None
+    reasoning_steps: Optional[list[str]] = None
+    type: Literal["ai/viz"] = "ai/viz"
+
+
 class ErrorTrackingQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5943,6 +5948,10 @@ class QueryResponseAlternative(
         QueryResponseAlternative37,
         QueryResponseAlternative38,
     ]
+
+
+class RootAssistantMessage(RootModel[Union[VisualizationMessage, AssistantMessage, HumanMessage]]):
+    root: Union[VisualizationMessage, AssistantMessage, HumanMessage]
 
 
 class DatabaseSchemaQueryResponse(BaseModel):

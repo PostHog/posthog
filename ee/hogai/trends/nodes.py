@@ -8,7 +8,9 @@ from langchain.agents.format_scratchpad import format_log_to_str
 from langchain.agents.output_parsers import ReActJsonSingleInputOutputParser
 from langchain_core.agents import AgentAction, AgentFinish
 from langchain_core.exceptions import OutputParserException
-from langchain_core.messages import AIMessage, BaseMessage, merge_message_runs
+from langchain_core.messages import AIMessage as LangchainAssistantMessage
+from langchain_core.messages import BaseMessage, merge_message_runs
+from langchain_core.messages import HumanMessage as LangchainHumanMessage
 from langchain_core.output_parsers import PydanticOutputParser
 from langchain_core.prompts import ChatPromptTemplate, HumanMessagePromptTemplate
 from langchain_core.runnables import RunnableConfig, RunnableLambda
@@ -35,7 +37,6 @@ from ee.hogai.trends.toolkit import (
 )
 from ee.hogai.trends.utils import GenerateTrendOutputModel
 from ee.hogai.utils import (
-    AssistantMessage,
     AssistantNode,
     AssistantNodeName,
     AssistantState,
@@ -44,11 +45,7 @@ from ee.hogai.utils import (
 from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.group_type_mapping import GroupTypeMapping
-from posthog.schema import (
-    CachedTeamTaxonomyQueryResponse,
-    TeamTaxonomyQuery,
-    VisualizationMessagePayload,
-)
+from posthog.schema import CachedTeamTaxonomyQueryResponse, HumanMessage, TeamTaxonomyQuery, VisualizationMessage
 
 
 class CreateTrendsPlanNode(AssistantNode):
@@ -141,7 +138,7 @@ class CreateTrendsPlanNode(AssistantNode):
 
         events = [item.event for item in response.results]
 
-        # default for null in the schema
+        # default for null in the
         tags: list[str] = ["all events"]
 
         for event_name in events:
@@ -175,20 +172,20 @@ class CreateTrendsPlanNode(AssistantNode):
 
         conversation = [
             HumanMessagePromptTemplate.from_template(react_user_prompt, template_format="mustache").format(
-                question=messages[0].content
+                question=messages[0].content if isinstance(messages[0], HumanMessage) else ""
             )
         ]
 
         for message in messages[1:]:
-            if message.type == "human":
+            if isinstance(message, HumanMessage):
                 conversation.append(
                     HumanMessagePromptTemplate.from_template(
                         react_follow_up_prompt,
                         template_format="mustache",
                     ).format(feedback=message.content)
                 )
-            elif message.type == "ai" and isinstance(message.payload, VisualizationMessagePayload):
-                conversation.append(AIMessage(content=message.payload.plan))
+            elif isinstance(message, VisualizationMessage):
+                conversation.append(LangchainAssistantMessage(content=message.plan or ""))
 
         return conversation
 
@@ -259,26 +256,18 @@ class GenerateTrendsNode(AssistantNode):
         )
 
         try:
-            message = chain.invoke({}, config)
+            message: GenerateTrendOutputModel = chain.invoke({}, config)
         except OutputParserException:
             return {
-                "messages": [
-                    AssistantMessage(
-                        type="ai",
-                        content=GenerateTrendOutputModel(
-                            reasoning_steps=["Schema validation failed"]
-                        ).model_dump_json(),
-                        payload=VisualizationMessagePayload(plan=generated_plan),
-                    )
-                ]
+                "messages": [VisualizationMessage(plan=generated_plan, reasoning_steps=["Schema validation failed"])]
             }
 
         return {
             "messages": [
-                AssistantMessage(
-                    type="ai",
-                    content=cast(GenerateTrendOutputModel, message).model_dump_json(),
-                    payload=VisualizationMessagePayload(plan=generated_plan),
+                VisualizationMessage(
+                    plan=generated_plan,
+                    reasoning_steps=message.reasoning_steps,
+                    answer=message.answer,
                 )
             ]
         }
@@ -324,14 +313,14 @@ class GenerateTrendsNode(AssistantNode):
             )
         ]
 
-        stack: list[AssistantMessage] = []
-        human_messages: list[AssistantMessage] = []
-        visualization_messages: list[AssistantMessage] = []
+        stack: list[LangchainHumanMessage] = []
+        human_messages: list[LangchainHumanMessage] = []
+        visualization_messages: list[VisualizationMessage] = []
 
         for message in messages:
-            if message.type == "human":
-                stack.append(message)
-            else:
+            if isinstance(message, HumanMessage):
+                stack.append(LangchainHumanMessage(content=message.content))
+            elif isinstance(message, VisualizationMessage) and message.answer:
                 if stack:
                     human_messages += merge_message_runs(stack)
                     stack = []
@@ -348,7 +337,7 @@ class GenerateTrendsNode(AssistantNode):
                     HumanMessagePromptTemplate.from_template(
                         trends_plan_prompt if first_ai_message else trends_new_plan_prompt,
                         template_format="mustache",
-                    ).format(plan=cast(VisualizationMessagePayload, ai_message.payload).plan)
+                    ).format(plan=ai_message.plan or "")
                 )
                 first_ai_message = False
             elif generated_plan:
@@ -367,7 +356,9 @@ class GenerateTrendsNode(AssistantNode):
                 )
 
             if ai_message:
-                conversation.append(AIMessage(content=ai_message.content))
+                conversation.append(
+                    LangchainAssistantMessage(content=ai_message.answer.model_dump_json() if ai_message.answer else "")
+                )
 
         return conversation
 

@@ -623,22 +623,16 @@
                 "content": {
                     "type": "string"
                 },
-                "payload": {
-                    "$ref": "#/definitions/AssistantMessagePayload"
-                },
                 "type": {
-                    "enum": ["human", "ai"],
+                    "const": "ai",
                     "type": "string"
                 }
             },
             "required": ["type", "content"],
             "type": "object"
         },
-        "AssistantMessagePayload": {
-            "$ref": "#/definitions/VisualizationMessagePayload"
-        },
         "AssistantMessageType": {
-            "enum": ["visualization", "noop"],
+            "enum": ["human", "ai", "ai/viz"],
             "type": "string"
         },
         "AutocompleteCompletionItem": {
@@ -6754,6 +6748,20 @@
             "required": ["results"],
             "type": "object"
         },
+        "HumanMessage": {
+            "additionalProperties": false,
+            "properties": {
+                "content": {
+                    "type": "string"
+                },
+                "type": {
+                    "const": "human",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "content"],
+            "type": "object"
+        },
         "InsightActorsQuery": {
             "additionalProperties": false,
             "properties": {
@@ -10618,6 +10626,19 @@
             "required": ["count"],
             "type": "object"
         },
+        "RootAssistantMessage": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/VisualizationMessage"
+                },
+                {
+                    "$ref": "#/definitions/AssistantMessage"
+                },
+                {
+                    "$ref": "#/definitions/HumanMessage"
+                }
+            ]
+        },
         "SamplingRate": {
             "additionalProperties": false,
             "properties": {
@@ -11747,18 +11768,34 @@
             "required": ["results"],
             "type": "object"
         },
-        "VisualizationMessagePayload": {
+        "VisualizationMessage": {
             "additionalProperties": false,
             "properties": {
+                "answer": {
+                    "$ref": "#/definitions/ExperimentalAITrendsQuery"
+                },
                 "plan": {
                     "type": "string"
                 },
+                "reasoning_steps": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
                 "type": {
-                    "const": "visualization",
+                    "const": "ai/viz",
                     "type": "string"
                 }
             },
-            "required": ["type", "plan"],
+            "required": ["type"],
             "type": "object"
         },
         "VizSpecificOptions": {
