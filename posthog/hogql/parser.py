@@ -966,7 +966,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return ctes
 
     def visitWithExprSubquery(self, ctx: HogQLParser.WithExprSubqueryContext):
-        subquery = self.visit(ctx.selectSetStmt())
+        subquery = self.visit(ctx.selectUnionStmt())
         name = self.visit(ctx.identifier())
         return ast.CTE(name=name, expr=subquery, cte_type="subquery")
 
@@ -1000,7 +1000,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return ast.Field(chain=chain)
 
     def visitTableExprSubquery(self, ctx: HogQLParser.TableExprSubqueryContext):
-        return self.visit(ctx.selectSetStmt())
+        return self.visit(ctx.selectUnionStmt())
 
     def visitTableExprPlaceholder(self, ctx: HogQLParser.TableExprPlaceholderContext):
         return self.visit(ctx.placeholder())
