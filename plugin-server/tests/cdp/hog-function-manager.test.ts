@@ -61,6 +61,24 @@ describe('HogFunctionManager', () => {
         )
 
         hogFunctions.push(
+            await insertHogFunction(hub.postgres, teamId1, {
+                name: 'Email Provider team 1',
+                type: 'email',
+                inputs_schema: [
+                    {
+                        type: 'email',
+                        key: 'message',
+                    },
+                ],
+                inputs: {
+                    email: {
+                        value: { from: 'me@a.com', to: 'you@b.com', subject: 'subject', html: 'text' },
+                    },
+                },
+            })
+        )
+
+        hogFunctions.push(
             await insertHogFunction(hub.postgres, teamId2, {
                 name: 'Test Hog Function team 2',
                 inputs_schema: [
@@ -89,7 +107,7 @@ describe('HogFunctionManager', () => {
     })
 
     it('returns the hog functions', async () => {
-        let items = manager.getTeamHogFunctions(teamId1)
+        let items = manager.getTeamHogDestinations(teamId1)
 
         expect(items).toEqual([
             {
@@ -124,6 +142,10 @@ describe('HogFunctionManager', () => {
             },
         ])
 
+        const allFunctions = manager.getTeamHogFunctions(teamId1)
+        expect(allFunctions.length).toEqual(2)
+        expect(allFunctions.map((f) => f.type).sort()).toEqual(['destination', 'email'])
+
         await hub.db.postgres.query(
             PostgresUse.COMMON_WRITE,
             `UPDATE posthog_hogfunction SET name='Test Hog Function team 1 updated' WHERE id = $1`,
@@ -134,7 +156,7 @@ describe('HogFunctionManager', () => {
         // This is normally dispatched by django
         await manager.reloadHogFunctions(teamId1, [hogFunctions[0].id])
 
-        items = manager.getTeamHogFunctions(teamId1)
+        items = manager.getTeamHogDestinations(teamId1)
 
         expect(items).toMatchObject([
             {
@@ -145,7 +167,7 @@ describe('HogFunctionManager', () => {
     })
 
     it('removes disabled functions', async () => {
-        let items = manager.getTeamHogFunctions(teamId1)
+        let items = manager.getTeamHogDestinations(teamId1)
 
         expect(items).toMatchObject([
             {
@@ -163,14 +185,14 @@ describe('HogFunctionManager', () => {
         // This is normally dispatched by django
         await manager.reloadHogFunctions(teamId1, [hogFunctions[0].id])
 
-        items = manager.getTeamHogFunctions(teamId1)
+        items = manager.getTeamHogDestinations(teamId1)
 
         expect(items).toEqual([])
     })
 
     it('enriches integration inputs if found and belonging to the team', () => {
-        const function1Inputs = manager.getTeamHogFunctions(teamId1)[0].inputs
-        const function2Inputs = manager.getTeamHogFunctions(teamId2)[0].inputs
+        const function1Inputs = manager.getTeamHogDestinations(teamId1)[0].inputs
+        const function2Inputs = manager.getTeamHogDestinations(teamId2)[0].inputs
 
         // Only the right team gets the integration inputs enriched
         expect(function1Inputs).toEqual({
