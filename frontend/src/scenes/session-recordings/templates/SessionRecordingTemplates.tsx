@@ -80,6 +80,7 @@ const SingleTemplateVariable = ({
             <LemonLabel info={variable.description}>{variable.name}</LemonLabel>
             <LemonInput
                 placeholder={variable.value}
+                value={variable.value}
                 onChange={(e) =>
                     e ? setVariable({ ...variable, value: e }) : resetVariable({ ...variable, value: undefined })
                 }
@@ -93,7 +94,7 @@ const SingleTemplateVariable = ({
                 rootKey={`session-recordings-${variable.key}`}
                 group={{
                     type: FilterLogicalOperator.And,
-                    values: [],
+                    values: variable.filterGroup ? [variable.filterGroup] : [],
                 }}
                 taxonomicGroupTypes={
                     variable.type === 'event'
