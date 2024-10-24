@@ -27,5 +27,5 @@ class Migration(migrations.Migration):
                 null=True,
             ),
         ),
-        migrations.RunSQL("UPDATE posthog_hogfunction SET type = 'destination' WHERE type IS NULL"),
+        migrations.RunSQL("UPDATE posthog_hogfunction SET type = 'destination' WHERE type IS NULL", "SELECT 1"),
     ]
