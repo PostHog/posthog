@@ -274,7 +274,7 @@ class _Printer(Visitor):
 
         return response
 
-    def visit_select_union_query(self, node: ast.SelectSetQuery):
+    def visit_select_set_query(self, node: ast.SelectSetQuery):
         self._indent -= 1
         ret = self.visit(node.initial_select_query)
         if self.pretty:

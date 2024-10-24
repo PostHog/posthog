@@ -148,7 +148,7 @@ class TraversingVisitor(Visitor[None]):
         for expr in (node.window_exprs or {}).values():
             self.visit(expr)
 
-    def visit_select_union_query(self, node: ast.SelectSetQuery):
+    def visit_select_set_query(self, node: ast.SelectSetQuery):
         self.visit(node.initial_select_query)
         for expr in node.subsequent_select_queries:
             self.visit(expr.select_query)
@@ -172,7 +172,7 @@ class TraversingVisitor(Visitor[None]):
         for expr in node.columns.values():
             self.visit(expr)
 
-    def visit_select_union_query_type(self, node: ast.SelectUnionQueryType):
+    def visit_select_set_query_type(self, node: ast.SelectUnionQueryType):
         for type in node.types:
             self.visit(type)
 
@@ -585,7 +585,7 @@ class CloningVisitor(Visitor[Any]):
             view_name=node.view_name,
         )
 
-    def visit_select_union_query(self, node: ast.SelectSetQuery):
+    def visit_select_set_query(self, node: ast.SelectSetQuery):
         return ast.SelectSetQuery(
             start=None if self.clear_locations else node.start,
             end=None if self.clear_locations else node.end,

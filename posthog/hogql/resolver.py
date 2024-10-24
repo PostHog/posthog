@@ -128,14 +128,14 @@ class Resolver(CloningVisitor):
             raise QueryError("Too many CTE expansions (50+). Probably a CTE loop.")
         return super().visit(node)
 
-    def visit_select_union_query(self, node: ast.SelectSetQuery):
+    def visit_select_set_query(self, node: ast.SelectSetQuery):
         # all expressions combined by UNION ALL can use CTEs from the first expression
         # so we put these CTEs to the scope
         default_ctes = next(extract_select_queries(node)).ctes
         if default_ctes:
             self.scopes.append(ast.SelectQueryType(ctes=default_ctes))
 
-        node = super().visit_select_union_query(node)
+        node = super().visit_select_set_query(node)
         node.type = ast.SelectUnionQueryType(
             types=[node.initial_select_query.type, *(x.select_query.type for x in node.subsequent_select_queries)]
         )  # type: ignore
