@@ -3865,6 +3865,7 @@ export enum ActivityScope {
     EXPERIMENT = 'Experiment',
     SURVEY = 'Survey',
     EARLY_ACCESS_FEATURE = 'EarlyAccessFeature',
+    BATCH_EXPORT_RUN = 'BatchExportRun',
     COMMENT = 'Comment',
     COHORT = 'Cohort',
     TEAM = 'Team',
