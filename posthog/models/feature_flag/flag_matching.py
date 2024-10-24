@@ -69,6 +69,7 @@ PERSON_KEY = "person"
 
 class FeatureFlagMatchReason(StrEnum):
     SUPER_CONDITION_VALUE = "super_condition_value"
+    HOLDOUT_CONDITION_VALUE = "holdout_condition_value"
     CONDITION_MATCH = "condition_match"
     NO_CONDITION_MATCH = "no_condition_match"
     OUT_OF_ROLLOUT_BOUND = "out_of_rollout_bound"
@@ -77,6 +78,8 @@ class FeatureFlagMatchReason(StrEnum):
     def score(self):
         if self == FeatureFlagMatchReason.SUPER_CONDITION_VALUE:
             return 4
+        if self == FeatureFlagMatchReason.HOLDOUT_CONDITION_VALUE:
+            return 3.5
         if self == FeatureFlagMatchReason.CONDITION_MATCH:
             return 3
         if self == FeatureFlagMatchReason.NO_GROUP_TYPE:
@@ -189,6 +192,32 @@ class FeatureFlagMatcher:
                     payload=payload,
                 )
 
+        # Match for holdout super condition
+        # TODO: Flags shouldn't have both super_groups and holdout_groups
+        # TODO: Validate only multivariant flags to have holdout groups. I could make this implicit by reusing super_groups but
+        # this will shoot ourselves in the foot when we extend early access to support variants as well.
+        # TODO: Validate holdout variant should have 0% default rollout %?
+        # TODO: All this validation we need to do suggests the modelling is imperfect here. Carrying forward for now, we'll only enable
+        # in beta, and potentially rework representation before rolling out to everyone. Probably the problem is holdout groups are an
+        # experiment level concept that applies across experiments, and we are creating a feature flag level primitive to handle it.
+        # Validating things like the variant name is the same across all flags, rolled out to 0%, has the same correct conditions is a bit of
+        # a pain here. But I'm not sure if feature flags should indeed know all this info. It's fine for them to just work with what they're given.
+        if feature_flag.filters.get("holdout_groups", None):
+            (
+                is_match,
+                holdout_value,
+                evaluation_reason,
+            ) = self.is_holdout_condition_match(feature_flag)
+            if is_match:
+                payload = self.get_matching_payload(is_match, holdout_value, feature_flag)
+                return FeatureFlagMatch(
+                    match=is_match,
+                    variant=holdout_value,
+                    reason=evaluation_reason,
+                    condition_index=0,
+                    payload=payload,
+                )
+
         # Stable sort conditions with variant overrides to the top. This ensures that if overrides are present, they are
         # evaluated first, and the variant override is applied to the first matching condition.
         # :TRICKY: We need to include the enumeration index before the sort so the flag evaluation reason gets the right condition index.
@@ -286,6 +315,33 @@ class FeatureFlagMatcher:
                 return feature_flag.get_payload("true")
         else:
             return None
+
+    def is_holdout_condition_match(self, feature_flag: FeatureFlag) -> tuple[bool, str | None, FeatureFlagMatchReason]:
+        # TODO: Right now holdout conditions only support basic rollout %s, and not property overrides.
+
+        # Evaluate if properties are empty
+        if feature_flag.holdout_conditions and len(feature_flag.holdout_conditions) > 0:
+            condition = feature_flag.holdout_conditions[0]
+
+            # TODO: Check properties and match based on them
+
+            if not condition.get("properties"):
+                rollout_percentage = condition.get("rollout_percentage")
+
+                if rollout_percentage is not None and self.get_holdout_hash(feature_flag) > (rollout_percentage / 100):
+                    return False, None, FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND
+
+                # rollout_percentage is None (=100%), or we are inside holdout rollout bound.
+                # Thus, we match. Now get the variant override for the holdout condition.
+                variant_override = condition.get("variant")
+                if variant_override in [variant["key"] for variant in feature_flag.variants]:
+                    variant = variant_override
+                else:
+                    variant = self.get_matching_variant(feature_flag)
+
+                return (True, variant, FeatureFlagMatchReason.HOLDOUT_CONDITION_VALUE)
+
+        return False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH
 
     def is_super_condition_match(self, feature_flag: FeatureFlag) -> tuple[bool, bool, FeatureFlagMatchReason]:
         # TODO: Right now super conditions with property overrides bork when the database is down,
@@ -628,6 +684,15 @@ class FeatureFlagMatcher:
     # we can do _hash(key, identifier) < 0.2
     def get_hash(self, feature_flag: FeatureFlag, salt="") -> float:
         hash_key = f"{feature_flag.key}.{self.hashed_identifier(feature_flag)}{salt}"
+        hash_val = int(hashlib.sha1(hash_key.encode("utf-8")).hexdigest()[:15], 16)
+        return hash_val / __LONG_SCALE__
+
+    # This function takes a identifier and a feature flag and returns a float between 0 and 1.
+    # Given the same identifier and key, it'll always return the same float. These floats are
+    # uniformly distributed between 0 and 1, and are keyed only on user's distinct id / group key.
+    # Thus, irrespective of the flag, the same user will always get the same value.
+    def get_holdout_hash(self, feature_flag: FeatureFlag, salt="") -> float:
+        hash_key = f"holdout-{self.hashed_identifier(feature_flag)}{salt}"
         hash_val = int(hashlib.sha1(hash_key.encode("utf-8")).hexdigest()[:15], 16)
         return hash_val / __LONG_SCALE__
 
