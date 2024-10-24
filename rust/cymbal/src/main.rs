@@ -99,16 +99,17 @@ async fn main() -> Result<(), Error> {
             }
         };
 
-        if properties.exception_list.is_none() {
+        let Some(exception_list) = &properties.exception_list else {
+            // Known issue that $exception_list didn't exist on old clients
             continue;
-        }
+        };
 
-        if properties.exception_list.is_empty() {
+        if exception_list.is_empty() {
             metrics::counter!(ERRORS, "cause" => "no_exception_list").increment(1);
             continue;
         }
 
-        let Some(trace) = properties.exception_list[0].stacktrace.as_ref() else {
+        let Some(trace) = exception_list[0].stacktrace.as_ref() else {
             metrics::counter!(ERRORS, "cause" => "no_stack_trace").increment(1);
             continue;
         };
