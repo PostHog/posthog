@@ -36,6 +36,7 @@ export function TaxonomicFilter({
     selectFirstItem = true,
     propertyAllowList,
     hideBehavioralCohorts,
+    showNumericalPropsOnly,
 }: TaxonomicFilterProps): JSX.Element {
     // Generate a unique key for each unique TaxonomicFilter that's rendered
     const taxonomicFilterLogicKey = useMemo(
@@ -62,6 +63,7 @@ export function TaxonomicFilter({
         metadataSource,
         propertyAllowList,
         hideBehavioralCohorts,
+        showNumericalPropsOnly,
     }
 
     const logic = taxonomicFilterLogic(taxonomicFilterLogicProps)

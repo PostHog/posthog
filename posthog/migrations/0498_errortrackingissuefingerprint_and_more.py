@@ -6,7 +6,7 @@ import django.db.models.deletion
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0495_alter_batchexportbackfill_start_at_and_more"),
+        ("posthog", "0497_experimentholdout_experiment_holdout"),
     ]
 
     operations = [
