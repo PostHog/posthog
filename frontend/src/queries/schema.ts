@@ -310,17 +310,17 @@ export interface RecordingsQueryResponse {
     has_next: boolean
 }
 
-export enum RecordingOrder {
-    Duration = 'recording_duration',
-    InactiveSeconds = 'inactive_seconds',
-    ActiveSeconds = 'active_seconds',
-    StartTime = 'start_time',
-    ConsoleErrorCount = 'console_error_count',
-    ClickCount = 'click_count',
-    KeypressCount = 'keypress_count',
-    MouseActivityCount = 'mouse_activity_count',
-    ActivityScore = 'activity_score',
-}
+export type RecordingOrder =
+    | 'duration'
+    | 'recording_duration'
+    | 'inactive_seconds'
+    | 'active_seconds'
+    | 'start_time'
+    | 'console_error_count'
+    | 'click_count'
+    | 'keypress_count'
+    | 'mouse_activity_count'
+    | 'activity_score'
 
 export interface RecordingsQuery extends DataNode<RecordingsQueryResponse> {
     kind: NodeKind.RecordingsQuery

@@ -77,7 +77,7 @@ export const defaultRecordingDurationFilter: RecordingDurationFilter = {
     operator: PropertyOperator.GreaterThan,
 }
 
-export const DEFAULT_RECORDING_FILTERS_ORDER_BY = RecordingOrder.StartTime
+export const DEFAULT_RECORDING_FILTERS_ORDER_BY = 'start_time'
 
 export const DEFAULT_RECORDING_FILTERS: RecordingUniversalFilters = {
     filter_test_accounts: false,
@@ -227,9 +227,9 @@ function combineLegacyRecordingFilters(
 
 function sortRecordings(
     recordings: SessionRecordingType[],
-    order: RecordingsQuery['order'] | 'duration' = RecordingOrder.StartTime
+    order: RecordingsQuery['order'] | 'duration' = 'start_time'
 ): SessionRecordingType[] {
-    const orderKey: RecordingOrder = order === 'duration' ? RecordingOrder.Duration : order
+    const orderKey: RecordingOrder = order === 'duration' ? 'recording_duration' : order
 
     return recordings.sort((a, b) => {
         const orderA = a[orderKey]

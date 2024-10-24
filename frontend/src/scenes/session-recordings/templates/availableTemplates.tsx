@@ -11,7 +11,6 @@ import {
 } from '@posthog/icons'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
-import { RecordingOrder } from '~/queries/schema'
 import { PropertyFilterType, PropertyOperator, ReplayTemplateType } from '~/types'
 
 export const replayTemplates: ReplayTemplateType[] = [
@@ -178,7 +177,7 @@ export const replayTemplates: ReplayTemplateType[] = [
         description: 'Watch all recent replays, and see where users are getting stuck.',
         variables: [],
         categories: ['More'],
-        order: RecordingOrder.StartTime,
+        order: 'start_time',
         icon: <IconVideoCamera />,
     },
     {
@@ -229,7 +228,7 @@ export const replayTemplates: ReplayTemplateType[] = [
         key: 'activity-score',
         name: 'Most active users',
         description: 'Watch recordings of the most active sessions. Lots of valuable insights, guaranteed!',
-        order: RecordingOrder.ActivityScore,
+        order: 'activity_score',
         categories: ['More'],
         icon: <IconCursorClick />,
     },
