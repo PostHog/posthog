@@ -832,5 +832,4 @@ async def test_raise_on_produce_task_failure_does_not_raise():
     task = asyncio.create_task(fake_produce_task())
     await asyncio.wait([task])
 
-    result = await raise_on_produce_task_failure(task)
-    assert result is None
+    await raise_on_produce_task_failure(task)
