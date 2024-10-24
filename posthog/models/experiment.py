@@ -57,7 +57,7 @@ class ExperimentHoldout(models.Model):
 
     # Filters define the definition of the holdout
     # This is then replicated across flags for experiments in the holdout
-    filters = models.JSONField(default=dict)
+    filters = models.JSONField(default=list)
 
     created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True)
     created_at = models.DateTimeField(default=timezone.now)

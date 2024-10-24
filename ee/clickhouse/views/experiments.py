@@ -186,16 +186,6 @@ class ExperimentSerializer(serializers.ModelSerializer):
             "exposure_cohort",
         ]
 
-    # def validate(self, data):
-    #     holdout_id = data.get("holdout")
-    #     if holdout_id:
-    #         try:
-    #             ExperimentHoldout.objects.get(pk=holdout_id)
-    #         except ExperimentHoldout.DoesNotExist:
-    #             raise serializers.ValidationError("Holdout with this ID does not exist")
-
-    #     return data
-
     def validate_parameters(self, value):
         if not value:
             return value

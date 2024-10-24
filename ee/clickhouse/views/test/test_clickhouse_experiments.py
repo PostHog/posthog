@@ -139,12 +139,13 @@ class TestExperimentCRUD(APILicensedTest):
             format="json",
         )
 
+        holdout_id = response.json()["id"]
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.json()["name"], "Test Experiment holdout")
         self.assertEqual(
-            response.json()["filters"], [{"properties": [], "rollout_percentage": 20, "variant": "holdout"}]
+            response.json()["filters"],
+            [{"properties": [], "rollout_percentage": 20, "variant": f"holdout-{holdout_id}"}],
         )
-        holdout_id = response.json()["id"]
 
         # Generate draft experiment to be part of holdout
         ff_key = "a-b-tests"
@@ -176,7 +177,8 @@ class TestExperimentCRUD(APILicensedTest):
 
         self.assertEqual(created_ff.key, ff_key)
         self.assertEqual(
-            created_ff.filters["holdout_groups"], [{"properties": [], "rollout_percentage": 20, "variant": "holdout"}]
+            created_ff.filters["holdout_groups"],
+            [{"properties": [], "rollout_percentage": 20, "variant": f"holdout-{holdout_id}"}],
         )
 
         exp_id = response.json()["id"]
@@ -210,7 +212,8 @@ class TestExperimentCRUD(APILicensedTest):
 
         created_ff = FeatureFlag.objects.get(key=ff_key)
         self.assertEqual(
-            created_ff.filters["holdout_groups"], [{"properties": [], "rollout_percentage": 5, "variant": "holdout"}]
+            created_ff.filters["holdout_groups"],
+            [{"properties": [], "rollout_percentage": 5, "variant": f"holdout-{holdout_2_id}"}],
         )
 
         # update parameters
@@ -244,7 +247,8 @@ class TestExperimentCRUD(APILicensedTest):
 
         created_ff = FeatureFlag.objects.get(key=ff_key)
         self.assertEqual(
-            created_ff.filters["holdout_groups"], [{"properties": [], "rollout_percentage": 5, "variant": "holdout"}]
+            created_ff.filters["holdout_groups"],
+            [{"properties": [], "rollout_percentage": 5, "variant": f"holdout-{holdout_2_id}"}],
         )
         self.assertEqual(
             created_ff.filters["multivariate"]["variants"],
@@ -301,7 +305,8 @@ class TestExperimentCRUD(APILicensedTest):
 
         created_ff = FeatureFlag.objects.get(key=ff_key)
         self.assertEqual(
-            created_ff.filters["holdout_groups"], [{"properties": [], "rollout_percentage": 5, "variant": "holdout"}]
+            created_ff.filters["holdout_groups"],
+            [{"properties": [], "rollout_percentage": 5, "variant": f"holdout-{holdout_2_id}"}],
         )
 
     def test_adding_behavioral_cohort_filter_to_experiment_fails(self):

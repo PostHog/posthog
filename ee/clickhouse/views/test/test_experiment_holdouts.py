@@ -26,12 +26,13 @@ class TestExperimentHoldoutCRUD(APILicensedTest):
             format="json",
         )
 
+        holdout_id = response.json()["id"]
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.json()["name"], "Test Experiment holdout")
         self.assertEqual(
-            response.json()["filters"], [{"properties": [], "rollout_percentage": 20, "variant": "holdout"}]
+            response.json()["filters"],
+            [{"properties": [], "rollout_percentage": 20, "variant": f"holdout-{holdout_id}"}],
         )
-        holdout_id = response.json()["id"]
 
         # Generate experiment to be part of holdout
         ff_key = "a-b-tests"
@@ -66,7 +67,8 @@ class TestExperimentHoldoutCRUD(APILicensedTest):
         self.assertEqual(created_ff.filters["multivariate"]["variants"][1]["key"], "test")
         self.assertEqual(created_ff.filters["groups"][0]["properties"], [])
         self.assertEqual(
-            created_ff.filters["holdout_groups"], [{"properties": [], "rollout_percentage": 20, "variant": "holdout"}]
+            created_ff.filters["holdout_groups"],
+            [{"properties": [], "rollout_percentage": 20, "variant": f"holdout-{holdout_id}"}],
         )
 
         exp_id = response.json()["id"]
@@ -88,13 +90,15 @@ class TestExperimentHoldoutCRUD(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["name"], "Test Experiment holdout 2")
         self.assertEqual(
-            response.json()["filters"], [{"properties": [], "rollout_percentage": 30, "variant": "holdout"}]
+            response.json()["filters"],
+            [{"properties": [], "rollout_percentage": 30, "variant": f"holdout-{holdout_id}"}],
         )
 
         # make sure flag for experiment in question was updated as well
         created_ff = FeatureFlag.objects.get(key=ff_key)
         self.assertEqual(
-            created_ff.filters["holdout_groups"], [{"properties": [], "rollout_percentage": 30, "variant": "holdout"}]
+            created_ff.filters["holdout_groups"],
+            [{"properties": [], "rollout_percentage": 30, "variant": f"holdout-{holdout_id}"}],
         )
 
         # now delete holdout

@@ -33,6 +33,18 @@ class ExperimentHoldoutSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
 
+    def _get_filters_with_holdout_id(self, id: int, filters: list) -> list:
+        variant_name = f"holdout-{id}"
+        updated_filters = []
+        for filter in filters:
+            updated_filters.append(
+                {
+                    **filter,
+                    "variant": variant_name,
+                }
+            )
+        return updated_filters
+
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> ExperimentHoldout:
         request = self.context["request"]
         validated_data["created_by"] = request.user
@@ -41,18 +53,25 @@ class ExperimentHoldoutSerializer(serializers.ModelSerializer):
         if not validated_data.get("filters"):
             raise ValidationError("Filters are required to create an holdout group")
 
-        return super().create(validated_data)
+        instance = super().create(validated_data)
+        instance.filters = self._get_filters_with_holdout_id(instance.id, instance.filters)
+        instance.save()
+        return instance
 
     def update(self, instance: ExperimentHoldout, validated_data):
         filters = validated_data.get("filters")
         if filters and instance.filters != filters:
             # update flags on all experiments in this holdout group
+            new_filters = self._get_filters_with_holdout_id(instance.id, filters)
+            validated_data["filters"] = new_filters
             with transaction.atomic():
                 for experiment in instance.experiment_set.all():
                     flag = experiment.feature_flag
                     existing_flag_serializer = FeatureFlagSerializer(
                         flag,
-                        data={"filters": {**flag.filters, "holdout_groups": validated_data["filters"]}},
+                        data={
+                            "filters": {**flag.filters, "holdout_groups": validated_data["filters"]},
+                        },
                         partial=True,
                         context=self.context,
                     )
