@@ -94,6 +94,13 @@ PyObject* X_PyList_FromStrings(const vector<string>& items) {
   return list;
 }
 
+void to_uppercase(char str[]) {
+  for (int i = 0; str[i] != '\0'; ++i) {
+    str[i] = std::toupper(static_cast<unsigned char>(str[i]));
+  }
+}
+
+
 // PARSING AND AST CONVERSION
 
 class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
@@ -951,7 +958,14 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       if (initial_query == NULL) {
         initial_query = select_query;
       } else {
-        PyObject* query = build_ast_node("SelectUnionNode", "{s:N,s:N}", "select_query", select_query, "union_type", PyUnicode_FromStringAndSize(union_type.data(), union_type.size()));
+        auto data = union_type.data();
+        to_uppercase(data);
+        PyObject* query = build_ast_node("SelectUnionNode", "{s:N,s:N}", "select_query", select_query, "union_type", PyUnicode_FromStringAndSize(data, union_type.size()));
+        if (!query) {
+          Py_DECREF(initial_query);
+          Py_DECREF(select_queries);
+          throw PyInternalError();
+        }
         PyList_Append(select_queries, query);
         union_type = "";
       }
