@@ -33,13 +33,12 @@ class HogFunctionState(enum.Enum):
 
 class HogFunctionType(models.TextChoices):
     DESTINATION = "destination"
-    SHARED = "shared"
     EMAIL = "email"
     SMS = "sms"
     PUSH = "push"
-    BROADCAST = "broadcast"
     ACTIVITY = "activity"
     ALERT = "alert"
+    BROADCAST = "broadcast"
 
 
 TYPES_THAT_RELOAD_PLUGIN_SERVER = (HogFunctionType.DESTINATION, HogFunctionType.EMAIL)
