@@ -480,11 +480,11 @@ class ApiRequest {
     }
 
     // Recordings
-    public recording(recordingId: SessionRecordingType['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('session_recordings').addPathComponent(recordingId)
-    }
     public recordings(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('session_recordings')
+    }
+    public recording(recordingId: SessionRecordingType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.recordings(teamId).addPathComponent(recordingId)
     }
     public recordingMatchingEvents(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId)
@@ -748,7 +748,7 @@ class ApiRequest {
     }
 
     public subscription(id: SubscriptionType['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent(id)
+        return this.subscriptions(teamId).addPathComponent(id)
     }
 
     // # Integrations

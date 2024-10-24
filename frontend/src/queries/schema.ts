@@ -480,6 +480,7 @@ export interface EntityNode extends Node {
     custom_name?: string
     math?: MathType
     math_property?: string
+    math_property_type?: string
     math_hogql?: string
     math_group_type_index?: 0 | 1 | 2 | 3 | 4
     /** Properties configurable in the interface */

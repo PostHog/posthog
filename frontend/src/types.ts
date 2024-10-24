@@ -1109,6 +1109,7 @@ export type EntityFilter = {
 export interface ActionFilter extends EntityFilter {
     math?: string
     math_property?: string
+    math_property_type?: TaxonomicFilterGroupType
     math_group_type_index?: integer | null
     math_hogql?: string
     properties?: AnyPropertyFilter[]
@@ -4212,7 +4213,7 @@ export type RawBatchExportRun = {
         | 'Running'
         | 'Starting'
     created_at: string
-    data_interval_start: string
+    data_interval_start?: string
     data_interval_end: string
     last_updated_at?: string
 }
@@ -4230,7 +4231,7 @@ export type BatchExportRun = {
         | 'Running'
         | 'Starting'
     created_at: Dayjs
-    data_interval_start: Dayjs
+    data_interval_start?: Dayjs
     data_interval_end: Dayjs
     last_updated_at?: Dayjs
 }

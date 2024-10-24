@@ -73,6 +73,8 @@ export interface ActionFilterProps {
     actionsTaxonomicGroupTypes?: TaxonomicFilterGroupType[]
     /** Which tabs to show for property filters */
     propertiesTaxonomicGroupTypes?: TaxonomicFilterGroupType[]
+    /** Whether properties shown should be limited to just numerical types */
+    showNumericalPropsOnly?: boolean
     hideDeleteBtn?: boolean
     readOnly?: boolean
     renderRow?: ({
@@ -108,6 +110,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
         showNestedArrow = false,
         actionsTaxonomicGroupTypes,
         propertiesTaxonomicGroupTypes,
+        showNumericalPropsOnly,
         hideDeleteBtn,
         renderRow,
         buttonType = 'tertiary',
@@ -170,6 +173,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
         hideDuplicate,
         onRenameClick: showModal,
         sortable,
+        showNumericalPropsOnly,
     }
 
     const reachedLimit: boolean = Boolean(entitiesLimit && localFilters.length >= entitiesLimit)

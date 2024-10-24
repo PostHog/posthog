@@ -550,6 +550,94 @@ async def test_postgres_export_workflow_without_events(
     assert run.records_completed == 0
 
 
+@pytest.mark.parametrize(
+    "data_interval_start",
+    # This is hardcoded relative to the `data_interval_end` used in all or most tests, since that's also
+    # passed to `generate_test_data` to determine the timestamp for the generated data.
+    [dt.datetime(2023, 4, 24, 15, 0, 0, tzinfo=dt.UTC)],
+    indirect=True,
+)
+@pytest.mark.parametrize("interval", ["hour"], indirect=True)
+@pytest.mark.parametrize("model", [BatchExportModel(name="persons", schema=None)])
+async def test_postgres_export_workflow_backfill_earliest_persons(
+    ateam,
+    clickhouse_client,
+    postgres_config,
+    postgres_connection,
+    postgres_batch_export,
+    interval,
+    exclude_events,
+    data_interval_start,
+    data_interval_end,
+    model,
+    generate_test_data,
+    table_name,
+):
+    """Test a `PostgresBatchExportWorkflow` backfilling the persons model.
+
+    We expect persons outside the batch interval to also be backfilled (i.e. persons that were updated
+    more than an hour ago) when setting `is_earliest_backfill=True`.
+    """
+    workflow_id = str(uuid.uuid4())
+    inputs = PostgresBatchExportInputs(
+        team_id=ateam.pk,
+        batch_export_id=str(postgres_batch_export.id),
+        data_interval_end=data_interval_end.isoformat(),
+        interval=interval,
+        batch_export_model=model,
+        is_backfill=True,
+        is_earliest_backfill=True,
+        **postgres_batch_export.destination.config,
+    )
+    _, persons = generate_test_data
+
+    # Ensure some data outside batch interval has been created
+    assert any(
+        data_interval_end - person["_timestamp"].replace(tzinfo=dt.UTC) > dt.timedelta(hours=12) for person in persons
+    )
+
+    async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+        async with Worker(
+            activity_environment.client,
+            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            workflows=[PostgresBatchExportWorkflow],
+            activities=[
+                start_batch_export_run,
+                insert_into_postgres_activity,
+                finish_batch_export_run,
+            ],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            await activity_environment.client.execute_workflow(
+                PostgresBatchExportWorkflow.run,
+                inputs,
+                id=workflow_id,
+                task_queue=settings.TEMPORAL_TASK_QUEUE,
+                retry_policy=RetryPolicy(maximum_attempts=1),
+                execution_timeout=dt.timedelta(minutes=10),
+            )
+
+    runs = await afetch_batch_export_runs(batch_export_id=postgres_batch_export.id)
+    assert len(runs) == 1
+
+    run = runs[0]
+    assert run.status == "Completed"
+    assert run.data_interval_start is None
+
+    await assert_clickhouse_records_in_postgres(
+        postgres_connection=postgres_connection,
+        clickhouse_client=clickhouse_client,
+        schema_name=postgres_config["schema"],
+        table_name=table_name,
+        team_id=ateam.pk,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+        batch_export_model=model,
+        exclude_events=exclude_events,
+        sort_key="person_id",
+    )
+
+
 async def test_postgres_export_workflow_handles_insert_activity_errors(ateam, postgres_batch_export, interval):
     """Test that Postgres Export Workflow can gracefully handle errors when inserting Postgres data."""
     data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")

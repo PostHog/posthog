@@ -81,6 +81,14 @@ export const currentPageLogic = kea<currentPageLogicType>([
     })),
 
     afterMount(({ actions, values, cache }) => {
+        // an earlier bug means that some folk have a bad URL saved
+        // this auto-fixes things for those folks
+        // to save us having to explain the fix individually
+        // can be removed by end of Nov 2024
+        if (values.href && values.href.includes('#__posthog=')) {
+            actions.setHref(withoutPostHogInit(values.href))
+        }
+
         cache.interval = window.setInterval(() => {
             if (window.location.href !== values.href) {
                 actions.setHref(window.location.href)

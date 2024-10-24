@@ -31,6 +31,9 @@
                 "math_property": {
                     "type": "string"
                 },
+                "math_property_type": {
+                    "type": "string"
+                },
                 "name": {
                     "type": "string"
                 },
@@ -82,6 +85,9 @@
                     "type": "number"
                 },
                 "math_property": {
+                    "type": "string"
+                },
+                "math_property_type": {
                     "type": "string"
                 },
                 "name": {
@@ -170,6 +176,9 @@
                     "type": "string"
                 },
                 "math_property": {
+                    "type": "string"
+                },
+                "math_property_type": {
                     "type": "string"
                 },
                 "name": {
@@ -4023,6 +4032,9 @@
                 "math_property": {
                     "type": "string"
                 },
+                "math_property_type": {
+                    "type": "string"
+                },
                 "name": {
                     "type": "string"
                 },
@@ -4540,6 +4552,9 @@
                 "math_property": {
                     "type": "string"
                 },
+                "math_property_type": {
+                    "type": "string"
+                },
                 "name": {
                     "type": "string"
                 },
@@ -4970,6 +4985,9 @@
                     "type": "string"
                 },
                 "math_property": {
+                    "type": "string"
+                },
+                "math_property_type": {
                     "type": "string"
                 },
                 "name": {
@@ -5678,6 +5696,9 @@
                 "math_property": {
                     "type": "string"
                 },
+                "math_property_type": {
+                    "type": "string"
+                },
                 "name": {
                     "type": "string"
                 },
@@ -5736,6 +5757,9 @@
                     "type": "string"
                 },
                 "math_property": {
+                    "type": "string"
+                },
+                "math_property_type": {
                     "type": "string"
                 },
                 "name": {
