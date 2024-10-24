@@ -96,6 +96,7 @@ describe('HogFunctionManager', () => {
                 id: hogFunctions[0].id,
                 team_id: teamId1,
                 name: 'Test Hog Function team 1',
+                type: 'destination',
                 enabled: true,
                 bytecode: {},
                 filters: null,
