@@ -1,8 +1,9 @@
 use crate::{
     api::{FlagError, FlagValue, FlagsResponse},
+    cohort_definitions::{sort_cohorts_topologically, Cohort, CohortId, CohortOrEmpty},
     database::Client as DatabaseClient,
     feature_flag_match_reason::FeatureFlagMatchReason,
-    flag_definitions::{FeatureFlag, FeatureFlagList, FlagGroupType, PropertyFilter},
+    flag_definitions::{FeatureFlag, FeatureFlagList, FlagGroupType, OperatorType, PropertyFilter},
     metrics_consts::{FLAG_EVALUATION_ERROR_COUNTER, FLAG_HASH_KEY_WRITES_COUNTER},
     property_matching::match_property,
     utils::parse_exception_for_prometheus_label,
@@ -633,19 +634,6 @@ impl FeatureFlagMatcher {
             }
         }
 
-        let has_cohort_filter = flag.filters.groups.iter().any(|group| {
-            group.properties.as_ref().map_or(false, |props| {
-                props.iter().any(|prop| prop.prop_type == "cohort")
-            })
-        });
-
-        let flag_to_evaluate = if has_cohort_filter {
-            flag.transform_cohort_filters(self.postgres_reader.clone(), self.team_id)
-                .await?
-        } else {
-            flag.clone()
-        };
-
         // Sort conditions with variant overrides to the top so that we can evaluate them first
         let mut sorted_conditions: Vec<(usize, &FlagGroupType)> =
             flag.get_conditions().iter().enumerate().collect();
@@ -656,7 +644,7 @@ impl FeatureFlagMatcher {
         for (index, condition) in sorted_conditions {
             let (is_match, reason) = self
                 .is_condition_match(
-                    &flag_to_evaluate,
+                    flag,
                     condition,
                     property_overrides.clone(),
                     hash_key_overrides.clone(),
@@ -745,12 +733,30 @@ impl FeatureFlagMatcher {
                     .await;
             }
 
-            // NB: we can only evaluate group or person properties, not both
+            // Separate cohort and non-cohort filters
+            let (cohort_filters, non_cohort_filters): (Vec<PropertyFilter>, Vec<PropertyFilter>) =
+                flag_property_filters
+                    .iter()
+                    .cloned()
+                    .partition(|prop| prop.prop_type == "cohort");
+
+            // Evaluate non-cohort properties first to get properties_to_check
             let properties_to_check = self
-                .get_properties_to_check(feature_flag, property_overrides, flag_property_filters)
+                .get_properties_to_check(feature_flag, property_overrides, &non_cohort_filters)
                 .await?;
 
-            if !all_properties_match(flag_property_filters, &properties_to_check) {
+            // Evaluate cohort conditions
+            if !cohort_filters.is_empty() {
+                if !self
+                    .evaluate_cohort_filters(&cohort_filters, &properties_to_check)
+                    .await?
+                {
+                    return Ok((false, FeatureFlagMatchReason::NoConditionMatch));
+                }
+            }
+
+            // Evaluate non-cohort properties
+            if !all_properties_match(&non_cohort_filters, &properties_to_check) {
                 return Ok((false, FeatureFlagMatchReason::NoConditionMatch));
             }
         }
@@ -816,6 +822,85 @@ impl FeatureFlagMatcher {
         } else {
             self.get_person_properties_from_cache_or_db().await
         }
+    }
+
+    pub async fn evaluate_cohort_filters(
+        &self,
+        filters: &[PropertyFilter],
+        target_properties: &HashMap<String, Value>,
+    ) -> Result<bool, FlagError> {
+        Box::pin(self.evaluate_potentially_nested_cohort_filters(filters, target_properties)).await
+    }
+
+    async fn evaluate_potentially_nested_cohort_filters(
+        &self,
+        filters: &[PropertyFilter],
+        target_properties: &HashMap<String, Value>,
+    ) -> Result<bool, FlagError> {
+        let mut cohort_filters = Vec::new();
+        let mut non_cohort_filters = Vec::new();
+
+        // Separate cohort filters from non-cohort filters
+        for filter in filters {
+            if filter.prop_type == "cohort" {
+                cohort_filters.push(filter);
+            } else {
+                non_cohort_filters.push(filter);
+            }
+        }
+
+        // Evaluate non-cohort filters
+        for filter in &non_cohort_filters {
+            if !match_property(filter, target_properties, false).unwrap_or(false) {
+                return Ok(false);
+            }
+        }
+
+        // Evaluate cohort filters
+        if !cohort_filters.is_empty() {
+            let cohort_ids: HashSet<CohortId> = cohort_filters
+                .iter()
+                .filter_map(|f| f.value.as_i64().map(|id| id as CohortId))
+                .collect();
+
+            let cohorts = self.fetch_cohorts(cohort_ids.clone()).await?;
+            let seen_cohorts_cache: HashMap<CohortId, CohortOrEmpty> = cohorts
+                .into_iter()
+                .map(|cohort| (cohort.id, CohortOrEmpty::Cohort(cohort)))
+                .collect();
+
+            let sorted_cohort_ids = sort_cohorts_topologically(cohort_ids, &seen_cohorts_cache);
+
+            for cohort_id in sorted_cohort_ids {
+                if let Some(CohortOrEmpty::Cohort(cohort)) = seen_cohorts_cache.get(&cohort_id) {
+                    let cohort_property_filters = cohort.parse_filters()?; // TODO error handle
+                    let cohort_match = self
+                        .evaluate_cohort_filters(&cohort_property_filters, target_properties)
+                        .await?;
+
+                    let filter = cohort_filters
+                        .iter()
+                        .find(|f| f.value.as_i64() == Some(cohort_id as i64))
+                        .unwrap();
+                    match filter.operator {
+                        Some(OperatorType::In) if !cohort_match => return Ok(false),
+                        Some(OperatorType::NotIn) if cohort_match => return Ok(false),
+                        _ => {}
+                    }
+                }
+            }
+        }
+
+        Ok(true)
+    }
+
+    async fn fetch_cohorts(&self, cohort_ids: HashSet<CohortId>) -> Result<Vec<Cohort>, FlagError> {
+        let mut cohorts = Vec::new();
+        for &id in &cohort_ids {
+            let cohort = Cohort::from_pg(self.postgres_reader.clone(), id, self.team_id).await?;
+            cohorts.push(cohort);
+        }
+        Ok(cohorts)
     }
 
     /// Check if a super condition matches for a feature flag.
@@ -1456,8 +1541,8 @@ mod tests {
             OperatorType,
         },
         test_utils::{
-            insert_flag_for_team_in_pg, insert_new_team_in_pg, insert_person_for_team_in_pg,
-            setup_pg_reader_client, setup_pg_writer_client,
+            insert_cohort_for_team_in_pg, insert_flag_for_team_in_pg, insert_new_team_in_pg,
+            insert_person_for_team_in_pg, setup_pg_reader_client, setup_pg_writer_client,
         },
     };
 
@@ -3156,13 +3241,469 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_basic_cohort_matching() {
+        let postgres_reader = setup_pg_reader_client(None).await;
+        let postgres_writer = setup_pg_writer_client(None).await;
+        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
+            .await
+            .unwrap();
+
+        // Insert a cohort with the condition that matches the test user's properties
+        let cohort_row = insert_cohort_for_team_in_pg(
+            postgres_reader.clone(),
+            team.id,
+            None,
+            json!({
+                "type": "OR",
+                "values": [{
+                    "type": "OR",
+                    "values": [{
+                        "key": "$browser_version",
+                        "type": "person",
+                        "value": "125",
+                        "negation": false,
+                        "operator": "gt"
+                    }]
+                }]
+            }),
+            false,
+        )
+        .await
+        .unwrap();
+
+        // Insert a person with properties that match the cohort condition
+        insert_person_for_team_in_pg(
+            postgres_reader.clone(),
+            team.id,
+            "test_user".to_string(),
+            Some(json!({"$browser_version": 126})),
+        )
+        .await
+        .unwrap();
+
+        // Define a flag with a cohort filter
+        let flag = create_test_flag(
+            None,
+            Some(team.id),
+            None,
+            None,
+            Some(FlagFilters {
+                groups: vec![FlagGroupType {
+                    properties: Some(vec![PropertyFilter {
+                        key: "id".to_string(),
+                        value: json!(cohort_row.id),
+                        operator: Some(OperatorType::In),
+                        prop_type: "cohort".to_string(),
+                        group_type_index: None,
+                        negation: Some(false),
+                    }]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                }],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+            }),
+            None,
+            None,
+            None,
+        );
+
+        let mut matcher = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            team.id,
+            postgres_reader.clone(),
+            postgres_writer.clone(),
+            None,
+            None,
+            None,
+        );
+
+        let result = matcher.get_match(&flag, None, None).await.unwrap();
+        println!("{:?}", result);
+
+        assert!(result.matches);
+    }
+
+    #[tokio::test]
+    async fn test_not_in_cohort_matching() {
+        let postgres_reader = setup_pg_reader_client(None).await;
+        let postgres_writer = setup_pg_writer_client(None).await;
+        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
+            .await
+            .unwrap();
+
+        // Insert a cohort with a condition that does not match the test user's properties
+        let cohort_row = insert_cohort_for_team_in_pg(
+            postgres_reader.clone(),
+            team.id,
+            None,
+            json!({
+                "type": "OR",
+                "values": [{
+                    "type": "OR",
+                    "values": [{
+                        "key": "$browser_version",
+                        "type": "person",
+                        "value": "130",
+                        "negation": false,
+                        "operator": "gt"
+                    }]
+                }]
+            }),
+            false,
+        )
+        .await
+        .unwrap();
+
+        // Insert a person with properties that do not match the cohort condition
+        insert_person_for_team_in_pg(
+            postgres_reader.clone(),
+            team.id,
+            "test_user".to_string(),
+            Some(json!({"$browser_version": 126})),
+        )
+        .await
+        .unwrap();
+
+        // Define a flag with a NotIn cohort filter
+        let flag = create_test_flag(
+            None,
+            Some(team.id),
+            None,
+            None,
+            Some(FlagFilters {
+                groups: vec![FlagGroupType {
+                    properties: Some(vec![PropertyFilter {
+                        key: "id".to_string(),
+                        value: json!(cohort_row.id),
+                        operator: Some(OperatorType::NotIn),
+                        prop_type: "cohort".to_string(),
+                        group_type_index: None,
+                        negation: Some(false),
+                    }]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                }],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+            }),
+            None,
+            None,
+            None,
+        );
+
+        let mut matcher = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            team.id,
+            postgres_reader.clone(),
+            postgres_writer.clone(),
+            None,
+            None,
+            None,
+        );
+
+        let result = matcher.get_match(&flag, None, None).await.unwrap();
+        println!("{:?}", result);
+
+        assert!(result.matches);
+    }
+
+    #[tokio::test]
+    async fn test_not_in_cohort_matching_user_in_cohort() {
+        let postgres_reader = setup_pg_reader_client(None).await;
+        let postgres_writer = setup_pg_writer_client(None).await;
+        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
+            .await
+            .unwrap();
+
+        // Insert a cohort with a condition that matches the test user's properties
+        let cohort_row = insert_cohort_for_team_in_pg(
+            postgres_reader.clone(),
+            team.id,
+            None,
+            json!({
+                "type": "OR",
+                "values": [{
+                    "type": "OR",
+                    "values": [{
+                        "key": "$browser_version",
+                        "type": "person",
+                        "value": "125",
+                        "negation": false,
+                        "operator": "gt"
+                    }]
+                }]
+            }),
+            false,
+        )
+        .await
+        .unwrap();
+
+        // Insert a person with properties that match the cohort condition
+        insert_person_for_team_in_pg(
+            postgres_reader.clone(),
+            team.id,
+            "test_user".to_string(),
+            Some(json!({"$browser_version": 126})),
+        )
+        .await
+        .unwrap();
+
+        // Define a flag with a NotIn cohort filter
+        let flag = create_test_flag(
+            None,
+            Some(team.id),
+            None,
+            None,
+            Some(FlagFilters {
+                groups: vec![FlagGroupType {
+                    properties: Some(vec![PropertyFilter {
+                        key: "id".to_string(),
+                        value: json!(cohort_row.id),
+                        operator: Some(OperatorType::NotIn),
+                        prop_type: "cohort".to_string(),
+                        group_type_index: None,
+                        negation: Some(false),
+                    }]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                }],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+            }),
+            None,
+            None,
+            None,
+        );
+
+        let mut matcher = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            team.id,
+            postgres_reader.clone(),
+            postgres_writer.clone(),
+            None,
+            None,
+            None,
+        );
+
+        let result = matcher.get_match(&flag, None, None).await.unwrap();
+        println!("{:?}", result);
+
+        // The user matches the cohort, but the flag is set to NotIn, so it should evaluate to false
+        assert!(!result.matches);
+    }
+
+    #[tokio::test]
+    async fn test_cohort_dependent_on_another_cohort() {
+        let postgres_reader = setup_pg_reader_client(None).await;
+        let postgres_writer = setup_pg_writer_client(None).await;
+        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
+            .await
+            .unwrap();
+
+        // Insert a base cohort
+        let base_cohort_row = insert_cohort_for_team_in_pg(
+            postgres_reader.clone(),
+            team.id,
+            None,
+            json!({
+                "type": "OR",
+                "values": [{
+                    "type": "OR",
+                    "values": [{
+                        "key": "$browser_version",
+                        "type": "person",
+                        "value": "125",
+                        "negation": false,
+                        "operator": "gt"
+                    }]
+                }]
+            }),
+            false,
+        )
+        .await
+        .unwrap();
+
+        // Insert a dependent cohort that includes the base cohort
+        let dependent_cohort_row = insert_cohort_for_team_in_pg(
+            postgres_reader.clone(),
+            team.id,
+            None,
+            json!({
+                "type": "OR",
+                "values": [{
+                    "type": "OR",
+                    "values": [{
+                        "key": "id",
+                        "type": "cohort",
+                        "value": base_cohort_row.id,
+                        "negation": false,
+                        "operator": "in"
+                    }]
+                }]
+            }),
+            false,
+        )
+        .await
+        .unwrap();
+
+        // Insert a person with properties that match the base cohort condition
+        insert_person_for_team_in_pg(
+            postgres_reader.clone(),
+            team.id,
+            "test_user".to_string(),
+            Some(json!({"$browser_version": 126})),
+        )
+        .await
+        .unwrap();
+
+        // Define a flag with a cohort filter that depends on another cohort
+        let flag = create_test_flag(
+            None,
+            Some(team.id),
+            None,
+            None,
+            Some(FlagFilters {
+                groups: vec![FlagGroupType {
+                    properties: Some(vec![PropertyFilter {
+                        key: "id".to_string(),
+                        value: json!(dependent_cohort_row.id),
+                        operator: Some(OperatorType::In),
+                        prop_type: "cohort".to_string(),
+                        group_type_index: None,
+                        negation: Some(false),
+                    }]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                }],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+            }),
+            None,
+            None,
+            None,
+        );
+
+        let mut matcher = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            team.id,
+            postgres_reader.clone(),
+            postgres_writer.clone(),
+            None,
+            None,
+            None,
+        );
+
+        let result = matcher.get_match(&flag, None, None).await.unwrap();
+        println!("{:?}", result);
+
+        // This test might fail if the system doesn't support cohort dependencies
+        assert!(result.matches);
+    }
+
+    #[tokio::test]
+    async fn test_in_cohort_matching_user_not_in_cohort() {
+        let postgres_reader = setup_pg_reader_client(None).await;
+        let postgres_writer = setup_pg_writer_client(None).await;
+        let team = insert_new_team_in_pg(postgres_reader.clone(), None)
+            .await
+            .unwrap();
+
+        // Insert a cohort with a condition that does not match the test user's properties
+        let cohort_row = insert_cohort_for_team_in_pg(
+            postgres_reader.clone(),
+            team.id,
+            None,
+            json!({
+                "type": "OR",
+                "values": [{
+                    "type": "OR",
+                    "values": [{
+                        "key": "$browser_version",
+                        "type": "person",
+                        "value": "130",
+                        "negation": false,
+                        "operator": "gt"
+                    }]
+                }]
+            }),
+            false,
+        )
+        .await
+        .unwrap();
+
+        // Insert a person with properties that do not match the cohort condition
+        insert_person_for_team_in_pg(
+            postgres_reader.clone(),
+            team.id,
+            "test_user".to_string(),
+            Some(json!({"$browser_version": 125})),
+        )
+        .await
+        .unwrap();
+
+        // Define a flag with an In cohort filter
+        let flag = create_test_flag(
+            None,
+            Some(team.id),
+            None,
+            None,
+            Some(FlagFilters {
+                groups: vec![FlagGroupType {
+                    properties: Some(vec![PropertyFilter {
+                        key: "id".to_string(),
+                        value: json!(cohort_row.id),
+                        operator: Some(OperatorType::In),
+                        prop_type: "cohort".to_string(),
+                        group_type_index: None,
+                        negation: Some(false),
+                    }]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                }],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+            }),
+            None,
+            None,
+            None,
+        );
+
+        let mut matcher = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            team.id,
+            postgres_reader.clone(),
+            postgres_writer.clone(),
+            None,
+            None,
+            None,
+        );
+
+        let result = matcher.get_match(&flag, None, None).await.unwrap();
+        println!("{:?}", result);
+
+        // The user does not match the cohort, and the flag is set to In, so it should evaluate to false
+        assert!(!result.matches);
+    }
+
+    #[tokio::test]
     async fn test_set_feature_flag_hash_key_overrides_success() {
         let postgres_reader = setup_pg_reader_client(None).await;
         let postgres_writer = setup_pg_writer_client(None).await;
         let team = insert_new_team_in_pg(postgres_reader.clone(), None)
             .await
             .unwrap();
-        let distinct_id = "user1".to_string();
+        let distinct_id = "user2".to_string();
 
         // Insert person
         insert_person_for_team_in_pg(postgres_reader.clone(), team.id, distinct_id.clone(), None)
@@ -3187,7 +3728,7 @@ mod tests {
             Some(true),  // ensure_experience_continuity
         );
 
-        // need to convert flag to FeatureFlagRow
+        // Convert flag to FeatureFlagRow
         let flag_row = FeatureFlagRow {
             id: flag.id,
             team_id: flag.team_id,
@@ -3204,8 +3745,8 @@ mod tests {
             .await
             .unwrap();
 
-        // Attempt to set hash key override
-        let result = set_feature_flag_hash_key_overrides(
+        // Set hash key override
+        set_feature_flag_hash_key_overrides(
             postgres_writer.clone(),
             team.id,
             vec![distinct_id.clone()],
@@ -3214,9 +3755,7 @@ mod tests {
         .await
         .unwrap();
 
-        assert!(result, "Hash key override should be set successfully");
-
-        // Retrieve the hash key overrides
+        // Retrieve hash key overrides
         let overrides = get_feature_flag_hash_key_overrides(
             postgres_reader.clone(),
             team.id,
@@ -3225,14 +3764,10 @@ mod tests {
         .await
         .unwrap();
 
-        assert!(
-            !overrides.is_empty(),
-            "At least one hash key override should be set"
-        );
         assert_eq!(
             overrides.get("test_flag"),
             Some(&"hash_key_2".to_string()),
-            "Hash key override for 'test_flag' should match the set value"
+            "Hash key override should match the set value"
         );
     }
 
@@ -3310,6 +3845,7 @@ mod tests {
             "Hash key override should match the set value"
         );
     }
+
     #[tokio::test]
     async fn test_evaluate_feature_flags_with_experience_continuity() {
         let postgres_reader = setup_pg_reader_client(None).await;

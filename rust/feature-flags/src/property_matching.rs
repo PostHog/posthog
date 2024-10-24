@@ -43,6 +43,9 @@ pub fn match_property(
         )));
     }
 
+    println!("property: {:?}", property);
+    println!("matching_property_values: {:?}", matching_property_values);
+
     let key = &property.key;
     let operator = property.operator.clone().unwrap_or(OperatorType::Exact);
     let value = &property.value;
@@ -192,6 +195,12 @@ pub fn match_property(
             // } else {
             //     Ok(false)
             // }
+        }
+        OperatorType::In | OperatorType::NotIn => {
+            // TODO: we handle these in cohort matching, so we can just return false here
+            // because by the time we match properties, we've already decomposed the cohort
+            // filter into multiple property filters
+            Ok(false)
         }
     }
 }

@@ -1,7 +1,4 @@
-use crate::{
-    api::FlagError, cohort_definitions::Cohort, database::Client as DatabaseClient,
-    redis::Client as RedisClient,
-};
+use crate::{api::FlagError, database::Client as DatabaseClient, redis::Client as RedisClient};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tracing::instrument;
@@ -28,6 +25,8 @@ pub enum OperatorType {
     IsDateExact,
     IsDateAfter,
     IsDateBefore,
+    In,
+    NotIn,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -122,34 +121,6 @@ impl FeatureFlag {
                 .as_object()
                 .and_then(|obj| obj.get(match_val).cloned())
         })
-    }
-
-    pub async fn transform_cohort_filters(
-        &self,
-        postgres_reader: Arc<dyn DatabaseClient + Send + Sync>,
-        team_id: i32,
-    ) -> Result<FeatureFlag, FlagError> {
-        let mut transformed_flag = self.clone();
-        for group in &mut transformed_flag.filters.groups {
-            if let Some(properties) = &mut group.properties {
-                let mut new_properties = Vec::new();
-                for prop in properties.iter() {
-                    if prop.prop_type == "cohort" {
-                        // TODO is there a cleaner way to handle the who cohort values being numbers thing?
-                        let cohort_id = prop.value.as_i64().ok_or(FlagError::InvalidCohortId)?;
-                        let cohort =
-                            Cohort::from_pg(postgres_reader.clone(), cohort_id as i32, team_id)
-                                .await?;
-                        let cohort_properties = cohort.parse_filters()?;
-                        new_properties.extend(cohort_properties);
-                    } else {
-                        new_properties.push(prop.clone());
-                    }
-                }
-                group.properties = Some(new_properties);
-            }
-        }
-        Ok(transformed_flag)
     }
 }
 
