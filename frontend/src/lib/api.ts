@@ -2443,8 +2443,7 @@ const api = {
         query: T,
         options?: ApiMethodOptions,
         queryId?: string,
-        refresh?: boolean,
-        async?: boolean,
+        refresh?: RefreshType,
         filtersOverride?: DashboardFilter | null,
         variablesOverride?: Record<string, HogQLVariable> | null
     ): Promise<
@@ -2454,13 +2453,12 @@ const api = {
                 : T['response']
             : Record<string, any>
     > {
-        const refreshParam: RefreshType | undefined = refresh && async ? 'force_async' : async ? 'async' : refresh
         return await new ApiRequest().query().create({
             ...options,
             data: {
                 query,
                 client_query_id: queryId,
-                refresh: refreshParam,
+                refresh,
                 filters_override: filtersOverride,
                 variables_override: variablesOverride,
             },

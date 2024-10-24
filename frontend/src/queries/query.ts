@@ -15,6 +15,7 @@ import {
     NodeKind,
     PersonsNode,
     QueryStatus,
+    RefreshType,
 } from './schema'
 import {
     isAsyncResponse,
@@ -101,12 +102,13 @@ async function executeQuery<N extends DataNode>(
         !!featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.QUERY_ASYNC]
 
     if (!pollOnly) {
+        const refreshParam: RefreshType | undefined =
+            refresh && isAsyncQuery ? 'force_async' : isAsyncQuery ? 'async' : refresh
         const response = await api.query(
             queryNode,
             methodOptions,
             queryId,
-            refresh,
-            isAsyncQuery,
+            refreshParam,
             filtersOverride,
             variablesOverride
         )
