@@ -227,10 +227,8 @@ export interface HogQLQueryModifiers {
         | 'person_id_no_override_properties_on_events'
         | 'person_id_override_properties_on_events'
         | 'person_id_override_properties_joined'
-    personsArgMaxVersion?: 'auto' | 'v1' | 'v2'
     inCohortVia?: 'auto' | 'leftjoin' | 'subquery' | 'leftjoin_conjoined'
     materializationMode?: 'auto' | 'legacy_null_as_string' | 'legacy_null_as_null' | 'disabled'
-    optimizeJoinedFilters?: boolean
     dataWarehouseEventsModifiers?: DataWarehouseEventsModifier[]
     debug?: boolean
     s3TableUseInvalidColumns?: boolean

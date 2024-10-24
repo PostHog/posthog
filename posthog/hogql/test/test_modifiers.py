@@ -5,7 +5,6 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.models import Cohort
 from posthog.schema import (
     HogQLQueryModifiers,
-    PersonsArgMaxVersion,
     PersonsOnEventsMode,
     MaterializationMode,
 )
@@ -155,50 +154,6 @@ class TestModifiers(BaseTest):
             for value in test_case.other_expected_values:
                 assert value in clickhouse_query
 
-    def test_modifiers_persons_argmax_version_v2(self):
-        query = "SELECT * FROM persons"
-
-        # Control (v1)
-        response = execute_hogql_query(
-            query,
-            team=self.team,
-            modifiers=HogQLQueryModifiers(personsArgMaxVersion=PersonsArgMaxVersion.V1),
-        )
-        assert "in(tuple(person.id, person.version)" not in response.clickhouse
-
-        # Test (v2)
-        response = execute_hogql_query(
-            query,
-            team=self.team,
-            modifiers=HogQLQueryModifiers(personsArgMaxVersion=PersonsArgMaxVersion.V2),
-        )
-        assert "in(tuple(person.id, person.version)" in response.clickhouse
-
-    def test_modifiers_persons_argmax_version_auto(self):
-        # Use the v2 query when selecting properties.x
-        response = execute_hogql_query(
-            "SELECT id, properties.$browser, is_identified FROM persons",
-            team=self.team,
-            modifiers=HogQLQueryModifiers(personsArgMaxVersion=PersonsArgMaxVersion.AUTO),
-        )
-        assert "in(tuple(person.id, person.version)" in response.clickhouse
-
-        # Use the v2 query when selecting properties
-        response = execute_hogql_query(
-            "SELECT id, properties FROM persons",
-            team=self.team,
-            modifiers=HogQLQueryModifiers(personsArgMaxVersion=PersonsArgMaxVersion.AUTO),
-        )
-        assert "in(tuple(person.id, person.version)" in response.clickhouse
-
-        # Use the v1 query when not selecting any properties
-        response = execute_hogql_query(
-            "SELECT id, is_identified FROM persons",
-            team=self.team,
-            modifiers=HogQLQueryModifiers(personsArgMaxVersion=PersonsArgMaxVersion.AUTO),
-        )
-        assert "in(tuple(person.id, person.version)" not in response.clickhouse
-
     def test_modifiers_in_cohort_join(self):
         cohort = Cohort.objects.create(team=self.team, name="test")
         response = execute_hogql_query(
@@ -263,26 +218,3 @@ class TestModifiers(BaseTest):
             "SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', '') AS `$browser` FROM events"
             in response.clickhouse
         )
-
-    def test_optimize_joined_filters(self):
-        # no optimizations
-        response = execute_hogql_query(
-            f"select event from events where person.properties.$browser ilike '%Chrome%'",
-            team=self.team,
-            modifiers=HogQLQueryModifiers(optimizeJoinedFilters=False),
-        )
-        # "ilike" shows up once in the response
-        assert response is not None
-        assert response.clickhouse is not None
-        assert response.clickhouse.count("ilike") == 1
-
-        # with optimizations
-        response = execute_hogql_query(
-            f"select event from events where person.properties.$browser ilike '%Chrome%'",
-            team=self.team,
-            modifiers=HogQLQueryModifiers(optimizeJoinedFilters=True),
-        )
-        # "ilike" shows up twice in the response
-        assert response is not None
-        assert response.clickhouse is not None
-        assert response.clickhouse.count("ilike") == 2
