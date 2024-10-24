@@ -30,6 +30,15 @@ def create_external_data_job(
 
 
 @database_sync_to_async
+def aget_running_job_for_schema(schema_id: str) -> ExternalDataJob | None:
+    return (
+        ExternalDataJob.objects.filter(schema_id=schema_id, status=ExternalDataJob.Status.RUNNING)
+        .order_by("-created_at")
+        .first()
+    )
+
+
+@database_sync_to_async
 def aupdate_external_job_status(
     job_id: str, team_id: int, status: ExternalDataJob.Status, latest_error: str | None
 ) -> ExternalDataJob:

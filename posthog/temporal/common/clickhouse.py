@@ -461,7 +461,7 @@ async def get_client(
     #        ssl_context.load_verify_locations(settings.CLICKHOUSE_CA)
     #    elif ssl_context.verify_mode is ssl.CERT_REQUIRED:
     #        ssl_context.load_default_certs(ssl.Purpose.SERVER_AUTH)
-    timeout = aiohttp.ClientTimeout(total=None, connect=None, sock_connect=None, sock_read=None)
+    timeout = aiohttp.ClientTimeout(total=None, connect=None, sock_connect=30, sock_read=None)
 
     if team_id is None:
         max_block_size = settings.CLICKHOUSE_MAX_BLOCK_SIZE_DEFAULT
