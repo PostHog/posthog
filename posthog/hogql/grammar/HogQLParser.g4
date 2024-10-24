@@ -51,14 +51,11 @@ kvPairList: kvPair (COMMA kvPair)* COMMA?;
 
 
 // SELECT statement
-select: (selectSetStmt | selectStmt | hogqlxTagElement) EOF;
+select: (selectUnionStmt | selectStmt | hogqlxTagElement) EOF;
 
-selectIntersectStmt: selectStmtWithParens (INTERSECT selectStmtWithParens)*;
-selectUnionStmt: (selectStmtWithParens | selectIntersectStmt) (UNION ALL (selectStmtWithParens | selectIntersectStmt))*;
-selectSetStmt
-    : selectIntersectStmt
-    | selectUnionStmt;
-selectStmtWithParens: selectStmt | LPAREN selectSetStmt RPAREN | placeholder;
+selectStmtWithParens: selectStmt | LPAREN selectUnionStmt RPAREN | placeholder;
+// selectIntersectStmt: selectStmtWithParens (INTERSECT selectStmtWithParens)*;
+selectUnionStmt: selectStmtWithParens ((EXCEPT | UNION ALL | INTERSECT) selectStmtWithParens)*;
 
 selectStmt:
     with=withClause?
@@ -205,7 +202,7 @@ columnExpr
     | <assoc=right> columnExpr QUERY columnExpr COLON columnExpr                          # ColumnExprTernaryOp
     | columnExpr (AS identifier | AS STRING_LITERAL)                                      # ColumnExprAlias
     | (tableIdentifier DOT)? ASTERISK                                                     # ColumnExprAsterisk  // single-column only
-    | LPAREN selectSetStmt RPAREN                                                         # ColumnExprSubquery  // single-column only
+    | LPAREN selectUnionStmt RPAREN                                                         # ColumnExprSubquery  // single-column only
     | LPAREN columnExpr RPAREN                                                            # ColumnExprParens    // single-column only
     | LPAREN columnExprList RPAREN                                                        # ColumnExprTuple
     | LBRACKET columnExprList? RBRACKET                                                   # ColumnExprArray
@@ -235,7 +232,7 @@ hogqlxTagAttribute
 
 withExprList: withExpr (COMMA withExpr)* COMMA?;
 withExpr
-    : identifier AS LPAREN selectSetStmt RPAREN    # WithExprSubquery
+    : identifier AS LPAREN selectUnionStmt RPAREN    # WithExprSubquery
     // NOTE: asterisk and subquery goes before |columnExpr| so that we can mark them as multi-column expressions.
     | columnExpr AS identifier                       # WithExprColumn
     ;
@@ -250,7 +247,7 @@ nestedIdentifier: identifier (DOT identifier)*;
 tableExpr
     : tableIdentifier                    # TableExprIdentifier
     | tableFunctionExpr                  # TableExprFunction
-    | LPAREN selectSetStmt RPAREN      # TableExprSubquery
+    | LPAREN selectUnionStmt RPAREN      # TableExprSubquery
     | tableExpr (alias | AS identifier)  # TableExprAlias
     | hogqlxTagElement                   # TableExprTag
     | placeholder                        # TableExprPlaceholder

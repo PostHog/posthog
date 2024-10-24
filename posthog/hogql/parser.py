@@ -3,9 +3,11 @@ from collections.abc import Callable
 
 from antlr4 import CommonTokenStream, InputStream, ParseTreeVisitor, ParserRuleContext
 from antlr4.error.ErrorListener import ErrorListener
+from antlr4.tree.Tree import TerminalNodeImpl
 from prometheus_client import Histogram
 
 from posthog.hogql import ast
+from posthog.hogql.ast import SelectUnionNode
 from posthog.hogql.base import AST
 from posthog.hogql.constants import RESERVED_KEYWORDS
 from posthog.hogql.errors import BaseHogQLError, NotImplementedError, SyntaxError
@@ -327,47 +329,29 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
     ##### HogQL rules
 
     def visitSelect(self, ctx: HogQLParser.SelectContext):
-        return self.visit(ctx.selectSetStmt() or ctx.selectStmt() or ctx.hogqlxTagElement())
+        return self.visit(ctx.selectUnionStmt() or ctx.selectStmt() or ctx.hogqlxTagElement())
 
-    def visitSelectSetStmt(self, ctx: HogQLParser.SelectSetStmtContext):
-        return self.visit(ctx.selectUnionStmt() or ctx.selectIntersectStmt())
+    def visitSelectUnionStmt(self, ctx: HogQLParser.SelectUnionStmtContext):
+        select_queries: list[SelectUnionNode] = []
+        union_type = []
+        for child in ctx.children:
+            if isinstance(child, HogQLParser.SelectStmtWithParensContext | HogQLParser.SelectUnionStmtContext):
+                select_query = self.visit(child)
+                select_queries.append(
+                    SelectUnionNode(
+                        select_query=select_query, union_type=" ".join(union_type).upper() if union_type else None
+                    )
+                )
+                union_type = []
+            elif isinstance(child, TerminalNodeImpl):
+                union_type.append(child.getText())
 
-    def visitSelectIntersectStmt(self, ctx: HogQLParser.SelectIntersectStmtContext):
-        return self.visitSelectUnionStmt(ctx)
-
-    def visitSelectUnionStmt(self, ctx: HogQLParser.SelectIntersectStmtContext | HogQLParser.SelectUnionStmtContext):
-        value: Literal["UNION ALL" | "INTERSECT"] = (
-            "INTERSECT" if isinstance(ctx, HogQLParser.SelectIntersectStmtContext) else "UNION ALL"
-        )
-        select_queries: list[ast.SelectQuery | ast.SelectUnionQuery | ast.Placeholder] = [
-            self.visit(select)
-            for select in ctx.children
-            if isinstance(
-                select,
-                HogQLParser.SelectStmtWithParensContext
-                | HogQLParser.SelectIntersectStmtContext
-                | HogQLParser.SelectUnionStmtContext,
-            )
-        ]
-        flattened_queries: list[ast.SelectQuery | ast.SelectUnionQuery] = []
-        for query in select_queries:
-            if isinstance(query, ast.SelectQuery):
-                flattened_queries.append(query)
-            elif isinstance(query, ast.SelectUnionQuery):
-                if query.value == value:
-                    flattened_queries.extend(query.select_queries)
-                else:
-                    flattened_queries.append(query)
-            elif isinstance(query, ast.Placeholder):
-                flattened_queries.append(query)  # type: ignore
-            else:
-                raise Exception(f"Unexpected query node type {type(query).__name__}")
-        if len(flattened_queries) == 1:
-            return flattened_queries[0]
-        return ast.SelectUnionQuery(select_queries=flattened_queries, value=value)
+        if len(select_queries) == 1:
+            return select_queries[0]
+        return ast.SelectUnionQuery(select_queries=select_queries)
 
     def visitSelectStmtWithParens(self, ctx: HogQLParser.SelectStmtWithParensContext):
-        return self.visit(ctx.selectStmt() or ctx.selectSetStmt() or ctx.placeholder())
+        return self.visit(ctx.selectStmt() or ctx.selectUnionStmt() or ctx.placeholder())
 
     def visitSelectStmt(self, ctx: HogQLParser.SelectStmtContext):
         select_query = ast.SelectQuery(
@@ -692,7 +676,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return ast.Dict(items=self.visit(ctx.kvPairList()) if ctx.kvPairList() else [])
 
     def visitColumnExprSubquery(self, ctx: HogQLParser.ColumnExprSubqueryContext):
-        return self.visit(ctx.selectSetStmt())
+        return self.visit(ctx.selectUnionStmt())
 
     def visitColumnExprLiteral(self, ctx: HogQLParser.ColumnExprLiteralContext):
         return self.visitChildren(ctx)

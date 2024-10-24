@@ -276,16 +276,21 @@ class _Printer(Visitor):
 
     def visit_select_union_query(self, node: ast.SelectUnionQuery):
         self._indent -= 1
-        queries = [self.visit(expr) for expr in node.select_queries]
-        value = "INTERSECT" if node.value == "INTERSECT" else "UNION ALL"
-        if self.pretty:
-            query = f"\n{self.indent(1)}{value}\n{self.indent(1)}".join([query.strip() for query in queries])
-        else:
-            query = f" {value} ".join(queries)
+        ret = ""
+        for expr in node.select_queries:
+            query = self.visit(expr.select_query)
+            if self.pretty:
+                query = query.strip()
+            if expr.union_type is not None:
+                if self.pretty:
+                    ret += f"\n{self.indent(1)}{expr.union_type}\n{self.indent(1)}"
+                else:
+                    ret += f" {expr.union_type} "
+            ret += query
         self._indent += 1
         if len(self.stack) > 1:
-            return f"({query.strip()})"
-        return query
+            return f"({ret.strip()})"
+        return ret
 
     def visit_select_query(self, node: ast.SelectQuery):
         if self.dialect == "clickhouse":

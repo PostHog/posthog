@@ -136,7 +136,7 @@ class Resolver(CloningVisitor):
             self.scopes.append(ast.SelectQueryType(ctes=default_ctes))
 
         node = super().visit_select_union_query(node)
-        node.type = ast.SelectUnionQueryType(types=[expr.type for expr in node.select_queries])  # type: ignore
+        node.type = ast.SelectUnionQueryType(types=[node.select_query.type for node in node.select_queries])  # type: ignore
 
         if default_ctes:
             self.scopes.pop()
