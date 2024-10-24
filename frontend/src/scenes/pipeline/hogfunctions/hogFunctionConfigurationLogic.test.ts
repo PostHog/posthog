@@ -171,6 +171,7 @@ describe('hogFunctionConfigurationLogic', () => {
             expect(logic.values.template).toEqual(HOG_TEMPLATE)
             expect(logic.values.configuration).toEqual({
                 name: HOG_TEMPLATE.name,
+                type: HOG_TEMPLATE.type,
                 description: HOG_TEMPLATE.description,
                 inputs_schema: HOG_TEMPLATE.inputs_schema,
                 filters: null,
