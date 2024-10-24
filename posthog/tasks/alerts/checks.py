@@ -11,7 +11,7 @@ from celery.canvas import chain
 from django.conf import settings
 from django.db import transaction
 import structlog
-from sentry_sdk import capture_exception
+from sentry_sdk import capture_exception, set_tag
 
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager import (
@@ -289,10 +289,10 @@ def check_alert_and_notify_atomically(alert: AlertConfiguration) -> None:
         error_message = f"AlertCheckError: error sending notifications for alert_id = {alert.id}"
         logger.exception(error_message)
 
-        capture_exception(
-            Exception(error_message),
-            {"alert_id": alert.id, "message": str(err)},
-        )
+        set_tag("alert_config_id", alert.id)
+        set_tag("evaluation_error_message", str(err))
+
+        capture_exception(Exception(error_message))
 
         # don't want alert state to be updated (so that it's retried as next_check_at won't be updated)
         # so we raise again as @transaction.atomic decorator won't commit db updates
