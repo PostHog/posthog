@@ -1143,6 +1143,7 @@ HOGQL_AGGREGATIONS: dict[str, HogQLFunctionMeta] = {
     "maxIntersectionsPositionIf": HogQLFunctionMeta("maxIntersectionsPositionIf", 3, 3, aggregate=True),
 }
 HOGQL_POSTHOG_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
+    "stringOr": HogQLFunctionMeta("stringOr", 1, None),
     "matchesAction": HogQLFunctionMeta("matchesAction", 1, 1),
     "sparkline": HogQLFunctionMeta("sparkline", 1, 1),
     "recording_button": HogQLFunctionMeta("recording_button", 1, 1),
