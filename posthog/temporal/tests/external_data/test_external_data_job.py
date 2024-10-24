@@ -252,6 +252,7 @@ async def test_update_external_job_activity(activity_environment, team, **kwargs
         latest_error=None,
         internal_error=None,
         schema_id=str(schema.pk),
+        source_id=str(new_source.pk),
         team_id=team.id,
     )
 
@@ -296,6 +297,7 @@ async def test_update_external_job_activity_with_retryable_error(activity_enviro
         latest_error=None,
         internal_error="Some other retryable error",
         schema_id=str(schema.pk),
+        source_id=str(new_source.pk),
         team_id=team.id,
     )
 
@@ -341,6 +343,7 @@ async def test_update_external_job_activity_with_non_retryable_error(activity_en
         latest_error=None,
         internal_error="NoSuchTableError: TableA",
         schema_id=str(schema.pk),
+        source_id=str(new_source.pk),
         team_id=team.id,
     )
     with mock.patch("posthog.warehouse.models.external_data_schema.external_data_workflow_exists", return_value=False):
