@@ -43,7 +43,7 @@ describe('Hog Executor', () => {
 
     const mockFunctionManager = {
         reloadAllHogFunctions: jest.fn(),
-        getTeamHogFunctions: jest.fn(),
+        getTeamHogDestinations: jest.fn(),
         getTeamHogFunction: jest.fn(),
     }
 
@@ -64,7 +64,7 @@ describe('Hog Executor', () => {
                 ...HOG_FILTERS_EXAMPLES.no_filters,
             })
 
-            mockFunctionManager.getTeamHogFunctions.mockReturnValue([hogFunction])
+            mockFunctionManager.getTeamHogDestinations.mockReturnValue([hogFunction])
             mockFunctionManager.getTeamHogFunction.mockReturnValue(hogFunction)
         })
 
@@ -106,7 +106,7 @@ describe('Hog Executor', () => {
                 {
                     timestamp: expect.any(DateTime),
                     level: 'debug',
-                    message: "Suspending function due to async function call 'fetch'. Payload: 1872 bytes",
+                    message: "Suspending function due to async function call 'fetch'. Payload: 1918 bytes",
                 },
             ])
         })
@@ -187,7 +187,7 @@ describe('Hog Executor', () => {
             expect(logs.map((log) => log.message)).toMatchInlineSnapshot(`
                 Array [
                   "Executing function",
-                  "Suspending function due to async function call 'fetch'. Payload: 1872 bytes",
+                  "Suspending function due to async function call 'fetch'. Payload: 1918 bytes",
                   "Resuming function",
                   "Fetch response:, {\\"status\\":200,\\"body\\":\\"success\\"}",
                   "Function completed in 100ms. Sync: 0ms. Mem: 779 bytes. Ops: 22. Event: 'http://localhost:8000/events/1'",
@@ -206,7 +206,7 @@ describe('Hog Executor', () => {
             expect(logs.map((log) => log.message)).toMatchInlineSnapshot(`
                 Array [
                   "Executing function",
-                  "Suspending function due to async function call 'fetch'. Payload: 1872 bytes",
+                  "Suspending function due to async function call 'fetch'. Payload: 1918 bytes",
                   "Resuming function",
                   "Fetch response:, {\\"status\\":200,\\"body\\":{\\"foo\\":\\"bar\\"}}",
                   "Function completed in 100ms. Sync: 0ms. Mem: 779 bytes. Ops: 22. Event: 'http://localhost:8000/events/1'",
@@ -223,7 +223,7 @@ describe('Hog Executor', () => {
                 ...HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter,
             })
 
-            mockFunctionManager.getTeamHogFunctions.mockReturnValue([fn])
+            mockFunctionManager.getTeamHogDestinations.mockReturnValue([fn])
 
             const resultsShouldntMatch = executor.findMatchingFunctions(createHogExecutionGlobals({ groups: {} }))
             expect(resultsShouldntMatch.matchingFunctions).toHaveLength(0)
@@ -253,7 +253,7 @@ describe('Hog Executor', () => {
                 ...HOG_INPUTS_EXAMPLES.simple_fetch,
                 ...HOG_FILTERS_EXAMPLES.broken_filters,
             })
-            mockFunctionManager.getTeamHogFunctions.mockReturnValue([fn])
+            mockFunctionManager.getTeamHogDestinations.mockReturnValue([fn])
             const resultsShouldMatch = executor.findMatchingFunctions(
                 createHogExecutionGlobals({
                     groups: {},
@@ -285,7 +285,7 @@ describe('Hog Executor', () => {
                 ...HOG_FILTERS_EXAMPLES.elements_text_filter,
             })
 
-            mockFunctionManager.getTeamHogFunctions.mockReturnValue([fn])
+            mockFunctionManager.getTeamHogDestinations.mockReturnValue([fn])
             const elementsChain = (buttonText: string) =>
                 `span.LemonButton__content:attr__class="LemonButton__content"nth-child="2"nth-of-type="2"text="${buttonText}";span.LemonButton__chrome:attr__class="LemonButton__chrome"nth-child="1"nth-of-type="1";button.LemonButton.LemonButton--has-icon.LemonButton--secondary.LemonButton--status-default:attr__class="LemonButton LemonButton--secondary LemonButton--status-default LemonButton--has-icon"attr__type="button"nth-child="1"nth-of-type="1"text="${buttonText}";div.flex.gap-4.items-center:attr__class="flex gap-4 items-center"nth-child="1"nth-of-type="1";div.flex.flex-wrap.gap-4.justify-between:attr__class="flex gap-4 justify-between flex-wrap"nth-child="3"nth-of-type="3";div.flex.flex-1.flex-col.gap-4.h-full.relative.w-full:attr__class="relative w-full flex flex-col gap-4 flex-1 h-full"nth-child="1"nth-of-type="1";div.LemonTabs__content:attr__class="LemonTabs__content"nth-child="2"nth-of-type="1";div.LemonTabs.LemonTabs--medium:attr__class="LemonTabs LemonTabs--medium"attr__style="--lemon-tabs-slider-width: 48px; --lemon-tabs-slider-offset: 0px;"nth-child="1"nth-of-type="1";div.Navigation3000__scene:attr__class="Navigation3000__scene"nth-child="2"nth-of-type="2";main:nth-child="2"nth-of-type="1";div.Navigation3000:attr__class="Navigation3000"nth-child="1"nth-of-type="1";div:attr__id="root"attr_id="root"nth-child="3"nth-of-type="1";body.overflow-hidden:attr__class="overflow-hidden"attr__theme="light"nth-child="2"nth-of-type="1"`
 
@@ -335,7 +335,7 @@ describe('Hog Executor', () => {
                 ...HOG_FILTERS_EXAMPLES.elements_href_filter,
             })
 
-            mockFunctionManager.getTeamHogFunctions.mockReturnValue([fn])
+            mockFunctionManager.getTeamHogDestinations.mockReturnValue([fn])
             const elementsChain = (link: string) =>
                 `span.LemonButton__content:attr__class="LemonButton__content"attr__href="${link}"href="${link}"nth-child="2"nth-of-type="2"text="Activity";span.LemonButton__chrome:attr__class="LemonButton__chrome"nth-child="1"nth-of-type="1";a.LemonButton.LemonButton--full-width.LemonButton--has-icon.LemonButton--secondary.LemonButton--status-alt.Link.NavbarButton:attr__class="Link LemonButton LemonButton--secondary LemonButton--status-alt LemonButton--full-width LemonButton--has-icon NavbarButton"attr__data-attr="menu-item-activity"attr__href="${link}"href="${link}"nth-child="1"nth-of-type="1"text="Activity";li.w-full:attr__class="w-full"nth-child="6"nth-of-type="6";ul:nth-child="1"nth-of-type="1";div.Navbar3000__top.ScrollableShadows__inner:attr__class="ScrollableShadows__inner Navbar3000__top"nth-child="1"nth-of-type="1";div.ScrollableShadows.ScrollableShadows--vertical:attr__class="ScrollableShadows ScrollableShadows--vertical"nth-child="1"nth-of-type="1";div.Navbar3000__content:attr__class="Navbar3000__content"nth-child="1"nth-of-type="1";nav.Navbar3000:attr__class="Navbar3000"nth-child="1"nth-of-type="1";div.Navigation3000:attr__class="Navigation3000"nth-child="1"nth-of-type="1";div:attr__id="root"attr_id="root"nth-child="3"nth-of-type="1";body.overflow-hidden:attr__class="overflow-hidden"attr__theme="light"nth-child="2"nth-of-type="1"`
 
@@ -385,7 +385,7 @@ describe('Hog Executor', () => {
                 ...HOG_FILTERS_EXAMPLES.elements_tag_and_id_filter,
             })
 
-            mockFunctionManager.getTeamHogFunctions.mockReturnValue([fn])
+            mockFunctionManager.getTeamHogDestinations.mockReturnValue([fn])
             const elementsChain = (id: string) =>
                 `a.Link.font-semibold.text-text-3000.text-xl:attr__class="Link font-semibold text-xl text-text-3000"attr__href="/project/1/dashboard/1"attr__id="${id}"attr_id="${id}"href="/project/1/dashboard/1"nth-child="1"nth-of-type="1"text="My App Dashboard";div.ProjectHomepage__dashboardheader__title:attr__class="ProjectHomepage__dashboardheader__title"nth-child="1"nth-of-type="1";div.ProjectHomepage__dashboardheader:attr__class="ProjectHomepage__dashboardheader"nth-child="2"nth-of-type="2";div.ProjectHomepage:attr__class="ProjectHomepage"nth-child="1"nth-of-type="1";div.Navigation3000__scene:attr__class="Navigation3000__scene"nth-child="2"nth-of-type="2";main:nth-child="2"nth-of-type="1";div.Navigation3000:attr__class="Navigation3000"nth-child="1"nth-of-type="1";div:attr__id="root"attr_id="root"nth-child="3"nth-of-type="1";body.overflow-hidden:attr__class="overflow-hidden"attr__theme="light"nth-child="2"nth-of-type="1"`
 
@@ -476,7 +476,7 @@ describe('Hog Executor', () => {
                 ...HOG_FILTERS_EXAMPLES.no_filters,
             })
 
-            mockFunctionManager.getTeamHogFunctions.mockReturnValue([fn])
+            mockFunctionManager.getTeamHogDestinations.mockReturnValue([fn])
 
             const result = executor.execute(createInvocation(fn))
             expect(result.error).toContain('Execution timed out after 0.1 seconds. Performed ')
