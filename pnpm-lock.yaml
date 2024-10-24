@@ -281,8 +281,8 @@ dependencies:
     specifier: ^9.3.0
     version: 9.3.0(postcss@8.4.31)
   posthog-js:
-    specifier: 1.174.3
-    version: 1.174.3
+    specifier: 1.174.4
+    version: 1.174.4
   posthog-js-lite:
     specifier: 3.0.0
     version: 3.0.0
@@ -17798,13 +17798,13 @@ packages:
     resolution: {integrity: sha512-dyajjnfzZD1tht4N7p7iwf7nBnR1MjVaVu+MKr+7gBgA39bn28wizCIJZztZPtHy4PY0YwtSGgwfBCuG/hnHgA==}
     dev: false
 
-  /posthog-js@1.174.3:
-    resolution: {integrity: sha512-fRLncd3jkT9Y7gLiyQe8v8sJ9yuTIiQBBWcYQ8l+vv+m504LWFtxl+/JZtHXPhaG3Eyf7AzZ/Kafkw8jorWV9w==}
+  /posthog-js@1.174.4:
+    resolution: {integrity: sha512-wfnSp1nDYHvV4+qy+UnDTED3afe8tVOiLa4Y83RLI2HZdMKovnLq11GJX6cYJ99+hs88HyGD1XmNTxShIQoOhQ==}
     dependencies:
       core-js: 3.38.1
       fflate: 0.4.8
       preact: 10.24.3
-      web-vitals: 4.2.3
+      web-vitals: 4.2.4
     dev: false
 
   /potpack@2.0.0:
@@ -21287,8 +21287,8 @@ packages:
       '@zxing/text-encoding': 0.9.0
     dev: true
 
-  /web-vitals@4.2.3:
-    resolution: {integrity: sha512-/CFAm1mNxSmOj6i0Co+iGFJ58OS4NRGVP+AWS/l509uIK5a1bSoIVaHz/ZumpHTfHSZBpgrJ+wjfpAOrTHok5Q==}
+  /web-vitals@4.2.4:
+    resolution: {integrity: sha512-r4DIlprAGwJ7YM11VZp4R884m0Vmgr6EAKe3P+kO0PPj3Unqyvv59rczf6UiGcb9Z8QxZVcqKNwv/g0WNdWwsw==}
     dev: false
 
   /webidl-conversions@3.0.1:
