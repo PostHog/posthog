@@ -18,12 +18,12 @@ pub fn generate_fingerprint(
 
     let has_resolved_frames: bool = frames.iter().any(|f| f.resolved);
     if has_resolved_frames {
-        frames = frames.into_iter().filter(|f| f.resolved).collect();
+        frames.retain(|f| f.resolved);
     }
 
     let has_in_app_frames: bool = frames.iter().any(|f| f.in_app);
     if has_in_app_frames {
-        frames = frames.into_iter().filter(|f| f.in_app).collect();
+        frames.retain(|f| f.in_app);
     } else {
         metrics::counter!(ERRORS, "cause" => "no_in_app_frames").increment(1);
         frames = frames.into_iter().take(1).collect()
