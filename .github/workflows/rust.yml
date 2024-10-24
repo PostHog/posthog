@@ -218,7 +218,7 @@ jobs:
 
             - name: Run clippy
               if: needs.changes.outputs.rust == 'true'
-              run: cargo clippy -- -D warnings
+              run: cargo clippy --all-targets --all-features -- -D warnings
 
             - name: Run cargo check
               if: needs.changes.outputs.rust == 'true'
