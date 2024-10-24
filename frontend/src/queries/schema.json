@@ -10172,6 +10172,21 @@
             "required": ["k", "t"],
             "type": "object"
         },
+        "RecordingOrder": {
+            "enum": [
+                "duration",
+                "recording_duration",
+                "inactive_seconds",
+                "active_seconds",
+                "start_time",
+                "console_error_count",
+                "click_count",
+                "keypress_count",
+                "mouse_activity_count",
+                "activity_score"
+            ],
+            "type": "string"
+        },
         "RecordingPropertyFilter": {
             "additionalProperties": false,
             "properties": {
@@ -10261,35 +10276,7 @@
                     "$ref": "#/definitions/FilterLogicalOperator"
                 },
                 "order": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/DurationType"
-                        },
-                        {
-                            "const": "start_time",
-                            "type": "string"
-                        },
-                        {
-                            "const": "console_error_count",
-                            "type": "string"
-                        },
-                        {
-                            "const": "click_count",
-                            "type": "string"
-                        },
-                        {
-                            "const": "keypress_count",
-                            "type": "string"
-                        },
-                        {
-                            "const": "mouse_activity_count",
-                            "type": "string"
-                        },
-                        {
-                            "const": "activity_score",
-                            "type": "string"
-                        }
-                    ]
+                    "$ref": "#/definitions/RecordingOrder"
                 },
                 "person_uuid": {
                     "type": "string"
@@ -10313,7 +10300,7 @@
                     "type": "object"
                 }
             },
-            "required": ["kind", "order"],
+            "required": ["kind"],
             "type": "object"
         },
         "RecordingsQueryResponse": {
