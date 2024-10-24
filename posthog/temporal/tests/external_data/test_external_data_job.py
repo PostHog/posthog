@@ -247,8 +247,7 @@ async def test_update_external_job_activity(activity_environment, team, **kwargs
     )
 
     inputs = UpdateExternalDataJobStatusInputs(
-        id=str(new_job.id),
-        run_id=str(new_job.id),
+        job_id=str(new_job.id),
         status=ExternalDataJob.Status.COMPLETED,
         latest_error=None,
         internal_error=None,
@@ -292,8 +291,7 @@ async def test_update_external_job_activity_with_retryable_error(activity_enviro
     )
 
     inputs = UpdateExternalDataJobStatusInputs(
-        id=str(new_job.id),
-        run_id=str(new_job.id),
+        job_id=str(new_job.id),
         status=ExternalDataJob.Status.COMPLETED,
         latest_error=None,
         internal_error="Some other retryable error",
@@ -338,8 +336,7 @@ async def test_update_external_job_activity_with_non_retryable_error(activity_en
     )
 
     inputs = UpdateExternalDataJobStatusInputs(
-        id=str(new_job.id),
-        run_id=str(new_job.id),
+        job_id=str(new_job.id),
         status=ExternalDataJob.Status.COMPLETED,
         latest_error=None,
         internal_error="NoSuchTableError: TableA",

@@ -1461,6 +1461,7 @@ mod tests {
         },
     };
 
+    #[allow(clippy::too_many_arguments)]
     fn create_test_flag(
         id: Option<i32>,
         team_id: Option<TeamId>,
