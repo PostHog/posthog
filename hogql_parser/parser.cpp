@@ -854,9 +854,94 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     return visit(ctx->selectUnionStmt());
   }
 
-  VISIT(SelectUnionStmt) {
+  VISIT(OldSelectUnionStmt) {
     // Using a vector of PyObjects atypically here, because this is a precursor of flattened_queries
     vector<PyObject*> select_queries;
+    auto select_stmt_with_parens_ctxs = ctx->selectStmtWithParens();
+    select_queries.reserve(select_stmt_with_parens_ctxs.size());
+    for (auto select_stmt_with_parens_ctx : select_stmt_with_parens_ctxs) {
+      try {
+        select_queries.push_back(visitAsPyObject(select_stmt_with_parens_ctx));
+      } catch (...) {
+        X_Py_DECREF_ALL(select_queries);
+        throw;
+      }
+    }
+    PyObject* flattened_queries = PyList_New(0);
+    if (!flattened_queries) {
+      X_Py_DECREF_ALL(select_queries);
+      throw PyInternalError();
+    }
+    for (auto query : select_queries) {
+      int is_select_query = is_ast_node_instance(query, "SelectQuery");
+      if (is_select_query == -1) goto select_queries_loop_py_error;
+      if (is_ast_node_instance(query, "SelectQuery")) {
+        int append_code = PyList_Append(flattened_queries, query);
+        if (append_code == -1) goto select_queries_loop_py_error;
+      } else if (is_ast_node_instance(query, "SelectUnionQuery")) {
+        // Extend flattened_queries with sub_select_queries
+        PyObject* sub_select_queries = PyObject_GetAttrString(query, "select_queries");
+        if (!sub_select_queries) goto select_queries_loop_py_error;
+        int extend_code = X_PyList_Extend(flattened_queries, sub_select_queries);
+        if (extend_code == -1) goto select_queries_loop_py_error;
+        Py_DECREF(sub_select_queries);
+      } else if (is_ast_node_instance(query, "Placeholder")) {
+        int append_code = PyList_Append(flattened_queries, query);
+        if (append_code == -1) goto select_queries_loop_py_error;
+      } else {
+        Py_DECREF(flattened_queries);
+        X_Py_DECREF_ALL(select_queries);
+        throw ParsingError("Unexpected query node type: " + string(Py_TYPE(query)->tp_name));
+      }
+    }
+    goto select_queries_loop_success;
+  select_queries_loop_py_error:
+    X_Py_DECREF_ALL(select_queries);
+    Py_DECREF(flattened_queries);
+    throw PyInternalError();
+  select_queries_loop_success:
+    X_Py_DECREF_ALL(select_queries);
+    Py_ssize_t flattened_queries_size = PyList_Size(flattened_queries);
+    if (flattened_queries_size == -1) {
+      Py_DECREF(flattened_queries);
+      throw PyInternalError();
+    }
+    if (flattened_queries_size == 1) {
+      PyObject* query = PyList_GET_ITEM(flattened_queries, 0);
+      Py_INCREF(query);
+      Py_DECREF(flattened_queries);
+      return query;
+    }
+    RETURN_NEW_AST_NODE("SelectUnionQuery", "{s:N}", "select_queries", flattened_queries);
+  }
+
+   VISIT(SelectUnionStmt) {
+    // Using a vector of PyObjects atypically here, because this is a precursor of flattened_queries
+    PyObject* initial_query = NULL;
+    vector<PyObject*> select_queries;
+    auto union_type = "";
+
+    for (auto child : ctx->children) {
+      if (auto token = dynamic_cast<HogQLParser::SelectStmtWithParensContext*>(child)) {
+        PyObject* select_query = visitAsPyObject(token);
+        if (initial_query == NULL) {
+          initial_query = select_query;
+        } else {
+          PyObject* ret = build_ast_node("SelectUnionNode", "{s:N,s:N}", "select_query", select_query, "union_type", union_type);
+          select_queries.push_back(select_query);
+        }
+      } else if (auto token = dynamic_cast<HogQLParser::SelectUnionStmtContext*>(child)) {
+
+      } else if (auto token = dynamic_cast<antlr4::TerminalNodeImpl*>(child)) {
+        if (union_type == "") {
+          union_type += child->getText();
+        } else {
+          union_type += " " + child->getText();
+        }
+      } else {
+         throw ParsingError("Unexpected node type: " + string(token->getNodeType()));
+      }
+
     auto select_stmt_with_parens_ctxs = ctx->selectStmtWithParens();
     select_queries.reserve(select_stmt_with_parens_ctxs.size());
     for (auto select_stmt_with_parens_ctx : select_stmt_with_parens_ctxs) {
