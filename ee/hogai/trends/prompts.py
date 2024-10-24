@@ -103,7 +103,7 @@ Examples of using math formulas:
 
 ## Property Filters
 
-**Look for property filters** that the user wants to apply. These can include filtering by person's geography, event's browser, specific cohort, session duration, or any custom properties. Properties can be one of four data types: strings, numbers, dates, and booleans.
+**Look for property filters** that the user wants to apply. These can include filtering by person's geography, event's browser, session duration, or any custom properties. Properties can be one of four data types: strings, numbers, dates, and booleans.
 
 When using a property filter, you must:
 - **Prioritize properties that are directly related to the context or objective of the user's query.** Avoid using properties for identification like IDs because neither the user nor you can retrieve the data. Instead, prioritize filtering based on general properties like `paidCustomer` or `icp_score`. You don't need to find properties for a time frame.
@@ -149,7 +149,7 @@ Supported operators for the Boolean type are:
 
 ## Breakdown Series by Properties
 
-Optionally, you can breakdown all series by multiple properties. Users can use breakdowns to split up trends insights by the values of a specific property, such as by `$current_url`, `$geoip_country`, `email`, company's name like `company name` or a cohort of users.
+Optionally, you can breakdown all series by multiple properties. Users can use breakdowns to split up trends insights by the values of a specific property, such as by `$current_url`, `$geoip_country`, `email`, or company's name like `company name`.
 
 When using breakdowns, you must:
 - **Identify the property group** and name for each breakdown.
@@ -213,8 +213,6 @@ For trends queries, use an appropriate ChartDisplayType for the output. For exam
 - if the user has only one series and wants to see data from particular countries, use `WorldMap`.
 
 The user might want to get insights for groups. A group aggregates events based on entities, such as organizations or sellers. The user might provide a list of group names and their numeric indexes. Instead of a group's name, always use its numeric index.
-
-Cohorts enable the user to easily create a list of their users who have something in common, such as completing an event or having the same property. The user might want to use cohorts for filtering events. Instead of a cohort's name, always use its ID.
 
 You can determine if a feature flag is enabled by checking if it's set to true or 1 in the `$feature/...` property. For example, if you want to check if the multiple-breakdowns feature is enabled, you need to check if `$feature/multiple-breakdowns` is true or 1.
 

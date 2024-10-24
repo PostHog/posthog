@@ -9,7 +9,6 @@ import {
     BreakdownType,
     ChartDisplayCategory,
     ChartDisplayType,
-    CohortPropertyFilter,
     CountPerActorMathType,
     DurationType,
     EventPropertyFilter,
@@ -898,15 +897,7 @@ export interface TrendsQuery extends InsightsQueryBase<TrendsQueryResponse> {
 export type AIPropertyFilter =
     | EventPropertyFilter
     | PersonPropertyFilter
-    // | ElementPropertyFilter
     | SessionPropertyFilter
-    | CohortPropertyFilter
-    // | RecordingPropertyFilter
-    // | LogEntryPropertyFilter
-    // | HogQLPropertyFilter
-    // | EmptyPropertyFilter
-    // | DataWarehousePropertyFilter
-    // | DataWarehousePersonPropertyFilter
     | GroupPropertyFilter
     | FeaturePropertyFilter
 

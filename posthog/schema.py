@@ -4999,7 +4999,6 @@ class AIActionsNode(BaseModel):
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 SessionPropertyFilter,
-                CohortPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
             ]
@@ -5027,7 +5026,6 @@ class AIActionsNode(BaseModel):
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 SessionPropertyFilter,
-                CohortPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
             ]
@@ -5048,7 +5046,6 @@ class AIEventsNode(BaseModel):
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 SessionPropertyFilter,
-                CohortPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
             ]
@@ -5076,7 +5073,6 @@ class AIEventsNode(BaseModel):
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 SessionPropertyFilter,
-                CohortPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
             ]
@@ -5208,7 +5204,6 @@ class ExperimentalAITrendsQuery(BaseModel):
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 SessionPropertyFilter,
-                CohortPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
             ]
