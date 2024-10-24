@@ -140,14 +140,18 @@ class AsyncRecordBatchProducer(AsyncRecordBatchReader):
     def __init__(self, bytes_iter: typing.AsyncIterator[tuple[bytes, bool]]) -> None:
         super().__init__(bytes_iter)
 
-    async def produce(self, queue: asyncio.Queue, done_event: asyncio.Event):
+    async def produce(self, queue: asyncio.Queue):
+        """Read all record batches and produce them to a queue for async processing."""
         await logger.adebug("Starting record batch produce loop")
+
         while True:
             try:
                 record_batch = await self.read_next_record_batch()
             except StopAsyncIteration:
                 await logger.adebug("No more record batches to produce, closing loop")
-                done_event.set()
                 return
+            except Exception as e:
+                await logger.aexception("Unexpected error occurred while producing record batches", exc_info=e)
+                raise
 
             await queue.put(record_batch)
