@@ -2,20 +2,21 @@ from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database
 from posthog.hogql.database.s3_table import build_function_call
+from posthog.hogql.database.test.tables import create_aapl_stock_s3_table
+from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast
 from posthog.hogql.query import create_default_modifiers_for_team
 from posthog.test.base import BaseTest
-from posthog.hogql.database.test.tables import create_aapl_stock_s3_table
-from posthog.hogql.errors import ExposedHogQLError
 from posthog.warehouse.models.table import DataWarehouseTable
 
 
 class TestS3Table(BaseTest):
     def _init_database(self):
         self.database = create_hogql_database(self.team.pk)
-        self.database.aapl_stock = create_aapl_stock_s3_table()
-        self.database.aapl_stock_2 = create_aapl_stock_s3_table(name="aapl_stock_2")
+        self.database.add_warehouse_tables(
+            aapl_stock=create_aapl_stock_s3_table(), aapl_stock_2=create_aapl_stock_s3_table(name="aapl_stock_2")
+        )
         self.context = HogQLContext(
             team_id=self.team.pk,
             enable_select_queries=True,

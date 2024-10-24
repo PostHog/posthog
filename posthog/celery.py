@@ -81,13 +81,12 @@ task_timings: dict[str, float] = {}
 
 @setup_logging.connect
 def receiver_setup_logging(loglevel, logfile, format, colorize, **kwargs) -> None:
-    import logging
+    from logging import config as logging_config
 
     from posthog.settings import logs
 
     # following instructions from here https://django-structlog.readthedocs.io/en/latest/celery.html
-    # mypy thinks that there is no `logging.config` but there is ¯\_(ツ)_/¯
-    logging.config.dictConfig(logs.LOGGING)  # type: ignore
+    logging_config.dictConfig(logs.LOGGING)
 
 
 @receiver(signals.bind_extra_task_metadata)

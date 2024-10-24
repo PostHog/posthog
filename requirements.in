@@ -44,9 +44,11 @@ gunicorn==20.1.0
 infi-clickhouse-orm@ git+https://github.com/PostHog/infi.clickhouse_orm@9578c79f29635ee2c1d01b7979e89adab8383de2
 kafka-python==2.0.2
 kombu==5.3.2
-langchain==0.2.15
-langchain-openai==0.1.23
-langsmith==0.1.106
+langchain==0.3.3
+langchain-openai==0.2.2
+langfuse==2.52.1
+langgraph==0.2.34
+langsmith==0.1.132
 lzstring==1.0.4
 natsort==8.4.0
 nanoid==2.0.0
@@ -64,7 +66,7 @@ pymssql==2.3.0
 PyMySQL==1.1.1
 psycopg[binary]==3.1.20
 pyarrow==17.0.0
-pydantic==2.5.3
+pydantic==2.9.2
 pyjwt==2.4.0
 pyodbc==5.1.0
 python-dateutil>=2.8.2
@@ -100,8 +102,8 @@ mimesis==5.2.1
 more-itertools==9.0.0
 django-two-factor-auth==1.14.0
 phonenumberslite==8.13.6
-openai==1.43.0
-tiktoken==0.7.0
+openai==1.51.2
+tiktoken==0.8.0
 nh3==0.2.14
 hogql-parser==1.0.45
 zxcvbn==4.4.28

@@ -1,15 +1,15 @@
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database
+from posthog.hogql.database.test.tables import (
+    create_aapl_stock_s3_table,
+    create_aapl_stock_table_self_referencing,
+    create_aapl_stock_table_view,
+    create_nested_aapl_stock_view,
+)
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast
 from posthog.hogql.query import create_default_modifiers_for_team
 from posthog.test.base import BaseTest
-from posthog.hogql.database.test.tables import (
-    create_aapl_stock_table_view,
-    create_aapl_stock_s3_table,
-    create_nested_aapl_stock_view,
-    create_aapl_stock_table_self_referencing,
-)
 
 
 class TestView(BaseTest):
@@ -17,10 +17,12 @@ class TestView(BaseTest):
 
     def _init_database(self):
         self.database = create_hogql_database(self.team.pk)
-        self.database.aapl_stock_view = create_aapl_stock_table_view()
-        self.database.aapl_stock = create_aapl_stock_s3_table()
-        self.database.aapl_stock_nested_view = create_nested_aapl_stock_view()
-        self.database.aapl_stock_self = create_aapl_stock_table_self_referencing()
+        self.database.add_views(
+            aapl_stock_view=create_aapl_stock_table_view(), aapl_stock_nested_view=create_nested_aapl_stock_view()
+        )
+        self.database.add_warehouse_tables(
+            aapl_stock=create_aapl_stock_s3_table(), aapl_stock_self=create_aapl_stock_table_self_referencing()
+        )
         self.context = HogQLContext(
             team_id=self.team.pk,
             enable_select_queries=True,

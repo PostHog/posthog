@@ -10,7 +10,7 @@ aiosignal==1.2.0
     # via
     #   -c requirements.txt
     #   aiohttp
-annotated-types==0.5.0
+annotated-types==0.7.0
     # via
     #   -c requirements.txt
     #   pydantic
@@ -69,7 +69,7 @@ cryptography==39.0.2
     # via
     #   -c requirements.txt
     #   types-paramiko
-datamodel-code-generator==0.25.6
+datamodel-code-generator==0.26.1
     # via -r requirements-dev.in
 django==4.2.15
     # via
@@ -113,7 +113,7 @@ genson==1.2.2
     # via datamodel-code-generator
 icdiff==2.0.5
     # via pytest-icdiff
-idna==2.8
+idna==3.10
     # via
     #   -c requirements.txt
     #   email-validator
@@ -199,11 +199,11 @@ pycparser==2.20
     # via
     #   -c requirements.txt
     #   cffi
-pydantic==2.5.3
+pydantic==2.9.2
     # via
     #   -c requirements.txt
     #   datamodel-code-generator
-pydantic-core==2.14.6
+pydantic-core==2.23.4
     # via
     #   -c requirements.txt
     #   pydantic
