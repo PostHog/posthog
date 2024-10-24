@@ -854,6 +854,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     return visit(ctx->selectUnionStmt());
   }
 
+  /*
   VISIT(OldSelectUnionStmt) {
     // Using a vector of PyObjects atypically here, because this is a precursor of flattened_queries
     vector<PyObject*> select_queries;
@@ -914,6 +915,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     }
     RETURN_NEW_AST_NODE("SelectUnionQuery", "{s:N}", "select_queries", flattened_queries);
   }
+  */
 
    VISIT(SelectUnionStmt) {
     // Using a vector of PyObjects atypically here, because this is a precursor of flattened_queries
@@ -928,10 +930,18 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
           initial_query = select_query;
         } else {
           PyObject* ret = build_ast_node("SelectUnionNode", "{s:N,s:N}", "select_query", select_query, "union_type", union_type);
-          select_queries.push_back(select_query);
+          select_queries.push_back(ret);
+          union_type = "";
         }
       } else if (auto token = dynamic_cast<HogQLParser::SelectUnionStmtContext*>(child)) {
-
+        PyObject* select_query = visitAsPyObject(token);
+        if (initial_query == NULL) {
+          initial_query = select_query;
+        } else {
+          PyObject* ret = build_ast_node("SelectUnionNode", "{s:N,s:N}", "select_query", select_query, "union_type", union_type);
+          select_queries.push_back(ret);
+          union_type = "";
+        }
       } else if (auto token = dynamic_cast<antlr4::TerminalNodeImpl*>(child)) {
         if (union_type == "") {
           union_type += child->getText();
@@ -941,7 +951,16 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       } else {
          throw ParsingError("Unexpected node type: " + string(token->getNodeType()));
       }
+    }
 
+    if (PyList_Size(select_queries) == 0) {
+      Py_DECREF(select_queries);
+      return initial_query;
+    }
+
+    RETURN_NEW_AST_NODE("SelectUnionQuery", "{s:N, s:N}", "initial_select_query", initial_query, "subsequent_select_queries": subsequent_select_queries);
+
+    /*
     auto select_stmt_with_parens_ctxs = ctx->selectStmtWithParens();
     select_queries.reserve(select_stmt_with_parens_ctxs.size());
     for (auto select_stmt_with_parens_ctx : select_stmt_with_parens_ctxs) {
@@ -998,6 +1017,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       return query;
     }
     RETURN_NEW_AST_NODE("SelectUnionQuery", "{s:N}", "select_queries", flattened_queries);
+     */
   }
 
   VISIT(SelectStmt) {
