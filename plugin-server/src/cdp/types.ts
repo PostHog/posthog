@@ -169,14 +169,35 @@ export type HogFunctionQueueParametersFetchRequest = {
     headers?: Record<string, string>
 }
 
+export type CyclotronFetchFailureKind =
+    | 'timeout'
+    | 'timeoutgettingbody'
+    | 'missingparameters'
+    | 'invalidparameters'
+    | 'requesterror'
+    | 'failurestatus'
+    | 'invalidbody'
+    | 'responsetoolarge'
+
+export type CyclotronFetchFailureInfo = {
+    kind: CyclotronFetchFailureKind
+    message: string
+    headers?: Record<string, string>
+    status?: number
+    timestamp: DateTime
+}
+
 export type HogFunctionQueueParametersFetchResponse = {
     /** An error message to indicate something went wrong and the invocation should be stopped */
     error?: any
-    /** The data to be passed to the Hog function from the response */
+    /** On success, the fetch worker returns only the successful response */
     response?: {
         status: number
-        body?: string
+        headers: Record<string, string>
     } | null
+    /** On failure, the fetch worker returns a list of info about the attempts made*/
+    trace?: CyclotronFetchFailureInfo[]
+    body?: string // Both results AND failures can have a body
     timings?: HogFunctionTiming[]
     logs?: LogEntry[]
 }
