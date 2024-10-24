@@ -52,8 +52,23 @@ export function VariantTag({
 }): JSX.Element {
     const { experimentResults, getIndexForVariant } = useValues(experimentLogic({ experimentId }))
 
+    if (variantKey === 'holdout') {
+        return (
+            <span className="flex items-center space-x-2">
+                <div
+                    className="w-2 h-2 rounded-full mr-0.5"
+                    // eslint-disable-next-line react/forbid-dom-props
+                    style={{
+                        backgroundColor: getExperimentInsightColour(getIndexForVariant(experimentResults, variantKey)),
+                    }}
+                />
+                <LemonTag type="option">Holdout group 1</LemonTag>
+            </span>
+        )
+    }
+
     return (
-        <span className="flex items-center space-x-1">
+        <span className="flex items-center space-x-2">
             <div
                 className="w-2 h-2 rounded-full mr-0.5"
                 // eslint-disable-next-line react/forbid-dom-props

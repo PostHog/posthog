@@ -5,6 +5,7 @@ import { ExperimentsHog } from 'lib/components/hedgehogs'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { PageHeader } from 'lib/components/PageHeader'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -22,6 +23,7 @@ import { Experiment, ExperimentsTabs, ProductKey, ProgressStatus } from '~/types
 
 import { experimentsLogic, getExperimentStatus } from './experimentsLogic'
 import { StatusTag } from './ExperimentView/components'
+import { Holdouts } from './Holdouts'
 
 export const scene: SceneExport = {
     component: Experiments,
@@ -29,8 +31,16 @@ export const scene: SceneExport = {
 }
 
 export function Experiments(): JSX.Element {
-    const { filteredExperiments, experimentsLoading, tab, searchTerm, shouldShowEmptyState, searchStatus, userFilter } =
-        useValues(experimentsLogic)
+    const {
+        filteredExperiments,
+        experimentsLoading,
+        tab,
+        searchTerm,
+        shouldShowEmptyState,
+        searchStatus,
+        userFilter,
+        featureFlags,
+    } = useValues(experimentsLogic)
     const { setExperimentsTab, deleteExperiment, archiveExperiment, setSearchStatus, setSearchTerm, setUserFilter } =
         useActions(experimentsLogic)
 
@@ -209,85 +219,95 @@ export function Experiments(): JSX.Element {
                     { key: ExperimentsTabs.All, label: 'All experiments' },
                     { key: ExperimentsTabs.Yours, label: 'Your experiments' },
                     { key: ExperimentsTabs.Archived, label: 'Archived experiments' },
+                    ...(featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOLDOUTS]
+                        ? [{ key: ExperimentsTabs.Holdouts, label: 'Holdout groups' }]
+                        : []),
                 ]}
             />
-            {tab === ExperimentsTabs.Archived ? (
-                <ProductIntroduction
-                    productName="Experiments"
-                    productKey={ProductKey.EXPERIMENTS}
-                    thingName="archived experiment"
-                    description={EXPERIMENTS_PRODUCT_DESCRIPTION}
-                    docsURL="https://posthog.com/docs/experiments"
-                    isEmpty={shouldShowEmptyState}
-                />
+
+            {featureFlags[FEATURE_FLAGS.EXPERIMENTS_HOLDOUTS] && tab === ExperimentsTabs.Holdouts ? (
+                <Holdouts />
             ) : (
-                <ProductIntroduction
-                    productName="Experiments"
-                    productKey={ProductKey.EXPERIMENTS}
-                    thingName="experiment"
-                    description={EXPERIMENTS_PRODUCT_DESCRIPTION}
-                    docsURL="https://posthog.com/docs/experiments"
-                    action={() => router.actions.push(urls.experiment('new'))}
-                    isEmpty={shouldShowEmptyState}
-                    customHog={ExperimentsHog}
-                />
-            )}
-            {!shouldShowEmptyState && (
                 <>
-                    <div className="flex justify-between mb-4 gap-2 flex-wrap">
-                        <LemonInput
-                            type="search"
-                            placeholder="Search experiments"
-                            onChange={setSearchTerm}
-                            value={searchTerm}
+                    {tab === ExperimentsTabs.Archived ? (
+                        <ProductIntroduction
+                            productName="Experiments"
+                            productKey={ProductKey.EXPERIMENTS}
+                            thingName="archived experiment"
+                            description={EXPERIMENTS_PRODUCT_DESCRIPTION}
+                            docsURL="https://posthog.com/docs/experiments"
+                            isEmpty={shouldShowEmptyState}
                         />
-                        <div className="flex items-center gap-2">
-                            <span>
-                                <b>Status</b>
-                            </span>
-                            <LemonSelect
-                                size="small"
-                                onChange={(status) => {
-                                    if (status) {
-                                        setSearchStatus(status as ProgressStatus | 'all')
-                                    }
+                    ) : (
+                        <ProductIntroduction
+                            productName="Experiments"
+                            productKey={ProductKey.EXPERIMENTS}
+                            thingName="experiment"
+                            description={EXPERIMENTS_PRODUCT_DESCRIPTION}
+                            docsURL="https://posthog.com/docs/experiments"
+                            action={() => router.actions.push(urls.experiment('new'))}
+                            isEmpty={shouldShowEmptyState}
+                            customHog={ExperimentsHog}
+                        />
+                    )}
+                    {!shouldShowEmptyState && (
+                        <>
+                            <div className="flex justify-between mb-4 gap-2 flex-wrap">
+                                <LemonInput
+                                    type="search"
+                                    placeholder="Search experiments"
+                                    onChange={setSearchTerm}
+                                    value={searchTerm}
+                                />
+                                <div className="flex items-center gap-2">
+                                    <span>
+                                        <b>Status</b>
+                                    </span>
+                                    <LemonSelect
+                                        size="small"
+                                        onChange={(status) => {
+                                            if (status) {
+                                                setSearchStatus(status as ProgressStatus | 'all')
+                                            }
+                                        }}
+                                        options={
+                                            [
+                                                { label: 'All', value: 'all' },
+                                                { label: 'Draft', value: ProgressStatus.Draft },
+                                                { label: 'Running', value: ProgressStatus.Running },
+                                                { label: 'Complete', value: ProgressStatus.Complete },
+                                            ] as { label: string; value: string }[]
+                                        }
+                                        value={searchStatus ?? 'all'}
+                                        dropdownMatchSelectWidth={false}
+                                        dropdownMaxContentWidth
+                                    />
+                                    <span className="ml-1">
+                                        <b>Created by</b>
+                                    </span>
+                                    <MemberSelect
+                                        defaultLabel="Any user"
+                                        value={userFilter ?? null}
+                                        onChange={(user) => setUserFilter(user?.uuid ?? null)}
+                                    />
+                                </div>
+                            </div>
+                            <LemonTable
+                                dataSource={filteredExperiments}
+                                columns={columns}
+                                rowKey="id"
+                                loading={experimentsLoading}
+                                defaultSorting={{
+                                    columnKey: 'created_at',
+                                    order: -1,
                                 }}
-                                options={
-                                    [
-                                        { label: 'All', value: 'all' },
-                                        { label: 'Draft', value: ProgressStatus.Draft },
-                                        { label: 'Running', value: ProgressStatus.Running },
-                                        { label: 'Complete', value: ProgressStatus.Complete },
-                                    ] as { label: string; value: string }[]
-                                }
-                                value={searchStatus ?? 'all'}
-                                dropdownMatchSelectWidth={false}
-                                dropdownMaxContentWidth
+                                noSortingCancellation
+                                pagination={{ pageSize: 100 }}
+                                nouns={['experiment', 'experiments']}
+                                data-attr="experiment-table"
                             />
-                            <span className="ml-1">
-                                <b>Created by</b>
-                            </span>
-                            <MemberSelect
-                                defaultLabel="Any user"
-                                value={userFilter ?? null}
-                                onChange={(user) => setUserFilter(user?.uuid ?? null)}
-                            />
-                        </div>
-                    </div>
-                    <LemonTable
-                        dataSource={filteredExperiments}
-                        columns={columns}
-                        rowKey="id"
-                        loading={experimentsLoading}
-                        defaultSorting={{
-                            columnKey: 'created_at',
-                            order: -1,
-                        }}
-                        noSortingCancellation
-                        pagination={{ pageSize: 100 }}
-                        nouns={['experiment', 'experiments']}
-                        data-attr="experiment-table"
-                    />
+                        </>
+                    )}
                 </>
             )}
         </div>
