@@ -1,24 +1,22 @@
 import datetime
+import uuid
+from typing import TYPE_CHECKING, Optional
 
 import orjson as json
-from typing import TYPE_CHECKING, Optional
-import uuid
-
-from pydantic import BaseModel
 import sentry_sdk
 import structlog
 from prometheus_client import Histogram
-from rest_framework.exceptions import NotFound, APIException
+from pydantic import BaseModel
+from rest_framework.exceptions import APIException, NotFound
 
 from posthog import celery, redis
 from posthog.clickhouse.client.async_task_chain import add_task_to_on_commit
 from posthog.clickhouse.query_tagging import tag_queries
-from posthog.errors import ExposedCHQueryError, CHQueryErrorTooManySimultaneousQueries
+from posthog.errors import CHQueryErrorTooManySimultaneousQueries, ExposedCHQueryError
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.renderers import SafeJSONRenderer
-from posthog.schema import QueryStatus
-from posthog.schema import ClickhouseQueryProgress
+from posthog.schema import ClickhouseQueryProgress, QueryStatus
 from posthog.tasks.tasks import process_query_task
 
 if TYPE_CHECKING:
@@ -143,7 +141,7 @@ def execute_process_query(
 ):
     manager = QueryStatusManager(query_id, team_id)
 
-    from posthog.api.services.query import process_query_dict, ExecutionMode
+    from posthog.api.services.query import ExecutionMode, process_query_dict
     from posthog.models import Team
     from posthog.models.user import User
 
