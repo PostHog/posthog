@@ -26,7 +26,7 @@ const HOG_FUNCTION_FIELDS = [
     'type',
 ]
 
-const FETCH_HOG_FUNCTION_TYPES = ['destination', 'email']
+const RELOAD_HOG_FUNCTION_TYPES = ['destination', 'email']
 
 export class HogFunctionManager {
     private started: boolean
@@ -136,7 +136,7 @@ export class HogFunctionManager {
             FROM posthog_hogfunction
             WHERE deleted = FALSE AND enabled = TRUE AND (type is NULL or type = ANY($1))
         `,
-                [FETCH_HOG_FUNCTION_TYPES],
+                [RELOAD_HOG_FUNCTION_TYPES],
                 'fetchAllHogFunctions'
             )
         ).rows

@@ -252,8 +252,19 @@ export type HogFunctionInputSchemaType = {
     integration_field?: 'slack_channel'
 }
 
+export type HogFunctionTypeType =
+    | 'destination'
+    | 'shared'
+    | 'email'
+    | 'sms'
+    | 'push'
+    | 'broadcast'
+    | 'activity'
+    | 'alert'
+
 export type HogFunctionType = {
     id: string
+    type: HogFunctionTypeType
     team_id: number
     name: string
     enabled: boolean
