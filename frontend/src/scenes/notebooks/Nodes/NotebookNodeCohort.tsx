@@ -13,6 +13,7 @@ import { IconPeople, IconPerson, IconTrends } from '@posthog/icons'
 import { Query } from '~/queries/Query/Query'
 import { LemonDivider, LemonTag } from '@posthog/lemon-ui'
 import { DataTableNode, NodeKind } from '~/queries/schema'
+import { removeQueryParams } from './utils'
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeCohortAttributes>): JSX.Element => {
     const { id } = attributes
@@ -165,7 +166,7 @@ export const NotebookNodeCohort = createPostHogWidgetNode<NotebookNodeCohortAttr
     pasteOptions: {
         find: urls.cohort('(.+)'),
         getAttributes: async (match) => {
-            return { id: parseInt(match[1]) }
+            return { id: parseInt(removeQueryParams(match[1])) }
         },
     },
     serializedText: (attrs) => {

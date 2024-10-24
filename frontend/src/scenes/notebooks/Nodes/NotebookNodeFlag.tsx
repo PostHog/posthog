@@ -18,6 +18,7 @@ import { buildSurveyContent } from './NotebookNodeSurvey'
 import { useEffect } from 'react'
 import { NotFound } from 'lib/components/NotFound'
 import { IconFlag, IconRocket } from '@posthog/icons'
+import { removeQueryParams } from './utils'
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeFlagAttributes>): JSX.Element => {
     const { id } = attributes
@@ -150,9 +151,9 @@ export const NotebookNodeFlag = createPostHogWidgetNode<NotebookNodeFlagAttribut
         id: {},
     },
     pasteOptions: {
-        find: urls.featureFlag('') + '(.+)',
+        find: urls.featureFlag('(.+)'),
         getAttributes: async (match) => {
-            return { id: match[1] as FeatureFlagLogicProps['id'] }
+            return { id: removeQueryParams(match[1]) as FeatureFlagLogicProps['id'] }
         },
     },
 })

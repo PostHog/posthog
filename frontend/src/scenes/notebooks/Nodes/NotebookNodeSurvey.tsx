@@ -15,6 +15,7 @@ import { SurveyDisplaySummary } from 'scenes/surveys/Survey'
 import { useEffect } from 'react'
 import { NotFound } from 'lib/components/NotFound'
 import { SurveyAppearancePreview } from 'scenes/surveys/SurveyAppearancePreview'
+import { removeQueryParams } from './utils'
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeSurveyAttributes>): JSX.Element => {
     const { id } = attributes
@@ -115,9 +116,9 @@ export const NotebookNodeSurvey = createPostHogWidgetNode<NotebookNodeSurveyAttr
         id: {},
     },
     pasteOptions: {
-        find: urls.survey('') + '(.+)',
+        find: urls.survey('(.+)'),
         getAttributes: async (match) => {
-            return { id: match[1] }
+            return { id: removeQueryParams(match[1]) }
         },
     },
 })

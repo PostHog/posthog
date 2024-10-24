@@ -15,6 +15,10 @@ export function reportNotebookNodeCreation(nodeType: string): void {
     posthog.capture('notebook node created', { type: nodeType })
 }
 
+export function removeQueryParams(input: string): string {
+    return input.split('?')[0]
+}
+
 export function posthogNodePasteRule(options: {
     find: string | RegExp
     type: NodeType

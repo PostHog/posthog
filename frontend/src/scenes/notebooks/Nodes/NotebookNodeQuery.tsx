@@ -14,6 +14,7 @@ import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { JSONContent } from '@tiptap/core'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
+import { removeQueryParams } from './utils'
 
 const DEFAULT_QUERY: QuerySchema = {
     kind: NodeKind.DataTableNode,
@@ -247,7 +248,7 @@ export const NotebookNodeQuery = createPostHogWidgetNode<NotebookNodeQueryAttrib
             return {
                 query: {
                     kind: NodeKind.SavedInsightNode,
-                    shortId: match[1] as InsightShortId,
+                    shortId: removeQueryParams(match[1]) as InsightShortId,
                 },
             }
         },
