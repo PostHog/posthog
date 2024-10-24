@@ -1,6 +1,5 @@
 from enum import StrEnum
 from typing import Any, Literal, Optional, Union
-from collections.abc import Sequence
 from dataclasses import dataclass, field
 
 from posthog.hogql.base import Type, Expr, CTE, ConstantType, UnknownType, AST
@@ -814,7 +813,7 @@ class SelectUnionNode:
 @dataclass(kw_only=True)
 class SelectUnionQuery(Expr):
     type: Optional[SelectUnionQueryType] = None
-    select_queries: Sequence[SelectUnionNode]
+    select_queries: list[SelectUnionNode]
 
 
 @dataclass(kw_only=True)
