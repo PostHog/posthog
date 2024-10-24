@@ -3,7 +3,7 @@ import { actions, kea, key, listeners, path, props, reducers, selectors } from '
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 
-import { ExperimentalAITrendsQuery, NodeKind, SuggestedQuestionsQuery } from '~/queries/schema'
+import { ExecutionMode, ExperimentalAITrendsQuery, NodeKind, SuggestedQuestionsQuery } from '~/queries/schema'
 
 import type { maxLogicType } from './maxLogicType'
 
@@ -88,9 +88,12 @@ export const maxLogic = kea<maxLogicType>([
             null as string[] | null,
             {
                 loadSuggestions: async () => {
-                    const response = await api.query<SuggestedQuestionsQuery>({
-                        kind: NodeKind.SuggestedQuestionsQuery,
-                    })
+                    const response = await api.query<SuggestedQuestionsQuery>(
+                        { kind: NodeKind.SuggestedQuestionsQuery },
+                        undefined,
+                        undefined,
+                        ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS
+                    )
                     return response.questions
                 },
             },
