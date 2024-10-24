@@ -54,7 +54,7 @@ hardcoded_prop_defs: dict = {
         },
         "$identify": {
             "label": "Identify",
-            "description": "A user has been identified with properties",
+            "description": "Identifies an anonymous user. This event doesn't show how many users you have but rather how many users used an account.",
         },
         "$create_alias": {
             "label": "Alias",

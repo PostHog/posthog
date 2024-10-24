@@ -132,10 +132,6 @@ class CreateTrendsPlanNode(AssistantNode):
 
     @cached_property
     def _events_prompt(self) -> str:
-        event_description_mapping = {
-            "$identify": "Identifies an anonymous user. This event doesn't show how many users you have but rather how many users used an account."
-        }
-
         response = TeamTaxonomyQueryRunner(TeamTaxonomyQuery(), self._team).run(
             ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
         )
@@ -150,10 +146,7 @@ class CreateTrendsPlanNode(AssistantNode):
 
         for event_name in events:
             event_tag = event_name
-            if event_name in event_description_mapping:
-                description = event_description_mapping[event_name]
-                event_tag += f" - {description}"
-            elif event_name in hardcoded_prop_defs["events"]:
+            if event_name in hardcoded_prop_defs["events"]:
                 data = hardcoded_prop_defs["events"][event_name]
                 event_tag += f" - {data['label']}. {data['description']}"
                 if "examples" in data:
