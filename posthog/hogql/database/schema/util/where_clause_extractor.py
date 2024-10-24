@@ -120,19 +120,18 @@ class WhereClauseExtractor(CloningVisitor):
         # Check if any of the fields are a field on our requested table
         if len(self.tracked_tables) > 0:
             left = self.visit(node.left)
-            right = self.visit(node.right)
 
-            # Too complicated
             if isinstance(node.right, ast.SelectQuery):
-                return ast.Constant(value=True)
+                right = clone_expr(
+                    node.right, clear_types=False, clear_locations=False, inline_subquery_field_names=True
+                )
+            else:
+                right = self.visit(node.right)
+
             if has_tombstone(left, self.tombstone_string) or has_tombstone(right, self.tombstone_string):
                 return ast.Constant(value=self.tombstone_string)
             return ast.CompareOperation(op=node.op, left=left, right=right)
 
-        return ast.Constant(value=True)
-
-    def visit_select_query(self, node: ast.SelectQuery) -> ast.Expr:
-        # going too deep, bail
         return ast.Constant(value=True)
 
     def visit_arithmetic_operation(self, node: ast.ArithmeticOperation) -> ast.Expr:
