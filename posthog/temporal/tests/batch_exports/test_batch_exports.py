@@ -415,7 +415,7 @@ async def get_record_batch_from_queue(queue, produce_task):
         try:
             record_batch = queue.get_nowait()
         except asyncio.QueueEmpty:
-            if produce_task.done:
+            if produce_task.done():
                 break
             else:
                 await asyncio.sleep(0.1)
@@ -630,14 +630,7 @@ async def test_start_produce_batch_export_record_batches_ignores_timestamp_predi
             interval_end=data_interval_end.isoformat(),
         )
 
-        records = []
-        while not queue.empty() or not produce_task.done():
-            record_batch = await get_record_batch_from_queue(queue, produce_task)
-            if record_batch is None:
-                break
-
-            for record in record_batch.to_pylist():
-                records.append(record)
+        records = await get_all_record_batches_from_queue(queue, produce_task)
 
     assert_records_match_events(records, events)
 

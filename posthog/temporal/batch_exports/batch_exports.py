@@ -445,7 +445,7 @@ async def raise_on_produce_task_failure(produce_task: asyncio.Task) -> None:
     should only be called after producer is done to check its exception.
     """
     if not produce_task.done():
-        raise TaskNotDoneError("producer_task")
+        raise TaskNotDoneError("produce")
 
     if produce_task.exception() is None:
         return
