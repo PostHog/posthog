@@ -1,8 +1,10 @@
 from typing import Literal, Optional, Union, Any
 
+from rest_framework.exceptions import ValidationError
+
 from posthog.constants import PropertyOperatorType
 from posthog.hogql import ast
-from posthog.hogql.ast import SelectQuery
+from posthog.hogql.ast import SelectQuery, SelectUnionNode
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast
@@ -11,6 +13,7 @@ from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.hogql_queries.legacy_compatibility.clean_properties import clean_global_properties
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 from posthog.models import Filter, Cohort, Team, Property
+from posthog.models.cohort.util import get_count_operator
 from posthog.models.property import PropertyGroup
 from posthog.queries.foss_cohort_query import validate_interval, parse_and_validate_positive_integer
 from posthog.schema import (
@@ -21,8 +24,14 @@ from posthog.schema import (
     TrendsFilter,
     EventsNode,
     ActionsNode,
+    BaseMathType,
+    FunnelsQuery,
+    FunnelsActorsQuery,
+    FunnelsFilter,
+    FunnelConversionWindowTimeUnit,
 )
 from posthog.queries.cohort_query import CohortQuery
+from posthog.temporal.tests.utils.datetimes import date_range
 
 
 class TestWrapperCohortQuery(CohortQuery):
@@ -89,13 +98,15 @@ class HogQLCohortQuery:
     def query_str(self, dialect: Literal["hogql", "clickhouse"]):
         return print_ast(self.get_query(), self.hogql_context, dialect, pretty=True)
 
-    # Get this working first
-    def get_performed_event_condition(self, prop: Property) -> ast.SelectQuery:
+    def get_performed_event_condition(self, prop: Property, first_time: bool = False) -> ast.SelectQuery:
+        math = None
+        if first_time:
+            math = BaseMathType.FIRST_TIME_FOR_USER
         # either an action or an event
         if prop.event_type == "events":
-            series = [EventsNode(event=prop.key)]
+            series = [EventsNode(event=prop.key, math=math)]
         elif prop.event_type == "actions":
-            series = [ActionsNode(id=int(prop.key))]
+            series = [ActionsNode(id=int(prop.key), math=math)]
         else:
             raise ValueError(f"Event type must be 'events' or 'actions'")
 
@@ -133,22 +144,63 @@ class HogQLCohortQuery:
 
         return ActorsQueryRunner(team=self.team, query=actors_query).to_query()
 
-        '''
-        return parse_select(
-            """select * from (
-                    <ActorsQuery select={['id']}>
-                        <InsightActorsQuery>
-                            <TrendsQuery
-                                dateRange={<InsightDateRange date_from='-1w' />}
-                                series={[<EventsNode event='$pageview' />]}
-                                trendsFilter={<TrendsFilter display='ActionsBarValue' />}
-                                --properties={[<PersonPropertyFilter type='person' key='email' value='tom@posthog.com' operator='is_not' />]}
-                            />
-                        </InsightActorsQuery>
-                    </ActorsQuery>
-                )"""
+    def get_performed_event_multiple(self, prop: Property) -> ast.SelectQuery:
+        count = parse_and_validate_positive_integer(prop.operator_value, "operator_value")
+        # either an action or an event
+        if prop.event_type == "events":
+            series = [EventsNode(event=prop.key)] * (count + 1)
+        elif prop.event_type == "actions":
+            series = [ActionsNode(id=int(prop.key))] * (count + 1)
+        else:
+            raise ValueError(f"Event type must be 'events' or 'actions'")
+
+        # negation here means we're excluding users, not including them
+        # for example (users who have performed action "click here" 1 or less times)
+        # we subtract the set of users we get back from the set (we require a positive cohort thing somewhere)
+        # negation = False
+
+        funnelStep: int = None
+
+        funnelCustomSteps: list[int] = None
+
+        if prop.operator == "gte":
+            funnelStep = count
+        elif prop.operator == "lte":
+            funnelCustomSteps = list(range(1, count + 1))
+        elif prop.operator == "gt":
+            funnelStep = count + 1
+        elif prop.operator == "lt":
+            funnelCustomSteps = list(range(1, count))
+        elif prop.operator == "eq" or prop.operator == "exact" or prop.operator is None:
+            # People who dropped out at count + 1
+            funnelStep = -(count + 1)
+        else:
+            raise ValidationError("count_operator must be gte, lte, eq, or None")
+
+        if prop.event_filters:
+            filter = Filter(data={"properties": prop.event_filters}).property_groups
+            series[0].properties = filter
+
+        if prop.explicit_datetime:
+            date_from = prop.explicit_datetime
+        else:
+            date_value = parse_and_validate_positive_integer(prop.time_value, "time_value")
+            date_interval = validate_interval(prop.time_interval)
+            date_from = f"-{date_value}{date_interval[:1]}"
+
+        funnel_query = FunnelsQuery(
+            series=series,
+            dateRange=InsightDateRange(date_from=date_from),
+            funnelsFilter=FunnelsFilter(
+                funnelWindowInterval=12 * 50, funnelWindowIntervalUnit=FunnelConversionWindowTimeUnit.MONTH
+            ),
         )
-        '''
+        actors_query = actors_query = ActorsQuery(
+            source=FunnelsActorsQuery(source=funnel_query, funnelStep=funnelStep, funnelCustomSteps=funnelCustomSteps),
+            select=["id"],
+        )
+
+        return ActorsQueryRunner(team=self.team, query=actors_query).to_query()
 
     def _get_condition_for_property(self, prop: Property) -> ast.SelectQuery | ast.SelectUnionQuery:
         res: str = ""
@@ -160,14 +212,14 @@ class HogQLCohortQuery:
         if prop.type == "behavioral":
             if prop.value == "performed_event":
                 return self.get_performed_event_condition(prop)
+            elif prop.value == "performed_event_first_time":
+                return self.get_performed_event_condition(prop, True)
             elif prop.value == "performed_event_multiple":
-                res, params = self.get_performed_event_multiple(prop, prepend, idx)
+                return self.get_performed_event_multiple(prop)
             elif prop.value == "stopped_performing_event":
                 res, params = self.get_stopped_performing_event(prop, prepend, idx)
             elif prop.value == "restarted_performing_event":
                 res, params = self.get_restarted_performing_event(prop, prepend, idx)
-            elif prop.value == "performed_event_first_time":
-                res, params = self.get_performed_event_first_time(prop, prepend, idx)
             elif prop.value == "performed_event_sequence":
                 res, params = self.get_performed_event_sequence(prop, prepend, idx)
             elif prop.value == "performed_event_regularly":
@@ -201,8 +253,18 @@ class HogQLCohortQuery:
 
                 # TODO: make this do union or intersection based on prop.type
                 if prop.type == PropertyOperatorType.OR:
-                    return ast.SelectUnionQuery(select_queries=queries, value="UNION ALL")
-                return ast.SelectUnionQuery(select_queries=queries, value="INTERSECT")
+                    return ast.SelectUnionQuery(
+                        select_queries=[
+                            SelectUnionNode(select_query=query, union_type="UNION ALL" if query != queries[0] else None)
+                            for query in queries
+                        ]
+                    )
+                return ast.SelectUnionQuery(
+                    select_queries=[
+                        SelectUnionNode(select_query=query, union_type="INTERSECT" if query != queries[0] else None)
+                        for query in queries
+                    ]
+                )
             else:
                 return self._get_condition_for_property(prop)
 
