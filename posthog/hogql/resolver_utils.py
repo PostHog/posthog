@@ -94,4 +94,4 @@ def extract_select_queries(select: ast.SelectUnionQuery | ast.SelectQuery) -> Ge
         yield select
     else:
         for select_query in select.select_queries:
-            yield from extract_select_queries(select_query)
+            yield from extract_select_queries(select_query.select_query)

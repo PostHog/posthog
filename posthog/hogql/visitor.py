@@ -2,6 +2,7 @@ from copy import deepcopy
 from typing import Optional, TypeVar, Generic, Any
 
 from posthog.hogql import ast
+from posthog.hogql.ast import SelectUnionNode
 from posthog.hogql.base import AST, Expr
 from posthog.hogql.errors import BaseHogQLError
 
@@ -149,7 +150,7 @@ class TraversingVisitor(Visitor[None]):
 
     def visit_select_union_query(self, node: ast.SelectUnionQuery):
         for expr in node.select_queries:
-            self.visit(expr)
+            self.visit(expr.select_query)
 
     def visit_lambda_argument_type(self, node: ast.LambdaArgumentType):
         pass
@@ -588,8 +589,10 @@ class CloningVisitor(Visitor[Any]):
             start=None if self.clear_locations else node.start,
             end=None if self.clear_locations else node.end,
             type=None if self.clear_types else node.type,
-            select_queries=[self.visit(expr) for expr in node.select_queries],
-            value=node.value,
+            select_queries=[
+                SelectUnionNode(union_type=expr.union_type, select_query=self.visit(expr.select_query))
+                for expr in node.select_queries
+            ],
         )
 
     def visit_window_expr(self, node: ast.WindowExpr):

@@ -802,10 +802,19 @@ class SelectQuery(Expr):
 
 
 @dataclass(kw_only=True)
+class SelectUnionNode:
+    select_query: Union[SelectQuery, "SelectUnionQuery"]
+    union_type: Optional[Literal["UNION ALL", "INTERSECT", "EXCEPT"]]
+
+    def __post_init__(self):
+        if self.union_type not in (None, "UNION ALL", "INTERSECT", "EXCEPT"):
+            raise ValueError("Incorrect Union Type")
+
+
+@dataclass(kw_only=True)
 class SelectUnionQuery(Expr):
     type: Optional[SelectUnionQueryType] = None
-    value: Optional[Literal["UNION ALL", "INTERSECT"]] = None
-    select_queries: Sequence[Union[SelectQuery, "SelectUnionQuery"]]
+    select_queries: Sequence[SelectUnionNode]
 
 
 @dataclass(kw_only=True)
