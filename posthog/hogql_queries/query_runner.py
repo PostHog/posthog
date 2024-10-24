@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from datetime import UTC, datetime, timedelta
+from enum import StrEnum
 from typing import Any, Generic, Optional, TypeGuard, TypeVar, Union, cast
 
 import structlog
@@ -28,7 +29,6 @@ from posthog.schema import (
     DateRange,
     EventsQuery,
     EventTaxonomyQuery,
-    ExecutionMode,
     FilterLogicalOperator,
     FunnelCorrelationActorsQuery,
     FunnelCorrelationQuery,
@@ -78,6 +78,24 @@ QUERY_CACHE_HIT_COUNTER = Counter(
 )
 
 EXTENDED_CACHE_AGE = timedelta(days=1)
+
+
+class ExecutionMode(StrEnum):
+    CALCULATE_BLOCKING_ALWAYS = "force_blocking"
+    """Always recalculate."""
+    CALCULATE_ASYNC_ALWAYS = "force_async"
+    """Always kick off async calculation."""
+    RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE = "blocking"
+    """Use cache, unless the results are missing or stale."""
+    RECENT_CACHE_CALCULATE_ASYNC_IF_STALE = "async"
+    """Use cache, kick off async calculation when results are missing or stale."""
+    EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE = "lazy_async"
+    """Use cache for longer, kick off async calculation when results are missing or stale."""
+    CACHE_ONLY_NEVER_CALCULATE = "force_cache"
+    """Do not initiate calculation."""
+    RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS = "async_except_on_cache_miss"
+    """Use cache, kick off async calculation when results are stale, but block on cache miss."""
+
 
 _REFRESH_TO_EXECUTION_MODE: dict[str | bool, ExecutionMode] = {
     **ExecutionMode._value2member_map_,  # type: ignore

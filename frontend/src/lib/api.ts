@@ -15,13 +15,13 @@ import {
     DashboardFilter,
     DatabaseSerializedFieldType,
     ErrorTrackingGroup,
-    ExecutionMode,
     HogCompileResponse,
     HogQLVariable,
     QuerySchema,
     QueryStatusResponse,
     RecordingsQuery,
     RecordingsQueryResponse,
+    RefreshType,
 } from '~/queries/schema'
 import {
     ActionType,
@@ -965,7 +965,7 @@ const api = {
         loadInsight(
             shortId: InsightModel['short_id'],
             basic?: boolean,
-            refresh?: ExecutionMode | boolean,
+            refresh?: RefreshType,
             filtersOverride?: DashboardFilter | null,
             variablesOverride?: Record<string, HogQLVariable> | null
         ): Promise<PaginatedResponse<Partial<InsightModel>>> {
@@ -2443,7 +2443,8 @@ const api = {
         query: T,
         options?: ApiMethodOptions,
         queryId?: string,
-        executionMode?: ExecutionMode | boolean,
+        refresh?: boolean,
+        async?: boolean,
         filtersOverride?: DashboardFilter | null,
         variablesOverride?: Record<string, HogQLVariable> | null
     ): Promise<
@@ -2453,12 +2454,13 @@ const api = {
                 : T['response']
             : Record<string, any>
     > {
+        const refreshParam: RefreshType | undefined = refresh && async ? 'force_async' : async ? 'async' : refresh
         return await new ApiRequest().query().create({
             ...options,
             data: {
                 query,
                 client_query_id: queryId,
-                refresh: executionMode,
+                refresh: refreshParam,
                 filters_override: filtersOverride,
                 variables_override: variablesOverride,
             },

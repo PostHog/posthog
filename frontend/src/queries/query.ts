@@ -9,7 +9,6 @@ import { OnlineExportContext, QueryExportContext } from '~/types'
 import {
     DashboardFilter,
     DataNode,
-    ExecutionMode,
     HogQLQuery,
     HogQLQueryResponse,
     HogQLVariable,
@@ -102,17 +101,12 @@ async function executeQuery<N extends DataNode>(
         !!featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.QUERY_ASYNC]
 
     if (!pollOnly) {
-        const executionMode: ExecutionMode | boolean | undefined =
-            refresh && isAsyncQuery
-                ? ExecutionMode.CALCULATE_ASYNC_ALWAYS
-                : isAsyncQuery
-                ? ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE
-                : refresh
         const response = await api.query(
             queryNode,
             methodOptions,
             queryId,
-            executionMode,
+            refresh,
+            isAsyncQuery,
             filtersOverride,
             variablesOverride
         )

@@ -36,7 +36,7 @@ import { variableDataLogic } from '~/queries/nodes/DataVisualization/Components/
 import { Variable } from '~/queries/nodes/DataVisualization/types'
 import { getQueryBasedDashboard, getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { pollForResults } from '~/queries/query'
-import { DashboardFilter, DataVisualizationNode, ExecutionMode, HogQLVariable, NodeKind } from '~/queries/schema'
+import { DashboardFilter, DataVisualizationNode, HogQLVariable, NodeKind, RefreshType } from '~/queries/schema'
 import {
     AnyPropertyFilter,
     Breadcrumb,
@@ -140,7 +140,7 @@ async function getSingleInsight(
     insight: QueryBasedInsightModel,
     dashboardId: number,
     queryId: string,
-    refresh: ExecutionMode | boolean,
+    refresh: RefreshType,
     methodOptions?: ApiMethodOptions,
     filtersOverride?: DashboardFilter,
     variablesOverride?: Record<string, HogQLVariable>
@@ -176,7 +176,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
     actions(({ values }) => ({
         loadDashboard: (payload: {
-            refresh?: ExecutionMode | boolean
+            refresh?: RefreshType
             action:
                 | 'initial_load'
                 | 'update'
@@ -828,7 +828,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             () => [(_, props) => props.id],
             (id) => {
                 return (
-                    refresh?: ExecutionMode | boolean,
+                    refresh?: RefreshType,
                     filtersOverride?: DashboardFilter,
                     variablesOverride?: Record<string, HogQLVariable>
                 ) =>

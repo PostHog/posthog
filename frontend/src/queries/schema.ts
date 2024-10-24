@@ -1183,23 +1183,14 @@ export type LifecycleFilter = {
     showLegend?: LifecycleFilterLegacy['show_legend']
 }
 
-/** Query exeuctio mode. */
-export enum ExecutionMode {
-    /** Always recalculate. */
-    CALCULATE_BLOCKING_ALWAYS = 'force_blocking',
-    /** Always kick off async calculation. */
-    CALCULATE_ASYNC_ALWAYS = 'force_async',
-    /** Use cache, unless the results are missing or stale. */
-    RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE = 'blocking',
-    /** Use cache, kick off async calculation when results are missing or stale. */
-    RECENT_CACHE_CALCULATE_ASYNC_IF_STALE = 'async',
-    /** Use cache for longer, kick off async calculation when results are missing or stale. */
-    EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE = 'lazy_async',
-    /** Do not initiate calculation. */
-    CACHE_ONLY_NEVER_CALCULATE = 'force_cache',
-    /** Use cache, kick off async calculation when results are stale, but block on cache miss. */
-    RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS = 'async_except_on_cache_miss',
-}
+export type RefreshType =
+    | boolean
+    | 'async'
+    | 'blocking'
+    | 'force_async'
+    | 'force_blocking'
+    | 'force_cache'
+    | 'lazy_async'
 
 export interface QueryRequest {
     /** Client provided query ID. Can be used to retrieve the status or cancel the query. */
@@ -1216,7 +1207,7 @@ export interface QueryRequest {
      * Background calculation can be tracked using the `query_status` response field.
      * @default 'blocking'
      */
-    refresh?: ExecutionMode | boolean
+    refresh?: RefreshType
     /** @deprecated Use `refresh` instead. */
     async?: boolean
     /**

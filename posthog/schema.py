@@ -517,16 +517,6 @@ class EventsQueryPersonColumn(BaseModel):
     uuid: str
 
 
-class ExecutionMode(StrEnum):
-    FORCE_BLOCKING = "force_blocking"
-    FORCE_ASYNC = "force_async"
-    BLOCKING = "blocking"
-    ASYNC_ = "async"
-    LAZY_ASYNC = "lazy_async"
-    FORCE_CACHE = "force_cache"
-    ASYNC_EXCEPT_ON_CACHE_MISS = "async_except_on_cache_miss"
-
-
 class ExperimentSignificanceCode(StrEnum):
     SIGNIFICANT = "significant"
     NOT_ENOUGH_EXPOSURE = "not_enough_exposure"
@@ -6493,8 +6483,8 @@ class QueryRequest(BaseModel):
         ),
         discriminator="kind",
     )
-    refresh: Optional[Union[ExecutionMode, bool]] = Field(
-        default=ExecutionMode.BLOCKING,
+    refresh: Optional[Union[bool, str]] = Field(
+        default="blocking",
         description=(
             "Whether results should be calculated sync or async, and how much to rely on the cache:\n- `'blocking'` -"
             " calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in"
