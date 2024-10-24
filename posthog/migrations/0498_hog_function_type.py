@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0496_team_person_processing_opt_out"),
+        ("posthog", "0497_experimentholdout_experiment_holdout"),
     ]
 
     operations = [
