@@ -44,7 +44,7 @@ pub struct Exception {
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct ErrProps {
     #[serde(rename = "$exception_list")]
-    pub exception_list: Option<Vec<Exception>>, // Required from exception producers - we will not process events without this
+    pub exception_list: Option<Vec<Exception>>, // Required from exception producers - we will not process events without this. Optional to support older clients, should eventually be removed
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename = "$exception_type")]
     pub exception_type: Option<String>, // legacy, overridden by exception_list
@@ -102,7 +102,7 @@ mod test {
             Some("https://app-static.eu.posthog.com/static/chunk-PGUQKT6S.js".to_string())
         );
         assert_eq!(frame.fn_name, "?".to_string());
-        assert!(frame.in_app);
+        assert_eq!(frame.in_app, true);
         assert_eq!(frame.line, 64);
         assert_eq!(frame.column, 25112);
 
@@ -112,7 +112,7 @@ mod test {
             Some("https://app-static.eu.posthog.com/static/chunk-PGUQKT6S.js".to_string())
         );
         assert_eq!(frame.fn_name, "n.loadForeignModule".to_string());
-        assert!(frame.in_app);
+        assert_eq!(frame.in_app, true);
         assert_eq!(frame.line, 64);
         assert_eq!(frame.column, 15003);
 
@@ -128,7 +128,7 @@ mod test {
             "$exception_list": []
         }"#;
 
-        let props: Result<ErrProps, Error> = serde_json::from_str(raw);
+        let props: Result<ErrProps, Error> = serde_json::from_str(&raw);
         assert!(props.is_ok());
         assert_eq!(props.unwrap().exception_list.unwrap().len(), 0);
 
@@ -138,7 +138,7 @@ mod test {
             }]
         }"#;
 
-        let props: Result<ErrProps, Error> = serde_json::from_str(raw);
+        let props: Result<ErrProps, Error> = serde_json::from_str(&raw);
         assert!(props.is_err());
         assert_eq!(
             props.unwrap_err().to_string(),
@@ -152,7 +152,7 @@ mod test {
             }]
         }"#;
 
-        let props: Result<ErrProps, Error> = serde_json::from_str(raw);
+        let props: Result<ErrProps, Error> = serde_json::from_str(&raw);
         assert!(props.is_err());
         assert_eq!(
             props.unwrap_err().to_string(),
