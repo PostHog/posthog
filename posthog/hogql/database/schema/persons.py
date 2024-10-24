@@ -53,11 +53,13 @@ def select_from_persons_table(
         ast.SelectQuery,
         parse_select(
             """
-            SELECT id
-            FROM raw_persons
-            GROUP BY id
-            HAVING equals(argMax(raw_persons.is_deleted, raw_persons.version), 0)
-            AND argMax(raw_persons.created_at, raw_persons.version) < now() + interval 1 day
+            SELECT id FROM raw_persons WHERE (id, version) IN (
+               SELECT id, max(version) as version
+               FROM raw_persons as aggregation_optimization
+               GROUP BY id
+               HAVING equals(argMax(aggregation_optimization.is_deleted, aggregation_optimization.version), 0)
+               AND argMax(aggregation_optimization.created_at, aggregation_optimization.version) < now() + interval 1 day
+            )
         """
         ),
     )
@@ -65,17 +67,14 @@ def select_from_persons_table(
 
     # This bit optimizes the query by first selecting all IDs for all persons (regardless of whether it's the latest version), and only then aggregating the results
     # We only do this if there are where clauses, _and_ WhereClauseExtractor can extract them
+    # WhereClauseExtractor doesn't extract negative cases, which is good as this query will blow up if there are too many persons inside this subquery
     if node.where:
         inner_select = cast(
             ast.SelectQuery,
             parse_select(
                 """
             SELECT id
-            FROM raw_persons as persons_where_optimization
-            WHERE
-                -- Much faster to pre-select out any deleted persons than doing it in aggregation
-                -- This is correct because there are no instances where we'd un-delete a person (ie there are no cases where one version has is_deleted=1 and a later version has is_deleted = 0)
-                id NOT IN (select id from raw_persons where is_deleted = 1)
+            FROM raw_persons as inner_where_optimization
             """
             ),
         )
@@ -83,15 +82,12 @@ def select_from_persons_table(
         extractor.add_local_tables(join_or_table)
         where = extractor.get_inner_where(node)
 
-        if where and inner_select.where:
-            inner_select.where = ast.And(exprs=[inner_select.where, where])
-            select.where = ast.And(
-                exprs=[
-                    ast.CompareOperation(
-                        left=ast.Field(chain=["id"]), right=inner_select, op=ast.CompareOperationOp.In
-                    ),
-                ]
+        if where and select.where:
+            inner_select.where = where
+            cast(ast.SelectQuery, cast(ast.CompareOperation, select.where).right).where = ast.CompareOperation(
+                left=ast.Field(chain=["id"]), right=inner_select, op=ast.CompareOperationOp.In
             )
+
     if filter is not None:
         if select.where:
             cast(ast.SelectQuery, cast(ast.CompareOperation, select.where).right).where = ast.And(
@@ -107,10 +103,7 @@ def select_from_persons_table(
             select.select.append(
                 ast.Alias(
                     alias=field_name,
-                    expr=ast.Call(
-                        name="argMax",
-                        args=[ast.Field(chain=["raw_persons", *field_chain]), ast.Field(chain=["version"])],
-                    ),
+                    expr=ast.Field(chain=["raw_persons", *field_chain]),
                 )
             )
 
