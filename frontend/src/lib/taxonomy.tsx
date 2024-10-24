@@ -158,7 +158,7 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             description: 'Automatically captured exceptions from the client Sentry integration',
         },
         $web_vitals: {
-            label: 'Web vitals',
+            label: 'Web Vitals',
             description: 'Automatically captured web vitals data',
         },
         // Mobile SDKs events
@@ -1417,7 +1417,7 @@ export const PROPERTY_KEYS = Object.keys(CORE_FILTER_DEFINITIONS_BY_GROUP.event_
  * but often more numerous than actual properties set on events and useful to hide
  * to make those properties discoverable
  */
-export const NON_DOLLAR_POSTHOG_PROPERTY_KEYS = [
+export const CLOUD_INTERNAL_POSTHOG_PROPERTY_KEYS = [
     'billing_period_end',
     'billing_period_start',
     'current_amount_usd.data_warehouse',
@@ -1443,6 +1443,13 @@ export const NON_DOLLAR_POSTHOG_PROPERTY_KEYS = [
     'custom_limits.product_analytics',
     'custom_limits.session_replay',
     'custom_limits.surveys',
+    'custom_limits_usd.data_warehouse',
+    'custom_limits_usd.feature_flags',
+    'custom_limits_usd.integrations',
+    'custom_limits_usd.platform_and_support',
+    'custom_limits_usd.product_analytics',
+    'custom_limits_usd.session_replay',
+    'custom_limits_usd.surveys',
     'free_allocation.data_warehouse',
     'free_allocation.feature_flags',
     'free_allocation.integrations',

@@ -31,6 +31,9 @@
                 "math_property": {
                     "type": "string"
                 },
+                "math_property_type": {
+                    "type": "string"
+                },
                 "name": {
                     "type": "string"
                 },
@@ -82,6 +85,9 @@
                     "type": "number"
                 },
                 "math_property": {
+                    "type": "string"
+                },
+                "math_property_type": {
                     "type": "string"
                 },
                 "name": {
@@ -170,6 +176,9 @@
                     "type": "string"
                 },
                 "math_property": {
+                    "type": "string"
+                },
+                "math_property_type": {
                     "type": "string"
                 },
                 "name": {
@@ -3986,6 +3995,9 @@
                 "math_property": {
                     "type": "string"
                 },
+                "math_property_type": {
+                    "type": "string"
+                },
                 "name": {
                     "type": "string"
                 },
@@ -4503,6 +4515,9 @@
                 "math_property": {
                     "type": "string"
                 },
+                "math_property_type": {
+                    "type": "string"
+                },
                 "name": {
                     "type": "string"
                 },
@@ -4933,6 +4948,9 @@
                     "type": "string"
                 },
                 "math_property": {
+                    "type": "string"
+                },
+                "math_property_type": {
                     "type": "string"
                 },
                 "name": {
@@ -5641,6 +5659,9 @@
                 "math_property": {
                     "type": "string"
                 },
+                "math_property_type": {
+                    "type": "string"
+                },
                 "name": {
                     "type": "string"
                 },
@@ -5699,6 +5720,9 @@
                     "type": "string"
                 },
                 "math_property": {
+                    "type": "string"
+                },
+                "math_property_type": {
                     "type": "string"
                 },
                 "name": {
@@ -10260,6 +10284,10 @@
                         {
                             "const": "mouse_activity_count",
                             "type": "string"
+                        },
+                        {
+                            "const": "activity_score",
+                            "type": "string"
                         }
                     ]
                 },
@@ -10831,6 +10859,10 @@
             "additionalProperties": false,
             "properties": {
                 "active_seconds": {
+                    "type": "number"
+                },
+                "activity_score": {
+                    "description": "calculated on the backend so that we can sort by it, definition may change over time",
                     "type": "number"
                 },
                 "click_count": {
@@ -11468,6 +11500,10 @@
                     },
                     "type": "array"
                 },
+                "showAlertThresholdLines": {
+                    "default": false,
+                    "type": "boolean"
+                },
                 "showLabelsOnSeries": {
                     "type": "boolean"
                 },
@@ -11537,6 +11573,9 @@
                         ]
                     },
                     "type": "object"
+                },
+                "show_alert_threshold_lines": {
+                    "type": "boolean"
                 },
                 "show_labels_on_series": {
                     "type": "boolean"

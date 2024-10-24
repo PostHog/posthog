@@ -7,7 +7,7 @@
   WHERE and(equals(events.team_id, 2), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), minus(now64(6, 'UTC'), toIntervalDay(30))))
   GROUP BY events.event
   ORDER BY count DESC
-  LIMIT 100 SETTINGS readonly=2,
+  LIMIT 500 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,

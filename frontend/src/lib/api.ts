@@ -480,11 +480,11 @@ class ApiRequest {
     }
 
     // Recordings
-    public recording(recordingId: SessionRecordingType['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('session_recordings').addPathComponent(recordingId)
-    }
     public recordings(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('session_recordings')
+    }
+    public recording(recordingId: SessionRecordingType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.recordings(teamId).addPathComponent(recordingId)
     }
     public recordingMatchingEvents(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId)
@@ -748,7 +748,7 @@ class ApiRequest {
     }
 
     public subscription(id: SubscriptionType['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent(id)
+        return this.subscriptions(teamId).addPathComponent(id)
     }
 
     // # Integrations
@@ -2082,6 +2082,13 @@ const api = {
             teamId?: TeamType['id']
         ): Promise<BatchExportRun> {
             return await new ApiRequest().batchExportRun(id, runId, teamId).withAction('retry').create()
+        },
+        async cancelRun(
+            id: BatchExportConfiguration['id'],
+            runId: BatchExportRun['id'],
+            teamId?: TeamType['id']
+        ): Promise<BatchExportRun> {
+            return await new ApiRequest().batchExportRun(id, runId, teamId).withAction('cancel').create()
         },
         async logs(
             id: BatchExportConfiguration['id'],

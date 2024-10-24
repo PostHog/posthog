@@ -73,7 +73,13 @@ class SessionRecordingListFromFilters:
             sum(s.console_log_count) as console_log_count,
             sum(s.console_warn_count) as console_warn_count,
             sum(s.console_error_count) as console_error_count,
-            {ongoing_selection}
+            {ongoing_selection},
+            round((
+            ((sum(s.active_milliseconds) / 1000 + sum(s.click_count) + sum(s.keypress_count) + sum(s.console_error_count))) -- intent
+            /
+            ((sum(s.mouse_activity_count) + dateDiff('SECOND', start_time, end_time) + sum(s.console_error_count) + sum(s.console_log_count) + sum(s.console_warn_count)))
+            * 100
+            ), 2) as activity_score
         FROM raw_session_replay_events s
         WHERE {where_predicates}
         GROUP BY session_id
@@ -100,6 +106,7 @@ class SessionRecordingListFromFilters:
             "console_warn_count",
             "console_error_count",
             "ongoing",
+            "activity_score",
         ]
 
         return [
@@ -363,9 +370,12 @@ class CohortPropertyGroupsSubQuery:
     _ttl_days: int
 
     raw_cohort_to_distinct_id = """
-    select distinct_id
-    from person_distinct_ids
-    where {cohort_predicate}
+    SELECT
+    distinct_id
+FROM raw_person_distinct_ids
+WHERE distinct_id in (SELECT distinct_id FROM raw_person_distinct_ids WHERE 1=1 AND {cohort_predicate})
+GROUP BY distinct_id
+HAVING argMax(is_deleted, version) = 0 AND {cohort_predicate}
     """
 
     def __init__(self, team: Team, filter: SessionRecordingsFilter, ttl_days: int):
