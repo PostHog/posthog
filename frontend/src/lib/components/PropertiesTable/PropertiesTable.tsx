@@ -222,29 +222,33 @@ export function PropertiesTable({
         if (!properties || Array.isArray(properties) || !isObject(properties)) {
             return []
         }
-        let entries = Object.entries(properties).sort((a, b) => {
-            // if this is a posthog property we want to sort by its label
-            const propertyTypeMap: Record<PropertyDefinitionType, TaxonomicFilterGroupType> = {
-                [PropertyDefinitionType.Event]: TaxonomicFilterGroupType.EventProperties,
-                [PropertyDefinitionType.Person]: TaxonomicFilterGroupType.PersonProperties,
-                [PropertyDefinitionType.Group]: TaxonomicFilterGroupType.GroupsPrefix,
-                [PropertyDefinitionType.Session]: TaxonomicFilterGroupType.SessionProperties,
-                [PropertyDefinitionType.LogEntry]: TaxonomicFilterGroupType.LogEntries,
-            }
 
-            const propertyType = propertyTypeMap[type] || TaxonomicFilterGroupType.EventProperties
+        let entries = Object.entries(properties)
+        if (sortProperties) {
+            entries = entries.sort((a, b) => {
+                // if this is a posthog property we want to sort by its label
+                const propertyTypeMap: Record<PropertyDefinitionType, TaxonomicFilterGroupType> = {
+                    [PropertyDefinitionType.Event]: TaxonomicFilterGroupType.EventProperties,
+                    [PropertyDefinitionType.Person]: TaxonomicFilterGroupType.PersonProperties,
+                    [PropertyDefinitionType.Group]: TaxonomicFilterGroupType.GroupsPrefix,
+                    [PropertyDefinitionType.Session]: TaxonomicFilterGroupType.SessionProperties,
+                    [PropertyDefinitionType.LogEntry]: TaxonomicFilterGroupType.LogEntries,
+                }
 
-            const left = getCoreFilterDefinition(a[0], propertyType)?.label || a[0]
-            const right = getCoreFilterDefinition(b[0], propertyType)?.label || b[0]
+                const propertyType = propertyTypeMap[type] || TaxonomicFilterGroupType.EventProperties
 
-            if (left < right) {
-                return -1
-            }
-            if (left > right) {
-                return 1
-            }
-            return 0
-        })
+                const left = getCoreFilterDefinition(a[0], propertyType)?.label || a[0]
+                const right = getCoreFilterDefinition(b[0], propertyType)?.label || b[0]
+
+                if (left < right) {
+                    return -1
+                }
+                if (left > right) {
+                    return 1
+                }
+                return 0
+            })
+        }
 
         if (searchTerm) {
             const normalizedSearchTerm = searchTerm.toLowerCase()
