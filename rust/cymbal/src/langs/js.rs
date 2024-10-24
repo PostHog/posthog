@@ -115,6 +115,7 @@ impl RawJSFrame {
             source: self.source_url.clone(), // Maybe we have one?
             in_app: self.in_app,
             resolved_name: Some(self.fn_name.clone()), // This is the bit we'd want to check
+            resolved: false,
             lang: "javascript".to_string(),
         })
     }
@@ -131,6 +132,7 @@ impl From<(&RawJSFrame, Token<'_>)> for Frame {
             source: token.get_source().map(String::from),
             in_app: raw_frame.in_app,
             resolved_name: token.get_name().map(String::from),
+            resolved: true,
             lang: "javascript".to_string(),
         }
     }

@@ -45,7 +45,8 @@ pub struct Frame {
     pub line: Option<u32>,             // Line the function is define on, if known
     pub column: Option<u32>,           // Column the function is defined on, if known
     pub source: Option<String>,        // Generally, the file the function is defined in
-    pub in_app: bool,                  // We hard-require clients to tell us this?
     pub resolved_name: Option<String>, // The name of the function, after symbolification
-    pub lang: String,                  // The language of the frame. Always known (I guess?)
+    pub lang: String,                  // The language of the frame. Always known
+    pub in_app: bool,                  // We hard-require clients to tell us this?
+    pub resolved: bool, // Whether the frame was successfully demangled (always true if it does not apply)
 }
