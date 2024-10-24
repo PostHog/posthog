@@ -6,6 +6,7 @@ from .customerio.template_customerio import template as customerio, TemplateCust
 from .intercom.template_intercom import template as intercom, TemplateIntercomMigrator
 from .sendgrid.template_sendgrid import template as sendgrid, TemplateSendGridMigrator
 from .clearbit.template_clearbit import template as clearbit
+from .june.template_june import template as june
 from .posthog.template_posthog import template as posthog, TemplatePostHogMigrator
 from .aws_kinesis.template_aws_kinesis import template as aws_kinesis
 from .discord.template_discord import template as discord
@@ -55,6 +56,7 @@ HOG_FUNCTION_TEMPLATES = [
     google_pubsub,
     hubspot,
     intercom,
+    june,
     klaviyo_event,
     klaviyo_user,
     knock,
