@@ -104,6 +104,9 @@ class TeamManager(models.Manager):
             kwargs.get("organization_id") or kwargs["organization"].id
         )
 
+        # Use properties on events by default
+        team.modifiers = {"personsOnEventsMode": PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS}
+
         # Create default dashboards
         dashboard = Dashboard.objects.db_manager(self.db).create(name="My App Dashboard", pinned=True, team=team)
         create_dashboard_from_template("DEFAULT_APP", dashboard)
@@ -341,6 +344,9 @@ class Team(UUIDClassicModel):
 
         if self._person_on_events_person_id_no_override_properties_on_events:
             return PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
+
+        if self.organization.created_at >= "2024-06-14":
+            return PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
 
         return PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED
 
