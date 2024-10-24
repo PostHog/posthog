@@ -676,7 +676,8 @@ export class CdpFunctionCallbackConsumer extends CdpConsumerBase {
                                 const hogFunctionId =
                                     invocationSerialized.hogFunctionId ?? invocationSerialized.hogFunction?.id
                                 const hogFunction = hogFunctionId
-                                    ? this.hogFunctionManager.getHogFunction(hogFunctionId)
+                                    ? this.hogFunctionManager.getHogFunction(hogFunctionId) ??
+                                      (await this.hogFunctionManager.fetchHogFunction(hogFunctionId))
                                     : undefined
 
                                 if (!hogFunction) {

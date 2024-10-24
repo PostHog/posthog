@@ -1,3 +1,5 @@
+import base64
+import gzip
 import json
 from typing import Optional, cast
 import structlog
@@ -24,6 +26,8 @@ from posthog.cdp.templates import HOG_FUNCTION_TEMPLATES_BY_ID
 from posthog.cdp.validation import compile_hog, generate_template_bytecode, validate_inputs, validate_inputs_schema
 from posthog.constants import AvailableFeature
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
+from posthog.kafka_client.client import KafkaProducer
+from posthog.kafka_client.topics import KAFKA_CDP_FUNCTION_CALLBACKS
 from posthog.models.activity_logging.activity_log import log_activity, changes_between, Detail
 from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionState
 from posthog.plugins.plugin_server_api import create_hog_invocation_test
@@ -319,27 +323,62 @@ class HogFunctionViewSet(
         actors_query = {
             "kind": "ActorsQuery",
             "properties": hog_function.filters.get("properties", None),
-            "select": ["id", "properties", "created_at"],
+            "select": ["id", "any(pdi.distinct_id)", "properties", "created_at"],
         }
 
         response = ActorsQueryRunner(query=actors_query, team=self.team).calculate()
 
+        producer = KafkaProducer()
+
         for result in response.results:
-            # TODO: error handling
             globals = {
                 "person": {
                     "id": str(result[0]),
-                    "properties": json.loads(result[1]),
-                    "created_at": result[2].isoformat(),
+                    "distinct_id": str(result[1]),
+                    "properties": json.loads(result[2]),
+                    "created_at": result[3].isoformat(),
                 }
             }
-            create_hog_invocation_test(
-                team_id=hog_function.team_id,
-                hog_function_id=hog_function.id,
-                globals=globals,
-                configuration=HogFunctionSerializer(hog_function).data,
-                mock_async_functions=False,
-            )
+            if False:  # Kafka test
+                invocation = {
+                    # "id": string,
+                    "hogFunctionId": str(hog_function.pk),
+                    "globals": globals,
+                    "teamId": self.team.pk,
+                    "priority": 0,
+                    "queue": "hog",
+                    "timings": [],
+                    "vmState": {
+                        "bytecodes": {
+                            "root": {
+                                "bytecode": hog_function.bytecode,
+                            }
+                        }
+                    },
+                }
+
+                gzipped_invocation = json.dumps(invocation)
+                gzipped_invocation = gzipped_invocation.encode("utf-8")
+                gzipped_invocation = gzip.compress(gzipped_invocation)
+                gzipped_invocation = base64.b64encode(gzipped_invocation).decode("utf-8")
+
+                try:
+                    key = "${invocation.hogFunction.id}:${invocation.id}"
+                    data = {"state": gzipped_invocation}
+                    producer.produce(topic=KAFKA_CDP_FUNCTION_CALLBACKS, data=data, key=key)
+                except Exception:
+                    logger.exception(
+                        "Failed to produce event to Kafka topic %s with error", KAFKA_CDP_FUNCTION_CALLBACKS
+                    )
+            else:
+                # send via API
+                create_hog_invocation_test(
+                    team_id=hog_function.team_id,
+                    hog_function_id=hog_function.id,
+                    globals=globals,
+                    configuration=HogFunctionSerializer(hog_function).data,
+                    mock_async_functions=False,
+                )
 
         return Response({"success": True})
 
