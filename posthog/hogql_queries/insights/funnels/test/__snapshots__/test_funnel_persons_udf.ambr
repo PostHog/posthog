@@ -48,9 +48,12 @@
   INNER JOIN
     (SELECT person.id AS id
      FROM person
-     WHERE equals(person.team_id, 2)
-     GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+     WHERE and(equals(person.team_id, 2), ifNull(in(tuple(person.id, person.version),
+                                                      (SELECT aggregation_optimization.id AS id, max(aggregation_optimization.version) AS version
+                                                       FROM person AS aggregation_optimization
+                                                       WHERE equals(aggregation_optimization.team_id, 2)
+                                                       GROUP BY aggregation_optimization.id
+                                                       HAVING and(ifNull(equals(argMax(aggregation_optimization.is_deleted, aggregation_optimization.version), 0), 0), ifNull(less(argMax(toTimeZone(aggregation_optimization.created_at, 'UTC'), aggregation_optimization.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -126,9 +129,12 @@
   INNER JOIN
     (SELECT person.id AS id
      FROM person
-     WHERE equals(person.team_id, 2)
-     GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+     WHERE and(equals(person.team_id, 2), ifNull(in(tuple(person.id, person.version),
+                                                      (SELECT aggregation_optimization.id AS id, max(aggregation_optimization.version) AS version
+                                                       FROM person AS aggregation_optimization
+                                                       WHERE equals(aggregation_optimization.team_id, 2)
+                                                       GROUP BY aggregation_optimization.id
+                                                       HAVING and(ifNull(equals(argMax(aggregation_optimization.is_deleted, aggregation_optimization.version), 0), 0), ifNull(less(argMax(toTimeZone(aggregation_optimization.created_at, 'UTC'), aggregation_optimization.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -204,9 +210,12 @@
   INNER JOIN
     (SELECT person.id AS id
      FROM person
-     WHERE equals(person.team_id, 2)
-     GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+     WHERE and(equals(person.team_id, 2), ifNull(in(tuple(person.id, person.version),
+                                                      (SELECT aggregation_optimization.id AS id, max(aggregation_optimization.version) AS version
+                                                       FROM person AS aggregation_optimization
+                                                       WHERE equals(aggregation_optimization.team_id, 2)
+                                                       GROUP BY aggregation_optimization.id
+                                                       HAVING and(ifNull(equals(argMax(aggregation_optimization.is_deleted, aggregation_optimization.version), 0), 0), ifNull(less(argMax(toTimeZone(aggregation_optimization.created_at, 'UTC'), aggregation_optimization.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
