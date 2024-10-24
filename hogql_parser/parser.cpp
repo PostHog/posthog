@@ -872,7 +872,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
 
     for (auto child : ctx->children) {
       if (auto token = dynamic_cast<antlr4::tree::TerminalNode*>(child)) {
-        if (union_type == "") {
+        if (set_operator == "") {
           set_operator += child->getText();
         } else {
           set_operator += " " + child->getText();
