@@ -494,11 +494,34 @@ def execute_bytecode(
                             )
                         ),
                     )
+                    set_chunk_bytecode()
                     call_stack.append(frame)
                     continue  # resume the loop without incrementing frame.ip
                 else:
                     if name == "import":
-                        raise HogVMException("Import is not yet supported in the Python HogVM")
+                        if arg_count != 1:
+                            raise HogVMException("Function import requires exactly 1 argument")
+                        module_name = pop_stack()
+                        frame.ip += 1  # advance for when we return
+                        frame = CallFrame(
+                            ip=0,
+                            chunk=module_name,
+                            stack_start=len(stack),
+                            arg_len=0,
+                            closure=new_hog_closure(
+                                new_hog_callable(
+                                    type="local",
+                                    name=module_name,
+                                    arg_count=0,
+                                    upvalue_count=0,
+                                    ip=0,
+                                    chunk=module_name,
+                                )
+                            ),
+                        )
+                        set_chunk_bytecode()
+                        call_stack.append(frame)
+                        continue
                     elif functions is not None and name in functions:
                         if version == 0:
                             args = [pop_stack() for _ in range(arg_count)]
@@ -635,3 +658,5 @@ def execute_bytecode(
                 )
 
         frame.ip += 1
+
+    return BytecodeResult(result=pop_stack() if len(stack) > 0 else None, stdout=stdout, bytecode=root_bytecode)
