@@ -45,6 +45,7 @@ class HogFunctionMinimalSerializer(serializers.ModelSerializer):
         model = HogFunction
         fields = [
             "id",
+            "type",
             "name",
             "description",
             "created_at",
@@ -82,6 +83,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         model = HogFunction
         fields = [
             "id",
+            "type",
             "name",
             "description",
             "created_at",
@@ -236,7 +238,8 @@ class HogFunctionViewSet(
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         if self.action == "list":
-            queryset = queryset.filter(deleted=False)
+            type = self.request.GET.get("type", "destination")
+            queryset = queryset.filter(deleted=False, type=type)
 
         if self.request.GET.get("filters"):
             try:
@@ -319,7 +322,7 @@ class HogFunctionViewSet(
             item_id=serializer.instance.id,
             scope="HogFunction",
             activity="created",
-            detail=Detail(name=serializer.instance.name, type=serializer.instance.type),
+            detail=Detail(name=serializer.instance.name, type=serializer.instance.type or "destination"),
         )
 
     def perform_update(self, serializer):
@@ -342,5 +345,7 @@ class HogFunctionViewSet(
             item_id=instance_id,
             scope="HogFunction",
             activity="updated",
-            detail=Detail(changes=changes, name=serializer.instance.name, type=serializer.instance.type),
+            detail=Detail(
+                changes=changes, name=serializer.instance.name, type=serializer.instance.type or "destination"
+            ),
         )

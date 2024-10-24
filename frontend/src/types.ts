@@ -4505,8 +4505,19 @@ export interface HogFunctionFiltersType {
     bytecode_error?: string
 }
 
+export type HogFunctionTypeType =
+    | 'destination'
+    | 'shared'
+    | 'email'
+    | 'sms'
+    | 'push'
+    | 'broadcast'
+    | 'activity'
+    | 'alert'
+
 export type HogFunctionType = {
     id: string
+    type: HogFunctionTypeType
     icon_url?: string
     name: string
     description: string
@@ -4543,7 +4554,7 @@ export type HogFunctionSubTemplateType = Pick<HogFunctionType, 'filters' | 'inpu
 
 export type HogFunctionTemplateType = Pick<
     HogFunctionType,
-    'id' | 'name' | 'description' | 'hog' | 'inputs_schema' | 'filters' | 'icon_url' | 'masking'
+    'id' | 'type' | 'name' | 'description' | 'hog' | 'inputs_schema' | 'filters' | 'icon_url' | 'masking'
 > & {
     status: HogFunctionTemplateStatus
     sub_templates?: HogFunctionSubTemplateType[]

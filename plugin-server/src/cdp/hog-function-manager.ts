@@ -23,7 +23,10 @@ const HOG_FUNCTION_FIELDS = [
     'filters',
     'bytecode',
     'masking',
+    'type',
 ]
+
+const FETCH_HOG_FUNCTION_TYPES = ['destination', 'email']
 
 export class HogFunctionManager {
     private started: boolean
@@ -93,6 +96,14 @@ export class HogFunctionManager {
             .filter((x) => !!x) as HogFunctionType[]
     }
 
+    public getTeamHogDestinations(teamId: Team['id']): HogFunctionType[] {
+        return this.getTeamHogFunctions(teamId).filter((x) => x.type === 'destination' || !x.type)
+    }
+
+    public getTeamHogEmailProvider(teamId: Team['id']): HogFunctionType | undefined {
+        return this.getTeamHogFunctions(teamId).find((x) => x.type === 'email')
+    }
+
     public getHogFunction(id: HogFunctionType['id']): HogFunctionType | undefined {
         if (!this.ready) {
             throw new Error('HogFunctionManager is not ready! Run HogFunctionManager.start() before this')
@@ -112,8 +123,8 @@ export class HogFunctionManager {
         }
     }
 
-    public teamHasHogFunctions(teamId: Team['id']): boolean {
-        return !!Object.keys(this.getTeamHogFunctions(teamId)).length
+    public teamHasHogDestinations(teamId: Team['id']): boolean {
+        return !!Object.keys(this.getTeamHogDestinations(teamId)).length
     }
 
     public async reloadAllHogFunctions(): Promise<void> {
@@ -123,9 +134,9 @@ export class HogFunctionManager {
                 `
             SELECT ${HOG_FUNCTION_FIELDS.join(', ')}
             FROM posthog_hogfunction
-            WHERE deleted = FALSE AND enabled = TRUE
+            WHERE deleted = FALSE AND enabled = TRUE AND (type is NULL or type = ANY($1))
         `,
-                [],
+                [FETCH_HOG_FUNCTION_TYPES],
                 'fetchAllHogFunctions'
             )
         ).rows
