@@ -737,6 +737,7 @@ export const LOCAL_NOTEBOOK_TEMPLATES: NotebookType[] = [
                 },
             ],
         },
+        user_access_level: 'viewer' as const,
     },
 ].map((template) => ({
     ...template,

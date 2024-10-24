@@ -58,7 +58,7 @@ export const setup2FALogic = kea<setup2FALogicType>([
             submit: async ({ token }, breakpoint) => {
                 breakpoint()
                 try {
-                    return await api.create('api/users/@me/validate_2fa/', { token })
+                    return await api.create<any>('api/users/@me/validate_2fa/', { token })
                 } catch (e) {
                     const { code } = e as Record<string, any>
                     const { detail } = e as Record<string, any>

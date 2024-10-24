@@ -51,10 +51,7 @@ export const projectLogic = kea<projectLogicType>([
                         throw new Error('Current project has not been loaded yet, so it cannot be updated!')
                     }
 
-                    const patchedProject = (await api.update(
-                        `api/projects/${values.currentProject.id}`,
-                        payload
-                    )) as ProjectType
+                    const patchedProject = await api.update(`api/projects/${values.currentProject.id}`, payload)
                     breakpoint()
 
                     actions.loadUser()

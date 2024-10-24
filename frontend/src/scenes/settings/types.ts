@@ -32,7 +32,8 @@ export type SettingSectionId =
     | 'project-surveys' // TODO: This section is for backward compat – remove when Environments are rolled out
     | 'project-toolbar' // TODO: This section is for backward compat – remove when Environments are rolled out
     | 'project-integrations' // TODO: This section is for backward compat – remove when Environments are rolled out
-    | 'project-rbac' // TODO: This section is for backward compat – remove when Environments are rolled out
+    | 'project-access-control' // TODO: This section is for backward compat – remove when Environments are rolled out
+    | 'project-role-based-access-control' // TODO: This section is for backward compat – remove when Environments are rolled out
     | 'project-danger-zone'
     | 'organization-details'
     | 'organization-members'
@@ -70,6 +71,8 @@ export type SettingId =
     | 'integration-slack'
     | 'integration-other'
     | 'integration-ip-allowlist'
+    | 'project-access-control'
+    | 'project-role-based-access-control'
     | 'environment-rbac'
     | 'environment-delete'
     | 'project-delete'
