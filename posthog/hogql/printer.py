@@ -276,8 +276,10 @@ class _Printer(Visitor):
 
     def visit_select_union_query(self, node: ast.SelectUnionQuery):
         self._indent -= 1
-        ret = ""
-        for expr in node.select_queries:
+        ret = self.visit(node.initial_select_query)
+        if self.pretty:
+            ret = ret.strip()
+        for expr in node.subsequent_select_queries:
             query = self.visit(expr.select_query)
             if self.pretty:
                 query = query.strip()

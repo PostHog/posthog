@@ -149,7 +149,8 @@ class TraversingVisitor(Visitor[None]):
             self.visit(expr)
 
     def visit_select_union_query(self, node: ast.SelectUnionQuery):
-        for expr in node.select_queries:
+        self.visit(node.initial_select_query)
+        for expr in node.subsequent_select_queries:
             self.visit(expr.select_query)
 
     def visit_lambda_argument_type(self, node: ast.LambdaArgumentType):
@@ -589,9 +590,10 @@ class CloningVisitor(Visitor[Any]):
             start=None if self.clear_locations else node.start,
             end=None if self.clear_locations else node.end,
             type=None if self.clear_types else node.type,
-            select_queries=[
+            initial_select_query=self.visit(node.initial_select_query),
+            subsequent_select_queries=[
                 SelectUnionNode(union_type=expr.union_type, select_query=self.visit(expr.select_query))
-                for expr in node.select_queries
+                for expr in node.subsequent_select_queries
             ],
         )
 

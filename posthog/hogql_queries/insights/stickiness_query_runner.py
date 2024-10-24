@@ -129,7 +129,7 @@ class StickinessQueryRunner(QueryRunner):
         return cast(ast.SelectQuery, select_query)
 
     def to_query(self) -> ast.SelectUnionQuery:
-        return ast.SelectUnionQuery(select_queries=self.to_queries())
+        return ast.SelectUnionQuery.create_from_queries(self.to_queries(), "UNION ALL")
 
     def to_queries(self) -> list[ast.SelectQuery]:
         queries = []
@@ -194,7 +194,7 @@ class StickinessQueryRunner(QueryRunner):
 
             queries.append(events_query)
 
-        return ast.SelectUnionQuery(select_queries=queries)
+        return ast.SelectUnionQuery.create_from_queries(queries, "UNION ALL")
 
     def calculate(self):
         queries = self.to_queries()

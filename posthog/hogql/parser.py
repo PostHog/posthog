@@ -1,4 +1,4 @@
-from typing import Literal, Optional, cast
+from typing import Literal, Optional, cast, get_args
 from collections.abc import Callable
 
 from antlr4 import CommonTokenStream, InputStream, ParseTreeVisitor, ParserRuleContext
@@ -332,23 +332,28 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return self.visit(ctx.selectUnionStmt() or ctx.selectStmt() or ctx.hogqlxTagElement())
 
     def visitSelectUnionStmt(self, ctx: HogQLParser.SelectUnionStmtContext):
+        initial_query: Optional[ast.SelectUnionQuery | ast.SelectQuery] = None
         select_queries: list[SelectUnionNode] = []
-        union_type = []
+        union_type: list[str] = []
         for child in ctx.children:
             if isinstance(child, HogQLParser.SelectStmtWithParensContext | HogQLParser.SelectUnionStmtContext):
                 select_query = self.visit(child)
-                select_queries.append(
-                    SelectUnionNode(
-                        select_query=select_query, union_type=" ".join(union_type).upper() if union_type else None
+                if initial_query is None:
+                    initial_query = select_query
+                else:
+                    union_type_str = " ".join(union_type).upper()
+                    assert union_type_str in get_args(ast.UnionType)
+                    select_queries.append(
+                        SelectUnionNode(select_query=select_query, union_type=cast(ast.UnionType, union_type_str))
                     )
-                )
                 union_type = []
             elif isinstance(child, TerminalNodeImpl):
                 union_type.append(child.getText())
 
-        if len(select_queries) == 1:
-            return select_queries[0]
-        return ast.SelectUnionQuery(select_queries=select_queries)
+        assert initial_query is not None
+        if len(select_queries) == 0:
+            return initial_query
+        return ast.SelectUnionQuery(initial_select_query=initial_query, subsequent_select_queries=select_queries)
 
     def visitSelectStmtWithParens(self, ctx: HogQLParser.SelectStmtWithParensContext):
         return self.visit(ctx.selectStmt() or ctx.selectUnionStmt() or ctx.placeholder())

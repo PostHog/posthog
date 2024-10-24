@@ -111,7 +111,7 @@ class TrendsQueryRunner(QueryRunner):
         return BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL
 
     def to_query(self) -> ast.SelectUnionQuery:
-        return ast.SelectUnionQuery(select_queries=self.to_queries())
+        return ast.SelectUnionQuery.create_from_queries(self.to_queries(), "UNION ALL")
 
     def to_queries(self) -> list[ast.SelectQuery | ast.SelectUnionQuery]:
         queries = []
@@ -297,7 +297,7 @@ class TrendsQueryRunner(QueryRunner):
         if len(queries) == 1:
             response_hogql_query = queries[0]
         else:
-            response_hogql_query = ast.SelectUnionQuery(select_queries=queries)
+            response_hogql_query = ast.SelectUnionQuery.create_from_queries(queries, "UNION ALL")
 
         with self.timings.measure("printing_hogql_for_response"):
             response_hogql = to_printed_hogql(response_hogql_query, self.team, self.modifiers)

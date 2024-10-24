@@ -1,5 +1,6 @@
 from enum import StrEnum
-from typing import Any, Literal, Optional, Union
+from typing import Any, Literal, Optional, Union, get_args
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 
 from posthog.hogql.base import Type, Expr, CTE, ConstantType, UnknownType, AST
@@ -800,20 +801,35 @@ class SelectQuery(Expr):
     view_name: Optional[str] = None
 
 
+UnionType = Literal["UNION ALL", "INTERSECT", "EXCEPT"]
+
+
 @dataclass(kw_only=True)
 class SelectUnionNode:
     select_query: Union[SelectQuery, "SelectUnionQuery"]
-    union_type: Optional[Literal["UNION ALL", "INTERSECT", "EXCEPT"]]
+    union_type: UnionType
 
     def __post_init__(self):
-        if self.union_type not in (None, "UNION ALL", "INTERSECT", "EXCEPT"):
+        if self.union_type not in get_args(UnionType):
             raise ValueError("Incorrect Union Type")
 
 
 @dataclass(kw_only=True)
 class SelectUnionQuery(Expr):
     type: Optional[SelectUnionQueryType] = None
-    select_queries: list[SelectUnionNode]
+    initial_select_query: Union[SelectQuery, "SelectUnionQuery"]
+    subsequent_select_queries: list[SelectUnionNode]
+
+    @classmethod
+    def create_from_queries(
+        cls, queries: Sequence[Union[SelectQuery, "SelectUnionQuery"]], union_type: UnionType
+    ) -> "SelectUnionQuery":
+        return SelectUnionQuery(
+            initial_select_query=queries[0],
+            subsequent_select_queries=[
+                SelectUnionNode(select_query=query, union_type=union_type) for query in queries[1:]
+            ],
+        )
 
 
 @dataclass(kw_only=True)

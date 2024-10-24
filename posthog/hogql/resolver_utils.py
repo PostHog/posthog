@@ -93,5 +93,6 @@ def extract_select_queries(select: ast.SelectUnionQuery | ast.SelectQuery) -> Ge
     if isinstance(select, ast.SelectQuery):
         yield select
     else:
-        for select_query in select.select_queries:
+        yield from extract_select_queries(select.initial_select_query)
+        for select_query in select.subsequent_select_queries:
             yield from extract_select_queries(select_query.select_query)
