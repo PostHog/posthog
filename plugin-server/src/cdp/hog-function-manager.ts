@@ -100,10 +100,6 @@ export class HogFunctionManager {
         return this.getTeamHogFunctions(teamId).filter((x) => x.type === 'destination' || !x.type)
     }
 
-    public getTeamHogEmailProvider(teamId: Team['id']): HogFunctionType | undefined {
-        return this.getTeamHogFunctions(teamId).find((x) => x.type === 'email')
-    }
-
     public getHogFunction(id: HogFunctionType['id']): HogFunctionType | undefined {
         if (!this.ready) {
             throw new Error('HogFunctionManager is not ready! Run HogFunctionManager.start() before this')
