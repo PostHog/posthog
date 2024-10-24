@@ -1,4 +1,5 @@
 pub mod api;
+pub mod cohort_definitions;
 pub mod config;
 pub mod database;
 pub mod feature_flag_match_reason;

@@ -102,6 +102,8 @@ pub enum FlagError {
     TimeoutError,
     #[error("No group type mappings")]
     NoGroupTypeMappings,
+    #[error("Invalid cohort id")]
+    InvalidCohortId,
 }
 
 impl IntoResponse for FlagError {
@@ -193,6 +195,10 @@ impl IntoResponse for FlagError {
                     StatusCode::INTERNAL_SERVER_ERROR,
                     "The requested row was not found in the database. Please try again later or contact support if the problem persists.".to_string(),
                 )
+            }
+            FlagError::InvalidCohortId => {
+                tracing::error!("Invalid cohort id: {:?}", self);
+                (StatusCode::BAD_REQUEST, "Invalid cohort id".to_string())
             }
         }
         .into_response()

@@ -25,6 +25,8 @@ pub enum OperatorType {
     IsDateExact,
     IsDateAfter,
     IsDateBefore,
+    In,
+    NotIn,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -37,6 +39,8 @@ pub struct PropertyFilter {
     pub operator: Option<OperatorType>,
     #[serde(rename = "type")]
     pub prop_type: String,
+    // TODO add negation here?
+    pub negation: Option<bool>,
     pub group_type_index: Option<i32>,
 }
 
