@@ -284,10 +284,20 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
                         Continue
                     </LemonButton>
                 ) : (
-                    <SSOEnforcedLoginButton provider={precheckResponse.sso_enforcement} email={login.email} />
+                    <SSOEnforcedLoginButton
+                        provider={precheckResponse.sso_enforcement}
+                        email={login.email}
+                        actionText="Continue"
+                        extraQueryParams={invite ? { invite_id: invite.id } : undefined}
+                    />
                 )}
                 {precheckResponse.saml_available && !precheckResponse.sso_enforcement && (
-                    <SSOEnforcedLoginButton provider="saml" email={login.email} actionText="Continue" />
+                    <SSOEnforcedLoginButton
+                        provider="saml"
+                        email={login.email}
+                        actionText="Continue"
+                        extraQueryParams={invite ? { invite_id: invite.id } : undefined}
+                    />
                 )}
             </Form>
             <div className="mt-4 text-center text-muted">
@@ -304,14 +314,16 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
                 </Link>
                 .
             </div>
-            <SocialLoginButtons
-                className="mb-4"
-                title="Or sign in with"
-                caption={`Remember to log in with ${invite?.target_email}`}
-                captionLocation="bottom"
-                topDivider
-                extraQueryParams={invite ? { invite_id: invite.id } : undefined}
-            />
+            {!areExtraFieldsHidden && (
+                <SocialLoginButtons
+                    className="mb-4"
+                    title="Or sign in with"
+                    caption={`Remember to log in with ${invite?.target_email}`}
+                    captionLocation="bottom"
+                    topDivider
+                    extraQueryParams={invite ? { invite_id: invite.id } : undefined}
+                />
+            )}
         </BridgePage>
     )
 }
