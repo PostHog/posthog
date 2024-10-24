@@ -10,10 +10,13 @@ from django.test import override_settings
 
 from posthog.batch_exports.service import BatchExportModel
 from posthog.temporal.batch_exports.batch_exports import (
+    RecordBatchProducerError,
     RecordBatchQueue,
+    TaskNotDoneError,
     get_data_interval,
     iter_model_records,
     iter_records,
+    raise_on_produce_task_failure,
     start_produce_batch_export_record_batches,
 )
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
@@ -788,3 +791,46 @@ async def test_record_batch_queue_sets_schema():
 
     schema = await queue.get_schema()
     assert schema == record_batch.schema
+
+
+async def test_raise_on_produce_task_failure_raises_record_batch_producer_error():
+    """Test a `RecordBatchProducerError` is raised with the right cause."""
+    cause = ValueError("Oh no!")
+
+    async def fake_produce_task():
+        raise cause
+
+    task = asyncio.create_task(fake_produce_task())
+    await asyncio.wait([task])
+
+    with pytest.raises(RecordBatchProducerError) as exc_info:
+        await raise_on_produce_task_failure(task)
+
+    assert exc_info.type == RecordBatchProducerError
+    assert exc_info.value.__cause__ == cause
+
+
+async def test_raise_on_produce_task_failure_raises_task_not_done():
+    """Test a `TaskNotDoneError` is raised if we don't let the task start."""
+    cause = ValueError("Oh no!")
+
+    async def fake_produce_task():
+        raise cause
+
+    task = asyncio.create_task(fake_produce_task())
+
+    with pytest.raises(TaskNotDoneError):
+        await raise_on_produce_task_failure(task)
+
+
+async def test_raise_on_produce_task_failure_does_not_raise():
+    """Test nothing is raised if task finished succesfully."""
+
+    async def fake_produce_task():
+        return True
+
+    task = asyncio.create_task(fake_produce_task())
+    await asyncio.wait([task])
+
+    result = await raise_on_produce_task_failure(task)
+    assert result is None
