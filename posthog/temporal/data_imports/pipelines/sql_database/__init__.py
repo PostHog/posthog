@@ -27,6 +27,71 @@ from .helpers import (
     get_primary_key,
     SqlDatabaseTableConfiguration,
 )
+from dlt.common.data_types.typing import TDataType
+
+POSTGRES_TO_DLT_TYPES: dict[str, TDataType] = {
+    # Text types
+    "char": "text",
+    "character": "text",
+    "varchar": "text",
+    "character varying": "text",
+    "text": "text",
+    "xml": "text",
+    "uuid": "text",
+    "cidr": "text",
+    "inet": "text",
+    "macaddr": "text",
+    "macaddr8": "text",
+    "tsvector": "text",
+    "tsquery": "text",
+    # Bigint types
+    "bigint": "bigint",
+    "bigserial": "bigint",
+    # Boolean type
+    "boolean": "bool",
+    # Timestamp types
+    "timestamp": "timestamp",
+    "timestamp with time zone": "timestamp",
+    "timestamp without time zone": "timestamp",
+    # Complex types (geometric types, ranges, json, etc.)
+    "point": "complex",
+    "line": "complex",
+    "lseg": "complex",
+    "box": "complex",
+    "path": "complex",
+    "polygon": "complex",
+    "circle": "complex",
+    "int4range": "complex",
+    "int8range": "complex",
+    "numrange": "complex",
+    "tsrange": "complex",
+    "tstzrange": "complex",
+    "daterange": "complex",
+    "json": "complex",
+    "jsonb": "complex",
+    # Decimal types
+    "real": "decimal",
+    "double precision": "decimal",
+    "numeric": "decimal",
+    "decimal": "decimal",
+    # Date type
+    "date": "date",
+    # Additional mappings
+    "smallint": "bigint",
+    "integer": "bigint",
+    "serial": "bigint",
+    "money": "decimal",
+    "bytea": "text",
+    "time": "timestamp",
+    "time with time zone": "timestamp",
+    "time without time zone": "timestamp",
+    "interval": "complex",
+    "bit": "text",
+    "bit varying": "text",
+    "enum": "text",
+    "oid": "bigint",
+    "pg_lsn": "text",
+}
 
 
 def incremental_type_to_initial_value(field_type: IncrementalFieldType) -> Any:
@@ -282,7 +347,7 @@ def get_column_hints(engine: Engine, schema_name: str, table_name: str) -> dict[
     with engine.connect() as conn:
         execute_result: CursorResult = conn.execute(
             text(
-                "SELECT column_name, data_type, numeric_precision, numeric_scale FROM information_schema.columns WHERE table_schema = :schema_name AND table_name = :table_name"
+                "SELECT column_name, data_type, numeric_precision, numeric_scale, is_nullable FROM information_schema.columns WHERE table_schema = :schema_name AND table_name = :table_name"
             ),
             {"schema_name": schema_name, "table_name": table_name},
         )
@@ -292,14 +357,19 @@ def get_column_hints(engine: Engine, schema_name: str, table_name: str) -> dict[
 
     columns: dict[str, TColumnSchema] = {}
 
-    for column_name, data_type, numeric_precision, numeric_scale in results:
-        if data_type != "numeric":
-            continue
-
-        columns[column_name] = {
-            "data_type": "decimal",
-            "precision": numeric_precision or 76,
-            "scale": numeric_scale or 32,
-        }
+    for column_name, data_type, numeric_precision, numeric_scale, is_nullable in results:
+        if data_type == "numeric":
+            columns[column_name] = {
+                "data_type": "decimal",
+                "precision": numeric_precision or 76,
+                "scale": numeric_scale or 32,
+                "nullable": is_nullable == "YES",
+            }
+        else:
+            columns[column_name] = {
+                "name": column_name,
+                "data_type": POSTGRES_TO_DLT_TYPES.get(data_type, "text"),
+                "nullable": is_nullable == "YES",
+            }
 
     return columns
