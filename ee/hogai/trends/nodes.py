@@ -118,7 +118,6 @@ class CreateTrendsPlanNode(AssistantNode):
         }
 
     def router(self, state: AssistantState):
-        # Exceptional case. TODO: decide how to handle this.
         if state.get("plan") is not None:
             return AssistantNodeName.GENERATE_TRENDS
 
@@ -271,12 +270,6 @@ class GenerateTrendsNode(AssistantNode):
         try:
             message = chain.invoke({}, config)
         except OutputParserException:
-            # if e.send_to_llm:
-            #     observation = str(e.observation)
-            # else:
-            #     observation = "Invalid or incomplete response. You must use the provided tools and output JSON to answer the user's question."
-            # return {"tool_argument": observation}
-
             return {
                 "messages": [
                     AssistantMessage(

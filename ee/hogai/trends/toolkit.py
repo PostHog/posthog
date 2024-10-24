@@ -92,7 +92,6 @@ class TrendsAgentToolkit:
         entities = [
             "person",
             "session",
-            # "cohort", # not supported yet
             *[group.group_type for group in self.groups],
         ]
         return entities
@@ -103,12 +102,10 @@ class TrendsAgentToolkit:
         Our ReAct agent doesn't use function calling. Instead, it uses tools in natural language to decide next steps. The agent expects the following format:
 
         ```
-        retrieve_entity_properties_tool(entity: "Literal['person', 'session', 'cohort', 'organization', 'instance', 'project']") - description.
+        retrieve_entity_properties_tool(entity: "Literal['person', 'session', 'organization', 'instance', 'project']") - description.
         ```
 
         Events and other entities are intentionally separated for properties retrieval. Potentially, there can be different functions for each entity type.
-
-        TODO: refactor to langchain's tools.
         """
 
         stringified_entities = ", ".join([f"'{entity}'" for entity in self._entity_names])
@@ -357,7 +354,6 @@ class TrendsAgentToolkit:
         runner = EventTaxonomyQueryRunner(EventTaxonomyQuery(event=event_name), self._team)
         response = runner.run(ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
 
-        # TODO: incorrect response handling. Should it be retried?
         if not isinstance(response, CachedEventTaxonomyQueryResponse):
             return f"The event {event_name} does not exist in the taxonomy."
 
@@ -382,7 +378,6 @@ class TrendsAgentToolkit:
             return f"The property {property_name} does not exist in the taxonomy."
 
         if property_name == "$channel_type":
-            # Not ideal. TODO: replace later.
             sample_values = POSSIBLE_CHANNEL_TYPES.copy()
             sample_count = len(sample_values)
             is_str = True
@@ -434,7 +429,6 @@ class TrendsAgentToolkit:
             ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
         )
 
-        # TODO: incorrect response handling. Should it be retried?
         if not isinstance(response, CachedActorsPropertyTaxonomyQueryResponse):
             return f"The entity {entity} does not exist in the taxonomy."
 
@@ -481,8 +475,6 @@ class GenerateTrendTool:
             "PersonPropertyFilter",
             "SessionPropertyFilter",
             "FeaturePropertyFilter",
-            # TODO: remove cohorts for now
-            "CohortPropertyFilter",
         )
 
         # Clean up the property filters
