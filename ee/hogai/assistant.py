@@ -12,9 +12,12 @@ from posthog.models.team.team import Team
 from posthog.schema import AssistantMessage as FrontendAssistantMessage
 from posthog.schema import VisualizationMessagePayload
 
-langfuse_handler = CallbackHandler(
-    public_key=settings.LANGFUSE_PUBLIC_KEY, secret_key=settings.LANGFUSE_SECRET_KEY, host=settings.LANGFUSE_HOST
-)
+if settings.LANGFUSE_PUBLIC_KEY:
+    langfuse_handler = CallbackHandler(
+        public_key=settings.LANGFUSE_PUBLIC_KEY, secret_key=settings.LANGFUSE_SECRET_KEY, host=settings.LANGFUSE_HOST
+    )
+else:
+    langfuse_handler = None
 
 
 class Assistant:
@@ -46,9 +49,11 @@ class Assistant:
 
     def stream(self, messages: list[AssistantMessage]) -> Generator[str, None, None]:
         assistant_graph = self._compile_graph()
+        callbacks = [langfuse_handler] if langfuse_handler else []
+
         generator = assistant_graph.stream(
             {"messages": messages},
-            config={"recursion_limit": 24, "callbacks": [langfuse_handler]},
+            config={"recursion_limit": 24, "callbacks": callbacks},
             stream_mode="messages",
         )
 
