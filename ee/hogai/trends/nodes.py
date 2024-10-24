@@ -81,7 +81,7 @@ class CreateTrendsPlanNode(AssistantNode):
         output_parser = ReActJsonSingleInputOutputParser()
         merger = merge_message_runs()
 
-        agent = prompt | merger | ChatOpenAI(model="gpt-4o", temperature=0.7, streaming=True) | output_parser
+        agent = prompt | merger | self._model | output_parser
 
         try:
             result = cast(
@@ -125,6 +125,10 @@ class CreateTrendsPlanNode(AssistantNode):
             return AssistantNodeName.CREATE_TRENDS_PLAN_TOOLS
 
         raise ValueError("Invalid state.")
+
+    @property
+    def _model(self) -> ChatOpenAI:
+        return ChatOpenAI(model="gpt-4o", temperature=0.7, streaming=True)
 
     @cached_property
     def _events_prompt(self) -> str:
@@ -243,12 +247,6 @@ class GenerateTrendsNode(AssistantNode):
     def run(self, state: AssistantState, config: RunnableConfig):
         generated_plan = state.get("plan", "")
 
-        llm = ChatOpenAI(model="gpt-4o", temperature=0.7, streaming=True).with_structured_output(
-            GenerateTrendTool().schema,
-            method="function_calling",
-            include_raw=False,
-        )
-
         trends_generation_prompt = ChatPromptTemplate.from_messages(
             [
                 ("system", trends_system_prompt),
@@ -260,7 +258,7 @@ class GenerateTrendsNode(AssistantNode):
         chain = (
             trends_generation_prompt
             | merger
-            | llm
+            | self._model
             # Result from structured output is a parsed dict. Convert to a string since the output parser expects it.
             | RunnableLambda(lambda x: json.dumps(x))
             # Validate a string input.
@@ -296,6 +294,14 @@ class GenerateTrendsNode(AssistantNode):
         if state.get("tool_argument") is not None:
             return AssistantNodeName.GENERATE_TRENDS_TOOLS
         return AssistantNodeName.END
+
+    @property
+    def _model(self):
+        return ChatOpenAI(model="gpt-4o", temperature=0.7, streaming=True).with_structured_output(
+            GenerateTrendTool().schema,
+            method="function_calling",
+            include_raw=False,
+        )
 
     @cached_property
     def _group_mapping_prompt(self) -> str:
