@@ -10,7 +10,10 @@ from posthog.test.base import (
 from posthog.models.person.util import create_person
 from datetime import datetime
 
+from unittest.mock import patch, Mock
 
+
+@patch("posthoganalytics.feature_enabled", new=Mock(return_value=True))  # for persons-inner-where-optimization
 class TestPersonOptimization(ClickhouseTestMixin, APIBaseTest):
     """
     Mostly tests for the optimization of pre-filtering before aggregating. See https://github.com/PostHog/posthog/pull/25604

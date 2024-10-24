@@ -68,7 +68,18 @@ def select_from_persons_table(
     # This bit optimizes the query by first selecting all IDs for all persons (regardless of whether it's the latest version), and only then aggregating the results
     # We only do this if there are where clauses, _and_ WhereClauseExtractor can extract them
     # WhereClauseExtractor doesn't extract negative cases, which is good as this query will blow up if there are too many persons inside this subquery
-    if node.where:
+    if (
+        node.where
+        and context.team
+        and posthoganalytics.feature_enabled(
+            "persons-inner-where-optimization",
+            str(context.team.uuid),
+            groups={"organization": context.team.organization_id},
+            group_properties={"organization": {"id": context.team.organization_id}},
+            only_evaluate_locally=True,
+            send_feature_flag_events=False,
+        )
+    ):
         inner_select = cast(
             ast.SelectQuery,
             parse_select(
