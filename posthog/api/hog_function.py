@@ -179,6 +179,9 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         if "hog" in attrs:
             attrs["bytecode"] = compile_hog(attrs["hog"])
 
+        if "type" not in attrs:
+            attrs["type"] = "destination"
+
         return super().validate(attrs)
 
     def to_representation(self, data):
