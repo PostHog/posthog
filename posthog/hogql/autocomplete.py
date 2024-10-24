@@ -476,7 +476,7 @@ def get_hogql_autocomplete(
 
             if isinstance(select_ast, ast.SelectQuery):
                 ctes = select_ast.ctes
-            elif isinstance(select_ast, ast.SelectUnionQuery):
+            elif isinstance(select_ast, ast.SelectSetQuery):
                 ctes = next(extract_select_queries(select_ast)).ctes
             nearest_select = find_node.nearest_select_query or select_ast
 

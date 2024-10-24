@@ -868,14 +868,14 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     if (!select_queries) {
       throw PyInternalError();
     }
-    string union_type = "";
+    string set_operator = "";
 
     for (auto child : ctx->children) {
       if (auto token = dynamic_cast<antlr4::tree::TerminalNode*>(child)) {
         if (union_type == "") {
-          union_type += child->getText();
+          set_operator += child->getText();
         } else {
-          union_type += " " + child->getText();
+          set_operator += " " + child->getText();
         }
         continue;
       }
@@ -895,16 +895,16 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       if (initial_query == NULL) {
         initial_query = select_query;
       } else {
-        auto data = union_type.data();
+        auto data = set_operator.data();
         to_uppercase(data);
-        PyObject* query = build_ast_node("SelectUnionNode", "{s:N,s:N}", "select_query", select_query, "union_type", PyUnicode_FromStringAndSize(data, union_type.size()));
+        PyObject* query = build_ast_node("SelectSetNode", "{s:N,s:N}", "select_query", select_query, "set_operator", PyUnicode_FromStringAndSize(data, set_operator.size()));
         if (!query) {
           Py_DECREF(initial_query);
           Py_DECREF(select_queries);
           throw PyInternalError();
         }
         PyList_Append(select_queries, query);
-        union_type = "";
+        set_operator = "";
       }
     }
 
@@ -913,7 +913,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       return initial_query;
     }
 
-    RETURN_NEW_AST_NODE("SelectUnionQuery", "{s:N, s:N}", "initial_select_query", initial_query, "subsequent_select_queries", select_queries);
+    RETURN_NEW_AST_NODE("SelectSetQuery", "{s:N, s:N}", "initial_select_query", initial_query, "subsequent_select_queries", select_queries);
   }
 
   VISIT(SelectStmt) {

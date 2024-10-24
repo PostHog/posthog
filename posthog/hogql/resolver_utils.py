@@ -89,7 +89,7 @@ def expand_hogqlx_query(node: ast.HogQLXTag, team_id: Optional[int]):
         raise ResolutionError(f"Error parsing query tag: {e}", start=node.start, end=node.end)
 
 
-def extract_select_queries(select: ast.SelectUnionQuery | ast.SelectQuery) -> Generator[ast.SelectQuery, None, None]:
+def extract_select_queries(select: ast.SelectSetQuery | ast.SelectQuery) -> Generator[ast.SelectQuery, None, None]:
     if isinstance(select, ast.SelectQuery):
         yield select
     else:

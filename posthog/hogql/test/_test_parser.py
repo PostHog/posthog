@@ -21,7 +21,7 @@ from posthog.hogql.ast import (
     Array,
     Dict,
     VariableDeclaration,
-    SelectUnionNode,
+    SelectSetNode,
 )
 
 from posthog.hogql.parser import parse_program
@@ -51,9 +51,9 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
 
         def _select(
             self, query: str, placeholders: Optional[dict[str, ast.Expr]] = None
-        ) -> ast.SelectQuery | ast.SelectUnionQuery | ast.HogQLXTag:
+        ) -> ast.SelectQuery | ast.SelectSetQuery | ast.HogQLXTag:
             return cast(
-                ast.SelectQuery | ast.SelectUnionQuery | ast.HogQLXTag,
+                ast.SelectQuery | ast.SelectSetQuery | ast.HogQLXTag,
                 clear_locations(parse_select(query, placeholders=placeholders, backend=backend)),
             )
 
@@ -1382,10 +1382,10 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
         def test_select_union_all(self):
             self.assertEqual(
                 self._select("select 1 union all select 2 union all select 3"),
-                ast.SelectUnionQuery(
+                ast.SelectSetQuery(
                     initial_select_query=ast.SelectQuery(select=[ast.Constant(value=1)]),
                     subsequent_select_queries=[
-                        SelectUnionNode(union_type="UNION ALL", select_query=query)
+                        SelectSetNode(set_operator="UNION ALL", select_query=query)
                         for query in (
                             ast.SelectQuery(select=[ast.Constant(value=2)]),
                             ast.SelectQuery(select=[ast.Constant(value=3)]),

@@ -110,10 +110,10 @@ class TrendsQueryRunner(QueryRunner):
 
         return BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL
 
-    def to_query(self) -> ast.SelectUnionQuery:
-        return ast.SelectUnionQuery.create_from_queries(self.to_queries(), "UNION ALL")
+    def to_query(self) -> ast.SelectSetQuery:
+        return ast.SelectSetQuery.create_from_queries(self.to_queries(), "UNION ALL")
 
-    def to_queries(self) -> list[ast.SelectQuery | ast.SelectUnionQuery]:
+    def to_queries(self) -> list[ast.SelectQuery | ast.SelectSetQuery]:
         queries = []
         with self.timings.measure("trends_to_query"):
             for series in self.series:
@@ -148,7 +148,7 @@ class TrendsQueryRunner(QueryRunner):
         breakdown_value: Optional[str | int | list[str]] = None,
         compare_value: Optional[Compare] = None,
         include_recordings: Optional[bool] = None,
-    ) -> ast.SelectQuery | ast.SelectUnionQuery:
+    ) -> ast.SelectQuery | ast.SelectSetQuery:
         with self.timings.measure("trends_to_actors_query"):
             if self.query.breakdownFilter and self.query.breakdownFilter.breakdown_type == BreakdownType.COHORT:
                 if self.query.breakdownFilter.breakdown in ("all", ["all"]) or breakdown_value == "all":
@@ -297,7 +297,7 @@ class TrendsQueryRunner(QueryRunner):
         if len(queries) == 1:
             response_hogql_query = queries[0]
         else:
-            response_hogql_query = ast.SelectUnionQuery.create_from_queries(queries, "UNION ALL")
+            response_hogql_query = ast.SelectSetQuery.create_from_queries(queries, "UNION ALL")
 
         with self.timings.measure("printing_hogql_for_response"):
             response_hogql = to_printed_hogql(response_hogql_query, self.team, self.modifiers)
@@ -309,7 +309,7 @@ class TrendsQueryRunner(QueryRunner):
 
         def run(
             index: int,
-            query: ast.SelectQuery | ast.SelectUnionQuery,
+            query: ast.SelectQuery | ast.SelectSetQuery,
             timings: HogQLTimings,
             is_parallel: bool,
             query_tags: Optional[dict] = None,

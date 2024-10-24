@@ -744,7 +744,7 @@ class JoinExpr(Expr):
     type: Optional[TableOrSelectType] = None
 
     join_type: Optional[str] = None
-    table: Optional[Union["SelectQuery", "SelectUnionQuery", Field]] = None
+    table: Optional[Union["SelectQuery", "SelectSetQuery", Field]] = None
     table_args: Optional[list[Expr]] = None
     alias: Optional[str] = None
     table_final: Optional[bool] = None
@@ -801,33 +801,33 @@ class SelectQuery(Expr):
     view_name: Optional[str] = None
 
 
-UnionType = Literal["UNION ALL", "INTERSECT", "EXCEPT"]
+SetOperator = Literal["UNION ALL", "INTERSECT", "EXCEPT"]
 
 
 @dataclass(kw_only=True)
-class SelectUnionNode:
-    select_query: Union[SelectQuery, "SelectUnionQuery"]
-    union_type: UnionType
+class SelectSetNode:
+    select_query: Union[SelectQuery, "SelectSetQuery"]
+    set_operator: SetOperator
 
     def __post_init__(self):
-        if self.union_type not in get_args(UnionType):
-            raise ValueError("Incorrect Union Type")
+        if self.set_operator not in get_args(SetOperator):
+            raise ValueError("Invalid Set Operator")
 
 
 @dataclass(kw_only=True)
-class SelectUnionQuery(Expr):
+class SelectSetQuery(Expr):
     type: Optional[SelectUnionQueryType] = None
-    initial_select_query: Union[SelectQuery, "SelectUnionQuery"]
-    subsequent_select_queries: list[SelectUnionNode]
+    initial_select_query: Union[SelectQuery, "SelectSetQuery"]
+    subsequent_select_queries: list[SelectSetNode]
 
     @classmethod
     def create_from_queries(
-        cls, queries: Sequence[Union[SelectQuery, "SelectUnionQuery"]], union_type: UnionType
-    ) -> "SelectUnionQuery":
-        return SelectUnionQuery(
+        cls, queries: Sequence[Union[SelectQuery, "SelectSetQuery"]], set_operator: SetOperator
+    ) -> "SelectSetQuery":
+        return SelectSetQuery(
             initial_select_query=queries[0],
             subsequent_select_queries=[
-                SelectUnionNode(select_query=query, union_type=union_type) for query in queries[1:]
+                SelectSetNode(select_query=query, set_operator=set_operator) for query in queries[1:]
             ],
         )
 

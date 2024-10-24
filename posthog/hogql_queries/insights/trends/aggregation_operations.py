@@ -174,8 +174,8 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
         return f"toStartOf{self.query_date_range.interval_name.title()}"
 
     def _actors_parent_select_query(
-        self, inner_query: ast.SelectQuery | ast.SelectUnionQuery
-    ) -> ast.SelectQuery | ast.SelectUnionQuery:
+        self, inner_query: ast.SelectQuery | ast.SelectSetQuery
+    ) -> ast.SelectQuery | ast.SelectSetQuery:
         if self.is_count_per_actor_variant():
             query = parse_select(
                 "SELECT total FROM {inner_query}",
@@ -219,8 +219,8 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
         return query
 
     def _actors_inner_select_query(
-        self, cross_join_select_query: ast.SelectQuery | ast.SelectUnionQuery
-    ) -> ast.SelectQuery | ast.SelectUnionQuery:
+        self, cross_join_select_query: ast.SelectQuery | ast.SelectSetQuery
+    ) -> ast.SelectQuery | ast.SelectSetQuery:
         if self.is_count_per_actor_variant():
             if self.series.math == "avg_count_per_actor":
                 math_func = self._math_func("avg", ["total"])
@@ -295,7 +295,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
 
     def _actors_events_query(
         self, events_where_clause: ast.Expr, sample_value: ast.RatioExpr
-    ) -> ast.SelectQuery | ast.SelectUnionQuery:
+    ) -> ast.SelectQuery | ast.SelectSetQuery:
         date_from_with_lookback = "{date_from} - {inclusive_lookback}"
         if self.chart_display_type in NON_TIME_SERIES_DISPLAY_TYPES and self.series.math in (
             BaseMathType.WEEKLY_ACTIVE,

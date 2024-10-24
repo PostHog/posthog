@@ -36,7 +36,7 @@ from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 
 
 def execute_hogql_query(
-    query: Union[str, ast.SelectQuery, ast.SelectUnionQuery],
+    query: Union[str, ast.SelectQuery, ast.SelectSetQuery],
     team: Team,
     *,
     query_type: str = "hogql_query",
@@ -66,7 +66,7 @@ def execute_hogql_query(
     metadata: Optional[HogQLMetadataResponse] = None
 
     with timings.measure("query"):
-        if isinstance(query, ast.SelectQuery) or isinstance(query, ast.SelectUnionQuery):
+        if isinstance(query, ast.SelectQuery) or isinstance(query, ast.SelectSetQuery):
             select_query = query
             query = None
         else:
@@ -137,7 +137,7 @@ def execute_hogql_query(
             print_columns = []
             columns_query = (
                 next(extract_select_queries(select_query_hogql))
-                if isinstance(select_query_hogql, ast.SelectUnionQuery)
+                if isinstance(select_query_hogql, ast.SelectSetQuery)
                 else select_query_hogql
             )
             for node in columns_query.select:

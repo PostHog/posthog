@@ -100,7 +100,7 @@ def get_hogql_metadata(
 def process_expr_on_table(
     node: ast.Expr,
     context: HogQLContext,
-    source_query: Optional[ast.SelectQuery | ast.SelectUnionQuery] = None,
+    source_query: Optional[ast.SelectQuery | ast.SelectSetQuery] = None,
 ):
     try:
         if source_query is not None:
@@ -115,7 +115,7 @@ def process_expr_on_table(
         raise
 
 
-def is_valid_view(select_query: ast.SelectQuery | ast.SelectUnionQuery) -> bool:
+def is_valid_view(select_query: ast.SelectQuery | ast.SelectSetQuery) -> bool:
     for query in extract_select_queries(select_query):
         for field in query.select:
             if not isinstance(field, ast.Alias):

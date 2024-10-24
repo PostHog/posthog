@@ -7,7 +7,7 @@ from antlr4.tree.Tree import TerminalNodeImpl
 from prometheus_client import Histogram
 
 from posthog.hogql import ast
-from posthog.hogql.ast import SelectUnionNode
+from posthog.hogql.ast import SelectSetNode
 from posthog.hogql.base import AST
 from posthog.hogql.constants import RESERVED_KEYWORDS
 from posthog.hogql.errors import BaseHogQLError, NotImplementedError, SyntaxError
@@ -134,7 +134,7 @@ def parse_select(
     timings: Optional[HogQLTimings] = None,
     *,
     backend: Literal["python", "cpp"] = "cpp",
-) -> ast.SelectQuery | ast.SelectUnionQuery:
+) -> ast.SelectQuery | ast.SelectSetQuery:
     if timings is None:
         timings = HogQLTimings()
     with timings.measure(f"parse_select_{backend}"):
@@ -332,8 +332,8 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return self.visit(ctx.selectSetStmt() or ctx.selectStmt() or ctx.hogqlxTagElement())
 
     def visitSelectSetStmt(self, ctx: HogQLParser.SelectSetStmtContext):
-        initial_query: Optional[ast.SelectUnionQuery | ast.SelectQuery] = None
-        select_queries: list[SelectUnionNode] = []
+        initial_query: Optional[ast.SelectSetQuery | ast.SelectQuery] = None
+        select_queries: list[SelectSetNode] = []
         union_type: list[str] = []
         for child in ctx.children:
             if isinstance(child, HogQLParser.SelectStmtWithParensContext | HogQLParser.SelectSetStmtContext):
@@ -342,9 +342,9 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
                     initial_query = select_query
                 else:
                     union_type_str = " ".join(union_type).upper()
-                    assert union_type_str in get_args(ast.UnionType)
+                    assert union_type_str in get_args(ast.SetOperator)
                     select_queries.append(
-                        SelectUnionNode(select_query=select_query, union_type=cast(ast.UnionType, union_type_str))
+                        SelectSetNode(select_query=select_query, set_operator=cast(ast.SetOperator, union_type_str))
                     )
                 union_type = []
             elif isinstance(child, TerminalNodeImpl):
@@ -353,7 +353,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         assert initial_query is not None
         if len(select_queries) == 0:
             return initial_query
-        return ast.SelectUnionQuery(initial_select_query=initial_query, subsequent_select_queries=select_queries)
+        return ast.SelectSetQuery(initial_select_query=initial_query, subsequent_select_queries=select_queries)
 
     def visitSelectStmtWithParens(self, ctx: HogQLParser.SelectStmtWithParensContext):
         return self.visit(ctx.selectStmt() or ctx.selectSetStmt() or ctx.placeholder())

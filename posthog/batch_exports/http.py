@@ -183,7 +183,7 @@ class BatchExportDestinationSerializer(serializers.ModelSerializer):
 
 
 class HogQLSelectQueryField(serializers.Field):
-    def to_internal_value(self, data: str) -> ast.SelectQuery | ast.SelectUnionQuery:
+    def to_internal_value(self, data: str) -> ast.SelectQuery | ast.SelectSetQuery:
         """Parse a HogQL SelectQuery from a string query."""
         try:
             parsed_query = parse_select(data)
@@ -329,7 +329,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
 
         return batch_export_schema
 
-    def validate_hogql_query(self, hogql_query: ast.SelectQuery | ast.SelectUnionQuery) -> ast.SelectQuery:
+    def validate_hogql_query(self, hogql_query: ast.SelectQuery | ast.SelectSetQuery) -> ast.SelectQuery:
         """Validate a HogQLQuery being used for batch exports.
 
         This method essentially checks that a query is supported by batch exports:
@@ -338,7 +338,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
         3. Query must SELECT FROM events, and only from events.
         """
 
-        if isinstance(hogql_query, ast.SelectUnionQuery):
+        if isinstance(hogql_query, ast.SelectSetQuery):
             raise serializers.ValidationError("UNIONs are not supported")
 
         parsed = cast(ast.SelectQuery, hogql_query)

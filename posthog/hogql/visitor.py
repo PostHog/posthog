@@ -2,7 +2,7 @@ from copy import deepcopy
 from typing import Optional, TypeVar, Generic, Any
 
 from posthog.hogql import ast
-from posthog.hogql.ast import SelectUnionNode
+from posthog.hogql.ast import SelectSetNode
 from posthog.hogql.base import AST, Expr
 from posthog.hogql.errors import BaseHogQLError
 
@@ -148,7 +148,7 @@ class TraversingVisitor(Visitor[None]):
         for expr in (node.window_exprs or {}).values():
             self.visit(expr)
 
-    def visit_select_union_query(self, node: ast.SelectUnionQuery):
+    def visit_select_union_query(self, node: ast.SelectSetQuery):
         self.visit(node.initial_select_query)
         for expr in node.subsequent_select_queries:
             self.visit(expr.select_query)
@@ -585,14 +585,14 @@ class CloningVisitor(Visitor[Any]):
             view_name=node.view_name,
         )
 
-    def visit_select_union_query(self, node: ast.SelectUnionQuery):
-        return ast.SelectUnionQuery(
+    def visit_select_union_query(self, node: ast.SelectSetQuery):
+        return ast.SelectSetQuery(
             start=None if self.clear_locations else node.start,
             end=None if self.clear_locations else node.end,
             type=None if self.clear_types else node.type,
             initial_select_query=self.visit(node.initial_select_query),
             subsequent_select_queries=[
-                SelectUnionNode(union_type=expr.union_type, select_query=self.visit(expr.select_query))
+                SelectSetNode(set_operator=expr.set_operator, select_query=self.visit(expr.select_query))
                 for expr in node.subsequent_select_queries
             ],
         )
