@@ -1305,6 +1305,7 @@ class TestExperimentCRUD(APILicensedTest):
                     ]
                 },
                 "aggregation_group_type_index": None,
+                "holdout_groups": None,
             },
         )
 
@@ -1356,6 +1357,7 @@ class TestExperimentCRUD(APILicensedTest):
                     ]
                 },
                 "aggregation_group_type_index": None,
+                "holdout_groups": None,
             },
         )
 
@@ -1423,6 +1425,7 @@ class TestExperimentCRUD(APILicensedTest):
                     ]
                 },
                 "aggregation_group_type_index": None,
+                "holdout_groups": None,
             },
         )
 
