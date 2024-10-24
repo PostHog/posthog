@@ -506,7 +506,7 @@ def redirect_to_site(request):
             "redirect_to_site_failed",
             {"app_url": app_url, "app_urls": team.app_urls, "team_id": team.id},
         )
-        logger.info(
+        logger.error(
             "can_only_redirect_to_permitted_domain", permitted_domains=team.app_urls, app_url=app_url, team_id=team.id
         )
         return HttpResponse(f"Can only redirect to a permitted domain.", status=403)
@@ -547,7 +547,7 @@ def redirect_to_website(request):
         return HttpResponse(status=404)
 
     if not team or urllib.parse.urlparse(app_url).hostname not in PERMITTED_FORUM_DOMAINS:
-        logger.info(
+        logger.error(
             "can_only_redirect_to_permitted_domain", permitted_domains=team.app_urls, app_url=app_url, team_id=team.id
         )
         return HttpResponse(f"Can only redirect to a permitted domain.", status=403)
