@@ -12,10 +12,8 @@ let type := 'track'
 
 if (event.event in ('$identify', '$set')) {
     type := 'identify'
-} else if (event.event == '$pageview') {
+} else if (event.event in ('$pageview', '$screen')) {
     type := 'page'
-} else if (event.event == '$screen') {
-    type := 'screen'
 }
 
 let context := {
@@ -30,12 +28,12 @@ let context := {
 if (not empty(event.properties.$app_build)) context.app.build := event.properties.$app_build
 if (not empty(event.properties.$app_version)) context.app.version := event.properties.$app_version
 if (not empty(event.properties.$app_name)) context.app.name := event.properties.$app_name
-if (not empty(event.properties.utm_campaign)) context.device.name := event.properties.utm_campaign
-if (not empty(event.properties.utm_content)) context.device.content := event.properties.utm_content
-if (not empty(event.properties.utm_medium)) context.device.medium := event.properties.utm_medium
-if (not empty(event.properties.utm_source)) context.device.source := event.properties.utm_source
-if (not empty(event.properties.utm_term)) context.device.term := event.properties.utm_term
-if (not empty(event.properties.$device_id)) context.device.id := event.properties.$device_id
+if (not empty(event.properties.utm_campaign)) context.campaign.name := event.properties.utm_campaign
+if (not empty(event.properties.utm_content)) context.campaign.content := event.properties.utm_content
+if (not empty(event.properties.utm_medium)) context.campaign.medium := event.properties.utm_medium
+if (not empty(event.properties.utm_source)) context.campaign.source := event.properties.utm_source
+if (not empty(event.properties.utm_term)) context.campaign.term := event.properties.utm_term
+    if (not empty(event.properties.$device_id)) context.device.id := event.properties.$device_id
 if (not empty(event.properties.$device_manufacturer)) context.device.manufacturer := event.properties.$device_manufacturer
 if (not empty(event.properties.$device_model)) context.device.model := event.properties.$device_model
 if (not empty(event.properties.$os_name)) context.device.name := event.properties.$os_name
@@ -57,11 +55,15 @@ if (not empty(event.properties.$current_url)) properties.url := event.properties
 if (not empty(event.properties.$pathname)) properties.path := event.properties.$pathname
 if (not empty(event.properties.title)) properties.title := event.properties.title
 if (not empty(event.properties.$referrer)) properties.referrer := event.properties.$referrer
-if (not empty(event.properties.$current_url) and not empty(splitByString('?', event.properties.$current_url)[2])) properties := f'?{splitByString('?', event.properties.$current_url)[2]}'
+if (not empty(event.properties.$current_url)) {
+    if (not empty(splitByString('?', event.properties.$current_url)[2])) {
+        properties.search := f'?{splitByString('?', event.properties.$current_url)[2]}'
+    }
+}
 
 let traits := {}
 
-for (let key, value in properties) {
+for (let key, value in inputs.properties) {
     if (not empty(value)) {
         traits[key] := value
     }
