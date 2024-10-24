@@ -178,6 +178,7 @@ export const replayTemplates: ReplayTemplateType[] = [
         description: 'Watch all recent replays, and see where users are getting stuck.',
         variables: [],
         categories: ['More'],
+        order: RecordingOrder.StartTime,
         icon: <IconVideoCamera />,
     },
     {
