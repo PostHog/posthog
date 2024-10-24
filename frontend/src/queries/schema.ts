@@ -1186,6 +1186,7 @@ export type LifecycleFilter = {
 export type RefreshType =
     | boolean
     | 'async'
+    | 'async_except_on_cache_miss'
     | 'blocking'
     | 'force_async'
     | 'force_blocking'
