@@ -130,10 +130,9 @@ async fn main() -> Result<(), Error> {
             resolved_frames.push(resolved);
         }
 
-        let Ok(_fingerprint) = fingerprinting::v1::generate_fingerprint(
-            &properties.exception_list[0],
-            resolved_frames,
-        ) else {
+        let Ok(_fingerprint) =
+            fingerprinting::v1::generate_fingerprint(&exception_list[0], resolved_frames)
+        else {
             metrics::counter!(ERRORS, "cause" => "fingerprint_generation_failed").increment(1);
             continue;
         };
