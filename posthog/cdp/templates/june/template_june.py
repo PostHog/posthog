@@ -136,11 +136,8 @@ if (res.status >= 400) {
         },
     ],
     filters={
-        "events": [
-            {"id": "$identify", "name": "$identify", "type": "events", "order": 0},
-            {"id": "$set", "name": "$set", "type": "events", "order": 1},
-        ],
+        "events": [],
         "actions": [],
-        "filter_test_accounts": True,
+        "filter_test_accounts": False,
     },
 )
