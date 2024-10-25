@@ -3832,6 +3832,69 @@ class QueryResponseAlternative36(BaseModel):
     types: Optional[list] = None
 
 
+class QueryResponseAlternative39(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    results: list[TeamTaxonomyItem]
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
+class QueryResponseAlternative40(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    results: list[EventTaxonomyItem]
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
+class QueryResponseAlternative41(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    results: ActorsPropertyTaxonomyResponse
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
 class RetentionFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5907,6 +5970,9 @@ class QueryResponseAlternative(
             QueryResponseAlternative36,
             QueryResponseAlternative37,
             QueryResponseAlternative38,
+            QueryResponseAlternative39,
+            QueryResponseAlternative40,
+            QueryResponseAlternative41,
         ]
     ]
 ):
@@ -5947,6 +6013,9 @@ class QueryResponseAlternative(
         QueryResponseAlternative36,
         QueryResponseAlternative37,
         QueryResponseAlternative38,
+        QueryResponseAlternative39,
+        QueryResponseAlternative40,
+        QueryResponseAlternative41,
     ]
 
 
@@ -6440,6 +6509,9 @@ class QueryRequest(BaseModel):
         FunnelCorrelationQuery,
         DatabaseSchemaQuery,
         SuggestedQuestionsQuery,
+        TeamTaxonomyQuery,
+        EventTaxonomyQuery,
+        ActorsPropertyTaxonomyQuery,
     ] = Field(
         ...,
         description=(
@@ -6505,6 +6577,9 @@ class QuerySchemaRoot(
             FunnelCorrelationQuery,
             DatabaseSchemaQuery,
             SuggestedQuestionsQuery,
+            TeamTaxonomyQuery,
+            EventTaxonomyQuery,
+            ActorsPropertyTaxonomyQuery,
         ]
     ]
 ):
@@ -6544,6 +6619,9 @@ class QuerySchemaRoot(
         FunnelCorrelationQuery,
         DatabaseSchemaQuery,
         SuggestedQuestionsQuery,
+        TeamTaxonomyQuery,
+        EventTaxonomyQuery,
+        ActorsPropertyTaxonomyQuery,
     ] = Field(..., discriminator="kind")
 
 
