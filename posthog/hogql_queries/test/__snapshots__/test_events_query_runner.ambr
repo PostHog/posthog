@@ -1,0 +1,49 @@
+# serializer version: 1
+# name: TestEventsQueryRunner.test_absolute_date_range
+  '''
+  SELECT tuple(events.uuid, events.event, events.properties, toTimeZone(events.timestamp, 'UTC'), events.team_id, events.distinct_id, events.elements_chain, toTimeZone(events.created_at, 'UTC'))
+  FROM events
+  WHERE and(equals(events.team_id, 2), equals(events.event, '$pageview'), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-12 23:59:59.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-12 00:00:00.000000', 6, 'UTC')))
+  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+  LIMIT 101
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0
+  '''
+# ---
+# name: TestEventsQueryRunner.test_absolute_date_range_minus_utc
+  '''
+  SELECT tuple(events.uuid, events.event, events.properties, toTimeZone(events.timestamp, 'America/Phoenix'), events.team_id, events.distinct_id, events.elements_chain, toTimeZone(events.created_at, 'America/Phoenix'))
+  FROM events
+  WHERE and(equals(events.team_id, 2), equals(events.event, '$pageview'), less(toTimeZone(events.timestamp, 'America/Phoenix'), toDateTime64('2020-01-12 23:59:59.000000', 6, 'America/Phoenix')), greater(toTimeZone(events.timestamp, 'America/Phoenix'), toDateTime64('2020-01-12 00:00:00.000000', 6, 'America/Phoenix')))
+  ORDER BY toTimeZone(events.timestamp, 'America/Phoenix') ASC
+  LIMIT 101
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0
+  '''
+# ---
+# name: TestEventsQueryRunner.test_absolute_date_range_plus_utc
+  '''
+  SELECT tuple(events.uuid, events.event, events.properties, toTimeZone(events.timestamp, 'Asia/Tokyo'), events.team_id, events.distinct_id, events.elements_chain, toTimeZone(events.created_at, 'Asia/Tokyo'))
+  FROM events
+  WHERE and(equals(events.team_id, 2), equals(events.event, '$pageview'), less(toTimeZone(events.timestamp, 'Asia/Tokyo'), toDateTime64('2020-01-12 23:59:59.000000', 6, 'Asia/Tokyo')), greater(toTimeZone(events.timestamp, 'Asia/Tokyo'), toDateTime64('2020-01-12 00:00:00.000000', 6, 'Asia/Tokyo')))
+  ORDER BY toTimeZone(events.timestamp, 'Asia/Tokyo') ASC
+  LIMIT 101
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0
+  '''
+# ---
