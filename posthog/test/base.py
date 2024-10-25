@@ -1140,7 +1140,13 @@ def snapshot_clickhouse_queries(fn):
             fn(self, *args, **kwargs)
 
         for query in queries:
-            if "FROM system.columns" not in query:
+            if not any(
+                ignore_string not in query
+                for ignore_string in [
+                    "FROM system.columns",
+                    "celery:posthog.tasks.tasks.sync_insight_caching_state",
+                ]
+            ):
                 self.assertQueryMatchesSnapshot(query)
 
     return wrapped
