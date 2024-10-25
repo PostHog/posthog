@@ -31,13 +31,13 @@ export function HoldoutSelector(): JSX.Element {
                     }
                     size="xsmall"
                     options={holdoutOptions}
-                    value={experiment.holdout || null}
+                    value={experiment.holdout_id || null}
                     onChange={(value) => {
                         setExperiment({
                             ...experiment,
-                            holdout: value,
+                            holdout_id: value,
                         })
-                        updateExperiment({ holdout: value })
+                        updateExperiment({ holdout_id: value })
                     }}
                     data-attr="experiment-holdout-selector"
                 />

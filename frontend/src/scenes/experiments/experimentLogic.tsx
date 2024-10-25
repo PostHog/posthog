@@ -72,7 +72,7 @@ const NEW_EXPERIMENT: Experiment = {
     created_at: null,
     created_by: null,
     updated_at: null,
-    holdout: null,
+    holdout_id: null,
 }
 
 export interface ExperimentLogicProps {

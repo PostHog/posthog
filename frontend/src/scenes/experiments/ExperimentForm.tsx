@@ -299,11 +299,11 @@ export const HoldoutSelector = (): JSX.Element => {
         <div className="mt-4 mb-8">
             <LemonSelect
                 options={holdoutOptions}
-                value={experiment.holdout || null}
+                value={experiment.holdout_id || null}
                 onChange={(value) => {
                     setExperiment({
                         ...experiment,
-                        holdout: value,
+                        holdout_id: value,
                     })
                 }}
                 data-attr="experiment-holdout-selector"

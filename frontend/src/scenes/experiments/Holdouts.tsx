@@ -188,9 +188,7 @@ export function Holdouts(): JSX.Element {
                                 value={holdout.filters?.[0]?.rollout_percentage || 100}
                                 onChange={(rollout_percentage) =>
                                     setHoldout({
-                                        filters: {
-                                            groups: [{ properties: [], rollout_percentage }],
-                                        },
+                                        filters: [{ properties: [], rollout_percentage }],
                                     })
                                 }
                                 min={0}
