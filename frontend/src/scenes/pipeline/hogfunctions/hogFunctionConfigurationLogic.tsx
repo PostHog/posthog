@@ -17,9 +17,10 @@ import { userLogic } from 'scenes/userLogic'
 
 import { groupsModel } from '~/models/groupsModel'
 import { performQuery } from '~/queries/query'
-import { EventsNode, EventsQuery, NodeKind, TrendsQuery } from '~/queries/schema'
+import { ActorsQuery, DataTableNode, EventsNode, EventsQuery, NodeKind, TrendsQuery } from '~/queries/schema'
 import { escapePropertyAsHogQlIdentifier, hogql } from '~/queries/utils'
 import {
+    AnyPersonScopeFilter,
     AnyPropertyFilter,
     AvailableFeature,
     BaseMathType,
@@ -183,6 +184,8 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         resetToTemplate: true,
         deleteHogFunction: true,
         sparklineQueryChanged: (sparklineQuery: TrendsQuery) => ({ sparklineQuery } as { sparklineQuery: TrendsQuery }),
+        personsCountQueryChanged: (personsCountQuery: ActorsQuery) =>
+            ({ personsCountQuery } as { personsCountQuery: ActorsQuery }),
         setSubTemplateId: (subTemplateId: HogFunctionSubTemplateIdType | null) => ({ subTemplateId }),
         loadSampleGlobals: true,
         setUnsavedConfiguration: (configuration: HogFunctionConfigurationType | null) => ({ configuration }),
@@ -289,6 +292,9 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             },
             {
                 sparklineQueryChanged: async ({ sparklineQuery }, breakpoint) => {
+                    if (values.type !== 'destination') {
+                        return null
+                    }
                     if (values.sparkline === null) {
                         await breakpoint(100)
                     } else {
@@ -327,16 +333,38 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             },
         ],
 
+        personsCount: [
+            null as number | null,
+            {
+                personsCountQueryChanged: async ({ personsCountQuery }, breakpoint) => {
+                    if (values.type !== 'broadcast') {
+                        return null
+                    }
+                    if (values.personsCount === null) {
+                        await breakpoint(100)
+                    } else {
+                        await breakpoint(1000)
+                    }
+                    const result = await performQuery(personsCountQuery)
+                    breakpoint()
+                    return result?.results?.[0]?.[0] ?? null
+                },
+            },
+        ],
+
         sampleGlobals: [
             null as HogFunctionInvocationGlobals | null,
             {
                 loadSampleGlobals: async (_, breakpoint) => {
+                    if (!values.lastEventQuery || values.type !== 'destination') {
+                        return values.sampleGlobals
+                    }
                     const errorMessage =
                         'No events match these filters in the last 30 days. Showing an example $pageview event instead.'
                     try {
                         await breakpoint(values.sampleGlobals === null ? 10 : 1000)
                         let response = await performQuery(values.lastEventQuery)
-                        if (!response?.results?.[0]) {
+                        if (!response?.results?.[0] && values.lastEventSecondQuery) {
                             response = await performQuery(values.lastEventSecondQuery)
                         }
                         if (!response?.results?.[0]) {
@@ -653,9 +681,46 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             { resultEqualityCheck: equal },
         ],
 
+        personsCountQuery: [
+            (s) => [s.configuration, s.type],
+            (configuration, type): ActorsQuery | null => {
+                if (type !== 'broadcast') {
+                    return null
+                }
+                return {
+                    kind: NodeKind.ActorsQuery,
+                    properties: configuration.filters?.properties as AnyPersonScopeFilter[] | undefined,
+                    select: ['count()'],
+                }
+            },
+            { resultEqualityCheck: equal },
+        ],
+
+        personsListQuery: [
+            (s) => [s.configuration, s.type],
+            (configuration, type): DataTableNode | null => {
+                if (type !== 'broadcast') {
+                    return null
+                }
+                return {
+                    kind: NodeKind.DataTableNode,
+                    source: {
+                        kind: NodeKind.ActorsQuery,
+                        properties: configuration.filters?.properties as AnyPersonScopeFilter[] | undefined,
+                        select: ['person', 'properties.email', 'created_at'],
+                    },
+                    full: true,
+                }
+            },
+            { resultEqualityCheck: equal },
+        ],
+
         lastEventQuery: [
-            (s) => [s.configuration, s.matchingFilters, s.groupTypes],
-            (configuration, matchingFilters, groupTypes): EventsQuery => {
+            (s) => [s.configuration, s.matchingFilters, s.groupTypes, s.type],
+            (configuration, matchingFilters, groupTypes, type): EventsQuery | null => {
+                if (type !== 'destination') {
+                    return null
+                }
                 const query: EventsQuery = {
                     kind: NodeKind.EventsQuery,
                     filterTestAccounts: configuration.filters?.filter_test_accounts,
@@ -677,7 +742,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         ],
         lastEventSecondQuery: [
             (s) => [s.lastEventQuery],
-            (lastEventQuery): EventsQuery => ({ ...lastEventQuery, after: '-30d' }),
+            (lastEventQuery): EventsQuery | null => (lastEventQuery ? { ...lastEventQuery, after: '-30d' } : null),
         ],
         templateHasChanged: [
             (s) => [s.hogFunction, s.configuration],
