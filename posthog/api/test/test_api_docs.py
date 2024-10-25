@@ -29,5 +29,5 @@ class TestAPIDocsSchema(APIBaseTest):
         self.client.get("/api/schema/")
 
         # we log lots of warnings when generating the schema
-        warnings = self._capsys.readouterr().err.split("\n")
+        warnings = self._capsys.readouterr().err.split("\n").sort()
         assert warnings == self._snapshot
