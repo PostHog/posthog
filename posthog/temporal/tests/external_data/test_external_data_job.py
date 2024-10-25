@@ -319,11 +319,11 @@ async def test_update_external_job_activity_with_non_retryable_error(activity_en
         destination_id=uuid.uuid4(),
         team=team,
         status="running",
-        source_type="Stripe",
+        source_type="Postgres",
     )
 
     schema = await sync_to_async(ExternalDataSchema.objects.create)(
-        name=PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[new_source.source_type][0],
+        name="test_123",
         team_id=team.id,
         source_id=new_source.pk,
         should_sync=True,
