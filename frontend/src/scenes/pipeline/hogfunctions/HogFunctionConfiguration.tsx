@@ -69,6 +69,7 @@ export function HogFunctionConfiguration({ templateId, id }: HogFunctionConfigur
         templateHasChanged,
         forcedSubTemplateId,
         type,
+        broadcastLoading,
     } = useValues(logic)
     const {
         submitConfiguration,
@@ -80,6 +81,7 @@ export function HogFunctionConfiguration({ templateId, id }: HogFunctionConfigur
         setConfigurationValue,
         deleteHogFunction,
         setSubTemplateId,
+        sendBroadcast,
     } = useActions(logic)
 
     if (loading && !loaded) {
@@ -493,6 +495,37 @@ export function HogFunctionConfiguration({ templateId, id }: HogFunctionConfigur
                             )}
 
                             {!id || id === 'new' ? <HogFunctionTestPlaceholder /> : <HogFunctionTest id={id} />}
+
+                            {type === 'broadcast' ? (
+                                id && id !== 'new' ? (
+                                    <HogFunctionTestPlaceholder
+                                        title="Send broadcast"
+                                        description={
+                                            <div className="space-y-2">
+                                                <LemonButton
+                                                    type="primary"
+                                                    onClick={sendBroadcast}
+                                                    loading={personsCountLoading || broadcastLoading}
+                                                >
+                                                    Send to {personsCount} emails
+                                                </LemonButton>
+                                                <div>
+                                                    <strong>Please note:</strong> Clicking the button above will
+                                                    synchronously send to all the e-mails. While this is fine for
+                                                    testing with small lists, please don't use this for production
+                                                    usecases yet.
+                                                </div>
+                                            </div>
+                                        }
+                                    />
+                                ) : (
+                                    <HogFunctionTestPlaceholder
+                                        title="Send broadcast"
+                                        description="Save to send your broadcast"
+                                    />
+                                )
+                            ) : null}
+
                             <div className="flex gap-2 justify-end">{saveButtons}</div>
                         </div>
                     </div>
