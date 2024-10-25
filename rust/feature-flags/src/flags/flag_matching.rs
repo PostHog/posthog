@@ -1,14 +1,16 @@
 use crate::{
     api::errors::FlagError,
     api::types::{FlagValue, FlagsResponse},
-    clients::database::Client as DatabaseClient,
     cohorts::{
         cohort_models::{Cohort, CohortId, CohortOrEmpty},
         cohort_operations::sort_cohorts_topologically,
     },
     flags::{
         flag_match_reason::FeatureFlagMatchReason,
-        flag_models::{FeatureFlag, FeatureFlagList, FlagGroupType},
+        flag_models::{
+            FeatureFlag, FeatureFlagList, FeatureFlagMatch, FlagGroupType, GroupTypeIndex,
+            GroupTypeMapping, PostgresReader, PostgresWriter, SuperConditionEvaluation, TeamId,
+        },
     },
     metrics::{
         metrics_consts::{FLAG_EVALUATION_ERROR_COUNTER, FLAG_HASH_KEY_WRITES_COUNTER},
@@ -23,42 +25,14 @@ use anyhow::Result;
 use common_metrics::inc;
 use serde_json::Value;
 use sha1::{Digest, Sha1};
-use sqlx::{postgres::PgQueryResult, Acquire, FromRow};
+use sqlx::{postgres::PgQueryResult, Acquire};
 use std::fmt::Write;
-use std::sync::Arc;
 use std::{
     collections::{HashMap, HashSet},
     time::Duration,
 };
 use tokio::time::{sleep, timeout};
 use tracing::{error, info};
-
-type TeamId = i32;
-type GroupTypeIndex = i32;
-type PostgresReader = Arc<dyn DatabaseClient + Send + Sync>;
-type PostgresWriter = Arc<dyn DatabaseClient + Send + Sync>;
-
-#[derive(Debug)]
-struct SuperConditionEvaluation {
-    should_evaluate: bool,
-    is_match: bool,
-    reason: FeatureFlagMatchReason,
-}
-
-#[derive(Debug, PartialEq, Eq)]
-pub struct FeatureFlagMatch {
-    pub matches: bool,
-    pub variant: Option<String>,
-    pub reason: FeatureFlagMatchReason,
-    pub condition_index: Option<usize>,
-    pub payload: Option<Value>,
-}
-
-#[derive(Debug, FromRow)]
-pub struct GroupTypeMapping {
-    pub group_type: String,
-    pub group_type_index: GroupTypeIndex,
-}
 
 /// This struct is a cache for group type mappings, which are stored in a DB.  We use these mappings
 /// to look up group names based on the group aggregation indices stored on flag filters, which lets us
@@ -1542,7 +1516,7 @@ async fn should_write_hash_key_override(
 #[cfg(test)]
 mod tests {
     use serde_json::json;
-    use std::collections::HashMap;
+    use std::{collections::HashMap, sync::Arc};
 
     use super::*;
     use crate::{

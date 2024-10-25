@@ -1,6 +1,13 @@
-use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
-use crate::properties::property_models::PropertyFilter;
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use sqlx::FromRow;
+
+use crate::{
+    clients::database::Client, flags::flag_match_reason::FeatureFlagMatchReason,
+    properties::property_models::PropertyFilter,
+};
 
 // TRICKY: This cache data is coming from django-redis. If it ever goes out of sync, we'll bork.
 // TODO: Add integration tests across repos to ensure this doesn't happen.
@@ -64,4 +71,31 @@ pub struct FeatureFlagRow {
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct FeatureFlagList {
     pub flags: Vec<FeatureFlag>,
+}
+
+pub type TeamId = i32;
+pub type GroupTypeIndex = i32;
+pub type PostgresReader = Arc<dyn Client + Send + Sync>;
+pub type PostgresWriter = Arc<dyn Client + Send + Sync>;
+
+#[derive(Debug)]
+pub struct SuperConditionEvaluation {
+    pub should_evaluate: bool,
+    pub is_match: bool,
+    pub reason: FeatureFlagMatchReason,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct FeatureFlagMatch {
+    pub matches: bool,
+    pub variant: Option<String>,
+    pub reason: FeatureFlagMatchReason,
+    pub condition_index: Option<usize>,
+    pub payload: Option<Value>,
+}
+
+#[derive(Debug, FromRow)]
+pub struct GroupTypeMapping {
+    pub group_type: String,
+    pub group_type_index: GroupTypeIndex,
 }
