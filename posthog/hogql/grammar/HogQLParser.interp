@@ -352,7 +352,7 @@ kvPair
 kvPairList
 select
 selectStmtWithParens
-subsequentSelectSetStmt
+subsequentSelectSetClause
 selectSetStmt
 selectStmt
 withClause

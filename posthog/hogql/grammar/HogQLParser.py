@@ -643,7 +643,7 @@ class HogQLParser ( Parser ):
     RULE_kvPairList = 20
     RULE_select = 21
     RULE_selectStmtWithParens = 22
-    RULE_subsequentSelectSetStmt = 23
+    RULE_subsequentSelectSetClause = 23
     RULE_selectSetStmt = 24
     RULE_selectStmt = 25
     RULE_withClause = 26
@@ -713,7 +713,7 @@ class HogQLParser ( Parser ):
                    "tryCatchStmt", "ifStmt", "whileStmt", "forStmt", "forInStmt", 
                    "funcStmt", "varAssignment", "exprStmt", "emptyStmt", 
                    "block", "kvPair", "kvPairList", "select", "selectStmtWithParens", 
-                   "subsequentSelectSetStmt", "selectSetStmt", "selectStmt", 
+                   "subsequentSelectSetClause", "selectSetStmt", "selectStmt", 
                    "withClause", "topClause", "fromClause", "arrayJoinClause", 
                    "windowClause", "prewhereClause", "whereClause", "groupByClause", 
                    "havingClause", "orderByClause", "projectionOrderByClause", 
@@ -2599,7 +2599,7 @@ class HogQLParser ( Parser ):
         return localctx
 
 
-    class SubsequentSelectSetStmtContext(ParserRuleContext):
+    class SubsequentSelectSetClauseContext(ParserRuleContext):
         __slots__ = 'parser'
 
         def __init__(self, parser, parent:ParserRuleContext=None, invokingState:int=-1):
@@ -2623,21 +2623,21 @@ class HogQLParser ( Parser ):
             return self.getToken(HogQLParser.INTERSECT, 0)
 
         def getRuleIndex(self):
-            return HogQLParser.RULE_subsequentSelectSetStmt
+            return HogQLParser.RULE_subsequentSelectSetClause
 
         def accept(self, visitor:ParseTreeVisitor):
-            if hasattr( visitor, "visitSubsequentSelectSetStmt" ):
-                return visitor.visitSubsequentSelectSetStmt(self)
+            if hasattr( visitor, "visitSubsequentSelectSetClause" ):
+                return visitor.visitSubsequentSelectSetClause(self)
             else:
                 return visitor.visitChildren(self)
 
 
 
 
-    def subsequentSelectSetStmt(self):
+    def subsequentSelectSetClause(self):
 
-        localctx = HogQLParser.SubsequentSelectSetStmtContext(self, self._ctx, self.state)
-        self.enterRule(localctx, 46, self.RULE_subsequentSelectSetStmt)
+        localctx = HogQLParser.SubsequentSelectSetClauseContext(self, self._ctx, self.state)
+        self.enterRule(localctx, 46, self.RULE_subsequentSelectSetClause)
         try:
             self.enterOuterAlt(localctx, 1)
             self.state = 376
@@ -2682,11 +2682,11 @@ class HogQLParser ( Parser ):
             return self.getTypedRuleContext(HogQLParser.SelectStmtWithParensContext,0)
 
 
-        def subsequentSelectSetStmt(self, i:int=None):
+        def subsequentSelectSetClause(self, i:int=None):
             if i is None:
-                return self.getTypedRuleContexts(HogQLParser.SubsequentSelectSetStmtContext)
+                return self.getTypedRuleContexts(HogQLParser.SubsequentSelectSetClauseContext)
             else:
-                return self.getTypedRuleContext(HogQLParser.SubsequentSelectSetStmtContext,i)
+                return self.getTypedRuleContext(HogQLParser.SubsequentSelectSetClauseContext,i)
 
 
         def getRuleIndex(self):
@@ -2715,7 +2715,7 @@ class HogQLParser ( Parser ):
             _la = self._input.LA(1)
             while _la==27 or _la==47 or _la==98:
                 self.state = 381
-                self.subsequentSelectSetStmt()
+                self.subsequentSelectSetClause()
                 self.state = 386
                 self._errHandler.sync(self)
                 _la = self._input.LA(1)

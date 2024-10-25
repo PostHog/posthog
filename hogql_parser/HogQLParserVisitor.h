@@ -65,7 +65,7 @@ public:
 
     virtual std::any visitSelectStmtWithParens(HogQLParser::SelectStmtWithParensContext *context) = 0;
 
-    virtual std::any visitSubsequentSelectSetStmt(HogQLParser::SubsequentSelectSetStmtContext *context) = 0;
+    virtual std::any visitSubsequentSelectSetClause(HogQLParser::SubsequentSelectSetClauseContext *context) = 0;
 
     virtual std::any visitSelectSetStmt(HogQLParser::SelectSetStmtContext *context) = 0;
 

@@ -107,7 +107,7 @@ public:
     return visitChildren(ctx);
   }
 
-  virtual std::any visitSubsequentSelectSetStmt(HogQLParser::SubsequentSelectSetStmtContext *ctx) override {
+  virtual std::any visitSubsequentSelectSetClause(HogQLParser::SubsequentSelectSetClauseContext *ctx) override {
     return visitChildren(ctx);
   }
 

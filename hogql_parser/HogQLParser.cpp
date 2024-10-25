@@ -56,7 +56,7 @@ void hogqlparserParserInitialize() {
       "statement", "returnStmt", "throwStmt", "catchBlock", "tryCatchStmt", 
       "ifStmt", "whileStmt", "forStmt", "forInStmt", "funcStmt", "varAssignment", 
       "exprStmt", "emptyStmt", "block", "kvPair", "kvPairList", "select", 
-      "selectStmtWithParens", "subsequentSelectSetStmt", "selectSetStmt", 
+      "selectStmtWithParens", "subsequentSelectSetClause", "selectSetStmt", 
       "selectStmt", "withClause", "topClause", "fromClause", "arrayJoinClause", 
       "windowClause", "prewhereClause", "whereClause", "groupByClause", 
       "havingClause", "orderByClause", "projectionOrderByClause", "limitAndOffsetClause", 
@@ -2837,48 +2837,48 @@ HogQLParser::SelectStmtWithParensContext* HogQLParser::selectStmtWithParens() {
   return _localctx;
 }
 
-//----------------- SubsequentSelectSetStmtContext ------------------------------------------------------------------
+//----------------- SubsequentSelectSetClauseContext ------------------------------------------------------------------
 
-HogQLParser::SubsequentSelectSetStmtContext::SubsequentSelectSetStmtContext(ParserRuleContext *parent, size_t invokingState)
+HogQLParser::SubsequentSelectSetClauseContext::SubsequentSelectSetClauseContext(ParserRuleContext *parent, size_t invokingState)
   : ParserRuleContext(parent, invokingState) {
 }
 
-HogQLParser::SelectStmtWithParensContext* HogQLParser::SubsequentSelectSetStmtContext::selectStmtWithParens() {
+HogQLParser::SelectStmtWithParensContext* HogQLParser::SubsequentSelectSetClauseContext::selectStmtWithParens() {
   return getRuleContext<HogQLParser::SelectStmtWithParensContext>(0);
 }
 
-tree::TerminalNode* HogQLParser::SubsequentSelectSetStmtContext::EXCEPT() {
+tree::TerminalNode* HogQLParser::SubsequentSelectSetClauseContext::EXCEPT() {
   return getToken(HogQLParser::EXCEPT, 0);
 }
 
-tree::TerminalNode* HogQLParser::SubsequentSelectSetStmtContext::UNION() {
+tree::TerminalNode* HogQLParser::SubsequentSelectSetClauseContext::UNION() {
   return getToken(HogQLParser::UNION, 0);
 }
 
-tree::TerminalNode* HogQLParser::SubsequentSelectSetStmtContext::ALL() {
+tree::TerminalNode* HogQLParser::SubsequentSelectSetClauseContext::ALL() {
   return getToken(HogQLParser::ALL, 0);
 }
 
-tree::TerminalNode* HogQLParser::SubsequentSelectSetStmtContext::INTERSECT() {
+tree::TerminalNode* HogQLParser::SubsequentSelectSetClauseContext::INTERSECT() {
   return getToken(HogQLParser::INTERSECT, 0);
 }
 
 
-size_t HogQLParser::SubsequentSelectSetStmtContext::getRuleIndex() const {
-  return HogQLParser::RuleSubsequentSelectSetStmt;
+size_t HogQLParser::SubsequentSelectSetClauseContext::getRuleIndex() const {
+  return HogQLParser::RuleSubsequentSelectSetClause;
 }
 
 
-std::any HogQLParser::SubsequentSelectSetStmtContext::accept(tree::ParseTreeVisitor *visitor) {
+std::any HogQLParser::SubsequentSelectSetClauseContext::accept(tree::ParseTreeVisitor *visitor) {
   if (auto parserVisitor = dynamic_cast<HogQLParserVisitor*>(visitor))
-    return parserVisitor->visitSubsequentSelectSetStmt(this);
+    return parserVisitor->visitSubsequentSelectSetClause(this);
   else
     return visitor->visitChildren(this);
 }
 
-HogQLParser::SubsequentSelectSetStmtContext* HogQLParser::subsequentSelectSetStmt() {
-  SubsequentSelectSetStmtContext *_localctx = _tracker.createInstance<SubsequentSelectSetStmtContext>(_ctx, getState());
-  enterRule(_localctx, 46, HogQLParser::RuleSubsequentSelectSetStmt);
+HogQLParser::SubsequentSelectSetClauseContext* HogQLParser::subsequentSelectSetClause() {
+  SubsequentSelectSetClauseContext *_localctx = _tracker.createInstance<SubsequentSelectSetClauseContext>(_ctx, getState());
+  enterRule(_localctx, 46, HogQLParser::RuleSubsequentSelectSetClause);
 
 #if __cplusplus > 201703L
   auto onExit = finally([=, this] {
@@ -2938,12 +2938,12 @@ HogQLParser::SelectStmtWithParensContext* HogQLParser::SelectSetStmtContext::sel
   return getRuleContext<HogQLParser::SelectStmtWithParensContext>(0);
 }
 
-std::vector<HogQLParser::SubsequentSelectSetStmtContext *> HogQLParser::SelectSetStmtContext::subsequentSelectSetStmt() {
-  return getRuleContexts<HogQLParser::SubsequentSelectSetStmtContext>();
+std::vector<HogQLParser::SubsequentSelectSetClauseContext *> HogQLParser::SelectSetStmtContext::subsequentSelectSetClause() {
+  return getRuleContexts<HogQLParser::SubsequentSelectSetClauseContext>();
 }
 
-HogQLParser::SubsequentSelectSetStmtContext* HogQLParser::SelectSetStmtContext::subsequentSelectSetStmt(size_t i) {
-  return getRuleContext<HogQLParser::SubsequentSelectSetStmtContext>(i);
+HogQLParser::SubsequentSelectSetClauseContext* HogQLParser::SelectSetStmtContext::subsequentSelectSetClause(size_t i) {
+  return getRuleContext<HogQLParser::SubsequentSelectSetClauseContext>(i);
 }
 
 
@@ -2982,7 +2982,7 @@ HogQLParser::SelectSetStmtContext* HogQLParser::selectSetStmt() {
 
     || _la == HogQLParser::INTERSECT || _la == HogQLParser::UNION) {
       setState(381);
-      subsequentSelectSetStmt();
+      subsequentSelectSetClause();
       setState(386);
       _errHandler->sync(this);
       _la = _input->LA(1);

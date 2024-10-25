@@ -863,7 +863,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     }
 
     try {
-      for (auto subsequent : ctx->subsequentSelectSetStmt()) {
+      for (auto subsequent : ctx->subsequentSelectSetClause()) {
         char* set_operator;
         if (subsequent->UNION() && subsequent->ALL()) {
             set_operator = "UNION ALL";

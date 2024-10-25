@@ -52,7 +52,7 @@ public:
     RuleForStmt = 12, RuleForInStmt = 13, RuleFuncStmt = 14, RuleVarAssignment = 15, 
     RuleExprStmt = 16, RuleEmptyStmt = 17, RuleBlock = 18, RuleKvPair = 19, 
     RuleKvPairList = 20, RuleSelect = 21, RuleSelectStmtWithParens = 22, 
-    RuleSubsequentSelectSetStmt = 23, RuleSelectSetStmt = 24, RuleSelectStmt = 25, 
+    RuleSubsequentSelectSetClause = 23, RuleSelectSetStmt = 24, RuleSelectStmt = 25, 
     RuleWithClause = 26, RuleTopClause = 27, RuleFromClause = 28, RuleArrayJoinClause = 29, 
     RuleWindowClause = 30, RulePrewhereClause = 31, RuleWhereClause = 32, 
     RuleGroupByClause = 33, RuleHavingClause = 34, RuleOrderByClause = 35, 
@@ -114,7 +114,7 @@ public:
   class KvPairListContext;
   class SelectContext;
   class SelectStmtWithParensContext;
-  class SubsequentSelectSetStmtContext;
+  class SubsequentSelectSetClauseContext;
   class SelectSetStmtContext;
   class SelectStmtContext;
   class WithClauseContext;
@@ -583,9 +583,9 @@ public:
 
   SelectStmtWithParensContext* selectStmtWithParens();
 
-  class  SubsequentSelectSetStmtContext : public antlr4::ParserRuleContext {
+  class  SubsequentSelectSetClauseContext : public antlr4::ParserRuleContext {
   public:
-    SubsequentSelectSetStmtContext(antlr4::ParserRuleContext *parent, size_t invokingState);
+    SubsequentSelectSetClauseContext(antlr4::ParserRuleContext *parent, size_t invokingState);
     virtual size_t getRuleIndex() const override;
     SelectStmtWithParensContext *selectStmtWithParens();
     antlr4::tree::TerminalNode *EXCEPT();
@@ -598,15 +598,15 @@ public:
    
   };
 
-  SubsequentSelectSetStmtContext* subsequentSelectSetStmt();
+  SubsequentSelectSetClauseContext* subsequentSelectSetClause();
 
   class  SelectSetStmtContext : public antlr4::ParserRuleContext {
   public:
     SelectSetStmtContext(antlr4::ParserRuleContext *parent, size_t invokingState);
     virtual size_t getRuleIndex() const override;
     SelectStmtWithParensContext *selectStmtWithParens();
-    std::vector<SubsequentSelectSetStmtContext *> subsequentSelectSetStmt();
-    SubsequentSelectSetStmtContext* subsequentSelectSetStmt(size_t i);
+    std::vector<SubsequentSelectSetClauseContext *> subsequentSelectSetClause();
+    SubsequentSelectSetClauseContext* subsequentSelectSetClause(size_t i);
 
 
     virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;

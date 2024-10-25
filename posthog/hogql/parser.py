@@ -330,15 +330,12 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
     def visitSelect(self, ctx: HogQLParser.SelectContext):
         return self.visit(ctx.selectSetStmt() or ctx.selectStmt() or ctx.hogqlxTagElement())
 
-    def visitSubsequentSelectSetStmt(self, ctx: HogQLParser.SubsequentSelectSetStmtContext):
-        pass
-
     def visitSelectSetStmt(self, ctx: HogQLParser.SelectSetStmtContext):
         select_queries: list[SelectSetNode] = []
 
         initial_query = self.visit(ctx.selectStmtWithParens())
 
-        for subsequent in ctx.subsequentSelectSetStmt():
+        for subsequent in ctx.subsequentSelectSetClause():
             if subsequent.UNION() and subsequent.ALL():
                 union_type = "UNION ALL"
             elif subsequent.INTERSECT():
