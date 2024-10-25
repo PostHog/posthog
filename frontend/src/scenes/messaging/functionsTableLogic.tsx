@@ -26,7 +26,7 @@ export const functionsTableLogic = kea<functionsTableLogicType>([
         values: [teamLogic, ['currentTeamId']],
     }),
     actions({
-        deleteNode: (hogFunction: HogFunctionType) => ({ hogFunction }),
+        deleteHogFunction: (hogFunction: HogFunctionType) => ({ hogFunction }),
         setFilters: (filters: Partial<HogFunctionsFilter>) => ({ filters }),
         resetFilters: true,
     }),
@@ -50,7 +50,7 @@ export const functionsTableLogic = kea<functionsTableLogicType>([
                     // TODO: pagination?
                     return (await api.hogFunctions.list({ type: props.type ?? 'destination' })).results
                 },
-                deleteNode: async ({ hogFunction }) => {
+                deleteHogFunction: async ({ hogFunction }) => {
                     await deleteWithUndo({
                         endpoint: `projects/${teamLogic.values.currentTeamId}/hog_functions`,
                         object: {

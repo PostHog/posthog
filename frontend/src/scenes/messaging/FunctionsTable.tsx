@@ -36,7 +36,7 @@ export function FunctionsTableFilters(): JSX.Element | null {
 
 export function FunctionsTable({ type }: FunctionsTableProps): JSX.Element {
     const { hogFunctions, filteredHogFunctions, loading } = useValues(functionsTableLogic({ type }))
-    const { deleteNode, resetFilters } = useActions(functionsTableLogic({ type }))
+    const { deleteHogFunction, resetFilters } = useActions(functionsTableLogic({ type }))
 
     return (
         <BindLogic logic={functionsTableLogic} props={{ type }}>
@@ -99,7 +99,7 @@ export function FunctionsTable({ type }: FunctionsTableProps): JSX.Element {
                                                     {
                                                         label: 'Delete',
                                                         status: 'danger' as const, // for typechecker happiness
-                                                        onClick: () => deleteNode(hogFunction),
+                                                        onClick: () => deleteHogFunction(hogFunction),
                                                     },
                                                 ]}
                                             />
