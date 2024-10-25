@@ -1387,6 +1387,7 @@ class TrendsFilter(BaseModel):
     display: Optional[ChartDisplayType] = ChartDisplayType.ACTIONS_LINE_GRAPH
     formula: Optional[str] = None
     hiddenLegendIndexes: Optional[list[int]] = None
+    showAlertThresholdLines: Optional[bool] = False
     showLabelsOnSeries: Optional[bool] = None
     showLegend: Optional[bool] = False
     showPercentStackView: Optional[bool] = False
@@ -1409,6 +1410,7 @@ class TrendsFilterLegacy(BaseModel):
     display: Optional[ChartDisplayType] = None
     formula: Optional[str] = None
     hidden_legend_keys: Optional[dict[str, Union[bool, Any]]] = None
+    show_alert_threshold_lines: Optional[bool] = None
     show_labels_on_series: Optional[bool] = None
     show_legend: Optional[bool] = None
     show_percent_stack_view: Optional[bool] = None
@@ -3851,6 +3853,9 @@ class SessionRecordingType(BaseModel):
         extra="forbid",
     )
     active_seconds: Optional[float] = None
+    activity_score: Optional[float] = Field(
+        default=None, description="calculated on the backend so that we can sort by it, definition may change over time"
+    )
     click_count: Optional[float] = None
     console_error_count: Optional[float] = None
     console_log_count: Optional[float] = None
@@ -4309,6 +4314,7 @@ class DataWarehouseNode(BaseModel):
     math_group_type_index: Optional[MathGroupTypeIndex] = None
     math_hogql: Optional[str] = None
     math_property: Optional[str] = None
+    math_property_type: Optional[str] = None
     name: Optional[str] = None
     properties: Optional[
         list[
@@ -4399,6 +4405,7 @@ class EntityNode(BaseModel):
     math_group_type_index: Optional[MathGroupTypeIndex] = None
     math_hogql: Optional[str] = None
     math_property: Optional[str] = None
+    math_property_type: Optional[str] = None
     name: Optional[str] = None
     properties: Optional[
         list[
@@ -4477,6 +4484,7 @@ class EventsNode(BaseModel):
     math_group_type_index: Optional[MathGroupTypeIndex] = None
     math_hogql: Optional[str] = None
     math_property: Optional[str] = None
+    math_property_type: Optional[str] = None
     name: Optional[str] = None
     orderBy: Optional[list[str]] = Field(default=None, description="Columns to order by")
     properties: Optional[
@@ -4558,6 +4566,7 @@ class FunnelExclusionActionsNode(BaseModel):
     math_group_type_index: Optional[MathGroupTypeIndex] = None
     math_hogql: Optional[str] = None
     math_property: Optional[str] = None
+    math_property_type: Optional[str] = None
     name: Optional[str] = None
     properties: Optional[
         list[
@@ -4626,6 +4635,7 @@ class FunnelExclusionEventsNode(BaseModel):
     math_group_type_index: Optional[MathGroupTypeIndex] = None
     math_hogql: Optional[str] = None
     math_property: Optional[str] = None
+    math_property_type: Optional[str] = None
     name: Optional[str] = None
     orderBy: Optional[list[str]] = Field(default=None, description="Columns to order by")
     properties: Optional[
@@ -4904,6 +4914,7 @@ class AIActionsNode(BaseModel):
     ] = None
     math_group_type_index: Optional[MathGroupTypeIndex] = None
     math_property: Optional[str] = None
+    math_property_type: Optional[str] = None
     name: Optional[str] = None
     orderBy: Optional[list[str]] = Field(default=None, description="Columns to order by")
     properties: Optional[
@@ -4952,6 +4963,7 @@ class AIEventsNode(BaseModel):
     ] = None
     math_group_type_index: Optional[MathGroupTypeIndex] = None
     math_property: Optional[str] = None
+    math_property_type: Optional[str] = None
     name: Optional[str] = None
     orderBy: Optional[list[str]] = Field(default=None, description="Columns to order by")
     properties: Optional[
@@ -5011,6 +5023,7 @@ class ActionsNode(BaseModel):
     math_group_type_index: Optional[MathGroupTypeIndex] = None
     math_hogql: Optional[str] = None
     math_property: Optional[str] = None
+    math_property_type: Optional[str] = None
     name: Optional[str] = None
     properties: Optional[
         list[

@@ -211,8 +211,6 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
     def _run(self, filter: Filter, team: Team):
         flush_persons_and_events()
 
-        # trend_query = filter_to_query(filter.to_dict())
-
         trend_query = convert_filter_to_trends_query(filter)
         tqr = TrendsQueryRunner(team=team, query=trend_query)
         return tqr.calculate().results

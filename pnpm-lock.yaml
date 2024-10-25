@@ -281,8 +281,8 @@ dependencies:
     specifier: ^9.3.0
     version: 9.3.0(postcss@8.4.31)
   posthog-js:
-    specifier: 1.174.2
-    version: 1.174.2
+    specifier: 1.176.0
+    version: 1.176.0
   posthog-js-lite:
     specifier: 3.0.0
     version: 3.0.0
@@ -17773,13 +17773,13 @@ packages:
     resolution: {integrity: sha512-dyajjnfzZD1tht4N7p7iwf7nBnR1MjVaVu+MKr+7gBgA39bn28wizCIJZztZPtHy4PY0YwtSGgwfBCuG/hnHgA==}
     dev: false
 
-  /posthog-js@1.174.2:
-    resolution: {integrity: sha512-UgS7eRcDVvVz2XSJ09NMX8zBcdpFnPayfiWDNF3xEbJTsIu1GipkkYNrVlsWlq8U1PIrviNm6i0Dyq8daaxssw==}
+  /posthog-js@1.176.0:
+    resolution: {integrity: sha512-T5XKNtRzp7q6CGb7Vc7wAI76rWap9fiuDUPxPsyPBPDkreKya91x9RIsSapAVFafwD1AEin1QMczCmt9Le9BWw==}
     dependencies:
       core-js: 3.38.1
       fflate: 0.4.8
       preact: 10.24.3
-      web-vitals: 4.2.3
+      web-vitals: 4.2.4
     dev: false
 
   /potpack@2.0.0:
@@ -18380,7 +18380,7 @@ packages:
       react: '>=15'
     dependencies:
       react: 18.2.0
-      unlayer-types: 1.111.0
+      unlayer-types: 1.149.0
     dev: false
 
   /react-error-boundary@3.1.4(react@18.2.0):
@@ -20927,8 +20927,8 @@ packages:
     resolution: {integrity: sha512-hAZsKq7Yy11Zu1DE0OzWjw7nnLZmJZYTDZZyEFHZdUhV8FkH5MCfoU1XMaxXovpyW5nq5scPqq0ZDP9Zyl04oQ==}
     engines: {node: '>= 10.0.0'}
 
-  /unlayer-types@1.111.0:
-    resolution: {integrity: sha512-CjdOROIUrZXrtkLUrInMvTucEWRdWWEmPleCOhwsDTwUXg9LocjzI6drgdYoia/lyyoYPfHOXYw5SxdJk7hlvw==}
+  /unlayer-types@1.149.0:
+    resolution: {integrity: sha512-jObzEj+kHRs36/Mc0ERugnWKjoyQKVzc14CEYGNVrDWQ/eTPMf432ObwfNSbJV1J2G9KqLsiUxZGYj9LSuGTHw==}
     dev: false
 
   /unpipe@1.0.0:
@@ -21259,8 +21259,8 @@ packages:
       '@zxing/text-encoding': 0.9.0
     dev: true
 
-  /web-vitals@4.2.3:
-    resolution: {integrity: sha512-/CFAm1mNxSmOj6i0Co+iGFJ58OS4NRGVP+AWS/l509uIK5a1bSoIVaHz/ZumpHTfHSZBpgrJ+wjfpAOrTHok5Q==}
+  /web-vitals@4.2.4:
+    resolution: {integrity: sha512-r4DIlprAGwJ7YM11VZp4R884m0Vmgr6EAKe3P+kO0PPj3Unqyvv59rczf6UiGcb9Z8QxZVcqKNwv/g0WNdWwsw==}
     dev: false
 
   /webidl-conversions@3.0.1:
