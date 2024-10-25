@@ -226,6 +226,7 @@ class Team(UUIDClassicModel):
     autocapture_web_vitals_allowed_metrics = models.JSONField(null=True, blank=True)
     autocapture_exceptions_opt_in = models.BooleanField(null=True, blank=True)
     autocapture_exceptions_errors_to_ignore = models.JSONField(null=True, blank=True)
+    person_processing_opt_out = models.BooleanField(null=True, default=False)
     session_recording_opt_in = models.BooleanField(default=False)
     session_recording_sample_rate = models.DecimalField(
         # will store a decimal between 0 and 1 allowing up to 2 decimal places

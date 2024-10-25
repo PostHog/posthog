@@ -30,6 +30,8 @@ class Experiment(models.Model):
     created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True)
     feature_flag = models.ForeignKey("FeatureFlag", blank=False, on_delete=models.RESTRICT)
     exposure_cohort = models.ForeignKey("Cohort", on_delete=models.SET_NULL, null=True)
+    holdout = models.ForeignKey("ExperimentHoldout", on_delete=models.SET_NULL, null=True)
+
     start_date = models.DateTimeField(null=True)
     end_date = models.DateTimeField(null=True)
     created_at = models.DateTimeField(default=timezone.now)
@@ -46,3 +48,17 @@ class Experiment(models.Model):
     @property
     def is_draft(self):
         return not self.start_date
+
+
+class ExperimentHoldout(models.Model):
+    name = models.CharField(max_length=400)
+    description = models.CharField(max_length=400, null=True, blank=True)
+    team = models.ForeignKey("Team", on_delete=models.CASCADE)
+
+    # Filters define the definition of the holdout
+    # This is then replicated across flags for experiments in the holdout
+    filters = models.JSONField(default=list)
+
+    created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True)
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
