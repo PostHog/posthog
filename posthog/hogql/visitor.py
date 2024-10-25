@@ -172,7 +172,7 @@ class TraversingVisitor(Visitor[None]):
         for expr in node.columns.values():
             self.visit(expr)
 
-    def visit_select_set_query_type(self, node: ast.SelectUnionQueryType):
+    def visit_select_set_query_type(self, node: ast.SelectSetQueryType):
         for type in node.types:
             self.visit(type)
 

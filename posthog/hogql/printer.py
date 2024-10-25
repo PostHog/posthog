@@ -301,7 +301,7 @@ class _Printer(Visitor):
             if not self.context.team_id:
                 raise InternalHogQLError("Full SELECT queries are disabled if context.team_id is not set")
 
-        # if we are the first parsed node in the tree, or a child of a SelectUnionQuery, mark us as a top level query
+        # if we are the first parsed node in the tree, or a child of a SelectSetQuery, mark us as a top level query
         part_of_select_union = len(self.stack) >= 2 and isinstance(self.stack[-2], ast.SelectSetQuery)
         is_top_level_query = len(self.stack) <= 1 or (len(self.stack) == 2 and part_of_select_union)
 
@@ -515,7 +515,7 @@ class _Printer(Visitor):
         elif isinstance(node.type, ast.SelectQueryType):
             join_strings.append(self.visit(node.table))
 
-        elif isinstance(node.type, ast.SelectUnionQueryType):
+        elif isinstance(node.type, ast.SelectSetQueryType):
             join_strings.append(self.visit(node.table))
 
         elif isinstance(node.type, ast.SelectViewType) and node.alias is not None:
@@ -1259,7 +1259,7 @@ class _Printer(Visitor):
             isinstance(type.table_type, ast.SelectQueryType)
             or isinstance(type.table_type, ast.SelectQueryAliasType)
             or isinstance(type.table_type, ast.SelectViewType)
-            or isinstance(type.table_type, ast.SelectUnionQueryType)
+            or isinstance(type.table_type, ast.SelectSetQueryType)
         ):
             field_sql = self._print_identifier(type.name)
             if isinstance(type.table_type, ast.SelectQueryAliasType) or isinstance(type.table_type, ast.SelectViewType):

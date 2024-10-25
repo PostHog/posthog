@@ -174,7 +174,7 @@ class BaseTableType(Type):
 
 
 TableOrSelectType = Union[
-    BaseTableType, "SelectUnionQueryType", "SelectQueryType", "SelectQueryAliasType", "SelectViewType"
+    BaseTableType, "SelectSetQueryType", "SelectQueryType", "SelectQueryAliasType", "SelectViewType"
 ]
 
 
@@ -244,9 +244,9 @@ class SelectQueryType(Type):
     tables: dict[str, TableOrSelectType] = field(default_factory=dict)
     ctes: dict[str, CTE] = field(default_factory=dict)
     # all from and join subqueries without aliases
-    anonymous_tables: list[Union["SelectQueryType", "SelectUnionQueryType"]] = field(default_factory=list)
+    anonymous_tables: list[Union["SelectQueryType", "SelectSetQueryType"]] = field(default_factory=list)
     # the parent select query, if this is a lambda
-    parent: Optional[Union["SelectQueryType", "SelectUnionQueryType"]] = None
+    parent: Optional[Union["SelectQueryType", "SelectSetQueryType"]] = None
 
     def get_alias_for_table_type(self, table_type: TableOrSelectType) -> Optional[str]:
         for key, value in self.tables.items():
@@ -277,8 +277,8 @@ class SelectQueryType(Type):
 
 
 @dataclass(kw_only=True)
-class SelectUnionQueryType(Type):
-    types: list[Union[SelectQueryType, "SelectUnionQueryType"]]
+class SelectSetQueryType(Type):
+    types: list[Union[SelectQueryType, "SelectSetQueryType"]]
 
     def get_alias_for_table_type(self, table_type: TableOrSelectType) -> Optional[str]:
         return self.types[0].get_alias_for_table_type(table_type)
@@ -297,7 +297,7 @@ class SelectUnionQueryType(Type):
 class SelectViewType(Type):
     view_name: str
     alias: str
-    select_query_type: SelectQueryType | SelectUnionQueryType
+    select_query_type: SelectQueryType | SelectSetQueryType
 
     def get_child(self, name: str, context: HogQLContext) -> Type:
         if name == "*":
@@ -344,7 +344,7 @@ class SelectViewType(Type):
 @dataclass(kw_only=True)
 class SelectQueryAliasType(Type):
     alias: str
-    select_query_type: SelectQueryType | SelectUnionQueryType
+    select_query_type: SelectQueryType | SelectSetQueryType
 
     def get_child(self, name: str, context: HogQLContext) -> Type:
         if name == "*":
@@ -816,7 +816,7 @@ class SelectSetNode:
 
 @dataclass(kw_only=True)
 class SelectSetQuery(Expr):
-    type: Optional[SelectUnionQueryType] = None
+    type: Optional[SelectSetQueryType] = None
     initial_select_query: Union[SelectQuery, "SelectSetQuery"]
     subsequent_select_queries: list[SelectSetNode]
 

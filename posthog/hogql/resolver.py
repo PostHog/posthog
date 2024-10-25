@@ -136,9 +136,9 @@ class Resolver(CloningVisitor):
             self.scopes.append(ast.SelectQueryType(ctes=default_ctes))
 
         node = super().visit_select_set_query(node)
-        node.type = ast.SelectUnionQueryType(
-            types=[node.initial_select_query.type, *(x.select_query.type for x in node.subsequent_select_queries)]
-        )  # type: ignore
+        node.type = ast.SelectSetQueryType(
+            types=[node.initial_select_query.type, *(x.select_query.type for x in node.subsequent_select_queries)]  # type: ignore
+        )
 
         if default_ctes:
             self.scopes.pop()
@@ -261,7 +261,7 @@ class Resolver(CloningVisitor):
             database_fields = table.get_asterisk()
             return [ast.Field(chain=[key]) for key in database_fields.keys()]
         elif (
-            isinstance(asterisk.table_type, ast.SelectUnionQueryType)
+            isinstance(asterisk.table_type, ast.SelectSetQueryType)
             or isinstance(asterisk.table_type, ast.SelectQueryType)
             or isinstance(asterisk.table_type, ast.SelectQueryAliasType)
             or isinstance(asterisk.table_type, ast.SelectViewType)
@@ -269,7 +269,7 @@ class Resolver(CloningVisitor):
             select = asterisk.table_type
             while isinstance(select, ast.SelectQueryAliasType) or isinstance(select, ast.SelectViewType):
                 select = select.select_query_type
-            if isinstance(select, ast.SelectUnionQueryType):
+            if isinstance(select, ast.SelectSetQueryType):
                 select = select.types[0]
             if isinstance(select, ast.SelectQueryType):
                 return [ast.Field(chain=[key]) for key in select.columns.keys()]
