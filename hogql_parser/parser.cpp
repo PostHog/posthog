@@ -834,9 +834,9 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
   // HogQL rules
 
   VISIT(Select) {
-    auto select_union_stmt_ctx = ctx->selectSetStmt();
-    if (select_union_stmt_ctx) {
-      return visit(select_union_stmt_ctx);
+    auto select_set_stmt_ctx = ctx->selectSetStmt();
+    if (select_set_stmt_ctx) {
+      return visit(select_set_stmt_ctx);
     }
 
     auto select_stmt_ctx = ctx->selectStmt();
@@ -888,7 +888,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
           throw ParsingError("Unexpected node type: " + child->getText());
         }
       } catch (...) {
-        Py_DECREF(initial_query);
+        Py_XDECREF(initial_query);
         Py_DECREF(select_queries);
         throw;
       }
@@ -899,7 +899,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
         to_uppercase(data);
         PyObject* query = build_ast_node("SelectSetNode", "{s:N,s:N}", "select_query", select_query, "set_operator", PyUnicode_FromStringAndSize(data, set_operator.size()));
         if (!query) {
-          Py_DECREF(initial_query);
+          Py_XDECREF(initial_query);
           Py_DECREF(select_queries);
           throw PyInternalError();
         }
