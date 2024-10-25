@@ -32,7 +32,7 @@ class ActorsPropertyTaxonomyResponse(BaseModel):
         extra="forbid",
     )
     sample_count: int
-    sample_values: list[str]
+    sample_values: list[Union[str, float, bool, int]]
 
 
 class AggregationAxisFormat(StrEnum):
@@ -61,6 +61,20 @@ class AlertState(StrEnum):
     NOT_FIRING = "Not firing"
     ERRORED = "Errored"
     SNOOZED = "Snoozed"
+
+
+class AssistantMessage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    content: str
+    type: Literal["ai"] = "ai"
+
+
+class AssistantMessageType(StrEnum):
+    HUMAN = "human"
+    AI = "ai"
+    AI_VIZ = "ai/viz"
 
 
 class Kind(StrEnum):
@@ -749,6 +763,14 @@ class HogQueryResponse(BaseModel):
     coloredBytecode: Optional[list] = None
     results: Any
     stdout: Optional[str] = None
+
+
+class HumanMessage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    content: str
+    type: Literal["human"] = "human"
 
 
 class Compare(StrEnum):
@@ -4972,7 +4994,6 @@ class AIActionsNode(BaseModel):
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 SessionPropertyFilter,
-                CohortPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
             ]
@@ -5000,7 +5021,6 @@ class AIActionsNode(BaseModel):
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 SessionPropertyFilter,
-                CohortPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
             ]
@@ -5021,7 +5041,6 @@ class AIEventsNode(BaseModel):
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 SessionPropertyFilter,
-                CohortPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
             ]
@@ -5049,7 +5068,6 @@ class AIEventsNode(BaseModel):
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 SessionPropertyFilter,
-                CohortPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
             ]
@@ -5181,7 +5199,6 @@ class ExperimentalAITrendsQuery(BaseModel):
                 EventPropertyFilter,
                 PersonPropertyFilter,
                 SessionPropertyFilter,
-                CohortPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
             ]
@@ -5425,6 +5442,16 @@ class TrendsQuery(BaseModel):
         ..., description="Events and actions to include"
     )
     trendsFilter: Optional[TrendsFilter] = Field(default=None, description="Properties specific to the trends insight")
+
+
+class VisualizationMessage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    answer: Optional[ExperimentalAITrendsQuery] = None
+    plan: Optional[str] = None
+    reasoning_steps: Optional[list[str]] = None
+    type: Literal["ai/viz"] = "ai/viz"
 
 
 class ErrorTrackingQuery(BaseModel):
@@ -5921,6 +5948,10 @@ class QueryResponseAlternative(
         QueryResponseAlternative37,
         QueryResponseAlternative38,
     ]
+
+
+class RootAssistantMessage(RootModel[Union[VisualizationMessage, AssistantMessage, HumanMessage]]):
+    root: Union[VisualizationMessage, AssistantMessage, HumanMessage]
 
 
 class DatabaseSchemaQueryResponse(BaseModel):

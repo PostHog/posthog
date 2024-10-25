@@ -9,7 +9,6 @@ import {
     BreakdownType,
     ChartDisplayCategory,
     ChartDisplayType,
-    CohortPropertyFilter,
     CountPerActorMathType,
     DurationType,
     EventPropertyFilter,
@@ -898,15 +897,7 @@ export interface TrendsQuery extends InsightsQueryBase<TrendsQueryResponse> {
 export type AIPropertyFilter =
     | EventPropertyFilter
     | PersonPropertyFilter
-    // | ElementPropertyFilter
     | SessionPropertyFilter
-    | CohortPropertyFilter
-    // | RecordingPropertyFilter
-    // | LogEntryPropertyFilter
-    // | HogQLPropertyFilter
-    // | EmptyPropertyFilter
-    // | DataWarehousePropertyFilter
-    // | DataWarehousePersonPropertyFilter
     | GroupPropertyFilter
     | FeaturePropertyFilter
 
@@ -2077,7 +2068,9 @@ export type EventTaxonomyQueryResponse = AnalyticsQueryResponseBase<EventTaxonom
 export type CachedEventTaxonomyQueryResponse = CachedQueryResponse<EventTaxonomyQueryResponse>
 
 export interface ActorsPropertyTaxonomyResponse {
-    sample_values: string[]
+    // Values can be floats and integers. The comment below is to preserve the `integer` type.
+    // eslint-disable-next-line @typescript-eslint/no-duplicate-type-constituents
+    sample_values: (string | number | boolean | integer)[]
     sample_count: integer
 }
 
@@ -2090,3 +2083,28 @@ export interface ActorsPropertyTaxonomyQuery extends DataNode<ActorsPropertyTaxo
 export type ActorsPropertyTaxonomyQueryResponse = AnalyticsQueryResponseBase<ActorsPropertyTaxonomyResponse>
 
 export type CachedActorsPropertyTaxonomyQueryResponse = CachedQueryResponse<ActorsPropertyTaxonomyQueryResponse>
+
+export enum AssistantMessageType {
+    Human = 'human',
+    Assistant = 'ai',
+    Visualization = 'ai/viz',
+}
+
+export interface HumanMessage {
+    type: AssistantMessageType.Human
+    content: string
+}
+
+export interface AssistantMessage {
+    type: AssistantMessageType.Assistant
+    content: string
+}
+
+export interface VisualizationMessage {
+    type: AssistantMessageType.Visualization
+    plan?: string
+    reasoning_steps?: string[] | null
+    answer?: ExperimentalAITrendsQuery
+}
+
+export type RootAssistantMessage = VisualizationMessage | AssistantMessage | HumanMessage

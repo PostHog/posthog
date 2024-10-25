@@ -125,9 +125,6 @@
                     "$ref": "#/definitions/SessionPropertyFilter"
                 },
                 {
-                    "$ref": "#/definitions/CohortPropertyFilter"
-                },
-                {
                     "$ref": "#/definitions/GroupPropertyFilter"
                 },
                 {
@@ -264,7 +261,20 @@
                 },
                 "sample_values": {
                     "items": {
-                        "type": "string"
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "number"
+                            },
+                            {
+                                "type": "boolean"
+                            },
+                            {
+                                "type": "integer"
+                            }
+                        ]
                     },
                     "type": "array"
                 }
@@ -606,6 +616,24 @@
                     "$ref": "#/definitions/EventsQueryResponse"
                 }
             ]
+        },
+        "AssistantMessage": {
+            "additionalProperties": false,
+            "properties": {
+                "content": {
+                    "type": "string"
+                },
+                "type": {
+                    "const": "ai",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "content"],
+            "type": "object"
+        },
+        "AssistantMessageType": {
+            "enum": ["human", "ai", "ai/viz"],
+            "type": "string"
         },
         "AutocompleteCompletionItem": {
             "additionalProperties": false,
@@ -6720,6 +6748,20 @@
             "required": ["results"],
             "type": "object"
         },
+        "HumanMessage": {
+            "additionalProperties": false,
+            "properties": {
+                "content": {
+                    "type": "string"
+                },
+                "type": {
+                    "const": "human",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "content"],
+            "type": "object"
+        },
         "InsightActorsQuery": {
             "additionalProperties": false,
             "properties": {
@@ -10584,6 +10626,19 @@
             "required": ["count"],
             "type": "object"
         },
+        "RootAssistantMessage": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/VisualizationMessage"
+                },
+                {
+                    "$ref": "#/definitions/AssistantMessage"
+                },
+                {
+                    "$ref": "#/definitions/HumanMessage"
+                }
+            ]
+        },
         "SamplingRate": {
             "additionalProperties": false,
             "properties": {
@@ -11711,6 +11766,36 @@
                 }
             },
             "required": ["results"],
+            "type": "object"
+        },
+        "VisualizationMessage": {
+            "additionalProperties": false,
+            "properties": {
+                "answer": {
+                    "$ref": "#/definitions/ExperimentalAITrendsQuery"
+                },
+                "plan": {
+                    "type": "string"
+                },
+                "reasoning_steps": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "type": {
+                    "const": "ai/viz",
+                    "type": "string"
+                }
+            },
+            "required": ["type"],
             "type": "object"
         },
         "VizSpecificOptions": {
