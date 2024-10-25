@@ -50,6 +50,7 @@ def _calculate_experiment_results(experiment: Experiment, refresh: bool = False)
             experiment.feature_flag,
             experiment.start_date,
             experiment.end_date,
+            holdout=experiment.holdout,
             custom_exposure_filter=exposure_filter,
         ).get_results()
     else:
@@ -59,6 +60,7 @@ def _calculate_experiment_results(experiment: Experiment, refresh: bool = False)
             experiment.feature_flag,
             experiment.start_date,
             experiment.end_date,
+            holdout=experiment.holdout,
         ).get_results()
 
     return _experiment_results_cached(
