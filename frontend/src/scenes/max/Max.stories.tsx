@@ -4,7 +4,7 @@ import { useEffect } from 'react'
 
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 
-import chatResponse from './__mocks__/chatResponse.json'
+import { chatResponseChunk } from './__mocks__/chatResponse.mocks'
 import { MaxInstance } from './Max'
 import { maxLogic } from './maxLogic'
 
@@ -13,7 +13,7 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             post: {
-                '/api/environments/:team_id/query/chat/': chatResponse,
+                '/api/environments/:team_id/query/chat/': (req, res, ctx) => res(ctx.text(chatResponseChunk)),
             },
         }),
     ],
