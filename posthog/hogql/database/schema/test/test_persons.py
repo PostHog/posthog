@@ -83,6 +83,7 @@ class TestPersonOptimization(ClickhouseTestMixin, APIBaseTest):
             modifiers=self.modifiers,
         )
         assert len(response.results) == 2
+        assert response.clickhouse
         self.assertIn("where_optimization", response.clickhouse)
         self.assertNotIn("in(tuple(person.id, person.version)", response.clickhouse)
 
@@ -94,6 +95,7 @@ class TestPersonOptimization(ClickhouseTestMixin, APIBaseTest):
             modifiers=self.modifiers,
         )
         assert len(response.results) == 2
+        assert response.clickhouse
         self.assertIn("in(tuple(person.id, person.version)", response.clickhouse)
         self.assertNotIn("where_optimization", response.clickhouse)
 
@@ -122,4 +124,5 @@ class TestPersonOptimization(ClickhouseTestMixin, APIBaseTest):
         )
         query_runner = ActorsQueryRunner(query=actors_query, team=self.team)
         response = execute_hogql_query(query_runner.to_query(), self.team, modifiers=self.modifiers)
+        assert response.clickhouse
         self.assertNotIn("where_optimization", response.clickhouse)

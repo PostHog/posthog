@@ -66,7 +66,9 @@ def select_from_persons_table(
     # For now, only do this optimization for directly querying the persons table (without joins or as part of a subquery) to avoid knock-on effects to insight queries
     if (
         node.select_from
-        and getattr(node.select_from.type, "table", False)
+        and node.select_from.type
+        and hasattr(node.select_from.type, "table")
+        and node.select_from.type.table
         and isinstance(node.select_from.type.table, PersonsTable)
     ):
         extractor = WhereClauseExtractor(context)
