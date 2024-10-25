@@ -1,9 +1,8 @@
-from typing import Literal, Optional, cast, get_args
+from typing import Literal, Optional, cast
 from collections.abc import Callable
 
 from antlr4 import CommonTokenStream, InputStream, ParseTreeVisitor, ParserRuleContext
 from antlr4.error.ErrorListener import ErrorListener
-from antlr4.tree.Tree import TerminalNodeImpl
 from prometheus_client import Histogram
 
 from posthog.hogql import ast
@@ -331,26 +330,28 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
     def visitSelect(self, ctx: HogQLParser.SelectContext):
         return self.visit(ctx.selectSetStmt() or ctx.selectStmt() or ctx.hogqlxTagElement())
 
-    def visitSelectSetStmt(self, ctx: HogQLParser.SelectSetStmtContext):
-        initial_query: Optional[ast.SelectSetQuery | ast.SelectQuery] = None
-        select_queries: list[SelectSetNode] = []
-        union_type: list[str] = []
-        for child in ctx.children:
-            if isinstance(child, HogQLParser.SelectStmtWithParensContext | HogQLParser.SelectSetStmtContext):
-                select_query = self.visit(child)
-                if initial_query is None:
-                    initial_query = select_query
-                else:
-                    union_type_str = " ".join(union_type).upper()
-                    assert union_type_str in get_args(ast.SetOperator)
-                    select_queries.append(
-                        SelectSetNode(select_query=select_query, set_operator=cast(ast.SetOperator, union_type_str))
-                    )
-                union_type = []
-            elif isinstance(child, TerminalNodeImpl):
-                union_type.append(child.getText())
+    def visitSubsequentSelectSetStmt(self, ctx: HogQLParser.SubsequentSelectSetStmtContext):
+        pass
 
-        assert initial_query is not None
+    def visitSelectSetStmt(self, ctx: HogQLParser.SelectSetStmtContext):
+        select_queries: list[SelectSetNode] = []
+
+        initial_query = self.visit(ctx.selectStmtWithParens())
+
+        for subsequent in ctx.subsequentSelectSetStmt():
+            if subsequent.UNION() and subsequent.ALL():
+                union_type = "UNION ALL"
+            elif subsequent.INTERSECT():
+                union_type = "INTERSECT"
+            elif subsequent.EXCEPT():
+                union_type = "EXCEPT"
+            else:
+                raise SyntaxError("Set operator must be one of UNION ALL, INTERSECT, and EXCEPT")
+            select_query = self.visit(subsequent.selectStmtWithParens())
+            select_queries.append(
+                SelectSetNode(select_query=select_query, set_operator=cast(ast.SetOperator, union_type))
+            )
+
         if len(select_queries) == 0:
             return initial_query
         return ast.SelectSetQuery(initial_select_query=initial_query, subsequent_select_queries=select_queries)

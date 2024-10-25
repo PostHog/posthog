@@ -54,7 +54,9 @@ kvPairList: kvPair (COMMA kvPair)* COMMA?;
 select: (selectSetStmt | selectStmt | hogqlxTagElement) EOF;
 
 selectStmtWithParens: selectStmt | LPAREN selectSetStmt RPAREN | placeholder;
-selectSetStmt: selectStmtWithParens ((EXCEPT | UNION ALL | INTERSECT) selectStmtWithParens)*;
+
+subsequentSelectSetStmt: (EXCEPT | UNION ALL | INTERSECT) selectStmtWithParens;
+selectSetStmt: selectStmtWithParens (subsequentSelectSetStmt)*;
 
 selectStmt:
     with=withClause?

@@ -52,25 +52,26 @@ public:
     RuleForStmt = 12, RuleForInStmt = 13, RuleFuncStmt = 14, RuleVarAssignment = 15, 
     RuleExprStmt = 16, RuleEmptyStmt = 17, RuleBlock = 18, RuleKvPair = 19, 
     RuleKvPairList = 20, RuleSelect = 21, RuleSelectStmtWithParens = 22, 
-    RuleSelectSetStmt = 23, RuleSelectStmt = 24, RuleWithClause = 25, RuleTopClause = 26, 
-    RuleFromClause = 27, RuleArrayJoinClause = 28, RuleWindowClause = 29, 
-    RulePrewhereClause = 30, RuleWhereClause = 31, RuleGroupByClause = 32, 
-    RuleHavingClause = 33, RuleOrderByClause = 34, RuleProjectionOrderByClause = 35, 
-    RuleLimitAndOffsetClause = 36, RuleOffsetOnlyClause = 37, RuleSettingsClause = 38, 
-    RuleJoinExpr = 39, RuleJoinOp = 40, RuleJoinOpCross = 41, RuleJoinConstraintClause = 42, 
-    RuleSampleClause = 43, RuleOrderExprList = 44, RuleOrderExpr = 45, RuleRatioExpr = 46, 
-    RuleSettingExprList = 47, RuleSettingExpr = 48, RuleWindowExpr = 49, 
-    RuleWinPartitionByClause = 50, RuleWinOrderByClause = 51, RuleWinFrameClause = 52, 
-    RuleWinFrameExtend = 53, RuleWinFrameBound = 54, RuleExpr = 55, RuleColumnTypeExpr = 56, 
-    RuleColumnExprList = 57, RuleColumnExpr = 58, RuleColumnLambdaExpr = 59, 
-    RuleHogqlxTagElement = 60, RuleHogqlxTagAttribute = 61, RuleWithExprList = 62, 
-    RuleWithExpr = 63, RuleColumnIdentifier = 64, RuleNestedIdentifier = 65, 
-    RuleTableExpr = 66, RuleTableFunctionExpr = 67, RuleTableIdentifier = 68, 
-    RuleTableArgList = 69, RuleDatabaseIdentifier = 70, RuleFloatingLiteral = 71, 
-    RuleNumberLiteral = 72, RuleLiteral = 73, RuleInterval = 74, RuleKeyword = 75, 
-    RuleKeywordForAlias = 76, RuleAlias = 77, RuleIdentifier = 78, RuleEnumValue = 79, 
-    RulePlaceholder = 80, RuleString = 81, RuleTemplateString = 82, RuleStringContents = 83, 
-    RuleFullTemplateString = 84, RuleStringContentsFull = 85
+    RuleSubsequentSelectSetStmt = 23, RuleSelectSetStmt = 24, RuleSelectStmt = 25, 
+    RuleWithClause = 26, RuleTopClause = 27, RuleFromClause = 28, RuleArrayJoinClause = 29, 
+    RuleWindowClause = 30, RulePrewhereClause = 31, RuleWhereClause = 32, 
+    RuleGroupByClause = 33, RuleHavingClause = 34, RuleOrderByClause = 35, 
+    RuleProjectionOrderByClause = 36, RuleLimitAndOffsetClause = 37, RuleOffsetOnlyClause = 38, 
+    RuleSettingsClause = 39, RuleJoinExpr = 40, RuleJoinOp = 41, RuleJoinOpCross = 42, 
+    RuleJoinConstraintClause = 43, RuleSampleClause = 44, RuleOrderExprList = 45, 
+    RuleOrderExpr = 46, RuleRatioExpr = 47, RuleSettingExprList = 48, RuleSettingExpr = 49, 
+    RuleWindowExpr = 50, RuleWinPartitionByClause = 51, RuleWinOrderByClause = 52, 
+    RuleWinFrameClause = 53, RuleWinFrameExtend = 54, RuleWinFrameBound = 55, 
+    RuleExpr = 56, RuleColumnTypeExpr = 57, RuleColumnExprList = 58, RuleColumnExpr = 59, 
+    RuleColumnLambdaExpr = 60, RuleHogqlxTagElement = 61, RuleHogqlxTagAttribute = 62, 
+    RuleWithExprList = 63, RuleWithExpr = 64, RuleColumnIdentifier = 65, 
+    RuleNestedIdentifier = 66, RuleTableExpr = 67, RuleTableFunctionExpr = 68, 
+    RuleTableIdentifier = 69, RuleTableArgList = 70, RuleDatabaseIdentifier = 71, 
+    RuleFloatingLiteral = 72, RuleNumberLiteral = 73, RuleLiteral = 74, 
+    RuleInterval = 75, RuleKeyword = 76, RuleKeywordForAlias = 77, RuleAlias = 78, 
+    RuleIdentifier = 79, RuleEnumValue = 80, RulePlaceholder = 81, RuleString = 82, 
+    RuleTemplateString = 83, RuleStringContents = 84, RuleFullTemplateString = 85, 
+    RuleStringContentsFull = 86
   };
 
   explicit HogQLParser(antlr4::TokenStream *input);
@@ -113,6 +114,7 @@ public:
   class KvPairListContext;
   class SelectContext;
   class SelectStmtWithParensContext;
+  class SubsequentSelectSetStmtContext;
   class SelectSetStmtContext;
   class SelectStmtContext;
   class WithClauseContext;
@@ -581,20 +583,30 @@ public:
 
   SelectStmtWithParensContext* selectStmtWithParens();
 
+  class  SubsequentSelectSetStmtContext : public antlr4::ParserRuleContext {
+  public:
+    SubsequentSelectSetStmtContext(antlr4::ParserRuleContext *parent, size_t invokingState);
+    virtual size_t getRuleIndex() const override;
+    SelectStmtWithParensContext *selectStmtWithParens();
+    antlr4::tree::TerminalNode *EXCEPT();
+    antlr4::tree::TerminalNode *UNION();
+    antlr4::tree::TerminalNode *ALL();
+    antlr4::tree::TerminalNode *INTERSECT();
+
+
+    virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
+   
+  };
+
+  SubsequentSelectSetStmtContext* subsequentSelectSetStmt();
+
   class  SelectSetStmtContext : public antlr4::ParserRuleContext {
   public:
     SelectSetStmtContext(antlr4::ParserRuleContext *parent, size_t invokingState);
     virtual size_t getRuleIndex() const override;
-    std::vector<SelectStmtWithParensContext *> selectStmtWithParens();
-    SelectStmtWithParensContext* selectStmtWithParens(size_t i);
-    std::vector<antlr4::tree::TerminalNode *> EXCEPT();
-    antlr4::tree::TerminalNode* EXCEPT(size_t i);
-    std::vector<antlr4::tree::TerminalNode *> UNION();
-    antlr4::tree::TerminalNode* UNION(size_t i);
-    std::vector<antlr4::tree::TerminalNode *> ALL();
-    antlr4::tree::TerminalNode* ALL(size_t i);
-    std::vector<antlr4::tree::TerminalNode *> INTERSECT();
-    antlr4::tree::TerminalNode* INTERSECT(size_t i);
+    SelectStmtWithParensContext *selectStmtWithParens();
+    std::vector<SubsequentSelectSetStmtContext *> subsequentSelectSetStmt();
+    SubsequentSelectSetStmtContext* subsequentSelectSetStmt(size_t i);
 
 
     virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;

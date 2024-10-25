@@ -124,6 +124,11 @@ class HogQLParserVisitor(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
 
+    # Visit a parse tree produced by HogQLParser#subsequentSelectSetStmt.
+    def visitSubsequentSelectSetStmt(self, ctx:HogQLParser.SubsequentSelectSetStmtContext):
+        return self.visitChildren(ctx)
+
+
     # Visit a parse tree produced by HogQLParser#selectSetStmt.
     def visitSelectSetStmt(self, ctx:HogQLParser.SelectSetStmtContext):
         return self.visitChildren(ctx)
