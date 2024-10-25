@@ -39,13 +39,36 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                     else None,
                     "limit": 100,
                     # by default, API does not return deleted resources
-                    "include_deleted": True,
+                    "include_deleted": "true",
                 },
             },
             "table_format": "delta",
         },
     }
     return resources[name]
+
+
+class ChargebeePaginator(BasePaginator):
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        res = response.json()
+
+        self._next_offset = None
+
+        if not res:
+            self._has_next_page = False
+            return
+
+        if "next_offset" in res:
+            self._has_next_page = True
+            self._next_offset = res["next_offset"]
+        else:
+            self._has_next_page = False
+
+    def update_request(self, request: Request) -> None:
+        if request.params is None:
+            request.params = {}
+
+        request.params["offset"] = self._next_offset
 
 
 @dlt.source(max_table_nesting=0)
@@ -60,8 +83,7 @@ def chargebee_source(
                 "username": api_key,
                 "password": "",
             },
-            # TODO
-            # "paginator": StripePaginator(),
+            "paginator": ChargebeePaginator(),
         },
         "resource_defaults": {
             "primary_key": "id",
