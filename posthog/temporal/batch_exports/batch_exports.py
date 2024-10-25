@@ -8,6 +8,7 @@ import uuid
 from string import Template
 
 import pyarrow as pa
+import structlog
 from django.conf import settings
 from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
@@ -34,6 +35,8 @@ from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.common.client import connect
 from posthog.temporal.common.logger import bind_temporal_worker_logger
 from posthog.warehouse.util import database_sync_to_async
+
+logger = structlog.get_logger()
 
 BytesGenerator = collections.abc.Generator[bytes, None, None]
 RecordsGenerator = collections.abc.Generator[pa.RecordBatch, None, None]
@@ -337,6 +340,20 @@ class RecordBatchQueue(asyncio.Queue):
         return self._bytes_size
 
 
+class RecordBatchProducerError(Exception):
+    """Raised when an error occurs during production of record batches."""
+
+    def __init__(self):
+        super().__init__("The record batch producer encountered an error during execution")
+
+
+class TaskNotDoneError(Exception):
+    """Raised when a task that should be done, isn't."""
+
+    def __init__(self, task: str):
+        super().__init__(f"Expected task '{task}' to be done by now")
+
+
 def start_produce_batch_export_record_batches(
     client: ClickHouseClient,
     model_name: str,
@@ -412,14 +429,30 @@ def start_produce_batch_export_record_batches(
 
     queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_BUFFER_QUEUE_MAX_SIZE_BYTES)
     query_id = uuid.uuid4()
-    done_event = asyncio.Event()
     produce_task = asyncio.create_task(
         client.aproduce_query_as_arrow_record_batches(
-            view, queue=queue, done_event=done_event, query_parameters=parameters, query_id=str(query_id)
+            view, queue=queue, query_parameters=parameters, query_id=str(query_id)
         )
     )
 
-    return queue, done_event, produce_task
+    return queue, produce_task
+
+
+async def raise_on_produce_task_failure(produce_task: asyncio.Task) -> None:
+    """Raise `RecordBatchProducerError` if a produce task failed.
+
+    We will also raise a `TaskNotDone` if the producer is not done, as this
+    should only be called after producer is done to check its exception.
+    """
+    if not produce_task.done():
+        raise TaskNotDoneError("produce")
+
+    if produce_task.exception() is None:
+        return
+
+    exc = produce_task.exception()
+    await logger.aexception("Produce task failed", exc_info=exc)
+    raise RecordBatchProducerError() from exc
 
 
 def iter_records(
