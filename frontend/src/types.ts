@@ -615,6 +615,7 @@ export interface ToolbarParams {
     token?: string /** public posthog-js token */
     temporaryToken?: string /** private temporary user token */
     actionId?: number
+    experimentId?: number
     userIntent?: ToolbarUserIntent
     source?: ToolbarSource
     toolbarVersion?: ToolbarVersion

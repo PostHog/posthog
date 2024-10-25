@@ -14,7 +14,7 @@ export const scene: SceneExport = {
 
 export function Site({ url }: { url?: string } = {}): JSX.Element {
     const { launchUrl } = useValues(
-        authorizedUrlListLogic({ actionId: null, type: AuthorizedUrlListType.TOOLBAR_URLS })
+        authorizedUrlListLogic({ actionId: null, experimentId: 'new', type: AuthorizedUrlListType.TOOLBAR_URLS })
     )
 
     const decodedUrl = decodeURIComponent(url || '')

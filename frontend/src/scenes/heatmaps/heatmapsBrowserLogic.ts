@@ -34,7 +34,7 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
 
     connect({
         values: [
-            authorizedUrlListLogic({ actionId: null, type: AuthorizedUrlListType.TOOLBAR_URLS }),
+            authorizedUrlListLogic({ actionId: null, experimentId: null, type: AuthorizedUrlListType.TOOLBAR_URLS }),
             ['urlsKeyed', 'checkUrlIsAuthorized'],
         ],
     }),

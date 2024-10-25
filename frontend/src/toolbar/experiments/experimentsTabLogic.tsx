@@ -83,7 +83,15 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
     connect(() => ({
         values: [
             toolbarConfigLogic,
-            ['dataAttributes', 'apiURL', 'temporaryToken', 'buttonVisible', 'userIntent', 'dataAttributes'],
+            [
+                'dataAttributes',
+                'apiURL',
+                'temporaryToken',
+                'buttonVisible',
+                'userIntent',
+                'dataAttributes',
+                'experimentId',
+            ],
             experimentsLogic,
             ['allExperiments'],
         ],
@@ -375,9 +383,9 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
             toolbarPosthogJS.capture('toolbar mode triggered', { mode: 'experiments', enabled: false })
         },
         [experimentsLogic.actionTypes.getExperimentsSuccess]: () => {
-            const { userIntent, selectedExperimentId } = values
+            const { userIntent, experimentId } = values
             if (userIntent === 'edit-experiment') {
-                actions.selectExperiment(selectedExperimentId)
+                actions.selectExperiment(experimentId)
                 toolbarConfigLogic.actions.clearUserIntent()
             } else if (userIntent === 'add-experiment') {
                 actions.newExperiment()

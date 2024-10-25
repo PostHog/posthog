@@ -167,6 +167,7 @@ class ExperimentSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "name",
+            "type",
             "description",
             "start_date",
             "end_date",
