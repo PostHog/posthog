@@ -13,7 +13,7 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             post: {
-                '/api/environments/:team_id/query/chat/': (req, res, ctx) => res(ctx.text(chatResponseChunk)),
+                '/api/environments/:team_id/query/chat/': (_, res, ctx) => res(ctx.text(chatResponseChunk)),
             },
         }),
     ],
