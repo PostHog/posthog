@@ -3323,7 +3323,6 @@ mod tests {
         );
 
         let result = matcher.get_match(&flag, None, None).await.unwrap();
-        println!("{:?}", result);
 
         assert!(result.matches);
     }
@@ -3411,7 +3410,6 @@ mod tests {
         );
 
         let result = matcher.get_match(&flag, None, None).await.unwrap();
-        println!("{:?}", result);
 
         assert!(result.matches);
     }
@@ -3499,7 +3497,6 @@ mod tests {
         );
 
         let result = matcher.get_match(&flag, None, None).await.unwrap();
-        println!("{:?}", result);
 
         // The user matches the cohort, but the flag is set to NotIn, so it should evaluate to false
         assert!(!result.matches);
@@ -3613,7 +3610,6 @@ mod tests {
         );
 
         let result = matcher.get_match(&flag, None, None).await.unwrap();
-        println!("{:?}", result);
 
         // This test might fail if the system doesn't support cohort dependencies
         assert!(result.matches);
@@ -3702,7 +3698,6 @@ mod tests {
         );
 
         let result = matcher.get_match(&flag, None, None).await.unwrap();
-        println!("{:?}", result);
 
         // The user does not match the cohort, and the flag is set to In, so it should evaluate to false
         assert!(!result.matches);
