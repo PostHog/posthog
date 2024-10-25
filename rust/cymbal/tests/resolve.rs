@@ -28,7 +28,7 @@ async fn end_to_end_resolver_test() {
 
     let exception: ClickHouseEvent = serde_json::from_str(EXAMPLE_EXCEPTION).unwrap();
     let props: ErrProps = serde_json::from_str(&exception.properties.unwrap()).unwrap();
-    let mut test_stack: Vec<RawFrame> = props.exception_list[0]
+    let mut test_stack: Vec<RawFrame> = props.exception_list.unwrap()[0]
         .stacktrace
         .as_ref()
         .unwrap()
