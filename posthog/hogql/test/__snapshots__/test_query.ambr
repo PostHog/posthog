@@ -464,7 +464,12 @@
   WHERE and(equals(person.team_id, 420), in(id, (
   SELECT where_optimization.id AS id 
   FROM person AS where_optimization 
-  WHERE and(equals(where_optimization.team_id, 420), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, %(hogql_val_2)s), ''), 'null'), '^"|"$', ''), %(hogql_val_3)s), 0))))) 
+  WHERE and(equals(where_optimization.team_id, 420), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, %(hogql_val_2)s), ''), 'null'), '^"|"$', ''), %(hogql_val_3)s), 0), notIn(where_optimization.id, (
+  SELECT limit_delete_optimization.id AS id 
+  FROM person AS limit_delete_optimization 
+  WHERE and(equals(limit_delete_optimization.team_id, 420), equals(limit_delete_optimization.is_deleted, 1))))) 
+  LIMIT 1 BY where_optimization.id 
+  LIMIT 100))) 
   GROUP BY person.id 
   HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, %(hogql_val_4)s), person.version), plus(now64(6, %(hogql_val_5)s), toIntervalDay(1))), 0))) AS persons 
   WHERE ifNull(equals(persons.properties___random_uuid, %(hogql_val_6)s), 0) 
