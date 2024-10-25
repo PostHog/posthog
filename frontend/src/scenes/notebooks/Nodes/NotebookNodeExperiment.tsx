@@ -18,7 +18,7 @@ import { ExperimentResult } from 'scenes/experiments/ExperimentResult'
 import { NotFound } from 'lib/components/NotFound'
 import { IconFlag, IconFlask } from '@posthog/icons'
 import { ResultsTag, StatusTag } from 'scenes/experiments/ExperimentView/components'
-import { removeQueryParams } from './utils'
+import { INTEGER_REGEX_MATCH_GROUPS } from './utils'
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeExperimentAttributes>): JSX.Element => {
     const { id } = attributes
@@ -128,9 +128,9 @@ export const NotebookNodeExperiment = createPostHogWidgetNode<NotebookNodeExperi
         id: {},
     },
     pasteOptions: {
-        find: urls.experiment('(.+)'),
+        find: urls.experiment(INTEGER_REGEX_MATCH_GROUPS),
         getAttributes: async (match) => {
-            return { id: parseInt(removeQueryParams(match[1])) }
+            return { id: parseInt(match[1]) }
         },
     },
 })

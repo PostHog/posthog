@@ -15,7 +15,6 @@ import { PropertyIcon } from 'lib/components/PropertyIcon'
 import clsx from 'clsx'
 import { NodeKind } from '~/queries/schema'
 import { NotFound } from 'lib/components/NotFound'
-import { removeQueryParams } from './utils'
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodePersonAttributes>): JSX.Element => {
     const { id } = attributes
@@ -167,7 +166,7 @@ export const NotebookNodePerson = createPostHogWidgetNode<NotebookNodePersonAttr
     pasteOptions: {
         find: urls.personByDistinctId('(.+)', false),
         getAttributes: async (match) => {
-            return { id: removeQueryParams(match[1]) }
+            return { id: match[1] }
         },
     },
     serializedText: (attrs) => {

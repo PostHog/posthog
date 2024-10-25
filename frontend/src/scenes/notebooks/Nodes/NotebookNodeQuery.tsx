@@ -14,7 +14,6 @@ import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { JSONContent } from '@tiptap/core'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
-import { removeQueryParams } from './utils'
 
 const DEFAULT_QUERY: QuerySchema = {
     kind: NodeKind.DataTableNode,
@@ -243,12 +242,12 @@ export const NotebookNodeQuery = createPostHogWidgetNode<NotebookNodeQueryAttrib
             : undefined,
     Settings,
     pasteOptions: {
-        find: urls.insightView('(.+)' as InsightShortId),
+        find: urls.insightView('([0-9a-zA-Z]*)' as InsightShortId) + '(.*)',
         getAttributes: async (match) => {
             return {
                 query: {
                     kind: NodeKind.SavedInsightNode,
-                    shortId: removeQueryParams(match[1]) as InsightShortId,
+                    shortId: match[1] as InsightShortId,
                 },
             }
         },

@@ -13,7 +13,6 @@ import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
 import { GroupCaption } from 'scenes/groups/Group'
 import { NodeKind } from '~/queries/schema'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
-import { removeQueryParams } from './utils'
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeGroupAttributes>): JSX.Element => {
     const { id, groupTypeIndex } = attributes
@@ -101,7 +100,7 @@ export const NotebookNodeGroup = createPostHogWidgetNode<NotebookNodeGroupAttrib
         find: urls.groups('(.+)'),
         getAttributes: async (match) => {
             const [groupTypeIndex, id] = match[1].split('/')
-            return { id: decodeURIComponent(removeQueryParams(id)), groupTypeIndex: parseInt(groupTypeIndex) }
+            return { id: decodeURIComponent(id), groupTypeIndex: parseInt(groupTypeIndex) }
         },
     },
     serializedText: (attrs) => {

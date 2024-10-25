@@ -24,7 +24,7 @@ import { asDisplay } from 'scenes/persons/person-utils'
 import { IconComment } from 'lib/lemon-ui/icons'
 import { NotFound } from 'lib/components/NotFound'
 import { IconPerson } from '@posthog/icons'
-import { removeQueryParams } from './utils'
+import { UUID_REGEX_MATCH_GROUPS } from './utils'
 
 const HEIGHT = 500
 const MIN_HEIGHT = '20rem'
@@ -159,9 +159,9 @@ export const NotebookNodeRecording = createPostHogWidgetNode<NotebookNodeRecordi
         },
     },
     pasteOptions: {
-        find: urls.replaySingle('([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})'),
+        find: urls.replaySingle(UUID_REGEX_MATCH_GROUPS),
         getAttributes: async (match) => {
-            return { id: removeQueryParams(match[1]), noInspector: false }
+            return { id: match[1], noInspector: false }
         },
     },
     Settings,

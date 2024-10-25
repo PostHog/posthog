@@ -6,6 +6,9 @@ import { CustomNotebookNodeAttributes, NotebookNodeAttributes } from '../Noteboo
 import { useCallback, useMemo, useRef } from 'react'
 import { tryJsonParse, uuid } from 'lib/utils'
 
+export const INTEGER_REGEX_MATCH_GROUPS = '([0-9]*)(.*)'
+export const UUID_REGEX_MATCH_GROUPS = '([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(.*)'
+
 export function createUrlRegex(path: string | RegExp, origin?: string): RegExp {
     origin = (origin || window.location.origin).replace('.', '\\.')
     return new RegExp(origin + path, 'ig')
@@ -13,10 +16,6 @@ export function createUrlRegex(path: string | RegExp, origin?: string): RegExp {
 
 export function reportNotebookNodeCreation(nodeType: string): void {
     posthog.capture('notebook node created', { type: nodeType })
-}
-
-export function removeQueryParams(input: string): string {
-    return input.split('?')[0]
 }
 
 export function posthogNodePasteRule(options: {
