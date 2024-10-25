@@ -51,11 +51,35 @@ class ErrorTrackingQueryRunner(QueryRunner):
             ast.Alias(alias="first_seen", expr=ast.Call(name="min", args=[ast.Field(chain=["timestamp"])])),
             ast.Alias(
                 alias="description",
-                expr=ast.Call(name="any", args=[ast.Field(chain=["properties", "$exception_message"])]),
+                expr=ast.Call(
+                    name="nullIf",
+                    args=[
+                        ast.Call(
+                            name="coalesce",
+                            args=[
+                                self.extracted_exception_list_property("value"),
+                                ast.Call(name="any", args=[ast.Field(chain=["properties", "$exception_message"])]),
+                            ],
+                        ),
+                        ast.Constant(value=""),
+                    ],
+                ),
             ),
             ast.Alias(
                 alias="exception_type",
-                expr=ast.Call(name="any", args=[ast.Field(chain=["properties", "$exception_type"])]),
+                expr=ast.Call(
+                    name="nullIf",
+                    args=[
+                        ast.Call(
+                            name="coalesce",
+                            args=[
+                                self.extracted_exception_list_property("type"),
+                                ast.Call(name="any", args=[ast.Field(chain=["properties", "$exception_type"])]),
+                            ],
+                        ),
+                        ast.Constant(value=""),
+                    ],
+                ),
             ),
         ]
 
@@ -147,6 +171,7 @@ class ErrorTrackingQueryRunner(QueryRunner):
                     continue
 
                 or_exprs: list[ast.Expr] = []
+
                 props_to_search = [
                     "$exception_list",
                     "$exception_type",
@@ -251,6 +276,9 @@ class ErrorTrackingQueryRunner(QueryRunner):
             for fp in group["merged_fingerprints"]:
                 exprs.append(ast.Constant(value=fp))
         return ast.Array(exprs=exprs)
+
+    def extracted_exception_list_property(self, property):
+        return parse_expr(f"JSON_VALUE(any(properties.$exception_list), '$[0].{property}')")
 
     def extracted_fingerprint_property(self):
         return ast.Call(

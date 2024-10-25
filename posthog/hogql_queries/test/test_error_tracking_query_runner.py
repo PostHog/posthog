@@ -211,18 +211,19 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 team=self.team,
                 properties={
                     "$exception_fingerprint": ["SyntaxError"],
-                    "$exception_type": "SyntaxError",
-                    "$exception_message": "this is the same error message",
+                    "$exception_list": [
+                        {
+                            "type": "SyntaxError",
+                            "value": "this is the same error message",
+                        }
+                    ],
                 },
             )
             _create_event(
                 distinct_id=self.distinct_id_one,
                 event="$exception",
                 team=self.team,
-                properties={
-                    "$exception_fingerprint": ["TypeError"],
-                    "$exception_type": "TypeError",
-                },
+                properties={"$exception_fingerprint": ["TypeError"], "$exception_list": [{"type": "TypeError"}]},
             )
             _create_event(
                 distinct_id=self.distinct_id_two,
@@ -230,8 +231,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 team=self.team,
                 properties={
                     "$exception_fingerprint": ["SyntaxError"],
-                    "$exception_type": "SyntaxError",
-                    "$exception_message": "this is the same error message",
+                    "$exception_list": [{"type": "SyntaxError", "value": "this is the same error message"}],
                 },
             )
             _create_event(
@@ -240,8 +240,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 team=self.team,
                 properties={
                     "$exception_fingerprint": ["custom_fingerprint"],
-                    "$exception_type": "SyntaxError",
-                    "$exception_message": "this is the same error message",
+                    "$exception_list": [{"type": "SyntaxError", "value": "this is the same error message"}],
                 },
             )
 
@@ -310,8 +309,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 team=self.team,
                 properties={
                     "$exception_fingerprint": ["DatabaseNotFoundX"],
-                    "$exception_type": "DatabaseNotFoundX",
-                    "$exception_message": "this is the same error message",
+                    "$exception_list": [{"type": "DatabaseNotFoundX", "value": "this is the same error message"}],
                 },
             )
             _create_event(
@@ -320,8 +318,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 team=self.team,
                 properties={
                     "$exception_fingerprint": ["DatabaseNotFoundY"],
-                    "$exception_type": "DatabaseNotFoundY",
-                    "$exception_message": "this is the same error message",
+                    "$exception_list": [{"type": "DatabaseNotFoundY", "value": "this is the same error message"}],
                 },
             )
             _create_event(
@@ -330,8 +327,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 team=self.team,
                 properties={
                     "$exception_fingerprint": ["xyz"],
-                    "$exception_type": "xyz",
-                    "$exception_message": "this is the same error message",
+                    "$exception_list": [{"type": "xyz", "value": "this is the same error message"}],
                 },
             )
             flush_persons_and_events()
@@ -385,9 +381,13 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 team=self.team,
                 properties={
                     "$exception_fingerprint": ["DatabaseNotFoundX"],
-                    "$exception_type": "DatabaseNotFoundX",
-                    "$exception_message": "this is the same error message",
-                    "$exception_list": [{"stack_trace": {"frames": SAMPLE_STACK_TRACE}}],
+                    "$exception_list": [
+                        {
+                            "type": "DatabaseNotFoundX",
+                            "value": "this is the same error message",
+                            "stack_trace": {"frames": SAMPLE_STACK_TRACE},
+                        }
+                    ],
                 },
             )
 
@@ -397,9 +397,13 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 team=self.team,
                 properties={
                     "$exception_fingerprint": ["DatabaseNotFoundY"],
-                    "$exception_type": "DatabaseNotFoundY",
-                    "$exception_message": "this is the same error message",
-                    "$exception_list": [{"stack_trace": {"frames": SAMPLE_STACK_TRACE}}],
+                    "$exception_list": [
+                        {
+                            "type": "DatabaseNotFoundY",
+                            "value": "this is the same error message",
+                            "stack_trace": {"frames": SAMPLE_STACK_TRACE},
+                        }
+                    ],
                 },
             )
             flush_persons_and_events()
@@ -449,9 +453,13 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 team=self.team,
                 properties={
                     "$exception_fingerprint": fingerprint_with_null_bytes,
-                    "$exception_type": exception_type_with_null_bytes,
-                    "$exception_message": exception_message_with_null_bytes,
-                    "$exception_list": [{"stack_trace": exception_stack_trace_with_null_bytes}],
+                    "$exception_list": [
+                        {
+                            "type": exception_type_with_null_bytes,
+                            "value": exception_message_with_null_bytes,
+                            "stack_trace": exception_stack_trace_with_null_bytes,
+                        }
+                    ],
                 },
             )
         flush_persons_and_events()
@@ -517,9 +525,13 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 team=self.team,
                 properties={
                     "$exception_fingerprint": fingerprint_with_null_bytes,
-                    "$exception_type": exception_type_with_null_bytes,
-                    "$exception_message": exception_message_with_null_bytes,
-                    "$exception_list": [{"stack_trace": exception_stack_trace_with_null_bytes}],
+                    "$exception_list": [
+                        {
+                            "type": exception_type_with_null_bytes,
+                            "value": exception_message_with_null_bytes,
+                            "stack_trace": exception_stack_trace_with_null_bytes,
+                        }
+                    ],
                 },
             )
         flush_persons_and_events()
