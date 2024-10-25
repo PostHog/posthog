@@ -1,9 +1,12 @@
+use crate::{
+    api::errors::FlagError,
+    clients::database::Client as DatabaseClient,
+    cohorts::cohort_models::{Cohort, CohortId, CohortOrEmpty, CohortRow, InnerCohortProperty},
+    properties::property_models::PropertyFilter,
+};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tracing::instrument;
-
-use crate::cohort_models::{Cohort, CohortId, CohortOrEmpty, CohortRow, InnerCohortProperty};
-use crate::{api::FlagError, database::Client as DatabaseClient, flag_definitions::PropertyFilter};
 
 impl Cohort {
     /// Returns a cohort from postgres given a cohort_id and team_id
@@ -185,8 +188,8 @@ pub fn sort_cohorts_topologically(
 mod tests {
     use super::*;
     use crate::{
-        cohort_models::{CohortPropertyType, CohortValues},
-        test_utils::{
+        cohorts::cohort_models::{CohortPropertyType, CohortValues},
+        utils::test_utils::{
             insert_cohort_for_team_in_pg, insert_new_team_in_pg, setup_pg_reader_client,
             setup_pg_writer_client,
         },

@@ -1,102 +1,14 @@
-use crate::{api::FlagError, database::Client as DatabaseClient, redis::Client as RedisClient};
-use serde::{Deserialize, Serialize};
+use crate::{
+    api::errors::FlagError,
+    clients::database::Client as DatabaseClient,
+    clients::redis::Client as RedisClient,
+    flags::flag_models::{
+        FeatureFlag, FeatureFlagList, FeatureFlagRow, FlagGroupType, MultivariateFlagVariant,
+        TEAM_FLAGS_CACHE_PREFIX,
+    },
+};
 use std::sync::Arc;
 use tracing::instrument;
-
-// TRICKY: This cache data is coming from django-redis. If it ever goes out of sync, we'll bork.
-// TODO: Add integration tests across repos to ensure this doesn't happen.
-pub const TEAM_FLAGS_CACHE_PREFIX: &str = "posthog:1:team_feature_flags_";
-
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum OperatorType {
-    Exact,
-    IsNot,
-    Icontains,
-    NotIcontains,
-    Regex,
-    NotRegex,
-    Gt,
-    Lt,
-    Gte,
-    Lte,
-    IsSet,
-    IsNotSet,
-    IsDateExact,
-    IsDateAfter,
-    IsDateBefore,
-    In,
-    NotIn,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct PropertyFilter {
-    pub key: String,
-    // TODO: Probably need a default for value?
-    // incase operators like is_set, is_not_set are used
-    // not guaranteed to have a value, if say created via api
-    pub value: serde_json::Value,
-    pub operator: Option<OperatorType>,
-    #[serde(rename = "type")]
-    pub prop_type: String,
-    pub negation: Option<bool>,
-    pub group_type_index: Option<i32>,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct FlagGroupType {
-    pub properties: Option<Vec<PropertyFilter>>,
-    pub rollout_percentage: Option<f64>,
-    pub variant: Option<String>,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct MultivariateFlagVariant {
-    pub key: String,
-    pub name: Option<String>,
-    pub rollout_percentage: f64,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct MultivariateFlagOptions {
-    pub variants: Vec<MultivariateFlagVariant>,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct FlagFilters {
-    pub groups: Vec<FlagGroupType>,
-    pub multivariate: Option<MultivariateFlagOptions>,
-    pub aggregation_group_type_index: Option<i32>,
-    pub payloads: Option<serde_json::Value>,
-    pub super_groups: Option<Vec<FlagGroupType>>,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct FeatureFlag {
-    pub id: i32,
-    pub team_id: i32,
-    pub name: Option<String>,
-    pub key: String,
-    pub filters: FlagFilters,
-    #[serde(default)]
-    pub deleted: bool,
-    #[serde(default)]
-    pub active: bool,
-    #[serde(default)]
-    pub ensure_experience_continuity: bool,
-}
-
-#[derive(Debug, Serialize, sqlx::FromRow)]
-pub struct FeatureFlagRow {
-    pub id: i32,
-    pub team_id: i32,
-    pub name: Option<String>,
-    pub key: String,
-    pub filters: serde_json::Value,
-    pub deleted: bool,
-    pub active: bool,
-    pub ensure_experience_continuity: bool,
-}
 
 impl FeatureFlag {
     pub fn get_group_type_index(&self) -> Option<i32> {
@@ -121,11 +33,6 @@ impl FeatureFlag {
                 .and_then(|obj| obj.get(match_val).cloned())
         })
     }
-}
-
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
-pub struct FeatureFlagList {
-    pub flags: Vec<FeatureFlag>,
 }
 
 impl FeatureFlagList {
@@ -220,18 +127,20 @@ impl FeatureFlagList {
 
 #[cfg(test)]
 mod tests {
-    use crate::flag_definitions;
+    use super::*;
+    use crate::{
+        flags::flag_definitions,
+        properties::property_models::{OperatorType, PropertyFilter},
+        utils::test_utils::{
+            insert_flag_for_team_in_pg, insert_flags_for_team_in_redis, insert_new_team_in_pg,
+            insert_new_team_in_redis, setup_invalid_pg_client, setup_pg_reader_client,
+            setup_redis_client,
+        },
+    };
     use rand::Rng;
     use serde_json::json;
     use std::time::Instant;
     use tokio::task;
-
-    use super::*;
-    use crate::test_utils::{
-        insert_flag_for_team_in_pg, insert_flags_for_team_in_redis, insert_new_team_in_pg,
-        insert_new_team_in_redis, setup_invalid_pg_client, setup_pg_reader_client,
-        setup_redis_client,
-    };
 
     #[tokio::test]
     async fn test_fetch_flags_from_redis() {

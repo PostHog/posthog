@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::flag_definitions::{OperatorType, PropertyFilter};
+use crate::properties::property_models::{OperatorType, PropertyFilter};
 use regex::Regex;
 use serde_json::Value;
 

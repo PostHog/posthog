@@ -1,13 +1,23 @@
 use crate::{
-    api::{FlagError, FlagValue, FlagsResponse},
-    cohort_models::{Cohort, CohortId, CohortOrEmpty},
-    cohort_operations::sort_cohorts_topologically,
-    database::Client as DatabaseClient,
-    feature_flag_match_reason::FeatureFlagMatchReason,
-    flag_definitions::{FeatureFlag, FeatureFlagList, FlagGroupType, OperatorType, PropertyFilter},
-    metrics_consts::{FLAG_EVALUATION_ERROR_COUNTER, FLAG_HASH_KEY_WRITES_COUNTER},
-    metrics_utils::parse_exception_for_prometheus_label,
-    property_matching::match_property,
+    api::errors::FlagError,
+    api::types::{FlagValue, FlagsResponse},
+    clients::database::Client as DatabaseClient,
+    cohorts::{
+        cohort_models::{Cohort, CohortId, CohortOrEmpty},
+        cohort_operations::sort_cohorts_topologically,
+    },
+    flags::{
+        flag_match_reason::FeatureFlagMatchReason,
+        flag_models::{FeatureFlag, FeatureFlagList, FlagGroupType},
+    },
+    metrics::{
+        metrics_consts::{FLAG_EVALUATION_ERROR_COUNTER, FLAG_HASH_KEY_WRITES_COUNTER},
+        metrics_utils::parse_exception_for_prometheus_label,
+    },
+    properties::{
+        property_matching::match_property,
+        property_models::{OperatorType, PropertyFilter},
+    },
 };
 use anyhow::Result;
 use common_metrics::inc;
@@ -104,7 +114,7 @@ impl GroupTypeMappingCache {
             Ok(mapping) if !mapping.is_empty() => mapping,
             Ok(_) => {
                 self.failed_to_fetch_flags = true;
-                // TODO add the `"Failed to fetch group"` type of lable.  See posthog/models/feature_flag/flag_matching.py:parse_exception_for_error_message
+                // TODO add the `"Failed to fetch group"` type of label.  See posthog/models/feature_flag/flag_matching.py:parse_exception_for_error_message
                 return Err(FlagError::NoGroupTypeMappings);
             }
             Err(e) => {
@@ -1536,11 +1546,11 @@ mod tests {
 
     use super::*;
     use crate::{
-        flag_definitions::{
+        flags::flag_models::{
             FeatureFlagRow, FlagFilters, MultivariateFlagOptions, MultivariateFlagVariant,
-            OperatorType,
         },
-        test_utils::{
+        properties::property_models::OperatorType,
+        utils::test_utils::{
             insert_cohort_for_team_in_pg, insert_flag_for_team_in_pg, insert_new_team_in_pg,
             insert_person_for_team_in_pg, setup_pg_reader_client, setup_pg_writer_client,
         },

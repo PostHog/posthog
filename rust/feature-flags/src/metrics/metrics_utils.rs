@@ -1,4 +1,4 @@
-use crate::{api::FlagError, config::TeamIdsToTrack};
+use crate::{api::errors::FlagError, config::TeamIdsToTrack};
 
 pub fn team_id_label_filter(
     team_ids_to_track: TeamIdsToTrack,

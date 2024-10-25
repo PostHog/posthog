@@ -2,8 +2,10 @@ use anyhow::Result;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::flag_request::FlagRequestType;
-use crate::redis::{Client as RedisClient, CustomRedisError};
+use crate::{
+    clients::redis::{Client as RedisClient, CustomRedisError},
+    flags::flag_request::FlagRequestType,
+};
 
 const CACHE_BUCKET_SIZE: u64 = 60 * 2; // duration in seconds
 
@@ -37,7 +39,7 @@ pub async fn increment_request_count(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::setup_redis_client;
+    use crate::utils::test_utils::setup_redis_client;
 
     #[tokio::test]
     async fn test_get_team_request_key() {

@@ -1,60 +1,8 @@
-use std::collections::HashMap;
-
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::database::CustomDatabaseError;
-use crate::redis::CustomRedisError;
-
-#[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
-pub enum FlagsResponseCode {
-    Ok = 1,
-}
-
-#[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
-#[serde(untagged)]
-pub enum FlagValue {
-    Boolean(bool),
-    String(String),
-}
-
-// TODO the following two types are kinda general, maybe we should move them to a shared module
-#[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
-#[serde(untagged)]
-pub enum BooleanOrStringObject {
-    Boolean(bool),
-    Object(HashMap<String, String>),
-}
-
-#[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
-#[serde(untagged)]
-pub enum BooleanOrBooleanObject {
-    Boolean(bool),
-    Object(HashMap<String, bool>),
-}
-
-#[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct FlagsResponse {
-    pub error_while_computing_flags: bool,
-    pub feature_flags: HashMap<String, FlagValue>,
-    // TODO support the other fields in the payload
-    // pub config: HashMap<String, bool>,
-    // pub toolbar_params: HashMap<String, String>,
-    // pub is_authenticated: bool,
-    // pub supported_compression: Vec<String>,
-    // pub session_recording: bool,
-    // pub feature_flag_payloads: HashMap<String, String>,
-    // pub capture_performance: BooleanOrBooleanObject,
-    // #[serde(rename = "autocapture_opt_out")]
-    // pub autocapture_opt_out: bool,
-    // pub autocapture_exceptions: BooleanOrStringObject,
-    // pub surveys: bool,
-    // pub heatmaps: bool,
-    // pub site_apps: Vec<String>,
-}
+use crate::clients::{database::CustomDatabaseError, redis::CustomRedisError};
 
 #[derive(Error, Debug)]
 pub enum ClientFacingError {

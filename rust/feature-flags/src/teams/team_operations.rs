@@ -1,34 +1,15 @@
-use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tracing::instrument;
 
-use crate::{api::FlagError, database::Client as DatabaseClient, redis::Client as RedisClient};
-
-// TRICKY: This cache data is coming from django-redis. If it ever goes out of sync, we'll bork.
-// TODO: Add integration tests across repos to ensure this doesn't happen.
-pub const TEAM_TOKEN_CACHE_PREFIX: &str = "posthog:1:team_token:";
-
-#[derive(Clone, Debug, Deserialize, Serialize, sqlx::FromRow)]
-pub struct Team {
-    pub id: i32,
-    pub name: String,
-    pub api_token: String,
-    // TODO: the following fields are used for the `/decide` response,
-    // but they're not used for flags and they don't live in redis.
-    // At some point I'll need to differentiate between teams in Redis and teams
-    // with additional fields in Postgres, since the Postgres team is a superset of the fields
-    // we use for flags, anyway.
-    // pub surveys_opt_in: bool,
-    // pub heatmaps_opt_in: bool,
-    // pub capture_performance_opt_in: bool,
-    // pub autocapture_web_vitals_opt_in: bool,
-    // pub autocapture_opt_out: bool,
-    // pub autocapture_exceptions_opt_in: bool,
-}
+use crate::{
+    api::errors::FlagError,
+    clients::database::Client as DatabaseClient,
+    clients::redis::Client as RedisClient,
+    teams::team_models::{Team, TEAM_TOKEN_CACHE_PREFIX},
+};
 
 impl Team {
     /// Validates a token, and returns a team if it exists.
-
     #[instrument(skip_all)]
     pub async fn from_redis(
         client: Arc<dyn RedisClient + Send + Sync>,
@@ -94,12 +75,9 @@ mod tests {
     use redis::AsyncCommands;
 
     use super::*;
-    use crate::{
-        team,
-        test_utils::{
-            insert_new_team_in_pg, insert_new_team_in_redis, random_string, setup_pg_reader_client,
-            setup_redis_client,
-        },
+    use crate::utils::test_utils::{
+        insert_new_team_in_pg, insert_new_team_in_redis, random_string, setup_pg_reader_client,
+        setup_redis_client,
     };
 
     #[tokio::test]
@@ -159,11 +137,7 @@ mod tests {
             .await
             .expect("Failed to get redis connection");
         conn.set::<String, String, ()>(
-            format!(
-                "{}{}",
-                team::TEAM_TOKEN_CACHE_PREFIX,
-                team.api_token.clone()
-            ),
+            format!("{}{}", TEAM_TOKEN_CACHE_PREFIX, team.api_token.clone()),
             serialized_team,
         )
         .await

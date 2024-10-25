@@ -7,8 +7,9 @@ use serde_json::Value;
 use tracing::instrument;
 
 use crate::{
-    api::FlagError, database::Client as DatabaseClient, flag_definitions::FeatureFlagList,
-    metrics_consts::FLAG_CACHE_HIT_COUNTER, redis::Client as RedisClient, team::Team,
+    api::errors::FlagError, clients::database::Client as DatabaseClient,
+    clients::redis::Client as RedisClient, flags::flag_models::FeatureFlagList,
+    metrics::metrics_consts::FLAG_CACHE_HIT_COUNTER, teams::team_models::Team,
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -202,18 +203,21 @@ impl FlagRequest {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
-
-    use crate::api::FlagError;
-    use crate::flag_definitions::{
-        FeatureFlag, FeatureFlagList, FlagFilters, FlagGroupType, OperatorType, PropertyFilter,
-        TEAM_FLAGS_CACHE_PREFIX,
+    use crate::{
+        api::errors::FlagError,
+        flags::{
+            flag_models::{
+                FeatureFlag, FeatureFlagList, FlagFilters, FlagGroupType, TEAM_FLAGS_CACHE_PREFIX,
+            },
+            flag_request::FlagRequest,
+        },
+        properties::property_models::{OperatorType, PropertyFilter},
+        teams::team_models::Team,
+        utils::test_utils::{insert_new_team_in_redis, setup_pg_reader_client, setup_redis_client},
     };
-    use crate::flag_request::FlagRequest;
-    use crate::team::Team;
-    use crate::test_utils::{insert_new_team_in_redis, setup_pg_reader_client, setup_redis_client};
     use bytes::Bytes;
     use serde_json::json;
+    use std::collections::HashMap;
 
     #[test]
     fn empty_distinct_id_not_accepted() {
