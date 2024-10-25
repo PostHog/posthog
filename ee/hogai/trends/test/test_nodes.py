@@ -2,15 +2,13 @@ from django.test import override_settings
 
 from ee.hogai.trends.nodes import CreateTrendsPlanNode, GenerateTrendsNode
 from posthog.schema import AssistantMessage, ExperimentalAITrendsQuery, HumanMessage, VisualizationMessage
-from posthog.test.base import (
-    APIBaseTest,
-    ClickhouseTestMixin,
-)
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
 
 
 @override_settings(IN_UNIT_TESTING=True)
 class TestPlanAgentNode(ClickhouseTestMixin, APIBaseTest):
     def setUp(self):
+        super().setUp()
         self.schema = ExperimentalAITrendsQuery(series=[])
 
     def test_agent_reconstructs_conversation(self):
@@ -69,6 +67,24 @@ class TestPlanAgentNode(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(history[0].type, "human")
         self.assertIn("Text", history[0].content)
         self.assertNotIn("{{question}}", history[0].content)
+
+    def test_agent_filters_out_low_count_events(self):
+        _create_person(distinct_ids=["test"], team=self.team)
+        for i in range(26):
+            _create_event(event=f"event{i}", distinct_id="test", team=self.team)
+            _create_event(event="distinctevent", distinct_id="test", team=self.team)
+        node = CreateTrendsPlanNode(self.team)
+        self.assertEqual(
+            node._events_prompt,
+            "<list of available events for filtering>\nall events\ndistinctevent\n</list of available events for filtering>",
+        )
+
+    def test_agent_preserves_low_count_events_for_smaller_teams(self):
+        _create_person(distinct_ids=["test"], team=self.team)
+        _create_event(event="distinctevent", distinct_id="test", team=self.team)
+        node = CreateTrendsPlanNode(self.team)
+        self.assertIn("distinctevent", node._events_prompt)
+        self.assertIn("all events", node._events_prompt)
 
 
 @override_settings(IN_UNIT_TESTING=True)
