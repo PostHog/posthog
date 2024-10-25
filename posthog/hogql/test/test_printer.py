@@ -115,7 +115,7 @@ class TestPrinter(BaseTest):
         )
 
     def test_intersect(self):
-        expr = parse_select("""select 1 as id intersect select 2 as id""", backend="python")
+        expr = parse_select("""select 1 as id intersect select 2 as id""")
         response = to_printed_hogql(expr, self.team)
         self.assertEqual(
             response,
@@ -123,7 +123,7 @@ class TestPrinter(BaseTest):
         )
 
     def test_except(self):
-        expr = parse_select("""select 1 as id except select 2 as id""", backend="python")
+        expr = parse_select("""select 1 as id except select 2 as id""")
         response = to_printed_hogql(expr, self.team)
         self.assertEqual(
             response,
@@ -132,13 +132,10 @@ class TestPrinter(BaseTest):
 
     # these share the same priority, should stay in order
     def test_except_and_union(self):
-        exprs = [
-            parse_select("""select 1 as id except select 2 as id union all select 3 as id""", backend=backend)
-            for backend in ("python", "cpp")
-        ]
-        responses = [to_printed_hogql(expr, self.team) for expr in exprs]
+        expr = parse_select("""select 1 as id except select 2 as id union all select 3 as id""")
+        response = to_printed_hogql(expr, self.team)
         self.assertEqual(
-            responses[0],
+            response,
             (
                 "SELECT\n"
                 "    1 AS id\n"
@@ -153,16 +150,12 @@ class TestPrinter(BaseTest):
                 "LIMIT 50000"
             ),
         )
-        self.assertEqual(responses[0], responses[1])
 
     def test_union_and_except(self):
-        exprs = [
-            parse_select("""select 1 as id union all select 2 as id except select 3 as id""", backend=backend)
-            for backend in ("python", "cpp")
-        ]
-        responses = [to_printed_hogql(expr, self.team) for expr in exprs]
+        expr = parse_select("""select 1 as id union all select 2 as id except select 3 as id""")
+        response = to_printed_hogql(expr, self.team)
         self.assertEqual(
-            responses[0],
+            response,
             (
                 "SELECT\n"
                 "    1 AS id\n"
@@ -177,10 +170,9 @@ class TestPrinter(BaseTest):
                 "LIMIT 50000"
             ),
         )
-        self.assertEqual(responses[0], responses[1])
 
     def test_intersect3(self):
-        expr = parse_select("""select 1 as id intersect select 2 as id intersect select 3 as id""", backend="python")
+        expr = parse_select("""select 1 as id intersect select 2 as id intersect select 3 as id""")
         response = to_printed_hogql(expr, self.team)
         self.assertEqual(
             response,
@@ -198,7 +190,7 @@ class TestPrinter(BaseTest):
         )
 
     def test_union3(self):
-        expr = parse_select("""select 1 as id union all select 2 as id union all select 3 as id""", backend="python")
+        expr = parse_select("""select 1 as id union all select 2 as id union all select 3 as id""")
         response = to_printed_hogql(expr, self.team)
         self.assertEqual(
             response,

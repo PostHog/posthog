@@ -22,6 +22,7 @@ from posthog.hogql.ast import (
     Dict,
     VariableDeclaration,
     SelectSetNode,
+    SelectSetQuery,
 )
 
 from posthog.hogql.parser import parse_program
@@ -1389,6 +1390,39 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                         for query in (
                             ast.SelectQuery(select=[ast.Constant(value=2)]),
                             ast.SelectQuery(select=[ast.Constant(value=3)]),
+                        )
+                    ],
+                ),
+            )
+
+        def test_nested_selects(self):
+            self.assertEqual(
+                self._select("(select 1 intersect select 2) union all (select 3 except select 4)"),
+                SelectSetQuery(
+                    initial_select_query=SelectSetQuery(
+                        initial_select_query=SelectQuery(select=[Constant(value=1)]),
+                        subsequent_select_queries=[
+                            SelectSetNode(
+                                select_query=SelectQuery(
+                                    select=[Constant(value=2)],
+                                ),
+                                set_operator="INTERSECT",
+                            )
+                        ],
+                    ),
+                    subsequent_select_queries=[
+                        SelectSetNode(
+                            select_query=SelectSetQuery(
+                                initial_select_query=SelectQuery(
+                                    select=[Constant(value=3)],
+                                ),
+                                subsequent_select_queries=[
+                                    SelectSetNode(
+                                        select_query=SelectQuery(select=[Constant(value=4)]), set_operator="EXCEPT"
+                                    )
+                                ],
+                            ),
+                            set_operator="UNION ALL",
                         )
                     ],
                 ),
