@@ -130,7 +130,7 @@ export function WatchNextPanel(): JSX.Element {
                     value: 60,
                 },
             ],
-            date_to: '-15m',
+            date_to: '-15M',
             order: 'activity_score',
         },
     })
