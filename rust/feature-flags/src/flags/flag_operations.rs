@@ -129,7 +129,6 @@ impl FeatureFlagList {
 mod tests {
     use super::*;
     use crate::{
-        flags::flag_definitions,
         properties::property_models::{OperatorType, PropertyFilter},
         utils::test_utils::{
             insert_flag_for_team_in_pg, insert_flags_for_team_in_redis, insert_new_team_in_pg,
@@ -1000,7 +999,7 @@ mod tests {
 
         redis_client
             .set(
-                format!("{}{}", flag_definitions::TEAM_FLAGS_CACHE_PREFIX, team.id),
+                format!("{}{}", TEAM_FLAGS_CACHE_PREFIX, team.id),
                 "not a json".to_string(),
             )
             .await
