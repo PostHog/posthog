@@ -1,7 +1,7 @@
+import operator
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from enum import StrEnum
-from operator import add
 from typing import Annotated, Optional, TypedDict, Union
 
 from langchain_core.agents import AgentAction
@@ -16,12 +16,12 @@ AssistantMessageUnion = Union[AssistantMessage, HumanMessage, VisualizationMessa
 
 
 class Conversation(BaseModel):
-    messages: list[RootAssistantMessage] = Field(..., max_length=20)
+    messages: list[RootAssistantMessage] = Field(..., min_length=1, max_length=20)
     session_id: str
 
 
 class AssistantState(TypedDict):
-    messages: Annotated[Sequence[AssistantMessageUnion], add]
+    messages: Annotated[Sequence[AssistantMessageUnion], operator.add]
     intermediate_steps: Optional[list[tuple[AgentAction, Optional[str]]]]
     plan: Optional[str]
     tool_argument: Optional[str]

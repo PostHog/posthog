@@ -187,7 +187,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 last_message = message
                 yield last_message
 
-            human_message = validated_body.messages[-1]
+            human_message = validated_body.messages[-1].root
             if isinstance(human_message, HumanMessage):
                 report_user_action(
                     request.user,  # type: ignore

@@ -39,7 +39,7 @@ class TestAssistant(NonAtomicBaseTest):
             )
             self.assertEqual(
                 json.loads(next(generator)),
-                VisualizationMessage(answer=generator_response.model_dump_json(), plan="Plan").model_dump(),
+                VisualizationMessage(answer=None, reasoning_steps=[], plan="Plan").model_dump(),
             )
             self.assertEqual(planner_model_mock.call_count, 1)
             self.assertEqual(generator_model_mock.call_count, 1)
