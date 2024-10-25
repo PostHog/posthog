@@ -19,6 +19,7 @@ from posthog.cdp.templates.slack.template_slack import template as template_slac
 EXAMPLE_FULL = {
     "name": "HogHook",
     "hog": "fetch(inputs.url, {\n  'headers': inputs.headers,\n  'body': inputs.payload,\n  'method': inputs.method\n});",
+    "type": "destination",
     "inputs_schema": [
         {"key": "url", "type": "string", "label": "Webhook URL", "required": True},
         {"key": "payload", "type": "json", "label": "JSON Payload", "required": True},
@@ -164,6 +165,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert response.json()["created_by"]["id"] == self.user.id
         assert response.json() == {
             "id": ANY,
+            "type": "destination",
             "name": "Fetch URL",
             "description": "Test description",
             "created_at": ANY,
@@ -220,6 +222,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         assert response.json()["template"] == {
+            "type": "destination",
             "name": template_webhook.name,
             "description": template_webhook.description,
             "id": template_webhook.id,
@@ -236,7 +239,12 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def test_deletes_via_update(self, *args):
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_functions/",
-            data={"name": "Fetch URL", "description": "Test description", "hog": "fetch(inputs.url);"},
+            data={
+                "type": "destination",
+                "name": "Fetch URL",
+                "description": "Test description",
+                "hog": "fetch(inputs.url);",
+            },
         )
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         id = response.json()["id"]
@@ -924,4 +932,40 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         filters = {"actions": [{"id": f"{action2.id}"}]}
         response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/?filters={json.dumps(filters)}")
+        assert len(response.json()["results"]) == 1
+
+    def test_list_with_type_filter(self, *args):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                **EXAMPLE_FULL,
+                "filters": {
+                    "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
+                },
+            },
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/")
+        assert len(response.json()["results"]) == 1
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/?type=destination")
+        assert len(response.json()["results"]) == 1
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/?type=email")
+        assert len(response.json()["results"]) == 0
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={**EXAMPLE_FULL, "type": "email"},
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/")
+        assert len(response.json()["results"]) == 1
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/?type=destination")
+        assert len(response.json()["results"]) == 1
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/?type=email")
         assert len(response.json()["results"]) == 1
