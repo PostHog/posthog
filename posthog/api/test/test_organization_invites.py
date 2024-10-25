@@ -280,7 +280,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
             {
                 "type": "validation_error",
                 "code": "invalid_input",
-                "detail": "Team does not exist on this organization, or it is private and you do not have access to it.",
+                "detail": "Project does not exist on this organization, or it is private and you do not have access to it.",
                 "attr": "private_project_access",
             },
             response_data,
@@ -305,7 +305,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
             {
                 "type": "validation_error",
                 "code": "invalid_input",
-                "detail": "Team does not exist on this organization, or it is private and you do not have access to it.",
+                "detail": "Project does not exist on this organization, or it is private and you do not have access to it.",
                 "attr": "private_project_access",
             },
             response_data,
