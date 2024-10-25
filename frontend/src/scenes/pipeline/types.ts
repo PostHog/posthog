@@ -131,7 +131,7 @@ export function convertToPipelineNode<S extends PipelineStage>(
             stage: stage as PipelineStage.Destination,
             backend: PipelineBackend.HogFunction,
             interval: 'realtime',
-            id: `hog-${candidate.id}`,
+            id: candidate.type === 'destination' ? `hog-${candidate.id}` : candidate.id,
             name: candidate.name,
             description: candidate.description,
             enabled: candidate.enabled,

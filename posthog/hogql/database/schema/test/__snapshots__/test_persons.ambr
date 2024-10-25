@@ -139,7 +139,12 @@
      WHERE and(equals(person.team_id, 2), in(id,
                                                (SELECT where_optimization.id AS id
                                                 FROM person AS where_optimization
-                                                WHERE and(equals(where_optimization.team_id, 2), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, '$some_prop'), ''), 'null'), '^"|"$', ''), 'something'), 0)))))
+                                                WHERE and(equals(where_optimization.team_id, 2), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, '$some_prop'), ''), 'null'), '^"|"$', ''), 'something'), 0), notIn(where_optimization.id,
+                                                                                                                                                                                                                                                                 (SELECT limit_delete_optimization.id AS id
+                                                                                                                                                                                                                                                                  FROM person AS limit_delete_optimization
+                                                                                                                                                                                                                                                                  WHERE and(equals(limit_delete_optimization.team_id, 2), equals(limit_delete_optimization.is_deleted, 1)))))
+                                                LIMIT 1 BY where_optimization.id
+                                                LIMIT 100)))
      GROUP BY person.id
      HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
   WHERE ifNull(equals(persons.`properties___$some_prop`, 'something'), 0)

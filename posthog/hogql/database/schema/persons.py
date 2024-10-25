@@ -64,7 +64,6 @@ def select_from_persons_table(
         and_conditions.append(filter)
 
     # For now, only do this optimization for directly querying the persons table (without joins or as part of a subquery) to avoid knock-on effects to insight queries
-
     if (
         node.select_from
         and node.select_from.type

@@ -40,6 +40,7 @@ import type {
     InsightVizNode,
     Node,
     QueryStatus,
+    RecordingOrder,
     RecordingsQuery,
 } from './queries/schema'
 import { NodeKind } from './queries/schema'
@@ -4639,9 +4640,10 @@ export type ReplayTemplateType = {
     key: string
     name: string
     description: string
-    variables: ReplayTemplateVariableType[]
+    variables?: ReplayTemplateVariableType[]
     categories: ReplayTemplateCategory[]
     icon?: React.ReactNode
+    order?: RecordingOrder
 }
 export type ReplayTemplateCategory = 'B2B' | 'B2C' | 'More'
 
