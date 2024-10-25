@@ -217,7 +217,7 @@ class AlertSerializer(serializers.ModelSerializer):
 
         calculation_interval_changed = (
             "calculation_interval" in validated_data
-            and validated_data["calculation_interval"] != self.calculation_interval
+            and validated_data["calculation_interval"] != instance.calculation_interval
         )
         if conditions_or_threshold_changed or calculation_interval_changed:
             # calculate alert right now, don't wait until preset time
