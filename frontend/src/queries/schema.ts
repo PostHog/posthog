@@ -10,7 +10,6 @@ import {
     ChartDisplayCategory,
     ChartDisplayType,
     CountPerActorMathType,
-    DurationType,
     EventPropertyFilter,
     EventType,
     FeaturePropertyFilter,
@@ -313,6 +312,18 @@ export interface RecordingsQueryResponse {
     has_next: boolean
 }
 
+export type RecordingOrder =
+    | 'duration'
+    | 'recording_duration'
+    | 'inactive_seconds'
+    | 'active_seconds'
+    | 'start_time'
+    | 'console_error_count'
+    | 'click_count'
+    | 'keypress_count'
+    | 'mouse_activity_count'
+    | 'activity_score'
+
 export interface RecordingsQuery extends DataNode<RecordingsQueryResponse> {
     kind: NodeKind.RecordingsQuery
     date_from?: string | null
@@ -326,14 +337,7 @@ export interface RecordingsQuery extends DataNode<RecordingsQueryResponse> {
     operand?: FilterLogicalOperator
     session_ids?: string[]
     person_uuid?: string
-    order:
-        | DurationType
-        | 'start_time'
-        | 'console_error_count'
-        | 'click_count'
-        | 'keypress_count'
-        | 'mouse_activity_count'
-        | 'activity_score'
+    order?: RecordingOrder
     limit?: integer
     offset?: integer
     user_modified_filters?: Record<string, any>
