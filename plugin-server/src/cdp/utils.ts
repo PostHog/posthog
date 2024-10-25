@@ -384,8 +384,8 @@ export function cyclotronJobToInvocation(job: CyclotronJob, hogFunction: HogFunc
 
 /** Build bytecode that calls a function in another imported bytecode */
 export function buildExportedFunctionInvoker(
-    sourceBytecode: any[],
-    globals: any,
+    exportBytecode: any[],
+    exportGlobals: any,
     functionName: string,
     args: any[]
 ): Bytecodes {
@@ -419,8 +419,8 @@ export function buildExportedFunctionInvoker(
     ]
     return {
         bytecodes: {
-            x: { bytecode: sourceBytecode, globals: { ...globals, __args: args } },
-            root: { bytecode },
+            x: { bytecode: exportBytecode, globals: exportGlobals },
+            root: { bytecode, globals: { __args: args } },
         },
     }
 }

@@ -122,7 +122,10 @@ export function exec(input: any[] | VMState | Bytecodes, options?: ExecOptions):
     let ops = vmState ? vmState.ops : 0
     const timeout = options?.timeout ?? DEFAULT_TIMEOUT_MS
     const maxAsyncSteps = options?.maxAsyncSteps ?? DEFAULT_MAX_ASYNC_STEPS
-    const rootGlobals: Record<string, any> = options?.globals ?? {}
+    const rootGlobals: Record<string, any> =
+        bytecodes.root?.globals && options?.globals
+            ? { ...bytecodes.root.globals, ...options.globals }
+            : bytecodes.root?.globals ?? options?.globals ?? {}
 
     if (callStack.length === 0) {
         callStack.push({

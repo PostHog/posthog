@@ -5,8 +5,9 @@ import { HogFunctionType } from '../../src/cdp/types'
  * As such we have a bunch of prebuilt examples here for usage in tests.
  */
 
-export const HOG_EXAMPLES: Record<string, Pick<HogFunctionType, 'hog' | 'bytecode'>> = {
+export const HOG_EXAMPLES: Record<string, Pick<HogFunctionType, 'hog' | 'bytecode' | 'type'>> = {
     simple_fetch: {
+        type: 'destination',
         hog: "let res := fetch(inputs.url, {\n  'headers': inputs.headers,\n  'body': inputs.body,\n  'method': inputs.method\n});\n\nprint('Fetch response:', res)",
         bytecode: [
             '_h',
@@ -57,6 +58,7 @@ export const HOG_EXAMPLES: Record<string, Pick<HogFunctionType, 'hog' | 'bytecod
         ],
     },
     recursive_fetch: {
+        type: 'destination',
         hog: "for (let i := 0; i < 10; i := i + 1) {\n  fetch(inputs.url, {\n    'headers': inputs.headers,\n    'body': inputs.body,\n    'method': inputs.method\n  });\n}",
         bytecode: [
             '_h',
@@ -118,6 +120,7 @@ export const HOG_EXAMPLES: Record<string, Pick<HogFunctionType, 'hog' | 'bytecod
         ],
     },
     malicious_function: {
+        type: 'destination',
         hog: "fn fibonacci(number) {\n    print('I AM FIBONACCI')\n    if (number < 2) {\n        return number;\n    } else {\n        return fibonacci(number - 1) + fibonacci(number - 2);\n    }\n}\nprint(f'fib {fibonacci(30)}');",
         bytecode: [
             '_h',
@@ -181,6 +184,7 @@ export const HOG_EXAMPLES: Record<string, Pick<HogFunctionType, 'hog' | 'bytecod
     },
 
     input_printer: {
+        type: 'destination',
         hog: "// I print all of the inputs\n\nprint(inputs.input_1)\nprint({'nested': inputs.secret_input_2})\nprint(inputs.secret_input_2)\nprint(f'substring: {inputs.secret_input_3}')\nprint(inputs)",
         bytecode: [
             '_h',
@@ -244,6 +248,7 @@ export const HOG_EXAMPLES: Record<string, Pick<HogFunctionType, 'hog' | 'bytecod
         ],
     },
     posthog_capture: {
+        type: 'destination',
         hog: "postHogCapture({\n    'event': f'{event.event} (copy)',\n    'distinct_id': event.distinct_id,\n    'properties': {}\n})",
         bytecode: [
             '_h',
@@ -277,6 +282,37 @@ export const HOG_EXAMPLES: Record<string, Pick<HogFunctionType, 'hog' | 'bytecod
             2,
             'postHogCapture',
             1,
+            35,
+        ],
+    },
+    export_send_email: {
+        type: 'email',
+        hog: "fun sendEmail(email) { print(email) }; return { 'sendEmail': sendEmail }",
+        bytecode: [
+            '_H',
+            1,
+            52,
+            'sendEmail',
+            1,
+            0,
+            8,
+            36,
+            0,
+            2,
+            'print',
+            1,
+            35,
+            31,
+            38,
+            53,
+            0,
+            32,
+            'sendEmail',
+            36,
+            0,
+            42,
+            1,
+            38,
             35,
         ],
     },
