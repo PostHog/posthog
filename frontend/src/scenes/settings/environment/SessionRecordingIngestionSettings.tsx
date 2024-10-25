@@ -238,7 +238,7 @@ function UrlTriggerOptions(): JSX.Element | null {
     )
 }
 
-export function ReplayCostControl(): JSX.Element | null {
+export function SessionRecordingIngestionSettings(): JSX.Element | null {
     const { updateCurrentTeam } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
     const { hasAvailableFeature } = useValues(userLogic)
